@@ -12,7 +12,7 @@ use kokoro::systems::combat::registry::{AbilityIcon, get_display_def};
 use crate::systems::context::{self, Shared};
 use crate::systems::images::{self, Pictures};
 use crate::systems::picture::Pic;
-use crate::widget::Superscript;
+use crate::widget::{Superscript, drawer};
 
 use super::icons::{self, IMG015, IMG022};
 use super::{Picked, SelectedCat, state};
@@ -173,6 +173,7 @@ fn body(
 ) -> Element {
     let settings = context::settings();
     let mut state = state();
+    let drawers = drawer::current();
     let cat = &selected.0.cat;
     let Some(talent_data) = cat.talent_data.as_ref() else {
         return rsx! {};
@@ -210,6 +211,7 @@ fn body(
                     input {
                         class: "slider",
                         r#type: "range",
+                        onpointerdown: move |event| drawers.claim(event.data().pointer_id()),
                         min: "0",
                         max: "{max_level}",
                         value: "{current}",

@@ -3,6 +3,8 @@ use std::rc::Rc;
 
 use dioxus::prelude::*;
 
+use crate::systems::turn;
+
 const DEFAULT_GAP: f32 = 4.0;
 const DEFAULT_FLOOR: f32 = 8.0;
 
@@ -28,6 +30,7 @@ fn shrink_by(lines: &[(String, f32)], widths: &[f32], available: f32, floor: f32
 
 #[component]
 pub(crate) fn FitColumn(lines: Vec<(String, f32)>, #[props(default = DEFAULT_GAP)] gap: f32, #[props(default = DEFAULT_FLOOR)] floor: f32, #[props(default)] bold_first: bool) -> Element {
+    let turn = turn::turn();
     let mut available = use_signal(|| 0.0f32);
     let mut widths: Signal<Vec<f32>> = use_signal(Vec::new);
     let mut seen = use_signal(String::new);
@@ -59,7 +62,7 @@ pub(crate) fn FitColumn(lines: Vec<(String, f32)>, #[props(default = DEFAULT_GAP
                 if let Ok(rect) = probe.get_client_rect().await
                     && let Some(slot) = measured.get_mut(index)
                 {
-                    *slot = rect.size.width as f32;
+                    *slot = turn.area(rect.origin.x, rect.origin.y, rect.size.width, rect.size.height).width as f32;
                 }
             }
 

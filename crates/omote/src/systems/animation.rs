@@ -28,7 +28,7 @@ use crate::platform::{Atlas, Painted, Platform, Scene, Surface};
 use crate::systems::context::{self, Shared};
 use crate::systems::library::Library;
 use crate::theme::AppTheme;
-use crate::widget::{Live, Toggle};
+use crate::widget::{Live, Toggle, drawer};
 
 use controls::Controls;
 use overlay::{Pose, View};
@@ -63,6 +63,7 @@ const HOLD_FRAMES_PER_SEC: f32 = 30.0;
 const NO_TINT: [f32; 4] = [0.0, 0.0, 0.0, 0.0];
 const CULL_SCALE: f32 = 100.0;
 const MIN_SELECTION_AREA: f32 = 25.0;
+const TOUCH: &str = "touch";
 const SELECT_HINT: &str = "Drag to set the camera";
 const EXPANDED_LABEL: &str = "Animation Expanded";
 const RESTORE_LABEL: &str = "Restore View";
@@ -430,6 +431,26 @@ fn holding(state: ViewerState) -> Option<(i8, f64)> {
     *state.hold.peek()
 }
 
+fn spread_of(fingers: &[(i32, (f32, f32))]) -> Option<(f32, (f32, f32))> {
+    let [(_, first), (_, second), ..] = fingers else {
+        return None;
+    };
+    let distance = (first.0 - second.0).hypot(first.1 - second.1);
+
+    (distance > 0.0).then_some((distance, ((first.0 + second.0) / 2.0, (first.1 + second.1) / 2.0)))
+}
+
+fn pinch_to(mut state: ViewerState, last: (f32, (f32, f32)), next: (f32, (f32, f32))) {
+    let (width, height) = *state.size.peek();
+    let zoom = *state.zoom.peek();
+    let pan = *state.pan.peek();
+    let held = ((last.1.0 - width / 2.0) / zoom - pan.0, (last.1.1 - height / 2.0) / zoom - pan.1);
+    let zoomed = (zoom * next.0 / last.0).clamp(ZOOM_MIN, ZOOM_MAX);
+
+    state.zoom.set(zoomed);
+    state.pan.set(((next.1.0 - width / 2.0) / zoomed - held.0, (next.1.1 - height / 2.0) / zoomed - held.1));
+}
+
 fn zoom_by(mut state: ViewerState, pixels: f32) {
     state.zoom_pending.with_mut(|pending| *pending += pixels);
 }
@@ -625,6 +646,18 @@ fn Viewer(motions: Memo<Motions>) -> Element {
     let overlay_id = format!("viewer-overlay-{serial}");
     let ids = (canvas_id.clone(), overlay_id.clone());
     let capturer = opener.clone();
+    let drawers = drawer::drawers();
+    let mut fingers: Signal<Vec<(i32, (f32, f32))>> = use_signal(Vec::new);
+    let mut pinch: Signal<Option<(f32, (f32, f32))>> = use_signal(|| None);
+    let mut lift = move |pointer: i32| {
+        let mut held = fingers.write();
+
+        held.retain(|(finger, _)| *finger != pointer);
+
+        if held.len() < 2 {
+            pinch.set(None);
+        }
+    };
     let captured_id = overlay_id.clone();
 
     rsx! {
@@ -683,7 +716,24 @@ fn Viewer(motions: Memo<Motions>) -> Element {
                         let point = event.data().element_coordinates();
                         let at = (point.x as f32, point.y as f32);
 
+                        drawers.claim(event.data().pointer_id());
                         capturer.host().capture_pointer(&captured_id, event.data().pointer_id());
+
+                        if event.data().pointer_type() == TOUCH {
+                            fingers.write().push((event.data().pointer_id(), at));
+
+                            if let Some(spread) = spread_of(&fingers.peek()) {
+                                state.drag.set(None);
+                                state.zoom_pending.set(0.0);
+                                pinch.set(Some(spread));
+
+                                if *state.selecting.peek() {
+                                    cancel_selection(state);
+                                }
+
+                                return;
+                            }
+                        }
 
                         if *state.selecting.peek() {
                             state.selection.set(Some((at, at)));
@@ -694,6 +744,25 @@ fn Viewer(motions: Memo<Motions>) -> Element {
                     onpointermove: move |event| {
                         let point = event.data().element_coordinates();
                         let (x, y) = (point.x as f32, point.y as f32);
+
+                        if event.data().pointer_type() == TOUCH {
+                            let pointer = event.data().pointer_id();
+
+                            if let Some(finger) = fingers.write().iter_mut().find(|(finger, _)| *finger == pointer) {
+                                finger.1 = (x, y);
+                            }
+
+                            let pinching = *pinch.peek();
+
+                            if let Some(last) = pinching {
+                                if let Some(spread) = spread_of(&fingers.peek()) {
+                                    pinch_to(state, last, spread);
+                                    pinch.set(Some(spread));
+                                }
+
+                                return;
+                            }
+                        }
 
                         if *state.selecting.peek() {
                             let started = state.selection.peek().as_ref().map(|(start, _)| *start);
@@ -716,21 +785,24 @@ fn Viewer(motions: Memo<Motions>) -> Element {
                         });
                         state.drag.set(Some((x, y)));
                     },
-                    onpointerup: move |_| {
+                    onpointerup: move |event| {
+                        lift(event.data().pointer_id());
                         state.drag.set(None);
 
                         if *state.selecting.peek() {
                             finish_selection(state);
                         }
                     },
-                    onpointercancel: move |_| {
+                    onpointercancel: move |event| {
+                        lift(event.data().pointer_id());
                         state.drag.set(None);
 
                         if *state.selecting.peek() {
                             cancel_selection(state);
                         }
                     },
-                    onlostpointercapture: move |_| {
+                    onlostpointercapture: move |event| {
+                        lift(event.data().pointer_id());
                         state.drag.set(None);
 
                         if *state.selecting.peek() && state.selection.peek().is_some() {

@@ -14,7 +14,7 @@ use crate::domains::settings::{Treasures, Treasury};
 use crate::host::Lag;
 use crate::platform::Platform;
 use crate::systems::context::Shared;
-use crate::widget::{Tip, Toggle};
+use crate::widget::{Tip, Toggle, drawer};
 
 use super::Staged;
 use super::state::{self, Device, Panel, QUALITY_RANGE, QUALITY_STEP, SandboxState, Scaling, Volume};
@@ -123,7 +123,7 @@ fn invadable(registry: &StageRegistry, category: Category) -> Vec<(u32, String)>
 fn ComboRow(label: String, hint: String, options: Vec<String>, selected: String, #[props(default = true)] enabled: bool, onchange: EventHandler<String>) -> Element {
     rsx! {
         label { class: "setting-row inline",
-            Tip { text: hint, span { "{label}" } }
+            Tip { text: hint, hover: true, span { "{label}" } }
             select { class: "combo", value: "{selected}", disabled: !enabled, onchange: move |event| onchange.call(event.value()),
                 for option in options.iter() {
                     option { value: "{option}", selected: *option == selected, "{option}" }
@@ -204,6 +204,7 @@ fn volume_of(label: &str) -> Option<Volume> {
 
 #[component]
 fn GameSettings(platform: Platform, sandbox: Signal<SandboxState>) -> Element {
+    let drawers = drawer::drawers();
     let held = sandbox.read();
     let music = Volume::nearest(held.music_volume).to_string();
     let effects = Volume::nearest(held.effects_volume).to_string();
@@ -238,8 +239,9 @@ fn GameSettings(platform: Platform, sandbox: Signal<SandboxState>) -> Element {
                 }
                 ComboRow { label: "Lag", hint: LAG_HINT, options: Lag::ALL.iter().map(ToString::to_string).collect(), selected: lag, onchange: { let platform = p[6].clone(); move |label: String| if let Some(picked) = Lag::ALL.into_iter().find(|lag| lag.to_string() == label) { state::apply(&platform, sandbox, |next| next.lag = picked) } } }
                 label { class: "setting-row inline",
-                    Tip { text: QUALITY_HINT, span { "Quality" } }
+                    Tip { text: QUALITY_HINT, hover: true, span { "Quality" } }
                     input { class: "slider quality-slider", r#type: "range", min: "{QUALITY_RANGE.start()}", max: "{QUALITY_RANGE.end()}", step: "{QUALITY_STEP}", value: "{quality}",
+                        onpointerdown: move |event| drawers.claim(event.data().pointer_id()),
                         oninput: { let platform = p[7].clone(); move |event| if let Ok(value) = event.value().parse::<u8>() { state::apply(&platform, sandbox, |next| next.image_quality = Some(value)) } } }
                     span { "{quality}%" }
                 }

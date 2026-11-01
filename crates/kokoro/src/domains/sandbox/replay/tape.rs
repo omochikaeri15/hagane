@@ -24,6 +24,9 @@ pub enum Cue {
     Pinch(i32),
     Settle,
     Forgive,
+    SecondMove(i32, i32),
+    SecondPress(i32, i32),
+    SecondRelease,
 }
 
 impl Cue {
@@ -89,6 +92,9 @@ impl fmt::Display for Cue {
             Self::Pinch(step) => write!(f, "z{step}"),
             Self::Settle => f.write_char('g'),
             Self::Forgive => f.write_char('F'),
+            Self::SecondMove(x, y) => write!(f, "M{x},{y}"),
+            Self::SecondPress(x, y) => write!(f, "D{x},{y}"),
+            Self::SecondRelease => f.write_char('R'),
         }
     }
 }
@@ -111,6 +117,9 @@ impl std::str::FromStr for Cue {
             Some(("z", step)) => step.parse().ok().map(Self::Pinch),
             Some(("g", "")) => Some(Self::Settle),
             Some(("F", "")) => Some(Self::Forgive),
+            Some(("M", at)) => pair(at, ',').map(|(x, y)| Self::SecondMove(x, y)),
+            Some(("D", at)) => pair(at, ',').map(|(x, y)| Self::SecondPress(x, y)),
+            Some(("R", "")) => Some(Self::SecondRelease),
             _ => None,
         };
 
@@ -162,6 +171,9 @@ mod tests {
             Cue::Pinch(-28),
             Cue::Settle,
             Cue::Forgive,
+            Cue::SecondPress(40, 200),
+            Cue::SecondMove(-8, 210),
+            Cue::SecondRelease,
         ];
         let text = format!("{}\n\n{}\n", format_frame(&frame), format_frame(&[Cue::Release]));
 

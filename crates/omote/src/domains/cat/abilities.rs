@@ -14,12 +14,13 @@ use kokoro::systems::treasure::Bonus;
 
 use crate::systems::context::{self, Shared};
 use crate::systems::images::{self, Pictures};
-use crate::widget::{StatFrames, StatHeader, StatValue, Superscript, Tip};
+use crate::widget::{FitWidth, StatFrames, StatHeader, StatValue, Superscript, Tip, span};
 
 use super::icons::{self, ICON_SIZE, IMG015};
 use super::{Picked, state};
 
 pub(crate) const DESCRIPTION_TEXT_SIZE: f32 = 13.0;
+const STAT_COLUMNS: usize = 5;
 
 #[component]
 pub(crate) fn Abilities(selected: Picked, globals: Shared) -> Element {
@@ -53,6 +54,7 @@ pub(crate) fn Abilities(selected: Picked, globals: Shared) -> Element {
     let cat_id = cat.id;
 
     rsx! {
+        FitWidth { natural: span(STAT_COLUMNS),
         div { class: "abilities",
             {stats_grid(cat, &final_stats, form, &globals.0.treasure)}
             div { class: "ability-groups",
@@ -96,6 +98,7 @@ pub(crate) fn Abilities(selected: Picked, globals: Shared) -> Element {
                     {icon_row(&pictures, &footer)}
                 }
             }
+        }
         }
     }
 }

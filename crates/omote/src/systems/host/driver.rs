@@ -29,6 +29,7 @@ const CURTAIN_CLOSING: i32 = 1;
 const TOUCH_PRESSED: i32 = 0;
 const TOUCH_MOVED: i32 = 1;
 const TOUCH_RELEASED: i32 = 2;
+const SECOND_FINGER: i32 = 1;
 const BATTLE_SCENE: i32 = 0x12c;
 const TRANSITION_SCENE: i32 = 0x3e7;
 const FADE_STEPS: usize = 0x10;
@@ -252,7 +253,9 @@ pub struct Driver {
     phone: bool,
     spread: i32,
     gap: Option<i32>,
+    pinching: bool,
     finger: (i32, i32),
+    second: (i32, i32),
     keys: Keys,
     reach: i32,
     idle: u32,
@@ -300,7 +303,9 @@ impl Driver {
             phone: false,
             spread: 0,
             gap: None,
+            pinching: false,
             finger: (0, 0),
+            second: (0, 0),
             keys: Keys::default(),
             reach: FINGER_GAP,
             idle: 0,
@@ -615,16 +620,28 @@ impl Driver {
                 while let Some(touch) = pending.pop_front() {
                     let cue = match touch {
                         Touch::Pinched { spread: step } => Some(Cue::Pinch(step)),
-                        Touch::Moved { .. } | Touch::Pressed { .. } | Touch::Released if keyed => None,
+                        Touch::Moved { .. }
+                        | Touch::Pressed { .. }
+                        | Touch::Released
+                        | Touch::SecondMoved { .. }
+                        | Touch::SecondPressed { .. }
+                        | Touch::SecondReleased
+                            if keyed =>
+                        {
+                            None
+                        }
                         Touch::Moved { x, y } => Some(Cue::Move(x, y)),
-                        Touch::Pressed { .. } if self.gap.is_some() => {
+                        Touch::SecondMoved { x, y } => Some(Cue::SecondMove(x, y)),
+                        Touch::Pressed { .. } | Touch::SecondPressed { .. } if self.gap.is_some() => {
                             pending.push_front(touch);
                             self.touches.borrow_mut().extend(pending.drain(..));
 
                             Some(Cue::Settle)
                         }
                         Touch::Pressed { x, y } => Some(Cue::Press(x, y)),
+                        Touch::SecondPressed { x, y } => Some(Cue::SecondPress(x, y)),
                         Touch::Released => Some(Cue::Release),
+                        Touch::SecondReleased => Some(Cue::SecondRelease),
                     };
                     let Some(cue) = cue else {
                         continue;
@@ -633,7 +650,7 @@ impl Driver {
                     self.play(cue);
 
                     match (played.last_mut(), cue) {
-                        (Some(last @ Cue::Move(..)), Cue::Move(..)) => *last = cue,
+                        (Some(last @ Cue::Move(..)), Cue::Move(..)) | (Some(last @ Cue::SecondMove(..)), Cue::SecondMove(..)) => *last = cue,
                         _ => played.push(cue),
                     }
                 }
@@ -642,9 +659,13 @@ impl Driver {
 
         self.ease_pinch();
 
-        if let Err(fault) = emulator::runtime::pump_pinch(&mut self.ctx, self.gap) {
+        if (self.gap.is_some() || self.pinching)
+            && let Err(fault) = emulator::runtime::pump_pinch(&mut self.ctx, self.gap)
+        {
             warn!("emu: pinch could not be pumped: {fault}");
         }
+
+        self.pinching = self.gap.is_some();
 
         if let Err(fault) = emulator::runtime::pump_touch(&mut self.ctx) {
             warn!("emu: touch could not be pumped: {fault}");
@@ -677,6 +698,17 @@ impl Driver {
                 emulator::engine::app_on_touch(&mut self.ctx, TOUCH_PRESSED, x, y, 0)
             }
             Cue::Release => emulator::engine::app_on_touch(&mut self.ctx, TOUCH_RELEASED, self.finger.0, self.finger.1, 0),
+            Cue::SecondMove(x, y) => {
+                self.second = (x, y);
+
+                emulator::engine::app_on_touch(&mut self.ctx, TOUCH_MOVED, x, y, SECOND_FINGER)
+            }
+            Cue::SecondPress(x, y) => {
+                self.second = (x, y);
+
+                emulator::engine::app_on_touch(&mut self.ctx, TOUCH_PRESSED, x, y, SECOND_FINGER)
+            }
+            Cue::SecondRelease => emulator::engine::app_on_touch(&mut self.ctx, TOUCH_RELEASED, self.second.0, self.second.1, SECOND_FINGER),
             Cue::Forgive => Ok(()),
             Cue::Key(key, pressed) => {
                 let action = replay::action_of(key);

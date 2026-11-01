@@ -45,6 +45,7 @@ const STATS_POOL: &str = "roster:stats";
 const CATS: &str = "cats";
 const ENEMIES: &str = "enemies";
 const INDEX_FILE: &str = "index.bin";
+const UNENCODABLE: &str = "the reply could not be encoded";
 pub(crate) const NAME: &str = "data";
 pub(crate) const LOGGED_NAME: &str = "data-logged";
 pub(crate) const LATEST_FILE: &str = "latest-battle.bin";
@@ -780,8 +781,12 @@ fn picture(engine: &Engine, kind: PictureKind, name: &str) -> Option<Prepared> {
 }
 
 pub(crate) fn post(answer: Answer) {
-    let Some(bytes) = protocol::encode(&answer) else {
+    let id = answer.id;
+    let Some(bytes) = protocol::encode(&answer).or_else(|| {
         error!("A reply to the page could not be encoded");
+
+        (id != HELLO).then(|| protocol::encode(&Answer { id, reply: Reply::Failed(UNENCODABLE.to_owned()) })).flatten()
+    }) else {
         return;
     };
     let array = Uint8Array::from(&bytes[..]);

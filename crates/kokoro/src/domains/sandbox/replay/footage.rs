@@ -13,6 +13,7 @@ use super::{ASSETS, Cue, FAULT, Forgiven, INPUT, MANIFEST, SAVE, Save, Summary, 
 const FILE_MODE: u32 = 0o644;
 const PACK_LEVEL: i32 = 19;
 const PACK_CHUNK: usize = 1 << 20;
+const PACK_STEPS: usize = 100;
 
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
@@ -126,6 +127,7 @@ impl Footage {
 pub struct Packer {
     archive: Vec<u8>,
     fed: usize,
+    stride: usize,
     encoder: StreamingEncoder<Vec<u8>>,
 }
 
@@ -135,7 +137,9 @@ impl Packer {
 
         encoder.set_pledged_content_size(archive.len() as u64).map_err(|error| format!("the replay could not be compressed: {error}"))?;
 
-        Ok(Self { archive, fed: 0, encoder })
+        let stride = archive.len().div_ceil(PACK_STEPS).clamp(1, PACK_CHUNK);
+
+        Ok(Self { archive, fed: 0, stride, encoder })
     }
 
     pub fn progress(&self) -> f32 {
@@ -147,7 +151,7 @@ impl Packer {
     }
 
     pub fn step(&mut self) -> Result<bool, String> {
-        let end = self.fed.saturating_add(PACK_CHUNK).min(self.archive.len());
+        let end = self.fed.saturating_add(self.stride).min(self.archive.len());
         let chunk = self.archive.get(self.fed..end).unwrap_or_default();
 
         self.encoder.write_all(chunk).map_err(|error| format!("the replay could not be compressed: {error}"))?;

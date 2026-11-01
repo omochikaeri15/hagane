@@ -1,5 +1,7 @@
 Bug Fixes:
-- Fixed invasion crash
+- Fixed invasion victory crash.
 
 Changes:
-- Cpu performance improvements
+- CPU sandbox performance improvements.
+- Lineups sidebar made thinner.
+- Web now has official mobile support.

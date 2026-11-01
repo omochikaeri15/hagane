@@ -14,8 +14,9 @@ use crate::domains::settings::{self, Settings};
 use crate::domains::stage::{self, Stages};
 use crate::platform::Platform;
 use crate::systems::library::Library;
-use crate::systems::{animation, catalog, context, export, images};
+use crate::systems::{animation, catalog, context, export, images, turn};
 use crate::theme::{self, AppTheme};
+use crate::widget::{drawer, tip};
 
 static ICON: Asset = asset!("/assets/icon.ico");
 const THEME_KEY: &str = "theme";
@@ -24,6 +25,7 @@ const SEPARATOR: char = '/';
 const FORM_LETTERS: [&str; 4] = ["f", "c", "s", "u"];
 const OPEN_ARROW: &str = "\u{25b6}";
 const CLOSED_ARROW: &str = "\u{25c0}";
+const LAYOUT_PROBE: f64 = 1.5;
 
 #[derive(Clone, Debug, PartialEq, Routable)]
 #[rustfmt::skip]
@@ -145,7 +147,10 @@ pub fn App() -> Element {
     sandbox::provide(&platform);
     settings::provide_logging(&platform);
     settings::provide_fullscreen(&platform);
+    drawer::provide();
+    tip::provide();
 
+    let turn = turn::provide(&platform);
     let library = Library::provide(platform);
 
     context::provide(library, settings);
@@ -164,6 +169,14 @@ pub fn App() -> Element {
         }
         document::Style { {theme::stylesheet()} }
         document::Link { rel: "stylesheet", href: theme::THEME }
+        div {
+            class: "viewport-probe",
+            onresize: move |event| {
+                if let Ok(size) = event.data().get_border_box_size() {
+                    turn.measure(size.width, size.height);
+                }
+            },
+        }
         Router::<Route> {}
     }
 }
@@ -199,28 +212,92 @@ pub(crate) fn forget_visit(platform: &Platform, navigator: Navigator, key: &str,
 
 #[component]
 fn Shell() -> Element {
+    let platform = use_context::<Platform>();
     let theme = use_context::<Signal<AppTheme>>();
-    let mut open = use_signal(|| true);
+    let drawers = drawer::drawers();
+    let tips = tip::tips();
+    let turn = turn::turn();
+    let mut nav = drawers.nav;
+    let mut compact = drawers.compact;
+    let mut narrow = drawers.narrow;
     let route = use_route::<Route>();
-    let class = format!("app {}", theme().class());
-    let slot = if open() { "sidebar-slot" } else { "sidebar-slot closed" };
-    let arrow = if open() { OPEN_ARROW } else { CLOSED_ARROW };
+    let (turned, frame) = turn.frame();
+    let class = if turned { format!("app turned {}", theme().class()) } else { format!("app {}", theme().class()) };
+
+    use_effect(move || {
+        if compact() {
+            nav.set(false);
+        }
+    });
+
+    let presser = platform.clone();
+    let follower = platform;
 
     rsx! {
-        div { class: "{class}",
+        div {
+            class: "{class}",
+            style: "{frame}",
+            onpointerdown: move |event| {
+                let data = event.data();
+                let point = data.client_coordinates();
+
+                tips.dismiss();
+                drawers.press(data.pointer_id(), &data.pointer_type(), turn.point(point.x, point.y), presser.host().now());
+            },
+            onpointermove: move |event| {
+                let data = event.data();
+                let point = data.client_coordinates();
+
+                drawers.follow(data.pointer_id(), turn.point(point.x, point.y), follower.host().now());
+            },
+            onpointerup: move |event| drawers.release(event.data().pointer_id()),
+            onpointercancel: move |event| drawers.abandon(event.data().pointer_id()),
+            div {
+                class: "layout-probe",
+                onresize: move |event| {
+                    if let Ok(size) = event.data().get_border_box_size() {
+                        let (touching, slim) = (size.width > LAYOUT_PROBE, size.height > LAYOUT_PROBE);
+
+                        if *compact.peek() != touching {
+                            compact.set(touching);
+                        }
+
+                        if *narrow.peek() != slim {
+                            narrow.set(slim);
+                        }
+                    }
+                },
+            }
             div { class: "content", Outlet::<Route> {} }
-            div { class: "sidebar-layer",
-                button { class: "btn btn-primary nav-toggle symbols", onclick: move |_| open.toggle(), "{arrow}" }
-                div { class: "{slot}",
-                    nav { class: "sidebar",
-                        div { class: "sidebar-scroll",
-                            div { class: "tabs",
-                                for tab in TABS {
-                                    Link {
-                                        to: tab.clone(),
-                                        class: if route.tab_name() == tab.tab_name() { "tab active" } else { "tab" },
-                                        "{tab.tab_name()}"
-                                    }
+            Nav { route: route.tab_name() }
+        }
+    }
+}
+
+#[component]
+fn Nav(route: &'static str) -> Element {
+    let drawers = drawer::drawers();
+    let mut open = drawers.nav;
+    let shown = open();
+    let pull = drawers.pulled(drawer::Side::Right);
+    let (slot, style) = drawer::styled(if shown { "sidebar-slot" } else { "sidebar-slot closed" }, false, pull);
+    let arrow = if shown { OPEN_ARROW } else { CLOSED_ARROW };
+
+    rsx! {
+        if shown {
+            div { class: "drawer-scrim nav-scrim", onclick: move |_| open.set(false) }
+        }
+        div { class: "sidebar-layer",
+            button { class: "btn btn-primary nav-toggle symbols", onclick: move |_| open.toggle(), "{arrow}" }
+            div { class: "{slot}", style: "{style}",
+                nav { class: "sidebar",
+                    div { class: "sidebar-scroll",
+                        div { class: "tabs",
+                            for tab in TABS {
+                                Link {
+                                    to: tab.clone(),
+                                    class: if route == tab.tab_name() { "tab active" } else { "tab" },
+                                    "{tab.tab_name()}"
                                 }
                             }
                         }

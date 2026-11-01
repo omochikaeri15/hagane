@@ -43,6 +43,7 @@ web-sys = { version = "0.3", features = [
     "FileList",
     "Response",
     "AudioContext",
+    "AudioContextOptions",
     "AudioBuffer",
     "AudioBufferSourceNode",
     "AudioDestinationNode",

@@ -9,6 +9,9 @@ pub enum Touch {
     Pressed { x: i32, y: i32 },
     Released,
     Pinched { spread: i32 },
+    SecondMoved { x: i32, y: i32 },
+    SecondPressed { x: i32, y: i32 },
+    SecondReleased,
 }
 
 pub type TouchQueue = Rc<RefCell<Vec<Touch>>>;

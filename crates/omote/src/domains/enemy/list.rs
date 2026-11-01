@@ -10,7 +10,7 @@ use crate::app::Route;
 use crate::platform::Picture;
 use crate::systems::picture::Pic;
 use crate::systems::images::{self, Pictures};
-use crate::widget::RowList;
+use crate::widget::{RowList, drawer};
 
 use super::state;
 
@@ -92,6 +92,7 @@ fn Row(id: u32, path: Option<PathBuf>, tooltip: String, selected: bool) -> Eleme
     let banner = path.as_ref().and_then(|path| pictures.banner(Picture::EnemyBanner, path));
     let wanted = path.as_ref().and_then(|path| Pictures::banner_key(&Picture::EnemyBanner, path));
     let forget = pictures.clone();
+    let drawers = drawer::drawers();
 
     use_drop(move || {
         if let Some(key) = &wanted {
@@ -101,7 +102,11 @@ fn Row(id: u32, path: Option<PathBuf>, tooltip: String, selected: bool) -> Eleme
     let class = if selected { "list-row roster-row selected" } else { "list-row roster-row" };
 
     rsx! {
-        Link { to: Route::enemy(id), class: "{class}", title: "{tooltip}",
+        Link {
+            to: Route::enemy(id),
+            class: "{class}",
+            title: "{tooltip}",
+            onclick: move |_| drawers.shut(),
             div { class: "banner-slot",
                 if let Some(url) = banner {
                     Pic { url, class: "banner" }

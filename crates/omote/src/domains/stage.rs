@@ -28,7 +28,7 @@ use crate::systems::catalog::{self, Load};
 use crate::systems::context::{self, Shared};
 use crate::systems::library::Library;
 use crate::theme::SLIDE_MS;
-use crate::widget::{Hold, Status};
+use crate::widget::{Drawer, Hold, Status, drawer};
 
 pub(crate) use filter::FilterPopup;
 
@@ -185,12 +185,20 @@ pub(crate) fn Browser() -> Element {
     let settings = context::settings();
     let mut state = state();
     let mut enemy_state = enemy::state();
+    let drawers = drawer::drawers();
 
     use_hook(move || {
         let config = settings.read().scanner_config(None);
 
         catalogs.load_stages(&platform, config.clone());
         catalogs.load_enemies(&platform, config);
+    });
+    use_effect(move || {
+        if (drawers.compact)() {
+            let chosen = state.stage.peek().is_some();
+
+            state.sidebar_open.set(!chosen);
+        }
     });
 
     if let Some(id) = (enemy_state.appearances)() {
@@ -282,9 +290,11 @@ pub(crate) fn Browser() -> Element {
                 }
             }
             div { class: "stage-sidebar-layer",
-                div { class: "{slot_class}", style: "width: {span}px;",
-                    div { class: "stage-sidebar", style: "width: {span}px;",
-                        Sidebar { data: data.clone(), globals: globals.clone() }
+                Drawer { open: state.sidebar_open,
+                    div { class: "{slot_class}", style: "width: {span}px;",
+                        div { class: "stage-sidebar", style: "width: {span}px;",
+                            Sidebar { data: data.clone(), globals: globals.clone() }
+                        }
                     }
                 }
                 button {
@@ -311,6 +321,7 @@ pub(crate) fn Browser() -> Element {
 #[component]
 fn Sidebar(data: Loaded, globals: Shared) -> Element {
     let mut state = state();
+    let drawers = drawer::drawers();
     let filter = state.filter.read().clone();
     let fingerprint = digest(&filter);
     let held = data.clone();
@@ -444,7 +455,13 @@ fn Sidebar(data: Loaded, globals: Shared) -> Element {
                                             button {
                                                 key: "{stage.stage_id}",
                                                 class: if selected { "list-row filled selected stage-row" } else { "list-row filled stage-row" },
-                                                onclick: move |_| state.stage.set(Some(key.clone())),
+                                                onclick: move |_| {
+                                                    state.stage.set(Some(key.clone()));
+
+                                                    if *drawers.compact.peek() {
+                                                        state.sidebar_open.set(false);
+                                                    }
+                                                },
                                                 "{stage.name}"
                                             }
                                         }

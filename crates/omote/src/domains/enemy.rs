@@ -27,7 +27,7 @@ use crate::systems::export::{self, Statblock};
 use crate::systems::images::{self, Pictures};
 use crate::systems::library::Library;
 use crate::systems::picture::Pic;
-use crate::widget::{Hold, NameBox, Settled, StatFrames, StatHeader, StatValue, Status};
+use crate::widget::{Drawer, FitWidth, Hold, NameBox, Settled, StatFrames, StatHeader, StatValue, Status, drawer, header, span};
 
 pub(crate) use filter::FilterPopup;
 
@@ -44,6 +44,7 @@ pub(crate) enum DetailTab {
 }
 
 const ICON_BOX_WIDTH: f32 = 110.0;
+const STAT_COLUMNS: usize = 4;
 const ICON_BOX_HEIGHT: f32 = 96.0;
 const TABS: [(DetailTab, &str); 3] = [(DetailTab::Abilities, "Abilities"), (DetailTab::Details, "Details"), (DetailTab::Animation, "Animation")];
 
@@ -144,7 +145,10 @@ fn Browser(selected: Option<u32>) -> Element {
     let mut state = state();
     let navigator = use_navigator();
     let visitor = platform.clone();
+    let rememberer = platform.clone();
+    let mut roster_open = use_signal(|| selected.is_none() && app::last_visited(&rememberer, LAST_ENEMY_KEY).is_none());
 
+    use_effect(use_reactive!(|selected| roster_open.set(selected.is_none() && app::last_visited(&rememberer, LAST_ENEMY_KEY).is_none())));
     use_effect(use_reactive!(|selected| {
         let (Some(id), Load::Ready(enemies)) = (selected, catalogs.enemies()) else {
             return;
@@ -199,7 +203,9 @@ fn Browser(selected: Option<u32>) -> Element {
     rsx! {
         Settled {
             div { class: "{class}",
-                list::Roster { enemies: list::Entries(Rc::clone(&enemies)), selected }
+                Drawer { open: roster_open,
+                    list::Roster { enemies: list::Entries(Rc::clone(&enemies)), selected }
+                }
                 div { class: "browser-main",
                     match enemy {
                         Some(enemy) => rsx! { Detail { enemy: SelectedEnemy(Rc::new(enemy)), globals: globals.clone() } },
@@ -224,6 +230,8 @@ fn Detail(enemy: SelectedEnemy, globals: Shared) -> Element {
     let shared = globals.clone();
     let stats = use_memo(use_reactive!(|(id, shared, show_invalid)| scanner::scan_single(id, shared.0.vault(), show_invalid).map(|entry| entry.stats)));
     let warmer = use_context::<Platform>();
+    let narrow = drawer::drawers();
+    let name_size = header((narrow.narrow)());
     let warm_for = Rc::clone(&enemy);
     let warm_with = globals.clone();
 
@@ -262,7 +270,7 @@ fn Detail(enemy: SelectedEnemy, globals: Shared) -> Element {
                         }
                     }
                     div { class: "info-box",
-                        NameBox { name: name.clone(), width: 123.0, height: 56.0, wrap_width: 145.0 }
+                        NameBox { name: name.clone(), width: name_size.0, height: name_size.1, wrap_width: name_size.2 }
                         div { class: "id-text weak", "ID: {enemy.id:03}-E" }
                         label { class: "level-row",
                             span { "Magnify:" }
@@ -350,6 +358,7 @@ fn abilities_tab(enemy: &EnemyEntry, stats: &Entity, globals: &Shared, pictures:
     let _ = Faction::Enemy;
 
     rsx! {
+        FitWidth { natural: span(STAT_COLUMNS),
         div { class: "abilities",
             div { class: "stat-grid",
                 div { class: "stat-row",
@@ -400,6 +409,7 @@ fn abilities_tab(enemy: &EnemyEntry, stats: &Entity, globals: &Shared, pictures:
                     {abilities::icon_row(pictures, &footer)}
                 }
             }
+        }
         }
     }
 }

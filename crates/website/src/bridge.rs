@@ -438,7 +438,7 @@ fn clipboard() -> Option<JsValue> {
     (!clipboard.is_undefined() && !clipboard.is_null()).then_some(clipboard)
 }
 
-fn storage() -> Option<Storage> {
+pub(crate) fn storage() -> Option<Storage> {
     web_sys::window()?.local_storage().ok().flatten()
 }
 
@@ -519,6 +519,10 @@ impl Host for WebHost {
 
     fn download(&self, name: &str, mime: &str, bytes: Bytes) {
         deliver_file(name, mime, &bytes);
+    }
+
+    fn has_address_bar(&self) -> bool {
+        true
     }
 
     fn can_copy(&self) -> bool {

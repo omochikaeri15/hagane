@@ -1,13 +1,16 @@
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::rc::Rc;
+use std::sync::Arc;
 
+use image::RgbaImage;
+use image::imageops::{self, FilterType};
 use js_sys::{Float32Array, Uint8Array};
 use tracing::{debug, trace, warn};
 use wasm_bindgen::prelude::wasm_bindgen;
 use wasm_bindgen::{JsCast, JsValue};
 use wasm_bindgen_futures::JsFuture;
-use web_sys::{AudioBuffer, AudioBufferSourceNode, AudioContext, GainNode, HtmlCanvasElement};
+use web_sys::{AudioBuffer, AudioBufferSourceNode, AudioContext, AudioContextOptions, GainNode, HtmlCanvasElement};
 
 use omote::host::{Bounds, Canvas, Frame, Scene, Vertex, paint};
 use omote::platform::battle::{AudioCommand, BattleEvent, SheetWire};
@@ -72,6 +75,7 @@ const BLENDS: [(wgpu::BlendFactor, wgpu::BlendFactor); 4] = [
 ];
 const VERTEX_STRIDE: u64 = 32;
 const MIN_PIXEL_RATIO: f64 = 0.5;
+const OUTPUT_RATE: f32 = 48_000.0;
 
 #[repr(C)]
 #[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
@@ -290,7 +294,25 @@ fn bind_texture(device: &wgpu::Device, layout: &wgpu::BindGroupLayout, sampler: 
 
 impl Gpu {
     fn upload(&self, width: u32, height: u32, pixels: &[u8]) -> Binding {
-        upload_texture(&self.device, &self.queue, &self.layout, &self.sampler, width, height, pixels)
+        let most = self.device.limits().max_texture_dimension_2d.max(1);
+
+        if width <= most && height <= most {
+            return upload_texture(&self.device, &self.queue, &self.layout, &self.sampler, width, height, pixels);
+        }
+
+        let scale = f64::from(most) / f64::from(width.max(height));
+        let (fitted_width, fitted_height) = (((f64::from(width) * scale) as u32).clamp(1, most), ((f64::from(height) * scale) as u32).clamp(1, most));
+
+        warn!(width, height, most, "A battle sheet is larger than this GPU allows and was shrunk to fit");
+
+        match RgbaImage::from_raw(width, height, pixels.to_vec()) {
+            Some(full) => {
+                let shrunk = imageops::resize(&full, fitted_width, fitted_height, FilterType::Triangle);
+
+                upload_texture(&self.device, &self.queue, &self.layout, &self.sampler, fitted_width, fitted_height, shrunk.as_raw())
+            }
+            None => upload_texture(&self.device, &self.queue, &self.layout, &self.sampler, width, height, pixels),
+        }
     }
 
     fn reduce(&mut self, scale: f32) {
@@ -474,9 +496,9 @@ fn prepare_context(canvas: &HtmlCanvasElement) {
 
 fn backing(canvas: &HtmlCanvasElement) -> (u32, u32) {
     let ratio = web_sys::window().map_or(1.0, |window| window.device_pixel_ratio()).max(MIN_PIXEL_RATIO);
-    let rect = canvas.get_bounding_client_rect();
+    let (width, height) = (f64::from(canvas.client_width()), f64::from(canvas.client_height()));
 
-    ((rect.width() * ratio).round().max(1.0) as u32, (rect.height() * ratio).round().max(1.0) as u32)
+    ((width * ratio).round().max(1.0) as u32, (height * ratio).round().max(1.0) as u32)
 }
 
 async fn open(canvas: HtmlCanvasElement, sized: Option<(u32, u32)>) -> Result<Gpu, String> {
@@ -493,6 +515,9 @@ async fn open(canvas: HtmlCanvasElement, sized: Option<(u32, u32)>) -> Result<Gp
         })
         .await
         .map_err(|err| err.to_string())?;
+
+    device.on_uncaptured_error(Arc::new(|error| warn!("The battle renderer hit a GPU error: {error}")));
+
     let (width, height) = sized.unwrap_or_else(|| backing(&canvas));
 
     canvas.set_width(width);
@@ -713,7 +738,11 @@ impl Screen {
 impl Speaker {
     fn context(&mut self) -> Option<&AudioContext> {
         if self.context.is_none() {
-            match AudioContext::new() {
+            let options = AudioContextOptions::new();
+
+            options.set_sample_rate(OUTPUT_RATE);
+
+            match AudioContext::new_with_context_options(&options).or_else(|_| AudioContext::new()) {
                 Ok(context) => self.context = Some(context),
                 Err(err) => warn!("The battle has no audio output: {}", describe(err)),
             }

@@ -1,5 +1,6 @@
 use std::cell::RefCell;
 use std::ops::Range;
+use std::sync::Arc;
 
 use futures_channel::oneshot;
 use tracing::{error, warn};
@@ -273,6 +274,8 @@ pub(crate) async fn open(canvas_id: &str, overlay_id: &str) -> Result<WebSurface
         })
         .await
         .map_err(describe)?;
+
+    device.on_uncaptured_error(Arc::new(|error| warn!("The animation viewer hit a GPU error: {error}")));
     let width = canvas.width().max(1);
     let height = canvas.height().max(1);
     let mut config = surface.get_default_config(&adapter, width, height).ok_or_else(|| Fault("the canvas surface is not supported by this adapter".to_owned()))?;

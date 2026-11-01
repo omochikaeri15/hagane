@@ -289,16 +289,24 @@ fn variables(theme: AppTheme) -> String {
     block
 }
 
-const RESTING: &str = ".toast-slot { position: absolute; top: 0; left: 0; right: 0; display: flex; justify-content: center; overflow: hidden; pointer-events: none; z-index: 30; }
+const RESTING: &str = "html, body { overflow: hidden; }
+.viewport-probe { position: fixed; inset: 0; visibility: hidden; pointer-events: none; }
+.layout-probe { position: absolute; top: 0; left: 0; width: 1px; height: 1px; visibility: hidden; pointer-events: none; }
+.toast-slot { position: absolute; top: 0; left: 0; right: 0; display: flex; justify-content: center; overflow: hidden; pointer-events: none; z-index: 30; }
 .toast { pointer-events: auto; text-align: center; font-size: 13px; padding: calc(var(--toast-overhang) + 7px) 7px 7px; margin-top: calc(-1 * var(--toast-overhang)); transition: transform var(--slide-ms) ease-out; }
 .toast.hidden { transform: translateY(-100%); }
 ";
 
 pub fn stylesheet() -> String {
     let mut css = String::new();
+    let resting = AppTheme::default().palette().background.css();
+
+    let _ = writeln!(css, "html, body {{ background: {resting}; }}");
 
     for theme in AppTheme::ALL {
         css.push_str(&variables(theme));
+
+        let _ = writeln!(css, "html:has(.{class}), html:has(.{class}) body {{ background: {}; }}", theme.palette().background.css(), class = theme.class());
     }
 
     let _ = writeln!(css, "@font-face {{ font-family: \"Miscellaneous-Symbols\"; src: url(\"{SYMBOLS}\") format(\"truetype\"); font-display: block; }}");

@@ -24,7 +24,7 @@ const UNKNOWN_VERSION: &str = "Unknown";
 const REPLAY_POOLS: [&str; 2] = ["caf", "roster:battle"];
 const FETCH_SHARE: f32 = 0.1;
 const UNPACK_SHARE: f32 = 0.9;
-const PROGRESS_STEP: f32 = 0.01;
+const PERCENT: f32 = 100.0;
 
 type Ticker = Closure<dyn FnMut()>;
 
@@ -543,17 +543,18 @@ fn recorded(engine: &Rc<Engine>, kept: &Kept) -> Recorded {
 }
 
 async fn upload(engine: &Rc<Engine>, name: String, bytes: Vec<u8>) -> Result<(), String> {
-    let shown = Cell::new(0.0f32);
+    let shown = Cell::new(0u32);
 
     post(BattleEvent::Uploading(0.0));
 
     let opened = Footage::open_with(&bytes, |share| {
-        let share = UNPACK_SHARE * share;
+        let percent = ((UNPACK_SHARE * share).clamp(0.0, 1.0) * PERCENT) as u32;
 
-        if share - shown.get() >= PROGRESS_STEP {
-            shown.set(share);
-            post(BattleEvent::Uploading(share));
+        for passed in shown.get() + 1..=percent {
+            post(BattleEvent::Uploading(passed as f32 / PERCENT));
         }
+
+        shown.set(shown.get().max(percent));
     })?;
     let bytes: Rc<[u8]> = Rc::from(bytes);
     let kept = Kept::opened(opened, Rc::from(name.as_str()), Rc::clone(&bytes));
@@ -608,12 +609,15 @@ async fn export(engine: &Rc<Engine>) -> Result<Vec<u8>, String> {
 
     let footage = &kept.footage;
     let frames = engine.loader.frames_of(footage.stored());
-    let shown = Cell::new(0.0f32);
+    let shown = Cell::new(0u32);
     let show = |share: f32| {
-        if share - shown.get() >= PROGRESS_STEP {
-            shown.set(share);
-            post(BattleEvent::Exporting(share));
+        let percent = (share.clamp(0.0, 1.0) * PERCENT) as u32;
+
+        for passed in shown.get() + 1..=percent {
+            post(BattleEvent::Exporting(passed as f32 / PERCENT));
         }
+
+        shown.set(shown.get().max(percent));
     };
 
     post(BattleEvent::Exporting(0.0));
@@ -761,7 +765,7 @@ fn tick(engine: &Rc<Engine>) {
             return;
         };
         let drawn = arena.session.tick();
-        let standing = Standing { phase: arena.session.phase(), covered: arena.session.covered(), surfaced: arena.session.surfaced() };
+        let standing = Standing { phase: arena.session.phase(), covered: arena.session.covered(), surfaced: arena.session.surfaced(), watching: arena.session.watching() };
 
         if standing.phase == Phase::Loading {
             pending = arena.warming.take();

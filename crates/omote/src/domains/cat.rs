@@ -29,7 +29,7 @@ use crate::systems::export::{self, Statblock};
 use crate::systems::images::{self, Pictures};
 use crate::systems::library::Library;
 use crate::systems::picture::Pic;
-use crate::widget::{Hold, NameBox, Settled, Status};
+use crate::widget::{Drawer, Hold, NameBox, Settled, Status, drawer, header};
 
 pub(crate) use filter::FilterPopup;
 
@@ -330,7 +330,11 @@ fn Browser(selected: Option<u32>, form: Option<usize>) -> Element {
     let mut state = state();
     let navigator = use_navigator();
     let mut seen: Signal<Option<(u32, Option<usize>)>> = use_signal(|| None);
+    let rememberer = platform.clone();
+    let mut roster_open = use_signal(|| selected.is_none() && app::last_visited(&rememberer, LAST_CAT_KEY).is_none());
     let visitor = platform.clone();
+
+    use_effect(use_reactive!(|selected| roster_open.set(selected.is_none() && app::last_visited(&rememberer, LAST_CAT_KEY).is_none())));
 
     use_effect(use_reactive!(|(selected, form)| {
         let current = (state.form)();
@@ -408,7 +412,9 @@ fn Browser(selected: Option<u32>, form: Option<usize>) -> Element {
     rsx! {
         Settled {
             div { class: "{wide_class}",
-                list::Roster { cats: list::Entries(Rc::clone(&cats)), selected }
+                Drawer { open: roster_open,
+                    list::Roster { cats: list::Entries(Rc::clone(&cats)), selected }
+                }
                 div { class: "browser-main",
                     match cat {
                         Some(cat) => rsx! { Detail { cat: SelectedCat(Rc::new(cat)), globals: globals.clone() } },
@@ -462,6 +468,7 @@ pub(crate) fn Detail(cat: SelectedCat, globals: Shared, #[props(default)] extra:
     let form = (state.form)();
     let tab = (state.tab)();
     let warmer = use_context::<Platform>();
+    let narrow = drawer::drawers();
     let warm_for = Rc::clone(&cat);
     let warm_with = globals.clone();
 
@@ -505,6 +512,7 @@ pub(crate) fn Detail(cat: SelectedCat, globals: Shared, #[props(default)] extra:
     });
     let icon = icon_url(&pictures, &globals, &cat, form);
     let name = cat.display_name(form);
+    let name_size = header((narrow.narrow)());
     let level_input = (state.level_input)();
     let selected = Rc::new(Selected { cat: (*cat).clone(), stats: stats() });
 
@@ -525,7 +533,7 @@ pub(crate) fn Detail(cat: SelectedCat, globals: Shared, #[props(default)] extra:
                         }
                     }
                     div { class: "info-box",
-                        NameBox { name: name.clone(), width: 123.0, height: 56.0, wrap_width: 145.0 }
+                        NameBox { name: name.clone(), width: name_size.0, height: name_size.1, wrap_width: name_size.2 }
                         div { class: "id-text weak", "ID: {cat.id:03}-{form + 1}" }
                         label { class: "level-row",
                             span { "Level:" }

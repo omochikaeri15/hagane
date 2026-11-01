@@ -42,7 +42,7 @@ const SLACK: f32 = 6.0;
 const FIRST_TALENT_FORM: usize = 2;
 
 const LEFT_WIDTH: f32 = roster_list::LIST_WIDTH + 16.0;
-const RIGHT_WIDTH: f32 = 220.0;
+const RIGHT_WIDTH: f32 = LEFT_WIDTH;
 const TOP_PAD: f32 = 10.0;
 const CARD_GAP: f32 = 10.0;
 const COLUMNS: usize = 5;
@@ -1127,9 +1127,9 @@ impl State {
         let named = roster.current().map_or("", |lineup| lineup.name.as_str());
         let delete = if self.deleting.is_set() { CONFIRM_SHORT_LABEL } else { "Delete" };
 
-        let actions = row![
-            button(theme::centered_text("New").size(NAME_SIZE)).width(Length::Fill).style(theme::success_button).on_press(Message::Create),
-            button(theme::centered_text(delete).size(NAME_SIZE)).width(Length::Fill).style(theme::danger_button).on_press(Message::Delete),
+        let actions = column![
+            button(theme::centered_text("New").size(NAME_SIZE).width(Length::Fill)).width(Length::Fill).style(theme::success_button).on_press(Message::Create),
+            button(theme::centered_text(delete).size(NAME_SIZE).width(Length::Fill)).width(Length::Fill).style(theme::danger_button).on_press(Message::Delete),
         ]
             .spacing(6);
 

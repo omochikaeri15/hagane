@@ -3,6 +3,8 @@ use std::rc::Rc;
 
 use dioxus::prelude::*;
 
+use crate::systems::turn;
+
 const MAX_FONT_SIZE: f32 = 22.0;
 const MIN_FONT_SIZE: f32 = 8.0;
 const FONT_STEP: f32 = 0.5;
@@ -10,6 +12,12 @@ const LINE_HEIGHT: f32 = 1.3;
 const MAX_LINES: f32 = 2.0;
 const UNBROKEN_LINES: f32 = 1.0;
 const SLACK: f32 = 0.5;
+const HEADER: (f32, f32, f32) = (123.0, 56.0, 145.0);
+const NARROW_HEADER: (f32, f32, f32) = (113.0, 56.0, 131.0);
+
+pub(crate) fn header(narrow: bool) -> (f32, f32, f32) {
+    if narrow { NARROW_HEADER } else { HEADER }
+}
 
 fn candidates() -> impl Iterator<Item = f32> {
     let steps = ((MAX_FONT_SIZE - MIN_FONT_SIZE) / FONT_STEP) as usize;
@@ -29,13 +37,16 @@ fn fits(size: f32, width: f32, height: f32, allowed: f32, wrap_width: f32) -> bo
 
 #[component]
 pub(crate) fn NameBox(name: String, width: f32, height: f32, wrap_width: f32) -> Element {
+    let turn = turn::turn();
     let mut size: Signal<Option<f32>> = use_signal(|| None);
     let mut seen = use_signal(String::new);
+    let mut fitted_for = use_signal(|| wrap_width);
     let probes: Rc<RefCell<Vec<(f32, MountedEvent)>>> = use_hook(|| Rc::new(RefCell::new(Vec::new())));
     let mut probed = use_signal(|| 0usize);
 
-    if *seen.peek() != name {
+    if *seen.peek() != name || *fitted_for.peek() != wrap_width {
         seen.set(name.clone());
+        fitted_for.set(wrap_width);
         size.set(None);
         probes.borrow_mut().clear();
     }
@@ -49,15 +60,16 @@ pub(crate) fn NameBox(name: String, width: f32, height: f32, wrap_width: f32) ->
         }
 
         let allowed = allowed_lines(&seen.peek());
+        let wrap_width = *fitted_for.peek();
         let held: Vec<(f32, MountedEvent)> = gathered.borrow().clone();
 
         spawn(async move {
             let mut chosen = MIN_FONT_SIZE;
 
             for (candidate, probe) in held {
-                if let Ok(rect) = probe.get_client_rect().await
-                    && fits(candidate, rect.size.width as f32, rect.size.height as f32, allowed, wrap_width)
-                {
+                let area = probe.get_client_rect().await.ok().map(|rect| turn.area(rect.origin.x, rect.origin.y, rect.size.width, rect.size.height));
+
+                if area.is_some_and(|area| fits(candidate, area.width as f32, area.height as f32, allowed, wrap_width)) {
                     chosen = candidate;
                     break;
                 }

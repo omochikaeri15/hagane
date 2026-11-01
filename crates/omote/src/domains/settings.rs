@@ -11,14 +11,14 @@ use kokoro::domains::settings::Settings as GameSettings;
 use kokoro::domains::settings::{ReplaySource, SidebarBehavior, lang};
 use kokoro::systems::treasure::{ARCS, Catalog, Config as TreasureConfig, FULL_PERCENT};
 
-use crate::app::remember_settings;
-use crate::platform::{LOGGING_KEY, LOGGING_ON, Platform};
+use crate::app::{Route, remember_settings};
+use crate::platform::{LOGGING_KEY, LOGGING_ON, Platform, URL_DOMAIN, URL_FOLLOWING, URL_TYPE_KEY};
 use crate::systems::animation::{self, Rigs};
 use crate::systems::catalog;
 use crate::systems::context::{self, Shared};
-use crate::systems::images;
 use crate::systems::library::Library;
-use crate::widget::{Tip, Toggle};
+use crate::systems::{images, turn};
+use crate::widget::{Drawer, Tip, Toggle, drawer};
 
 const CHAPTER_TITLES: [[&str; 3]; 3] = [
     ["Empire of Cats Ch. 1", "Empire of Cats Ch. 2", "Empire of Cats Ch. 3"],
@@ -34,6 +34,10 @@ enum Drag {
     Idle,
     Pressed { index: usize, last: f64 },
     Moving { index: usize, last: f64, carry: f64 },
+}
+
+fn dragging_now(drag: Signal<Drag>) -> bool {
+    *drag.peek() != Drag::Idle
 }
 
 fn dragged(drag: Drag) -> Option<usize> {
@@ -79,8 +83,10 @@ enum Tab {
 
 const TABS: [(Tab, &str); 6] = [(Tab::General, "General"), (Tab::Cats, "Cats"), (Tab::Enemies, "Enemies"), (Tab::Stages, "Stages"), (Tab::Sandbox, "Sandbox"), (Tab::About, "About")];
 const FULLSCREEN_HINT: &str = "Fills the whole screen with the app\nF11 switches this at any time";
+const LANDSCAPE_HINT: &str = "Turns the app sideways while the screen stands upright\nHold the device with its right side up";
 const LOGGING_HINT: &str = "Enables logs for easy debugging\nDisable to improve performance\nDevs may refuse to debug without logs";
 const LOGGING_OFF: &str = "off";
+const URL_TYPES: [(&str, &str); 2] = [(URL_DOMAIN, "Domain"), (URL_FOLLOWING, "Following")];
 const RELOAD_REQUIRED: &str = "!! Reload Required !!";
 const LOGGING_DETAIL: &str = "The Logging change applies the next time the page loads";
 
@@ -164,6 +170,7 @@ pub(crate) fn Settings() -> Element {
     let settings = context::settings();
     let globals = context::globals();
     let mut tab = use_signal(Tab::default);
+    let mut tabs_open = use_signal(|| false);
     let current = tab();
     let logging = use_context::<Logging>();
     let reload = (logging.chosen)() != logging.launched;
@@ -176,12 +183,17 @@ pub(crate) fn Settings() -> Element {
                     div { class: "detail", "{LOGGING_DETAIL}" }
                 }
             }
-            div { class: "settings-tabs",
-                for (which, label) in TABS {
-                    button {
-                        class: if current == which { "list-row filled selected settings-tab" } else { "list-row filled settings-tab" },
-                        onclick: move |_| tab.set(which),
-                        "{label}"
+            Drawer { open: tabs_open,
+                div { class: "settings-tabs",
+                    for (which, label) in TABS {
+                        button {
+                            class: if current == which { "list-row filled selected settings-tab" } else { "list-row filled settings-tab" },
+                            onclick: move |_| {
+                                tab.set(which);
+                                tabs_open.set(false);
+                            },
+                            "{label}"
+                        }
                     }
                 }
             }
@@ -234,8 +246,16 @@ fn General(platform: Platform, settings: Signal<GameSettings>, globals: Option<S
     let mut drag = use_signal(|| Drag::Idle);
     let mut working: Signal<Option<Vec<String>>> = use_signal(|| None);
     let fullscreen = (use_context::<Fullscreen>().0)();
+    let turn = turn::turn();
+    let drawers = drawer::drawers();
+    let landscape = turn.wanted();
     let mut logged = use_context::<Logging>().chosen;
     let logging = logged();
+    let navigator = use_navigator();
+    let route = use_route::<Route>();
+    let addressed = platform.host().has_address_bar();
+    let mut url_type = use_signal(|| platform.host().recall(URL_TYPE_KEY).filter(|kept| kept == URL_FOLLOWING).map_or(URL_DOMAIN, |_| URL_FOLLOWING));
+    let url_label = URL_TYPES.iter().find(|(key, _)| *key == url_type()).map_or(URL_TYPES[0].1, |(_, label)| label);
     let held = settings.read();
     let saved = held.general.language_priority.clone();
     let priority = working.read().clone().unwrap_or_else(|| saved.clone());
@@ -244,7 +264,7 @@ fn General(platform: Platform, settings: Signal<GameSettings>, globals: Option<S
     let pictures_reset = pictures.clone();
     let rigs_reset = rigs.clone();
     let dragging = dragged(drag());
-    let mut release = {
+    let release = {
         let platform = platform.clone();
         let pictures = pictures.clone();
         let rigs = rigs.clone();
@@ -260,33 +280,62 @@ fn General(platform: Platform, settings: Signal<GameSettings>, globals: Option<S
         }
     };
     let mut release_up = release.clone();
+    let mut release_cancel = release.clone();
+    let mut follow = move |x: f64, y: f64| {
+        let (_, y) = turn.point(x, y);
+
+        match drag() {
+            Drag::Idle => {}
+            Drag::Pressed { index, last: _ } => drag.set(Drag::Moving { index, last: y, carry: 0.0 }),
+            Drag::Moving { index, last, carry: held } => {
+                let mut order = working.read().clone().unwrap_or_else(|| settings.read().general.language_priority.clone());
+                let (index, held) = carry(&mut order, index, held + (y - last));
+
+                working.set(Some(order));
+                drag.set(Drag::Moving { index, last: y, carry: held });
+            }
+        }
+    };
 
     rsx! {
         if dragging.is_some() {
             div {
                 class: "drag-scrim",
                 onpointermove: move |event| {
-                    let y = event.data().page_coordinates().y;
+                    let point = event.data().client_coordinates();
 
-                    match drag() {
-                        Drag::Idle => {}
-                        Drag::Pressed { index, last: _ } => drag.set(Drag::Moving { index, last: y, carry: 0.0 }),
-                        Drag::Moving { index, last, carry: held } => {
-                            let mut order = working.read().clone().unwrap_or_else(|| settings.read().general.language_priority.clone());
-                            let (index, held) = carry(&mut order, index, held + (y - last));
-
-                            working.set(Some(order));
-                            drag.set(Drag::Moving { index, last: y, carry: held });
-                        }
-                    }
+                    follow(point.x, point.y);
                 },
                 onpointerup: move |_| release_up(),
-                onpointercancel: move |_| release(),
+                onpointercancel: move |_| release_cancel(),
             }
         }
         div { class: "settings-sections",
             div { class: "settings-section",
                 div { class: "settings-heading", "System" }
+                if addressed {
+                    label { class: "setting-row inline",
+                        span { "URL Type" }
+                        select { class: "combo", value: "{url_label}",
+                            onchange: {
+                                let platform = platform.clone();
+
+                                move |event: FormEvent| {
+                                    let Some((key, _)) = URL_TYPES.iter().find(|(_, label)| *label == event.value()) else {
+                                        return;
+                                    };
+
+                                    platform.host().remember(URL_TYPE_KEY, key);
+                                    url_type.set(key);
+                                    navigator.replace(route.clone());
+                                }
+                            },
+                            for (key, label) in URL_TYPES {
+                                option { value: "{label}", selected: key == url_type(), "{label}" }
+                            }
+                        }
+                    }
+                }
                 Toggle {
                     value: fullscreen,
                     label: "Fullscreen",
@@ -300,6 +349,18 @@ fn General(platform: Platform, settings: Signal<GameSettings>, globals: Option<S
                             }
                         }
                     },
+                }
+                div { class: "touch-only",
+                    Toggle {
+                        value: landscape,
+                        label: "Landscape Mode",
+                        hint: LANDSCAPE_HINT.to_owned(),
+                        onchange: {
+                            let platform = platform.clone();
+
+                            move |value: bool| turn.want(&platform, value)
+                        },
+                    }
                 }
                 Toggle {
                     value: logging,
@@ -330,15 +391,38 @@ fn General(platform: Platform, settings: Signal<GameSettings>, globals: Option<S
                                 _ => "language-label",
                             };
                             let row_class = if dragging == Some(index) { "language-row dragging" } else { "language-row" };
+                            let mut lifted = release.clone();
+                            let mut dropped = release.clone();
 
                             rsx! {
                                 div { key: "{code}", class: "{row_class}",
                                     span {
                                         class: "drag-handle symbols",
                                         onpointerdown: move |event| {
+                                            let point = event.data().client_coordinates();
+                                            let (_, y) = turn.point(point.x, point.y);
+
                                             event.prevent_default();
+                                            drawers.claim(event.data().pointer_id());
                                             working.set(Some(settings.read().general.language_priority.clone()));
-                                            drag.set(Drag::Pressed { index, last: event.data().page_coordinates().y });
+                                            drag.set(Drag::Pressed { index, last: y });
+                                        },
+                                        onpointermove: move |event| {
+                                            if dragging_now(drag) {
+                                                let point = event.data().client_coordinates();
+
+                                                follow(point.x, point.y);
+                                            }
+                                        },
+                                        onpointerup: move |_| {
+                                            if dragging_now(drag) {
+                                                lifted();
+                                            }
+                                        },
+                                        onpointercancel: move |_| {
+                                            if dragging_now(drag) {
+                                                dropped();
+                                            }
                                         },
                                         "\u{2630}"
                                     }
@@ -650,7 +734,7 @@ fn SandboxTab(platform: Platform, settings: Signal<GameSettings>) -> Element {
             div { class: "settings-section",
                 div { class: "settings-heading", "Replay" }
                 label { class: "setting-row inline",
-                    Tip { text: REPLAY_SOURCE_HINT, span { "Replay Source" } }
+                    Tip { text: REPLAY_SOURCE_HINT, hover: true, span { "Replay Source" } }
                     select { class: "combo", value: "{replay_source}",
                         onchange: move |event| {
                             if let Some(picked) = ReplaySource::ALL.into_iter().find(|source| source.to_string() == event.value()) {

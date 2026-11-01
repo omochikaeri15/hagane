@@ -20,7 +20,8 @@ use crate::platform::{Picture, Platform};
 use crate::systems::context::{self, Shared};
 use crate::systems::images::{self, Pictures};
 use crate::systems::picture::Pic;
-use crate::widget::RowList;
+use crate::systems::turn;
+use crate::widget::{Drawer, RowList, drawer};
 
 use super::orbs::{self, Book, Shelf};
 use super::state::{self, SandboxState};
@@ -47,6 +48,7 @@ const UNIT_WIDTH: f32 = 760.0;
 const ORB_WIDTH: f32 = 310.0;
 const CONFIRM_MS: u32 = 2000;
 const CONFIRM_LABEL: &str = "Sure?";
+const TOUCH: &str = "touch";
 
 #[derive(Clone, Copy, PartialEq)]
 struct Metrics {
@@ -133,7 +135,7 @@ enum Landing {
 enum Drag {
     #[default]
     Idle,
-    Pressed { cargo: Cargo, since: f64, from: (f64, f64) },
+    Pressed { cargo: Cargo, since: f64, from: (f64, f64), touch: bool },
     Moving { cargo: Cargo, lifted: Option<Cell>, at: (f64, f64), landing: Landing },
 }
 
@@ -293,6 +295,10 @@ pub(crate) fn Editor(cats: Cats, globals: Shared, rules: Ruled, altar: Option<u3
     let mut deck_mount: Signal<Option<MountedEvent>> = use_signal(|| None);
     let mut area = use_signal(|| (0f32, 0f32));
     let mut clicked: Signal<Option<(Cell, f64)>> = use_signal(|| None);
+    let mut roster_open = use_signal(|| false);
+    let mut saved_open = use_signal(|| false);
+    let drawers = drawer::drawers();
+    let turn = turn::turn();
     let shared = globals.clone();
     let shelf = use_memo(use_reactive!(|shared| Shelf(Rc::new(Book::load(&shared)))));
     let shelf = shelf();
@@ -354,7 +360,9 @@ pub(crate) fn Editor(cats: Cats, globals: Shared, rules: Ruled, altar: Option<u3
         if let Some(mounted) = deck_mount.peek().clone() {
             spawn(async move {
                 if let Ok(rect) = mounted.get_client_rect().await {
-                    deck_origin.set(Some((rect.origin.x, rect.origin.y)));
+                    let area = turn.area(rect.origin.x, rect.origin.y, rect.size.width, rect.size.height);
+
+                    deck_origin.set(Some((area.x, area.y)));
                 }
             });
         }
@@ -362,11 +370,11 @@ pub(crate) fn Editor(cats: Cats, globals: Shared, rules: Ruled, altar: Option<u3
     let press = {
         let platform = platform.clone();
 
-        move |cargo: Cargo, at: (f64, f64)| {
+        move |cargo: Cargo, at: (f64, f64), touch: bool| {
             let now = platform.host().now();
 
             refresh_deck();
-            drag.set(Drag::Pressed { cargo, since: now, from: at });
+            drag.set(Drag::Pressed { cargo, since: now, from: at, touch });
         }
     };
     let moved = {
@@ -382,10 +390,16 @@ pub(crate) fn Editor(cats: Cats, globals: Shared, rules: Ruled, altar: Option<u3
             let lineup = held.roster.current();
             let origin = *deck_origin.peek();
             let next = match *drag.peek() {
-                Drag::Pressed { cargo, since, from } => {
-                    let strayed = (at.0 - from.0).abs() > SLACK || (at.1 - from.1).abs() > SLACK;
+                Drag::Pressed { cargo, since, from, touch } => {
+                    let (across, down) = ((at.0 - from.0).abs(), (at.1 - from.1).abs());
+                    let strayed = across > SLACK || down > SLACK;
+                    let scrolling = touch && matches!(cargo, Cargo::Fresh(_));
 
-                    if strayed || now - since >= RIPE_MS {
+                    if scrolling && down > SLACK && down >= across {
+                        plan_held.set(None);
+
+                        Drag::Idle
+                    } else if (scrolling && across > SLACK) || (!scrolling && (strayed || now - since >= RIPE_MS)) {
                         let landing = landing(at, origin, metrics);
                         let lifted = match cargo {
                             Cargo::Held(cell) => Some(cell),
@@ -394,9 +408,13 @@ pub(crate) fn Editor(cats: Cats, globals: Shared, rules: Ruled, altar: Option<u3
 
                         plan_held.set(plan(lifted, landing, lineup));
 
+                        if matches!(cargo, Cargo::Fresh(_)) {
+                            roster_open.set(false);
+                        }
+
                         Drag::Moving { cargo, lifted, at, landing }
                     } else {
-                        Drag::Pressed { cargo, since, from }
+                        Drag::Pressed { cargo, since, from, touch }
                     }
                 }
                 Drag::Moving { cargo, lifted, landing: before, .. } => {
@@ -532,15 +550,16 @@ pub(crate) fn Editor(cats: Cats, globals: Shared, rules: Ruled, altar: Option<u3
                     }
 
                     event.prevent_default();
+                    drawers.claim(event.data().pointer_id());
                     let point = event.data().client_coordinates();
 
-                    press(Cargo::Held(cell), (point.x, point.y));
+                    press(Cargo::Held(cell), turn.point(point.x, point.y), event.data().pointer_type() == TOUCH);
                 },
                 onpointermove: move |event| {
                     if *drag.peek() != Drag::Idle {
                         let point = event.data().client_coordinates();
 
-                        moved.call((point.x, point.y));
+                        moved.call(turn.point(point.x, point.y));
                     }
                 },
                 onpointerup: move |_| {
@@ -635,7 +654,7 @@ pub(crate) fn Editor(cats: Cats, globals: Shared, rules: Ruled, altar: Option<u3
                     onpointermove: move |event| {
                         let point = event.data().client_coordinates();
 
-                        moved.call((point.x, point.y));
+                        moved.call(turn.point(point.x, point.y));
                     },
                     onpointerup: move |_| released.call(()),
                     onpointercancel: move |_| cancelled.call(()),
@@ -649,7 +668,9 @@ pub(crate) fn Editor(cats: Cats, globals: Shared, rules: Ruled, altar: Option<u3
                     }
                 }
             }
-            SandboxRoster { cats: cats.clone(), banner_form, filter_class: filter_class.to_owned(), onpress: Callback::new(move |(id, at): (u32, (f64, f64))| press_row(Cargo::Fresh(id), at)), onmove: moved, onrelease: released, oncancel: cancelled, onsearch: Callback::new(move |query: String| { let sandbox = roster_tools.sandbox; state::apply(&roster_tools.platform, sandbox, |next| next.search_query = query); }) }
+            Drawer { open: roster_open,
+                SandboxRoster { cats: cats.clone(), banner_form, filter_class: filter_class.to_owned(), onpress: Callback::new(move |(id, at, touch): (u32, (f64, f64), bool)| press_row(Cargo::Fresh(id), at, touch)), onmove: moved, onrelease: released, oncancel: cancelled, onsearch: Callback::new(move |query: String| { let sandbox = roster_tools.sandbox; state::apply(&roster_tools.platform, sandbox, |next| next.search_query = query); }) }
+            }
             div {
                 class: "lineup-center",
                 onresize: move |event| {
@@ -657,6 +678,10 @@ pub(crate) fn Editor(cats: Cats, globals: Shared, rules: Ruled, altar: Option<u3
                         area.set((size.width as f32, size.height as f32));
                     }
                 },
+                div { class: "lineup-bar",
+                    span { class: "lineup-name", "{named}" }
+                    button { class: "btn btn-neutral lineup-saved-btn", onclick: move |_| saved_open.toggle(), "Lineups" }
+                }
                 div {
                     class: "outlined-card deck-card",
                     style: "width: {metrics.deck_width()}px; height: {metrics.deck_height()}px; padding: {metrics.pad}px;",
@@ -684,7 +709,10 @@ pub(crate) fn Editor(cats: Cats, globals: Shared, rules: Ruled, altar: Option<u3
                 }
                 combos::Combos { cats: cats.clone(), globals: globals.clone(), rules: rules.clone(), lineup: combos::Held(Rc::clone(&lineup)), focus, onadopt }
             }
-            div { class: "list-panel-right saved-panel",
+            if saved_open() {
+                div { class: "drawer-scrim", onclick: move |_| saved_open.set(false) }
+            }
+            div { class: if saved_open() { "list-panel-right saved-panel shown" } else { "list-panel-right saved-panel" },
                 div { class: "saved-actions",
                     button { class: "btn btn-success saved-btn", onclick: move |_| {
                         create_tools.roster(Roster::create);
@@ -734,6 +762,7 @@ pub(crate) fn Editor(cats: Cats, globals: Shared, rules: Ruled, altar: Option<u3
                                     deleting.set(false);
                                     editing.set(None);
                                     orb_slot.set(None);
+                                    saved_open.set(false);
                                 },
                                     span { class: "saved-name", "{name}" }
                                     span { class: "weak saved-count", "{count}/{LINEUP_SLOTS}" }
@@ -760,7 +789,7 @@ fn SandboxRoster(
     cats: Cats,
     banner_form: usize,
     filter_class: String,
-    onpress: Callback<(u32, (f64, f64))>,
+    onpress: Callback<(u32, (f64, f64), bool)>,
     onmove: Callback<(f64, f64)>,
     onrelease: Callback<()>,
     oncancel: Callback<()>,
@@ -818,11 +847,13 @@ fn SandboxRoster(
 }
 
 #[component]
-fn RosterRow(id: u32, path: Option<PathBuf>, onpress: Callback<(u32, (f64, f64))>, onmove: Callback<(f64, f64)>, onrelease: Callback<()>, oncancel: Callback<()>) -> Element {
+fn RosterRow(id: u32, path: Option<PathBuf>, onpress: Callback<(u32, (f64, f64), bool)>, onmove: Callback<(f64, f64)>, onrelease: Callback<()>, oncancel: Callback<()>) -> Element {
     let pictures = images::pictures();
     let banner = path.as_ref().and_then(|path| pictures.banner(Picture::CatBanner, path));
     let wanted = path.as_ref().and_then(|path| Pictures::banner_key(&Picture::CatBanner, path));
     let forget = pictures.clone();
+    let drawers = drawer::drawers();
+    let turn = turn::turn();
 
     use_drop(move || {
         if let Some(key) = &wanted {
@@ -839,14 +870,15 @@ fn RosterRow(id: u32, path: Option<PathBuf>, onpress: Callback<(u32, (f64, f64))
                 }
 
                 event.prevent_default();
+                drawers.claim(event.data().pointer_id());
                 let point = event.data().client_coordinates();
 
-                onpress.call((id, (point.x, point.y)));
+                onpress.call((id, turn.point(point.x, point.y), event.data().pointer_type() == TOUCH));
             },
             onpointermove: move |event| {
                 let point = event.data().client_coordinates();
 
-                onmove.call((point.x, point.y));
+                onmove.call(turn.point(point.x, point.y));
             },
             onpointerup: move |_| onrelease.call(()),
             onpointercancel: move |_| oncancel.call(()),

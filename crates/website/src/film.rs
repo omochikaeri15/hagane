@@ -32,6 +32,10 @@ const AAC_BITRATE: u32 = 192_000;
 const OPUS: &str = "opus";
 const OPUS_BITRATE: u32 = 160_000;
 const QUALITY_MODE: u32 = 50;
+const START_CODE: [u8; 4] = [0, 0, 0, 1];
+const NAL_TYPE: u8 = 0x1f;
+const SPS: u8 = 7;
+const PPS: u8 = 8;
 const LOWEST_BPP: f64 = 0.002;
 const HIGHEST_BPP: f64 = 0.15;
 const PROFILES: [&str; 4] = ["42e0", "4200", "4d40", "6400"];
@@ -613,8 +617,75 @@ async fn encode_audio(config: &Object, samples: &[Vec<f32>; 2], wiring: &Wiring,
     Ok(std::mem::take(&mut *chunks.borrow_mut()))
 }
 
-fn mux(width: u32, height: u32, sound: &Sound, video: Vec<Chunk>, audio: Vec<Chunk>) -> Result<Vec<u8>, String> {
+fn units(data: &[u8]) -> Vec<&[u8]> {
+    let starts: Vec<(usize, usize)> = data
+        .windows(3)
+        .enumerate()
+        .filter(|(_, window)| *window == [0, 0, 1])
+        .map(|(at, _)| (if at > 0 && data.get(at - 1) == Some(&0) { at - 1 } else { at }, at + 3))
+        .collect();
+
+    starts
+        .iter()
+        .enumerate()
+        .filter_map(|(index, &(_, payload))| data.get(payload..starts.get(index + 1).map_or(data.len(), |next| next.0)))
+        .collect()
+}
+
+fn kind(unit: &[u8]) -> Option<u8> {
+    unit.first().map(|head| head & NAL_TYPE)
+}
+
+fn parameter_set(unit: &[u8]) -> bool {
+    matches!(kind(unit), Some(SPS | PPS))
+}
+
+fn steady(video: &mut [Chunk]) {
+    let Some(first) = video.iter().find(|chunk| chunk.key) else {
+        return;
+    };
+    let opening = units(&first.data);
+    let sets: Vec<Vec<u8>> = [SPS, PPS].iter().filter_map(|wanted| opening.iter().rev().find(|unit| kind(unit) == Some(*wanted)).map(|unit| unit.to_vec())).collect();
+
+    if sets.is_empty() {
+        return;
+    }
+
+    for chunk in video.iter_mut().filter(|chunk| chunk.key) {
+        let parts = units(&chunk.data);
+
+        if !parts.iter().any(|unit| parameter_set(unit)) {
+            continue;
+        }
+
+        let mut rebuilt = Vec::with_capacity(chunk.data.len());
+        let mut placed = false;
+
+        for unit in parts {
+            if parameter_set(unit) {
+                if !std::mem::replace(&mut placed, true) {
+                    for set in &sets {
+                        rebuilt.extend_from_slice(&START_CODE);
+                        rebuilt.extend_from_slice(set);
+                    }
+                }
+
+                continue;
+            }
+
+            rebuilt.extend_from_slice(&START_CODE);
+            rebuilt.extend_from_slice(unit);
+        }
+
+        chunk.data = rebuilt;
+    }
+}
+
+fn mux(width: u32, height: u32, sound: &Sound, mut video: Vec<Chunk>, audio: Vec<Chunk>) -> Result<Vec<u8>, String> {
     let sink = Sink::default();
+
+    steady(&mut video);
+
     let codec = match sound {
         Sound::Aac => AudioCodec::Aac(AacProfile::Lc),
         Sound::Opus => AudioCodec::Opus,

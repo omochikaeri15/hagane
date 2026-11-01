@@ -16,6 +16,9 @@ use kokoro::domains::stage::scanner::StageBundle;
 
 pub const LOGGING_KEY: &str = "logging";
 pub const LOGGING_ON: &str = "on";
+pub const URL_TYPE_KEY: &str = "url-type";
+pub const URL_DOMAIN: &str = "domain";
+pub const URL_FOLLOWING: &str = "following";
 
 pub type Pending<T> = Pin<Box<dyn Future<Output = T>>>;
 pub type Bytes = Arc<[u8]>;
@@ -135,6 +138,7 @@ pub trait Host {
     fn font(&self, script: Script) -> Pending<Result<Bytes, Fault>>;
     fn download(&self, name: &str, mime: &str, bytes: Bytes);
     fn can_copy(&self) -> bool;
+    fn has_address_bar(&self) -> bool;
     fn copy_image(&self, png: Bytes) -> Pending<Result<(), Fault>>;
     fn copy_text(&self, text: &str) -> Pending<Result<(), Fault>>;
     fn capture_pointer(&self, element: &str, pointer: i32);

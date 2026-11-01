@@ -294,6 +294,7 @@ pub struct Standing {
     pub phase: Phase,
     pub covered: bool,
     pub surfaced: bool,
+    pub watching: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]

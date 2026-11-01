@@ -10,12 +10,13 @@ use kokoro::domains::stage::{Map, Stage, StageDataState, cost, files as stage_fi
 use crate::systems::context::Shared;
 use crate::systems::images;
 use crate::systems::picture::Pic;
-use crate::widget::{StatHeader, StatValue};
+use crate::widget::{FitWidth, StatHeader, StatValue, span};
 
 use super::state;
 
 const MAP_IMG_HEIGHT: f32 = 50.0;
 const STAGE_IMG_HEIGHT: f32 = 35.0;
+const STAT_COLUMNS: usize = 7;
 const CROWN_GLYPH: &str = "\u{1F732}";
 
 fn format_diff(difficulty: u16) -> String {
@@ -131,6 +132,7 @@ pub(crate) fn view(stage: &Stage, map: &Map, data: &StageDataState, globals: &Sh
             div { class: "section",
                 div { class: "section-title", "Information" }
                 div { class: "rule" }
+                FitWidth { natural: span(STAT_COLUMNS),
                 div { class: "stat-grid",
                     div { class: "stat-row",
                         StatHeader { label: hp_header }
@@ -168,6 +170,7 @@ pub(crate) fn view(stage: &Stage, map: &Map, data: &StageDataState, globals: &Sh
                         StatValue { header: "CPU Skip", value: skip }
                         StatValue { header: "Continues", value: format_bool(stage.is_no_continues, "No", "Yes") }
                     }
+                }
                 }
             }
         }

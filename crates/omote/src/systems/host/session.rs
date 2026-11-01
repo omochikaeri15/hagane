@@ -80,6 +80,8 @@ pub struct Session {
     stale: bool,
     again: bool,
     presented: bool,
+    held: Option<bool>,
+    primed: bool,
     warm: bool,
     reel: Option<Footage>,
     recording: bool,
@@ -110,6 +112,8 @@ impl Session {
             stale: false,
             again: false,
             presented: false,
+            held: None,
+            primed: false,
             warm: true,
             reel: None,
             recording: true,
@@ -207,6 +211,9 @@ impl Session {
         self.swept = self.started;
         self.entered = false;
         self.failure = None;
+        self.presented = false;
+        self.held = Some(false);
+        self.primed = false;
     }
 
     pub fn forget_assets(&mut self) {
@@ -341,6 +348,26 @@ impl Session {
             }
             Phase::Running => self.pace(now),
             Phase::Covering => {
+                if let Some(posted) = self.held {
+                    let waited = now - self.started;
+
+                    if !self.presented && waited < PRESENT_PATIENCE_MS {
+                        if !posted {
+                            self.held = Some(true);
+                            self.driver.draw_curtain(self.sweep);
+                        }
+
+                        return !posted;
+                    }
+
+                    if !self.presented {
+                        warn!(ms = waited as u32, "emu: the first curtain frame never reached the screen; closing it anyway");
+                    }
+
+                    self.held = None;
+                    self.swept = now;
+                }
+
                 self.paced(now);
                 self.sweep = self.sweep.min(CLOSED_FRAME);
 
@@ -365,7 +392,18 @@ impl Session {
                         return false;
                     }
 
-                    warn!(ms = waited as u32, "emu: the closed curtain never reached the screen; loading the battle anyway");
+                    if self.primed {
+                        warn!(ms = waited as u32, "emu: the first battle frame never reached the screen; running anyway");
+                    } else {
+                        warn!(ms = waited as u32, "emu: the closed curtain never reached the screen; loading the battle anyway");
+                    }
+                }
+
+                if std::mem::take(&mut self.primed) {
+                    self.phase = Phase::Running;
+                    self.due = None;
+
+                    return false;
                 }
 
                 if !self.warm {
@@ -406,8 +444,13 @@ impl Session {
                 trace!(entered = self.entered, ms = (self.clock.now_ms() - mark) as u32, failure = ?self.failure, "emu: battle load finished");
 
                 if self.entered {
-                    self.phase = Phase::Running;
-                    self.due = None;
+                    self.step();
+
+                    if self.phase == Phase::Loading {
+                        self.primed = true;
+                        self.presented = false;
+                        self.started = self.clock.now_ms();
+                    }
                 } else {
                     self.phase = Phase::Leaving;
                     self.started = self.clock.now_ms();

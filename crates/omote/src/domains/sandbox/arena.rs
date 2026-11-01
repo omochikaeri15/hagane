@@ -13,11 +13,13 @@ use kokoro::domains::sandbox::keybind::Bind;
 use crate::host::{Action, Bounds, Canvas, Diagnostics, Phase, Touch};
 use crate::platform::Platform;
 use crate::platform::battle::{BattleCommand, BattleEvent, Filmed, Filming, Recorded, Standing};
-use crate::systems::context;
+use crate::systems::{context, turn};
+use crate::widget::drawer;
 
 use super::state::{self, Device, Volume};
 
 const CANVAS_ID: &str = "battle-canvas";
+const TOUCH: &str = "touch";
 const SPEED_UP_ITEM: i32 = 0;
 const CAT_CPU_ITEM: i32 = 3;
 const SNIPER_ITEM: i32 = 5;
@@ -31,6 +33,8 @@ const STATUS_MS: u32 = 2000;
 const CUT_MS: u32 = 3000;
 const ENDED_MS: u32 = 2000;
 const SETTLED_MS: u32 = 3000;
+const LEAVE_HOLD_MS: u32 = 2000;
+const LEAVE_HINT: &str = "Hold to Exit";
 const BUNDLE_NAME: &str = "Replay.bcv";
 const BUNDLE_MIME: &str = "application/octet-stream";
 const DONE_LABEL: &str = "Done";
@@ -228,7 +232,7 @@ impl Battle {
 
 pub(crate) fn provide(platform: &Platform) -> Battle {
     let battle = use_context_provider(|| Battle {
-        standing: Signal::new(Standing { phase: Phase::Idle, covered: false, surfaced: false }),
+        standing: Signal::new(Standing { phase: Phase::Idle, covered: false, surfaced: false, watching: false }),
         failure: Signal::new(None),
         status: Signal::new(None),
         warming: Signal::new(None),
@@ -346,8 +350,12 @@ pub(crate) fn Arena() -> Element {
     let sandbox = state::state();
     let battle = battle();
     let mut size = use_signal(|| (0f32, 0f32));
-    let mut pressed = use_signal(|| false);
+    let mut fingers: Signal<[Option<i32>; 2]> = use_signal(|| [None, None]);
+    let mut leaving: Signal<Option<(i32, u32)>> = use_signal(|| None);
+    let mut leave_round = use_signal(|| 0u32);
     let mut tapped: Signal<Option<f64>> = use_signal(|| None);
+    let drawers = drawer::drawers();
+    let turn = turn::turn();
     let detacher = platform.clone();
 
     use_drop(move || detacher.host().battle_canvas(""));
@@ -388,6 +396,7 @@ pub(crate) fn Arena() -> Element {
 
     let frozen = standing.phase == Phase::Faulted;
     let covered = standing.covered;
+    let watching = standing.watching && standing.phase == Phase::Running;
     let held = sandbox.read();
     let canvas = Canvas { surfaced: standing.surfaced, scale: held.render_scale(), padded: held.padded() };
 
@@ -405,6 +414,21 @@ pub(crate) fn Arena() -> Element {
 
         (x.clamp(0.0, bounds.width).round() as i32, y.clamp(0.0, bounds.height).round() as i32)
     };
+    let mut stay = move |pointer: i32| {
+        if leaving.peek().is_some_and(|(held, _)| held == pointer) {
+            leaving.set(None);
+        }
+    };
+    let mut lift = move |pointer: i32| -> Option<Touch> {
+        stay(pointer);
+
+        let mut held = fingers.write();
+        let slot = held.iter().position(|finger| *finger == Some(pointer))?;
+
+        held[slot] = None;
+
+        Some(if slot == 0 { Touch::Released } else { Touch::SecondReleased })
+    };
     let toucher = platform.clone();
     let touch = move |touch: Touch| toucher.host().battle(BattleCommand::Touches(vec![touch]));
     let touch_down = touch.clone();
@@ -413,6 +437,7 @@ pub(crate) fn Arena() -> Element {
     let touch_cancel = touch.clone();
     let touch_lost = touch.clone();
     let capturer = platform.clone();
+    let leaver = platform.clone();
     let keyer = platform.clone();
     let mut key = move |key: &Key, pressed_now: bool, repeat: bool| {
         let Some(name) = key_name(key) else {
@@ -486,6 +511,7 @@ pub(crate) fn Arena() -> Element {
                 (false, false) => "battle-layer",
             },
             tabindex: "0",
+            onpointerdown: move |event| drawers.claim(event.data().pointer_id()),
             onmounted: move |event| {
                 let platform = sizer.clone();
 
@@ -493,8 +519,10 @@ pub(crate) fn Arena() -> Element {
 
                 spawn(async move {
                     if let Ok(rect) = event.data().get_client_rect().await {
-                        size.set((rect.size.width as f32, rect.size.height as f32));
-                        platform.host().battle(BattleCommand::Resize(rect.size.width as f32, rect.size.height as f32));
+                        let area = turn.area(rect.origin.x, rect.origin.y, rect.size.width, rect.size.height);
+
+                        size.set((area.width as f32, area.height as f32));
+                        platform.host().battle(BattleCommand::Resize(area.width as f32, area.height as f32));
                     }
                 });
             },
@@ -518,48 +546,82 @@ pub(crate) fn Arena() -> Element {
                 onmounted: move |_| attacher.host().battle_canvas(CANVAS_ID),
                 oncontextmenu: move |event| event.prevent_default(),
                 onpointerdown: move |event| {
-                    if covered || frozen || event.data().trigger_button() != Some(MouseButton::Primary) {
+                    let data = event.data();
+
+                    if covered || frozen || data.trigger_button() != Some(MouseButton::Primary) {
                         return;
                     }
 
-                    let point = event.data().element_coordinates();
+                    if watching && data.pointer_type() == TOUCH && leaving.peek().is_none() {
+                        let pointer = data.pointer_id();
+                        let round = *leave_round.peek() + 1;
+                        let leaver = leaver.clone();
 
-                    if let Some((x, y)) = locate(point.x, point.y) {
-                        pressed.set(true);
-                        capturer.host().capture_pointer(CANVAS_ID, event.data().pointer_id());
-                        touch_down(Touch::Pressed { x, y });
+                        leave_round.set(round);
+                        leaving.set(Some((pointer, round)));
+                        battle.notify(&leaver, LEAVE_HINT.to_owned());
+
+                        spawn(async move {
+                            leaver.host().sleep(LEAVE_HOLD_MS).await;
+
+                            if *leaving.peek() == Some((pointer, round)) {
+                                leaving.set(None);
+                                leaver.host().battle(BattleCommand::Stop);
+                            }
+                        });
                     }
+
+                    let pointer = data.pointer_id();
+                    let slot = match *fingers.peek() {
+                        [None, _] => 0,
+                        [Some(_), None] if data.pointer_type() == TOUCH => 1,
+                        _ => return,
+                    };
+                    let point = data.element_coordinates();
+                    let Some((x, y)) = locate(point.x, point.y) else {
+                        return;
+                    };
+
+                    fingers.write()[slot] = Some(pointer);
+                    capturer.host().capture_pointer(CANVAS_ID, pointer);
+                    touch_down(if slot == 0 { Touch::Pressed { x, y } } else { Touch::SecondPressed { x, y } });
                 },
                 onpointermove: move |event| {
-                    let point = event.data().element_coordinates();
+                    let data = event.data();
+                    let point = data.element_coordinates();
+                    let pointer = data.pointer_id();
+                    let held = *fingers.peek();
 
-                    if pressed() {
+                    if held[0] == Some(pointer) {
                         let (x, y) = clamp(point.x, point.y);
 
                         touch_move(Touch::Moved { x, y });
-                    } else if !covered
+                    } else if held[1] == Some(pointer) {
+                        let (x, y) = clamp(point.x, point.y);
+
+                        touch_move(Touch::SecondMoved { x, y });
+                    } else if held[0].is_none()
+                        && data.pointer_type() != TOUCH
+                        && !covered
                         && !frozen
                         && let Some((x, y)) = locate(point.x, point.y)
                     {
                         touch_move(Touch::Moved { x, y });
                     }
                 },
-                onpointerup: move |_| {
-                    if pressed() {
-                        pressed.set(false);
-                        touch_up(Touch::Released);
+                onpointerup: move |event| {
+                    if let Some(lifted) = lift(event.data().pointer_id()) {
+                        touch_up(lifted);
                     }
                 },
-                onpointercancel: move |_| {
-                    if pressed() {
-                        pressed.set(false);
-                        touch_cancel(Touch::Released);
+                onpointercancel: move |event| {
+                    if let Some(lifted) = lift(event.data().pointer_id()) {
+                        touch_cancel(lifted);
                     }
                 },
-                onlostpointercapture: move |_| {
-                    if pressed() {
-                        pressed.set(false);
-                        touch_lost(Touch::Released);
+                onlostpointercapture: move |event| {
+                    if let Some(lifted) = lift(event.data().pointer_id()) {
+                        touch_lost(lifted);
                     }
                 },
                 onwheel: move |event| {

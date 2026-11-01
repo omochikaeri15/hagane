@@ -3,6 +3,7 @@ use tracing::warn;
 
 use crate::app::Route;
 use crate::platform::Platform;
+use crate::systems::turn;
 
 const REPO: &str = "https://github.com/omochikaeri15/battle-cats-complete";
 const SITE: &str = "https://omochikaeri.app";
@@ -18,6 +19,7 @@ pub(crate) fn Home() -> Element {
     let mut anchor: Signal<Option<MountedEvent>> = use_signal(|| None);
     let mut copied: Signal<Option<(f64, f64)>> = use_signal(|| None);
     let mut round = use_signal(|| 0u32);
+    let turn = turn::turn();
     let share = move |_| {
         let platform = platform.clone();
 
@@ -36,8 +38,10 @@ pub(crate) fn Home() -> Element {
             };
             let next = *round.peek() + 1;
 
+            let area = turn.area(rect.origin.x, rect.origin.y, rect.size.width, rect.size.height);
+
             round.set(next);
-            copied.set(Some((rect.origin.x + rect.size.width / 2.0, rect.origin.y - TIP_GAP)));
+            copied.set(Some((area.x + area.width / 2.0, area.y - TIP_GAP)));
             platform.host().sleep(COPIED_MS).await;
 
             if *round.peek() == next {
