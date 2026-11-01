@@ -367,6 +367,7 @@ pub(crate) fn Arena() -> Element {
 
         devicer.host().battle(BattleCommand::Phone(held.device == Device::Phone));
         devicer.host().battle(BattleCommand::Volumes(Volume::nearest(held.music_volume).percent(), Volume::nearest(held.effects_volume).percent()));
+        devicer.host().battle(BattleCommand::Lag(held.lag));
     });
 
     let standing = (battle.standing)();

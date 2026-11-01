@@ -13,6 +13,7 @@ use codex::chapter::Category;
 
 use crate::app::state::{SandboxScaling, SandboxDevice, SandboxPanel, SandboxState, SandboxVolume, QUALITY_RANGE, QUALITY_STEP};
 use crate::app::theme;
+use crate::systems::host::Lag;
 use crate::systems::treasure;
 use crate::widget::{combo_row, entry_row, hover_hint, list_row, section, smooth_scroll, toggle_row};
 
@@ -27,6 +28,7 @@ const QUALITY_WIDTH: f32 = 160.0;
 const QUALITY_SPACING: f32 = 10.0;
 const QUALITY_HINT: &str = "The resolution the battle is drawn at.\nLower draws fewer pixels, trading sharpness for speed on weaker hardware.\nThe Cycle Image Quality key steps through 15, 25, 35, 50, 70 and 100%, then back to 15%, mid-battle";
 const SCALING_HINT: &str = "How a battle drawn below 100% quality fills the window.\nStretch: scaled up to fill the window\nPad: shown at its drawn size in the middle of the window";
+const LAG_HINT: &str = "What the battle does when the hardware cannot draw it at full speed.\nCatch-up: keeps the battle at full speed and shows fewer frames\nSlowdown: shows every frame and slows the battle down, as the game does on a slow phone";
 const NATIVE_HINT: &str = "No scaling options for native game size";
 const NATIVE: &str = "Native";
 
@@ -144,6 +146,7 @@ pub enum Message {
     Formation(Formation),
     Quality(u8),
     Scaling(SandboxScaling),
+    Lag(Lag),
     Vibrate(bool),
     Treasure(treasure::Message),
     Tech(usize, String),
@@ -214,6 +217,7 @@ impl State {
             Message::Formation(formation) => options.two_rows = formation == Formation::Double,
             Message::Quality(quality) => options.image_quality = Some(quality),
             Message::Scaling(scaling) => options.scaling = Some(scaling),
+            Message::Lag(lag) => options.lag = Some(lag),
             Message::Vibrate(enabled) => options.vibrate = enabled,
             Message::Treasure(message) => self.treasure.update(message, &mut options.config.treasure),
             Message::Tech(index, entry) => {
@@ -373,6 +377,7 @@ impl State {
                         Some(Message::Device),
                     ),
                     scaling,
+                    combo_row("Lag", LAG_HINT, Lag::ALL, Some(options.lag()), Some(Message::Lag)),
                     row![
                         hover_hint(text("Quality"), QUALITY_HINT),
                         slider(QUALITY_RANGE, options.quality(), Message::Quality).step(QUALITY_STEP).width(Length::Fixed(QUALITY_WIDTH)),

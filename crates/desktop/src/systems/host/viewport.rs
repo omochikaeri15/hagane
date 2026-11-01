@@ -9,7 +9,8 @@ use iced::widget::shader;
 use iced::{Element, Rectangle, mouse};
 use tracing::{debug, trace};
 
-use crate::widget::cpu;
+use crate::app::timing::{self, Span};
+use crate::widget::{cpu, unseen};
 
 use super::assets::{Sheet, SheetCache};
 use super::input::{Touch, TouchQueue};
@@ -278,7 +279,13 @@ impl<Message> shader::Program<Message> for Viewport {
             };
         }
 
-        Scene { presented, ..paint(&frame, &self.sheets.borrow(), self.canvas, bounds) }
+        let started = Instant::now();
+        let scene = paint(&frame, &self.sheets.borrow(), self.canvas, bounds);
+
+        timing::record(Span::Paint, started.elapsed());
+        timing::frame((bounds.width * scene.scale).round() as u32, (bounds.height * scene.scale).round() as u32);
+
+        Scene { presented, ..scene }
     }
 
     fn update(
@@ -408,6 +415,8 @@ impl shader::Primitive for Scene {
 
         let spent = started.elapsed();
 
+        timing::record(Span::Prepare, spent);
+
         if uploaded > 0 || spent >= SLOW_PREPARE {
             let bytes: usize = self.uploads.iter().map(|(_, sheet)| sheet.pixels.len()).sum();
 
@@ -474,5 +483,5 @@ pub fn overlay<'a, Message: 'a>(
         frozen,
     });
 
-    iced::widget::stack![base, painted, above].into()
+    iced::widget::stack![unseen(base, active && surfaced), painted, above].into()
 }

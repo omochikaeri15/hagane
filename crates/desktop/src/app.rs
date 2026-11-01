@@ -49,6 +49,7 @@ mod notice;
 pub(crate) mod startup;
 pub mod state;
 pub(crate) mod theme;
+pub(crate) mod timing;
 mod updater;
 
 pub use theme::AppTheme;
@@ -579,7 +580,7 @@ impl BattleCatsApp {
 
         if self.sandbox_state.transitioning() {
             subs.push(
-                iced::time::every(std::time::Duration::from_millis(33))
+                iced::time::every(host::STEP_TIME)
                     .map(|_| Message::Sandbox(sandbox::Message::Tick)),
             );
         }
@@ -1910,6 +1911,8 @@ impl BattleCatsApp {
         let started = Instant::now();
         let composed = self.compose();
         let spent = started.elapsed();
+
+        timing::record(timing::Span::View, spent);
 
         if spent >= SLOW_PASS {
             warn!(ms = spent.as_millis(), page = ?self.current_page, "Slow view");

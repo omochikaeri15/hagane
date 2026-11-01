@@ -12,10 +12,11 @@ pub fn stage_stamina_cost(ctx: &mut AppContext, stage: i32, halve: u8) -> Result
     let mut cost = base;
 
     if chapter != 3 {
-        let bonus =
-            *CHAPTER_STAMINA_BONUS
-                .get(chapter as i64 as usize)
-                .ok_or(Fault::index_out_of_range(chapter as i64, 10))?;
+        let bonus = match CHAPTER_STAMINA_BONUS.get(chapter as i64 as usize) {
+            Some(bonus) => *bonus,
+            None if chapter == 0x63 => ctx.image_address_high,
+            None => return Err(Fault::index_out_of_range(chapter as i64, 10)),
+        };
 
         cost = base.wrapping_add(bonus);
 

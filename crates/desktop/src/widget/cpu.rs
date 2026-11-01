@@ -16,6 +16,8 @@ use image::RgbaImage;
 use rustc_hash::FxHasher;
 use tracing::{info, trace};
 
+use crate::app::timing::{self, Span};
+
 pub(crate) use raster::{Alpha, Vertex};
 
 static SOFTWARE: AtomicBool = AtomicBool::new(false);
@@ -169,6 +171,8 @@ where
 
             let spent = started.elapsed();
 
+            timing::record(Span::Raster, spent);
+
             if spent >= SLOW_RASTER {
                 trace!(width, height, scale, ms = spent.as_millis(), "software viewer frame was slow to rasterize");
             }
@@ -227,3 +231,5 @@ where
     ]
     .into()
 }
+
+

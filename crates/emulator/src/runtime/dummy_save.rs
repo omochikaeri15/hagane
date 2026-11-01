@@ -9,6 +9,7 @@ use crate::{
 use super::{CatGod, Setup, StageEntry, StageVariant, fill_dummy_lineup};
 
 const MEDAL_PROGRESS_CAP: i32 = 2_000_000_000;
+const IMAGE_ADDRESS_HIGH: i32 = 0x7f00;
 const POINT_CAP: i32 = 9_999_999;
 const LEGEND_TYPE: i32 = -8;
 const LEGEND_MAP_STRIDE: i64 = 0x30;
@@ -46,6 +47,8 @@ const AKU_EX_MAP: i32 = 0x2a;
 
 pub fn fill_dummy_save(ctx: &mut AppContext, setup: &Setup) -> Result<(), Fault> {
     let tutorial = &setup.tutorial;
+
+    ctx.image_address_high = IMAGE_ADDRESS_HIGH;
 
     for (seen, done) in [
         (AppContext::TUTORIAL_CLEARED, tutorial.battle_cleared),

@@ -7,7 +7,7 @@ use emulator::runtime::{BATTLE_ITEMS, BattleOptions, CatGod, PartLevels, Setup, 
 use kokoro::domains::sandbox::replay::Save;
 use kokoro::domains::settings::ReplaySource;
 
-use crate::host::{Action, Diagnostics, Frame, Phase, Touch};
+use crate::host::{Action, Diagnostics, Frame, Lag, Phase, Touch};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum VariantWire {
@@ -240,6 +240,7 @@ pub enum BattleCommand {
     Resize(f32, f32),
     Phone(bool),
     Volumes(i32, i32),
+    Lag(Lag),
     Presented,
     Diagnose(bool),
 }

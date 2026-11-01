@@ -372,6 +372,7 @@ pub(crate) fn command(engine: &Rc<Engine>, command: BattleCommand) {
         BattleCommand::Resize(width, height) => with(|arena| arena.session.resize(width, height)),
         BattleCommand::Phone(phone) => with(|arena| arena.session.set_phone(phone)),
         BattleCommand::Volumes(music, effects) => with(|arena| arena.session.retune(music, effects)),
+        BattleCommand::Lag(lag) => with(|arena| arena.session.set_lag(lag)),
         BattleCommand::Presented => with(|arena| arena.session.presented()),
         BattleCommand::Diagnose(on) => with(|arena| arena.diagnosing = on),
     }

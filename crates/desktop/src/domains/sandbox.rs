@@ -513,6 +513,7 @@ impl State {
         let session = self.session.get_or_insert_with(Session::new);
 
         session.set_phone(options.device == SandboxDevice::Phone);
+        session.set_lag(options.lag());
         session.resize(width, height);
         session.watch(reel, source);
         self.status = String::new();
@@ -540,6 +541,7 @@ impl State {
         session.label(label.unwrap_or_default());
         session.equip(setup);
         session.set_phone(options.device == SandboxDevice::Phone);
+        session.set_lag(options.lag());
         session.resize(width, height);
         session.configure(BattleOptions {
             music: SandboxVolume::nearest(options.music_volume).percent(),
@@ -746,6 +748,7 @@ impl State {
 
                 if let Some(session) = self.session.as_mut() {
                     session.set_phone(app_state.sandbox.device == SandboxDevice::Phone);
+                    session.set_lag(app_state.sandbox.lag());
                 }
 
                 self.retune(&app_state.sandbox);

@@ -5,6 +5,7 @@ use serde::{Deserialize, Serialize};
 
 use kokoro::domains::sandbox::{Config, Roster};
 
+use crate::host::Lag;
 use crate::platform::Platform;
 
 const STORAGE_KEY: &str = "sandbox";
@@ -127,6 +128,7 @@ pub(crate) struct SandboxState {
     pub(crate) device: Device,
     pub(crate) image_quality: Option<u8>,
     pub(crate) scaling: Option<Scaling>,
+    pub(crate) lag: Lag,
 }
 
 impl Default for SandboxState {
@@ -145,6 +147,7 @@ impl Default for SandboxState {
             device: Device::default(),
             image_quality: None,
             scaling: None,
+            lag: Lag::default(),
         }
     }
 }

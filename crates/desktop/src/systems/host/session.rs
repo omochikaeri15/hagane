@@ -1,8 +1,11 @@
 use std::cell::RefCell;
+use std::fmt;
 use std::path::PathBuf;
 use std::rc::Rc;
 use std::sync::atomic::Ordering;
 use std::time::{Duration, Instant};
+
+use serde::{Deserialize, Serialize};
 
 use emulator::runtime::BattleOptions;
 use kokoro::Vfs;
@@ -10,18 +13,23 @@ use kokoro::domains::sandbox::replay as tape;
 use kokoro::domains::settings::ReplaySource;
 use tracing::{trace, warn};
 
+use crate::app::timing::{self, Span};
+
 use super::diagnostics::Diagnostics;
 use super::driver::{Driver, Label};
 use super::assets::{DiskAssets, FileIndex, SheetCache};
 use super::input::TouchQueue;
 use super::keys::Action;
 use super::sink::Frame;
+use super::soundtrack::GAME_FPS;
 
 const BLACK_FROM: i32 = 0xb;
 pub(super) const CLOSED_FRAME: i32 = 0xc;
 const LAST_FRAME: i32 = 0x18;
 const FRAME_TIME: Duration = Duration::from_millis(33);
-const STEP_TIME: Duration = Duration::from_millis(30);
+pub(crate) const STEP_TIME: Duration = Duration::from_nanos(1_000_000_000 / GAME_FPS as u64);
+const HALF_STEP: Duration = Duration::from_nanos(500_000_000 / GAME_FPS as u64);
+const MOST_STEPS: u32 = 4;
 const PRESENT_PATIENCE: Duration = Duration::from_secs(2);
 const LATE_TICK: Duration = Duration::from_millis(250);
 const SLOW_STEP: Duration = Duration::from_millis(100);
@@ -53,6 +61,33 @@ pub(super) fn open(reel: &Reel) -> Result<Opened, String> {
     }
 }
 
+#[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub enum Lag {
+    CatchUp,
+    #[default]
+    Slowdown,
+}
+
+impl Lag {
+    pub(crate) const ALL: [Self; 2] = [Self::CatchUp, Self::Slowdown];
+
+    fn most_steps(self) -> u32 {
+        match self {
+            Self::CatchUp => MOST_STEPS,
+            Self::Slowdown => 1,
+        }
+    }
+}
+
+impl fmt::Display for Lag {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(match self {
+            Self::CatchUp => "Catch-up",
+            Self::Slowdown => "Slowdown",
+        })
+    }
+}
+
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub enum Reel {
     Latest,
@@ -79,7 +114,8 @@ pub struct Session {
     entered: bool,
     frozen: usize,
     discard: bool,
-    stepped: Instant,
+    due: Option<Instant>,
+    lag: Lag,
     failure: Option<String>,
     stale: bool,
     again: bool,
@@ -105,13 +141,18 @@ impl Session {
             entered: false,
             frozen: 0,
             discard: false,
-            stepped: Instant::now(),
+            due: None,
+            lag: Lag::default(),
             failure: None,
             reel: None,
             recording: true,
             cut: false,
             ticked: Instant::now(),
         }
+    }
+
+    pub fn set_lag(&mut self, lag: Lag) {
+        self.lag = lag;
     }
 
     pub fn set_recording(&mut self, recording: bool) {
@@ -237,6 +278,7 @@ impl Session {
         self.failure = None;
         self.entered = true;
         self.phase = Phase::Running;
+        self.due = None;
     }
 
     pub fn terminate(&mut self) {
@@ -303,11 +345,7 @@ impl Session {
                     }
                 }
             }
-            Phase::Running => {
-                if self.stepped.elapsed() >= STEP_TIME {
-                    self.step();
-                }
-            }
+            Phase::Running => self.pace(gap),
             Phase::Covering => {
                 self.sweep = elapsed.min(CLOSED_FRAME);
 
@@ -389,7 +427,8 @@ impl Session {
 
                 if self.entered {
                     self.phase = Phase::Running;
-                    self.stepped = Instant::now();
+                    self.due = None;
+                    self.ticked = Instant::now();
                 } else {
                     self.phase = Phase::Leaving;
                     self.started = Instant::now();
@@ -448,11 +487,37 @@ impl Session {
         self.frame.borrow().presented.shown.store(false, Ordering::Release);
     }
 
-    fn step(&mut self) {
-        self.stepped = Instant::now();
+    fn pace(&mut self, gap: Duration) {
+        timing::tick();
 
+        let now = Instant::now();
+        let Some(mut due) = self.due.or_else(|| (gap >= HALF_STEP).then_some(now)) else {
+            return;
+        };
+        let most = self.lag.most_steps();
+        let mut steps = 0;
+
+        while steps < most && self.phase == Phase::Running && now + HALF_STEP >= due {
+            self.step();
+            due += STEP_TIME;
+            steps += 1;
+        }
+
+        let behind = now + HALF_STEP >= due;
+
+        if behind && self.phase == Phase::Running && self.lag == Lag::CatchUp {
+            trace!(steps, "emu: the sandbox fell too far behind and let the missed frames go");
+        }
+
+        self.due = Some(if behind { now + STEP_TIME } else { due });
+    }
+
+    fn step(&mut self) {
+        let began = Instant::now();
         let advanced = self.driver.advance();
-        let spent = self.stepped.elapsed();
+        let spent = began.elapsed();
+
+        timing::record(Span::Step, spent);
 
         if spent >= SLOW_STEP {
             trace!(ms = spent.as_millis(), in_battle = self.driver.in_battle(), fading = self.driver.fading(), "emu: slow battle frame");

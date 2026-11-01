@@ -1,8 +1,12 @@
+mod lanes;
+
 use std::ops::Range;
 
 use rayon::prelude::*;
 
 const BAND_ROWS: usize = 16;
+const STRAIGHTEN_PIXELS: usize = 16_384;
+const SAFE_TEXELS: f32 = 4_194_304.0;
 const LUMA: [f32; 3] = [0.299, 0.587, 0.114];
 const TEXEL_SCALE: f32 = 1.0 / 255.0;
 const OPAQUE_TEXEL: [f32; 4] = [1.0; 4];
@@ -13,6 +17,18 @@ const ATTRIBUTES: usize = 10;
 const UV: usize = 0;
 const COLOR: usize = 2;
 const TINT: usize = 6;
+
+const UNITS: [f32; 256] = {
+    let mut units = [0.0; 256];
+    let mut value = 0;
+
+    while value < 256 {
+        units[value] = value as f32 * TEXEL_SCALE;
+        value += 1;
+    }
+
+    units
+};
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, bytemuck::Pod, bytemuck::Zeroable)]
 #[repr(C)]
@@ -53,6 +69,10 @@ impl Plane {
     fn at(&self, x: f32, y: f32) -> f32 {
         self.origin + self.dx * x + self.dy * y
     }
+
+    fn flat(&self) -> bool {
+        self.dx == 0.0 && self.dy == 0.0
+    }
 }
 
 struct Edge {
@@ -90,6 +110,20 @@ impl Edge {
     }
 }
 
+#[derive(Clone, Copy)]
+struct Shading {
+    mode: u8,
+    carried: bool,
+    tinted: bool,
+    color: Option<[f32; 4]>,
+}
+
+enum Paint {
+    Fill([u8; 4]),
+    Lookup(Box<[[u8; 256]; 4]>),
+    Shaded(Shading),
+}
+
 struct Triangle<'a> {
     edges: [Edge; 3],
     left: usize,
@@ -97,10 +131,8 @@ struct Triangle<'a> {
     top: usize,
     bottom: usize,
     attributes: [Plane; ATTRIBUTES],
-    tinted: bool,
     texture: Option<Texture<'a>>,
-    blend: u8,
-    alpha: Alpha,
+    paint: Paint,
 }
 
 fn plane(points: &[[f32; 2]; 3], values: [f32; 3], area: f32) -> Plane {
@@ -123,6 +155,58 @@ fn floor(value: f32) -> f32 {
     let truncated = value as i64 as f32;
 
     if truncated > value { truncated - 1.0 } else { truncated }
+}
+
+fn constant(attributes: &[Plane]) -> Option<[f32; 4]> {
+    let [red, green, blue, alpha] = attributes else {
+        return None;
+    };
+
+    [red, green, blue, alpha].iter().all(|plane| plane.flat()).then(|| [red, green, blue, alpha].map(|plane| plane.at(0.5, 0.5)))
+}
+
+fn lookup(source: [f32; 4], mode: u8, carried: bool) -> [[u8; 256]; 4] {
+    let mut table = [[0u8; 256]; 4];
+
+    for (value, unit) in UNITS.iter().enumerate() {
+        for channel in 0..3 {
+            table[channel][value] = unorm(mixed(mode, source[channel], *unit, source[channel], source[3]));
+        }
+
+        table[3][value] = if carried { value as u8 } else { unorm(mixed(mode, source[3], *unit, source[3], source[3])) };
+    }
+
+    table
+}
+
+fn painted(texture: Option<Texture<'_>>, attributes: &[Plane; ATTRIBUTES], tinted: bool, blend: u8, alpha: Alpha) -> Option<Paint> {
+    let mode = if blend <= 3 { blend } else { 0 };
+    let carried = alpha == Alpha::Carried && (1..=3).contains(&mode);
+    let color = constant(&attributes[COLOR..TINT]);
+    let shading = Shading { mode, carried, tinted, color };
+
+    if texture.is_some() {
+        return Some(Paint::Shaded(shading));
+    }
+
+    let tint = if tinted { constant(&attributes[TINT..]) } else { Some([0.0; 4]) };
+    let (Some(color), Some(tint)) = (color, tint) else {
+        return Some(Paint::Shaded(shading));
+    };
+
+    let shaded = if tinted { wash(OPAQUE_TEXEL, tint) } else { OPAQUE_TEXEL };
+    let source: [f32; 4] = std::array::from_fn(|channel| shaded[channel] * color[channel]);
+    let table = lookup(source, mode, carried);
+
+    if table.iter().all(|channel| channel.iter().enumerate().all(|(value, out)| usize::from(*out) == value)) {
+        return None;
+    }
+
+    if table.iter().all(|channel| channel.iter().all(|out| *out == channel[0])) {
+        return Some(Paint::Fill(table.map(|channel| channel[0])));
+    }
+
+    Some(Paint::Lookup(Box::new(table)))
 }
 
 impl<'a> Triangle<'a> {
@@ -160,6 +244,12 @@ impl<'a> Triangle<'a> {
         }
 
         let tinted = [a0, a1, a2].iter().any(|vertex| vertex.tint[3] != 0.0);
+        let attributes: [Plane; ATTRIBUTES] = {
+            let corners = [attributes(a0), attributes(a1), attributes(a2)];
+
+            std::array::from_fn(|index| plane(&points, [corners[0][index], corners[1][index], corners[2][index]], area))
+        };
+        let paint = painted(batch.texture, &attributes, tinted, batch.blend, batch.alpha)?;
 
         Some(Self {
             edges: [Edge::new(p1, p2), Edge::new(p2, p0), Edge::new(p0, p1)],
@@ -167,16 +257,31 @@ impl<'a> Triangle<'a> {
             right: high_x as usize,
             top: low_y as usize,
             bottom: high_y as usize,
-            attributes: {
-                let corners = [attributes(a0), attributes(a1), attributes(a2)];
-
-                std::array::from_fn(|index| plane(&points, [corners[0][index], corners[1][index], corners[2][index]], area))
-            },
-            tinted,
+            attributes,
             texture: batch.texture,
-            blend: batch.blend,
-            alpha: batch.alpha,
+            paint,
         })
+    }
+
+    fn covers(&self, column: usize, y: f32) -> bool {
+        let x = column as f32 + 0.5;
+
+        self.edges.iter().all(|edge| edge.covers(edge.at(x, y)))
+    }
+
+    fn span(&self, y: f32) -> Option<(usize, usize, usize)> {
+        let (low, high) = self.edges.iter().try_fold((f32::NEG_INFINITY, f32::INFINITY), |span, edge| edge.clip(y, span))?;
+
+        if low > high {
+            return None;
+        }
+
+        let start = ((low - 0.5).ceil() - 1.0).max(self.left as f32) as usize;
+        let end = ((high - 0.5).floor() + 2.0).min(self.right as f32).max(0.0) as usize;
+        let first = (start..end).find(|column| self.covers(*column, y))?;
+        let last = (first..end).rev().find(|column| self.covers(*column, y)).unwrap_or(first) + 1;
+
+        Some((start, first, last))
     }
 
     fn fill(&self, band: &mut [u8], first_row: usize, width: usize) {
@@ -186,89 +291,296 @@ impl<'a> Triangle<'a> {
 
         for row in top..bottom {
             let y = row as f32 + 0.5;
-            let Some((low, high)) = self.edges.iter().try_fold((f32::NEG_INFINITY, f32::INFINITY), |span, edge| edge.clip(y, span)) else {
+            let Some((start, first, last)) = self.span(y) else {
+                continue;
+            };
+            let line = &mut band[(row - first_row) * width * 4..(row - first_row + 1) * width * 4];
+            let Some(covered) = line.get_mut(first * 4..last * 4) else {
                 continue;
             };
 
-            if low > high {
+            match &self.paint {
+                Paint::Fill(bytes) => {
+                    for pixel in covered.as_chunks_mut::<4>().0 {
+                        *pixel = *bytes;
+                    }
+                }
+                Paint::Lookup(table) => {
+                    for pixel in covered.as_chunks_mut::<4>().0 {
+                        *pixel = [
+                            table[0][usize::from(pixel[0])],
+                            table[1][usize::from(pixel[1])],
+                            table[2][usize::from(pixel[2])],
+                            table[3][usize::from(pixel[3])],
+                        ];
+                    }
+                }
+                Paint::Shaded(shading) => {
+                    let origin = start as f32 + 0.5;
+                    let mut values = [0.0; ATTRIBUTES];
+
+                    for (value, plane) in values.iter_mut().zip(&self.attributes) {
+                        *value = plane.at(origin, y);
+                    }
+
+                    for _ in start..first {
+                        for (value, plane) in values.iter_mut().zip(&self.attributes) {
+                            *value += plane.dx;
+                        }
+                    }
+
+                    let pixels = covered.as_chunks_mut::<4>().0;
+
+                    match (shading.mode, self.texture) {
+                        (0, Some(texture)) => self.shade::<0, true>(pixels, values, Some(texture), *shading),
+                        (1, Some(texture)) => self.shade::<1, true>(pixels, values, Some(texture), *shading),
+                        (2, Some(texture)) => self.shade::<2, true>(pixels, values, Some(texture), *shading),
+                        (_, Some(texture)) => self.shade::<3, true>(pixels, values, Some(texture), *shading),
+                        (0, None) => self.shade::<0, false>(pixels, values, None, *shading),
+                        (1, None) => self.shade::<1, false>(pixels, values, None, *shading),
+                        (2, None) => self.shade::<2, false>(pixels, values, None, *shading),
+                        (_, None) => self.shade::<3, false>(pixels, values, None, *shading),
+                    }
+                }
+            }
+        }
+    }
+
+    #[inline(always)]
+    fn shade<const MODE: u8, const TEXTURED: bool>(&self, pixels: &mut [[u8; 4]], mut values: [f32; ATTRIBUTES], texture: Option<Texture<'_>>, shading: Shading) {
+        let mut steps = [0.0; ATTRIBUTES];
+
+        for (step, plane) in steps.iter_mut().zip(&self.attributes) {
+            *step = plane.dx;
+        }
+
+        let white = shading.color == Some([1.0; 4]);
+        let color = shading.color.map(lanes::gather);
+        let texture = texture.filter(|texture| TEXTURED && texture.width != 0 && texture.height != 0);
+        let fixed = texture.filter(|_| self.attributes[UV + 1].dx == 0.0).map(|texture| texture.rows(values[UV + 1]));
+
+        if let (Some(texture), Some(rows), Some(_), false) = (texture, fixed, shading.color, shading.tinted) {
+            sweep::<MODE>(pixels, values[UV], steps[UV], texture, rows, color.filter(|_| !white), shading.carried);
+
+            return;
+        }
+
+        let mut held: Option<Square> = None;
+
+        for pixel in pixels {
+            let current = values;
+
+            if TEXTURED {
+                values[UV] += steps[UV];
+                values[UV + 1] += steps[UV + 1];
+            }
+
+            if shading.color.is_none() {
+                for channel in COLOR..TINT {
+                    values[channel] += steps[channel];
+                }
+            }
+
+            if shading.tinted {
+                for channel in TINT..ATTRIBUTES {
+                    values[channel] += steps[channel];
+                }
+            }
+
+            let fetched = texture.and_then(|texture| {
+                let rows = fixed.unwrap_or_else(|| texture.rows(current[UV + 1]));
+                let (column, across) = texture.locate(current[UV]);
+
+                if held.as_ref().is_none_or(|square| (square.column, square.upper, square.lower) != (column, rows.upper, rows.lower)) {
+                    let words = texture.corners(rows, column);
+
+                    held = Some(Square { column, upper: rows.upper, lower: rows.lower, words, corners: lanes::corners(words) });
+                }
+
+                held.as_ref().filter(|square| square.words.iter().any(|word| *word != 0)).map(|square| (square.words, square.corners, across, rows.down))
+            });
+
+            if TEXTURED && MODE != MULTIPLY && fetched.is_none() {
                 continue;
             }
 
-            let start = ((low - 0.5).ceil() - 1.0).max(self.left as f32) as usize;
-            let end = ((high - 0.5).floor() + 2.0).min(self.right as f32).max(0.0) as usize;
-            let line = &mut band[(row - first_row) * width * 4..(row - first_row + 1) * width * 4];
-            let first = start as f32 + 0.5;
-            let mut values: [f32; ATTRIBUTES] = std::array::from_fn(|index| self.attributes[index].at(first, y));
+            if shading.tinted {
+                let texel = match fetched {
+                    Some((words, _, across, down)) => filtered(words, across, down),
+                    None if TEXTURED => [0.0; 4],
+                    None => OPAQUE_TEXEL,
+                };
 
-            for column in start..end {
-                let x = column as f32 + 0.5;
-                let current = values;
-
-                for (value, attribute) in values.iter_mut().zip(&self.attributes) {
-                    *value += attribute.dx;
-                }
-
-                if !self.edges.iter().all(|edge| edge.covers(edge.at(x, y))) {
+                if MODE != MULTIPLY && texel == [0.0; 4] {
                     continue;
                 }
 
-                let texel = self.texture.map_or(OPAQUE_TEXEL, |texture| sample(texture, current[UV], current[UV + 1]));
+                let shaded = wash(texel, [current[TINT], current[TINT + 1], current[TINT + 2], current[TINT + 3]]);
+                let tone = match shading.color {
+                    _ if white => [1.0; 4],
+                    Some(color) => color,
+                    None => [current[COLOR], current[COLOR + 1], current[COLOR + 2], current[COLOR + 3]],
+                };
+                let source = if white { shaded } else { [shaded[0] * tone[0], shaded[1] * tone[1], shaded[2] * tone[2], shaded[3] * tone[3]] };
 
-                if self.blend != MULTIPLY && texel == [0.0; 4] {
-                    continue;
-                }
+                blend::<MODE>(pixel, source, shading.carried);
 
-                let shaded = if self.tinted { wash(texel, [current[TINT], current[TINT + 1], current[TINT + 2], current[TINT + 3]]) } else { texel };
-                let source: [f32; 4] = std::array::from_fn(|channel| shaded[channel] * current[COLOR + channel]);
-
-                blend(&mut line[column * 4..column * 4 + 4], source, self.blend, self.alpha);
+                continue;
             }
+
+            let texel = match fetched {
+                Some((_, corners, across, down)) => lanes::filtered(corners, across, down),
+                None if TEXTURED => lanes::splat(0.0),
+                None => lanes::splat(1.0),
+            };
+
+            if MODE != MULTIPLY && lanes::empty(texel) {
+                continue;
+            }
+
+            let source = match color {
+                _ if white => texel,
+                Some(color) => lanes::mul(texel, color),
+                None => lanes::mul(texel, lanes::gather([current[COLOR], current[COLOR + 1], current[COLOR + 2], current[COLOR + 3]])),
+            };
+
+            lanes::blend::<MODE>(pixel, source, shading.carried);
         }
     }
 }
 
-fn texel(texture: Texture<'_>, x: i64, y: i64) -> [u32; 4] {
-    let column = x.clamp(0, i64::from(texture.width) - 1) as usize;
-    let row = y.clamp(0, i64::from(texture.height) - 1) as usize;
-    let at = (row * texture.width as usize + column) * 4;
+#[inline(always)]
+fn sweep<const MODE: u8>(pixels: &mut [[u8; 4]], u: f32, step: f32, texture: Texture<'_>, rows: Rows, color: Option<lanes::Texel>, carried: bool) {
+    let reach = (u.abs() + (pixels.len() as f32 + 1.0) * step.abs() * 1.01 + 1.0) * texture.width as f32;
 
-    texture.pixels.get(at..at + 4).map_or([0; 4], |pixel| std::array::from_fn(|channel| u32::from(pixel[channel])))
+    if reach < SAFE_TEXELS {
+        sweep_span::<MODE, true>(pixels, u, step, texture, rows, color, carried);
+    } else {
+        sweep_span::<MODE, false>(pixels, u, step, texture, rows, color, carried);
+    }
 }
 
-fn corners(texture: Texture<'_>, column: i64, row: i64) -> [[u32; 4]; 4] {
-    let inside = column >= 0 && row >= 0 && column + 1 < i64::from(texture.width) && row + 1 < i64::from(texture.height);
-    let stride = texture.width as usize * 4;
-    let at = (row.max(0) as usize * texture.width as usize + column.max(0) as usize) * 4;
-    let rows = inside.then(|| texture.pixels.get(at..at + 8).zip(texture.pixels.get(at + stride..at + stride + 8))).flatten();
+#[inline(always)]
+fn sweep_span<const MODE: u8, const BOUNDED: bool>(pixels: &mut [[u8; 4]], mut u: f32, step: f32, texture: Texture<'_>, rows: Rows, color: Option<lanes::Texel>, carried: bool) {
+    let width = texture.width as f32;
+    let last = i64::from(texture.width) - 1;
+    let texels = texture.pixels.as_chunks::<4>().0;
+    let upper = texels.get(rows.upper..).unwrap_or_default();
+    let lower = texels.get(rows.lower..).unwrap_or_default();
+    let word = |line: &[[u8; 4]], index: usize| line.get(index).map_or(0, |pixel| u32::from_le_bytes(*pixel));
+    let mut seen = None;
+    let mut clear = true;
+    let mut corners = lanes::corners([0; 4]);
 
-    rows.map_or_else(
-        || [texel(texture, column, row), texel(texture, column + 1, row), texel(texture, column, row + 1), texel(texture, column + 1, row + 1)],
-        |(upper, lower)| {
-            let read = |line: &[u8], offset: usize| std::array::from_fn(|channel| u32::from(line[offset + channel]));
+    for pixel in pixels {
+        let x = u * width - 0.5;
 
-            [read(upper, 0), read(upper, 4), read(lower, 0), read(lower, 4)]
-        },
-    )
+        u += step;
+
+        let (left, column) = if BOUNDED {
+            let truncated = lanes::truncate(x);
+            let whole = truncated as f32;
+
+            if whole > x { (whole - 1.0, i64::from(truncated - 1)) } else { (whole, i64::from(truncated)) }
+        } else {
+            let left = floor(x);
+
+            (left, left as i64)
+        };
+
+        if seen != Some(column) {
+            let (near, far) = (column.clamp(0, last) as usize, column.wrapping_add(1).clamp(0, last) as usize);
+            let words = [word(upper, near), word(upper, far), word(lower, near), word(lower, far)];
+
+            seen = Some(column);
+            clear = words == [0; 4];
+            corners = lanes::corners(words);
+        }
+
+        if clear && MODE != MULTIPLY {
+            continue;
+        }
+
+        let texel = if clear {
+            lanes::splat(0.0)
+        } else {
+            let fraction = (x - left) * SUBTEXEL as f32 + 0.5;
+            let across = if BOUNDED { (lanes::truncate(fraction) as u32).min(SUBTEXEL) } else { (fraction as u32).min(SUBTEXEL) };
+
+            lanes::filtered(corners, across, rows.down)
+        };
+
+        if MODE != MULTIPLY && lanes::empty(texel) {
+            continue;
+        }
+
+        let source = color.map_or(texel, |color| lanes::mul(texel, color));
+
+        lanes::blend::<MODE>(pixel, source, carried);
+    }
 }
 
-fn sample(texture: Texture<'_>, u: f32, v: f32) -> [f32; 4] {
-    if texture.width == 0 || texture.height == 0 {
-        return [0.0; 4];
+struct Square {
+    column: i64,
+    upper: usize,
+    lower: usize,
+    words: [u32; 4],
+    corners: lanes::Corners,
+}
+
+#[derive(Clone, Copy)]
+struct Rows {
+    down: u32,
+    upper: usize,
+    lower: usize,
+}
+
+impl Texture<'_> {
+    #[inline(always)]
+    fn word(self, index: usize) -> u32 {
+        self.pixels.as_chunks::<4>().0.get(index).map_or(0, |pixel| u32::from_le_bytes(*pixel))
     }
 
-    let x = u * texture.width as f32 - 0.5;
-    let y = v * texture.height as f32 - 0.5;
-    let (left, top) = (floor(x), floor(y));
-    let across = (((x - left) * SUBTEXEL as f32 + 0.5) as u32).min(SUBTEXEL);
-    let down = (((y - top) * SUBTEXEL as f32 + 0.5) as u32).min(SUBTEXEL);
-    let [first, second, third, fourth] = corners(texture, left as i64, top as i64);
+    #[inline(always)]
+    fn rows(self, v: f32) -> Rows {
+        let y = v * self.height as f32 - 0.5;
+        let top = floor(y);
+        let down = (((y - top) * SUBTEXEL as f32 + 0.5) as u32).min(SUBTEXEL);
+        let row = top as i64;
+        let last = i64::from(self.height) - 1;
+        let width = self.width as usize;
 
-    std::array::from_fn(|channel| {
-        let upper = first[channel] * (SUBTEXEL - across) + second[channel] * across;
-        let lower = third[channel] * (SUBTEXEL - across) + fourth[channel] * across;
+        Rows { down, upper: row.clamp(0, last) as usize * width, lower: row.wrapping_add(1).clamp(0, last) as usize * width }
+    }
+
+    #[inline(always)]
+    fn locate(self, u: f32) -> (i64, u32) {
+        let x = u * self.width as f32 - 0.5;
+        let left = floor(x);
+
+        (left as i64, (((x - left) * SUBTEXEL as f32 + 0.5) as u32).min(SUBTEXEL))
+    }
+
+    #[inline(always)]
+    fn corners(self, rows: Rows, column: i64) -> [u32; 4] {
+        let last = i64::from(self.width) - 1;
+        let (near, far) = (column.clamp(0, last) as usize, column.wrapping_add(1).clamp(0, last) as usize);
+
+        [self.word(rows.upper + near), self.word(rows.upper + far), self.word(rows.lower + near), self.word(rows.lower + far)]
+    }
+}
+
+fn filtered(words: [u32; 4], across: u32, down: u32) -> [f32; 4] {
+    let [first, second, third, fourth] = words;
+    let channel = |shift: u32| {
+        let byte = |word: u32| (word >> shift) & 0xff;
+        let upper = byte(first) * (SUBTEXEL - across) + byte(second) * across;
+        let lower = byte(third) * (SUBTEXEL - across) + byte(fourth) * across;
 
         (upper * (SUBTEXEL - down) + lower * down) as f32 * FILTERED_SCALE
-    })
+    };
+
+    [channel(0), channel(8), channel(16), channel(24)]
 }
 
 fn wash(texel: [f32; 4], tint: [f32; 4]) -> [f32; 4] {
@@ -278,27 +590,33 @@ fn wash(texel: [f32; 4], tint: [f32; 4]) -> [f32; 4] {
     [mix(texel[0], tint[0]), mix(texel[1], tint[1]), mix(texel[2], tint[2]), texel[3]]
 }
 
-fn blend(pixel: &mut [u8], source: [f32; 4], mode: u8, alpha: Alpha) {
-    let target: [f32; 4] = std::array::from_fn(|channel| f32::from(pixel[channel]) * TEXEL_SCALE);
-    let mixed = |channel: usize, coverage: f32| {
-        let (src, dst) = (source[channel], target[channel]);
+#[inline(always)]
+fn mixed(mode: u8, src: f32, dst: f32, coverage: f32, alpha: f32) -> f32 {
+    match mode {
+        1 => src + dst,
+        2 => src * dst,
+        3 => src + dst * (1.0 - coverage),
+        _ => src + dst * (1.0 - alpha),
+    }
+}
 
-        match mode {
-            1 => src + dst,
-            2 => src * dst,
-            3 => src + dst * (1.0 - coverage),
-            _ => src + dst * (1.0 - source[3]),
-        }
-    };
+#[inline(always)]
+fn blend<const MODE: u8>(pixel: &mut [u8; 4], source: [f32; 4], carried: bool) {
+    if MODE == 0 && source[3] == 1.0 {
+        *pixel = [unorm(source[0]), unorm(source[1]), unorm(source[2]), 0xff];
 
-    for channel in 0..3 {
-        pixel[channel] = unorm(mixed(channel, source[channel]));
+        return;
     }
 
-    pixel[3] = match (alpha, mode) {
-        (Alpha::Carried, 1..=3) => pixel[3],
-        _ => unorm(mixed(3, source[3])),
-    };
+    let target = [UNITS[usize::from(pixel[0])], UNITS[usize::from(pixel[1])], UNITS[usize::from(pixel[2])], UNITS[usize::from(pixel[3])]];
+
+    for channel in 0..3 {
+        pixel[channel] = unorm(mixed(MODE, source[channel], target[channel], source[channel], source[3]));
+    }
+
+    if !carried {
+        pixel[3] = unorm(mixed(MODE, source[3], target[3], source[3], source[3]));
+    }
 }
 
 fn unorm(value: f32) -> u8 {
@@ -335,22 +653,64 @@ pub(crate) fn draw(pixels: &mut [u8], width: u32, height: u32, vertices: &[Verte
 }
 
 pub(crate) fn straighten(pixels: &mut [u8]) {
-    pixels.par_chunks_mut(4).for_each(|pixel| {
-        let alpha = u32::from(pixel[3]);
+    pixels.par_chunks_mut(STRAIGHTEN_PIXELS * 4).for_each(|chunk| {
+        for pixel in chunk.as_chunks_mut::<4>().0 {
+            let alpha = u32::from(pixel[3]);
 
-        if alpha == 0 || alpha == 0xff {
-            return;
-        }
+            if alpha == 0 || alpha == 0xff {
+                continue;
+            }
 
-        for channel in &mut pixel[..3] {
-            *channel = ((u32::from(*channel) * 0xff + alpha / 2) / alpha).min(0xff) as u8;
+            for channel in &mut pixel[..3] {
+                *channel = ((u32::from(*channel) * 0xff + alpha / 2) / alpha).min(0xff) as u8;
+            }
         }
     });
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{draw, Alpha, Batch, Texture, Vertex};
+    use super::{blend, draw, filtered, lanes, Alpha, Batch, Texture, Vertex};
+
+    fn agree<const MODE: u8>(next: &mut impl FnMut() -> u32) {
+        let opaque = if next().is_multiple_of(4) { 0xff00_0000 } else { 0 };
+        let words = [next() | opaque, next() | opaque, next() | opaque, next() | opaque];
+        let (across, down) = (next() % 257, next() % 257);
+        let opacity = if opaque == 0 { next() % 1001 } else { 1000 };
+        let tone = [next() % 1300, next() % 1300, next() % 1300, opacity].map(|value| value as f32 / 1000.0);
+        let texel = filtered(words, across, down);
+        let source = [texel[0] * tone[0], texel[1] * tone[1], texel[2] * tone[2], texel[3] * tone[3]];
+        let wide = lanes::mul(lanes::filtered(lanes::corners(words), across, down), lanes::gather(tone));
+        let carried = MODE != 0 && next().is_multiple_of(2);
+        let start = next().to_le_bytes();
+        let (mut narrow_pixel, mut wide_pixel) = (start, start);
+
+        assert_eq!(lanes::empty(lanes::filtered(lanes::corners(words), across, down)), texel == [0.0; 4]);
+
+        blend::<MODE>(&mut narrow_pixel, source, carried);
+        lanes::blend::<MODE>(&mut wide_pixel, wide, carried);
+
+        assert_eq!(wide_pixel, narrow_pixel, "mode {MODE}, words {words:08x?}, across {across}, down {down}, tone {tone:?}, carried {carried}");
+    }
+
+    #[test]
+    fn the_wide_kernel_lands_on_the_same_bytes_as_the_scalar_one() {
+        // Sprites go through the 4-wide path and tinted ones through the scalar path; a single byte apart would show.
+        let mut state = 0x2545_f491u32;
+        let mut next = move || {
+            state ^= state << 13;
+            state ^= state >> 17;
+            state ^= state << 5;
+            state
+        };
+
+        for _ in 0..50_000 {
+            agree::<0>(&mut next);
+            agree::<1>(&mut next);
+            agree::<2>(&mut next);
+            agree::<3>(&mut next);
+        }
+    }
 
     fn quad(color: [f32; 4]) -> Vec<Vertex> {
         let corner = |x: f32, y: f32| Vertex { position: [x, y], uv: [(x + 1.0) / 2.0, (1.0 - y) / 2.0], color, tint: [0.0; 4] };

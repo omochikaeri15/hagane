@@ -11,6 +11,7 @@ use kokoro::domains::import::ImportSubTab;
 use kokoro::domains::stage::{GlobalMapId, GlobalStageId};
 
 use crate::domains::files::Mode;
+use crate::systems::host::Lag;
 use crate::widget::popup::StoredSize;
 
 #[derive(Serialize, Deserialize, Default)]
@@ -183,6 +184,7 @@ pub(crate) struct SandboxState {
     pub usable_items: [bool; 6],
     pub image_quality: Option<u8>,
     pub scaling: Option<SandboxScaling>,
+    pub lag: Option<Lag>,
 }
 
 impl Default for SandboxState {
@@ -203,6 +205,7 @@ impl Default for SandboxState {
             usable_items: [true; 6],
             image_quality: None,
             scaling: None,
+            lag: None,
         }
     }
 }
@@ -216,11 +219,20 @@ impl SandboxState {
         self.scaling.unwrap_or_default()
     }
 
+    pub fn lag(&self) -> Lag {
+        self.lag.unwrap_or_default()
+    }
+
     pub fn settle_display(&mut self, cpu: bool) {
-        let (quality, scaling) = if cpu { (CPU_QUALITY, SandboxScaling::Pad) } else { (*QUALITY_RANGE.end(), SandboxScaling::Stretch) };
+        let (quality, scaling, lag) = if cpu {
+            (CPU_QUALITY, SandboxScaling::Pad, Lag::CatchUp)
+        } else {
+            (*QUALITY_RANGE.end(), SandboxScaling::Stretch, Lag::Slowdown)
+        };
 
         self.image_quality.get_or_insert(quality);
         self.scaling.get_or_insert(scaling);
+        self.lag.get_or_insert(lag);
     }
 
     pub fn render_scale(&self) -> f32 {
@@ -433,15 +445,23 @@ mod tests {
         // A fresh install drawn on the CPU starts low and padded.
         let mut fresh = SandboxState::default();
         fresh.settle_display(true);
-        assert_eq!((fresh.quality(), fresh.scaling()), (35, SandboxScaling::Pad));
+        assert_eq!((fresh.quality(), fresh.scaling(), fresh.lag()), (35, SandboxScaling::Pad, Lag::CatchUp));
 
         // Settling again on better hardware later must not undo the first pick.
         fresh.settle_display(false);
-        assert_eq!((fresh.quality(), fresh.scaling()), (35, SandboxScaling::Pad));
+        assert_eq!((fresh.quality(), fresh.scaling(), fresh.lag()), (35, SandboxScaling::Pad, Lag::CatchUp));
+
+        // A GPU install keeps the game's own slowdown.
+        let mut gpu = SandboxState::default();
+        gpu.settle_display(false);
+        assert_eq!(gpu.lag(), Lag::Slowdown);
 
         // A save from before this existed already holds a choice, so it is left alone.
         let mut saved: SandboxState = serde_json::from_str(r#"{"image_quality":100,"scaling":"Stretch"}"#).expect("it loads");
         saved.settle_display(true);
         assert_eq!((saved.quality(), saved.scaling()), (100, SandboxScaling::Stretch));
+
+        // Lag came later than that save, so it still gets the CPU default.
+        assert_eq!(saved.lag(), Lag::CatchUp);
     }
 }

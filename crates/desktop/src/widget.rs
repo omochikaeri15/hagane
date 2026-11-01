@@ -24,6 +24,7 @@ mod status;
 mod superscript;
 mod toast;
 mod uniform_grid;
+mod unseen;
 
 pub(crate) mod cpu;
 pub(crate) mod popup;
@@ -54,3 +55,4 @@ pub(crate) use stat_grid::{grid_frames, grid_header, grid_value};
 pub(crate) use status::status;
 pub(crate) use superscript::{strong_superscript, text_with_superscript, tinted_superscript};
 pub(crate) use uniform_grid::uniform_grid;
+pub(crate) use unseen::unseen;

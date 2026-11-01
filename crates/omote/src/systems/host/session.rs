@@ -1,4 +1,5 @@
 use std::cell::RefCell;
+use std::fmt;
 use std::rc::Rc;
 
 use serde::{Deserialize, Serialize};
@@ -18,9 +19,38 @@ const BLACK_FROM: i32 = 0xb;
 pub const CLOSED_FRAME: i32 = 0xc;
 const LAST_FRAME: i32 = 0x18;
 const FRAME_MS: f64 = 33.0;
-const STEP_MS: f64 = 30.0;
+const STEP_MS: f64 = 1000.0 / 30.0;
+const HALF_STEP_MS: f64 = STEP_MS / 2.0;
+const MOST_STEPS: u32 = 4;
 const PRESENT_PATIENCE_MS: f64 = 2000.0;
 const SLOW_STEP_MS: f64 = 100.0;
+
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default, Serialize, Deserialize)]
+pub enum Lag {
+    #[default]
+    CatchUp,
+    Slowdown,
+}
+
+impl Lag {
+    pub(crate) const ALL: [Self; 2] = [Self::CatchUp, Self::Slowdown];
+
+    fn most_steps(self) -> u32 {
+        match self {
+            Self::CatchUp => MOST_STEPS,
+            Self::Slowdown => 1,
+        }
+    }
+}
+
+impl fmt::Display for Lag {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(match self {
+            Self::CatchUp => "Catch-up",
+            Self::Slowdown => "Slowdown",
+        })
+    }
+}
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Serialize, Deserialize)]
 pub enum Phase {
@@ -44,7 +74,8 @@ pub struct Session {
     entered: bool,
     frozen: usize,
     discard: bool,
-    stepped: f64,
+    due: Option<f64>,
+    lag: Lag,
     failure: Option<String>,
     stale: bool,
     again: bool,
@@ -73,7 +104,8 @@ impl Session {
             entered: false,
             frozen: 0,
             discard: false,
-            stepped: now,
+            due: None,
+            lag: Lag::default(),
             failure: None,
             stale: false,
             again: false,
@@ -214,6 +246,10 @@ impl Session {
         self.phase == Phase::Faulted
     }
 
+    pub fn set_lag(&mut self, lag: Lag) {
+        self.lag = lag;
+    }
+
     pub fn resume(&mut self) {
         if self.phase != Phase::Faulted {
             return;
@@ -223,6 +259,7 @@ impl Session {
         self.failure = None;
         self.entered = true;
         self.phase = Phase::Running;
+        self.due = None;
     }
 
     pub fn terminate(&mut self) {
@@ -302,15 +339,7 @@ impl Session {
 
                 true
             }
-            Phase::Running => {
-                if now - self.stepped >= STEP_MS {
-                    self.step(now);
-
-                    return true;
-                }
-
-                false
-            }
+            Phase::Running => self.pace(now),
             Phase::Covering => {
                 self.paced(now);
                 self.sweep = self.sweep.min(CLOSED_FRAME);
@@ -378,7 +407,7 @@ impl Session {
 
                 if self.entered {
                     self.phase = Phase::Running;
-                    self.stepped = self.clock.now_ms();
+                    self.due = None;
                 } else {
                     self.phase = Phase::Leaving;
                     self.started = self.clock.now_ms();
@@ -447,11 +476,32 @@ impl Session {
         }
     }
 
-    fn step(&mut self, now: f64) {
-        self.stepped = now;
+    fn pace(&mut self, now: f64) -> bool {
+        let mut due = self.due.unwrap_or(now);
+        let most = self.lag.most_steps();
+        let mut steps = 0;
 
+        while steps < most && self.phase == Phase::Running && now + HALF_STEP_MS >= due {
+            self.step();
+            due += STEP_MS;
+            steps += 1;
+        }
+
+        let behind = now + HALF_STEP_MS >= due;
+
+        if behind && self.phase == Phase::Running && self.lag == Lag::CatchUp {
+            trace!(steps, "emu: the sandbox fell too far behind and let the missed frames go");
+        }
+
+        self.due = Some(if behind { now + STEP_MS } else { due });
+
+        steps > 0
+    }
+
+    fn step(&mut self) {
+        let began = self.clock.now_ms();
         let advanced = self.driver.advance();
-        let spent = self.clock.now_ms() - now;
+        let spent = self.clock.now_ms() - began;
 
         if spent >= SLOW_STEP_MS {
             trace!(ms = spent as u32, in_battle = self.driver.in_battle(), fading = self.driver.fading(), "emu: slow battle frame");

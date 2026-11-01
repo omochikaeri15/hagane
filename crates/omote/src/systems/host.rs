@@ -18,7 +18,7 @@ pub use film::Film;
 pub use emulator::runtime::VERSION;
 pub use input::{Touch, TouchQueue};
 pub use keys::Action;
-pub use session::{Phase, Session};
+pub use session::{Lag, Phase, Session};
 pub use sink::{Frame, Quad};
 pub use sound::{Backend, Clip, Effect, Playing};
 pub use text::{LABEL_PREFIX, label_key};

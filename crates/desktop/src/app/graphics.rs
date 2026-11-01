@@ -25,6 +25,11 @@ const NATIVE: wgpu::Backends = wgpu::Backends::DX12.union(wgpu::Backends::GL);
 #[cfg(not(windows))]
 const NATIVE: wgpu::Backends = wgpu::Backends::all();
 
+#[cfg(windows)]
+const AUTO_TAKES_CPU: bool = false;
+#[cfg(not(windows))]
+const AUTO_TAKES_CPU: bool = true;
+
 const NAMES: [(wgpu::Backends, &str); 4] = [
     (wgpu::Backends::DX12, "dx12"),
     (wgpu::Backends::VULKAN, "vulkan"),
@@ -54,6 +59,12 @@ struct Adapter {
     name: String,
     backend: wgpu::Backend,
     cpu: bool,
+}
+
+impl Adapter {
+    fn automatic(&self) -> bool {
+        AUTO_TAKES_CPU || !self.cpu
+    }
 }
 
 fn backends_of(backend: GraphicsBackend) -> Option<wgpu::Backends> {
@@ -96,6 +107,7 @@ pub(crate) fn configure(selected: GraphicsBackend, cached: AutoGraphics) {
                     AutoGraphics::Fallback(backend) => backends_of(backend).unwrap_or(NATIVE),
                     AutoGraphics::Unprobed | AutoGraphics::Native => NATIVE,
                 };
+                launch.software = launch.auto == AutoGraphics::Fallback(GraphicsBackend::Software);
             }
             GraphicsBackend::Software => launch.software = true,
             explicit => launch.backends = backends_of(explicit).unwrap_or(NATIVE),
@@ -159,7 +171,7 @@ pub(crate) fn survey() -> Report {
     }
 
     let auto = match (launch.selected, launch.external) {
-        (GraphicsBackend::Auto, false) if launch.backends == NATIVE && active.is_some() => AutoGraphics::Native,
+        (GraphicsBackend::Auto, false) if launch.backends == NATIVE && active.as_ref().is_some_and(Adapter::automatic) => AutoGraphics::Native,
         (GraphicsBackend::Auto, false) => resolve(),
         _ => launch.auto,
     };
@@ -185,14 +197,21 @@ pub(crate) fn available() -> Vec<GraphicsBackend> {
 }
 
 fn resolve() -> AutoGraphics {
-    if probe(NATIVE).is_ok() {
+    if probe(NATIVE).is_ok_and(|adapter| adapter.automatic()) {
         return AutoGraphics::Native;
     }
 
-    OFFERED
+    let fallback = OFFERED
         .into_iter()
-        .find(|backend| backends_of(*backend).is_some_and(|backends| probe(backends).is_ok()))
-        .map_or(AutoGraphics::Native, AutoGraphics::Fallback)
+        .find(|backend| backends_of(*backend).is_some_and(|backends| probe(backends).is_ok_and(|adapter| adapter.automatic())));
+
+    if fallback.is_none() && !AUTO_TAKES_CPU {
+        info!("Auto found no GPU to draw with, so the app is drawn by the software renderer");
+
+        return AutoGraphics::Fallback(GraphicsBackend::Software);
+    }
+
+    fallback.map_or(AutoGraphics::Native, AutoGraphics::Fallback)
 }
 
 fn probe(backends: wgpu::Backends) -> Result<Adapter, String> {
