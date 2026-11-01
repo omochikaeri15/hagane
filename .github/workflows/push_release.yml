@@ -203,7 +203,7 @@ jobs:
     strategy:
       matrix:
         include:
-          - flavor: WASM
+          - flavor: wasm
     steps:
       - uses: actions/checkout@v5
 
