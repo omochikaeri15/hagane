@@ -1,7 +1,5 @@
-Bug Fixes:
-- Fixed invasion victory crash.
-
 Changes:
-- CPU sandbox performance improvements.
-- Lineups sidebar made thinner.
-- Web now has official mobile support.
+- Changed the app icon.
+- Released mobile versions, Android APK and iOS IPA.
+- You can no longer jump to units using combo banners under replay read-only lineups.
+- Screen size display under replays are now rounded. The real value is kept internally.

@@ -3,7 +3,7 @@ use iced::{Alignment, Element, Length, Size};
 
 use std::path::{Path, PathBuf};
 
-use kokoro::Conflict;
+use foundry::Conflict;
 
 use crate::common::watcher::Lapse;
 use crate::widget::{popup, smooth_scroll};

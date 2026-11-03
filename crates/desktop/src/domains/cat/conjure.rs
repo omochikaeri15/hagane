@@ -3,13 +3,13 @@ use iced::widget::{button, column, container, row, text, Space};
 use iced::{Alignment, Border, Element, Length, Theme};
 use codex::files::img015;
 
-use kokoro::domains::cat::game::stats::get_final_stats;
+use foundry::domains::cat::game::stats::get_final_stats;
 use codex::combat::Faction;
-use kokoro::domains::cat::waiter::unitid;
-use kokoro::domains::settings::Settings;
-use kokoro::systems::combat::abilities::collect_ability_data;
-use kokoro::systems::combat::registry::Magnification;
-use kokoro::systems::combat::{AbilityItem, RenderContext, ABILITY_Y, TRAIT_Y};
+use foundry::domains::cat::waiter::unitid;
+use foundry::domains::settings::Settings;
+use foundry::systems::combat::abilities::collect_ability_data;
+use foundry::systems::combat::registry::Magnification;
+use foundry::systems::combat::{AbilityItem, RenderContext, ABILITY_Y, TRAIT_Y};
 
 use crate::app::theme;
 use crate::common::{CustomAssets, SpriteSheet};

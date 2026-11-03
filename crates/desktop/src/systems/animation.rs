@@ -20,8 +20,8 @@ use codex::graphics::rig::{Animation, Model, Rig, SpriteSheet};
 use codex::graphics::tools::joint::Joint;
 use codex::graphics::tools::part;
 
-use kokoro::domains::settings::{Overlays, Scope, ScrubBehavior, Settings};
-use kokoro::systems::animation::MotionSet;
+use foundry::domains::settings::{Overlays, Scope, ScrubBehavior, Settings};
+use foundry::systems::animation::MotionSet;
 
 use crate::app::state::AnimState;
 use crate::app::theme;
@@ -262,7 +262,7 @@ impl State {
         self.data.adopt_sheet(cuts, sheet);
     }
 
-    pub(crate) fn motions(&self) -> impl Iterator<Item = (usize, &kokoro::systems::animation::Motion)> {
+    pub(crate) fn motions(&self) -> impl Iterator<Item = (usize, &foundry::systems::animation::Motion)> {
         self.data.motions()
     }
 

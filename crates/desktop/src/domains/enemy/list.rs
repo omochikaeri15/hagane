@@ -3,9 +3,9 @@ use std::path::PathBuf;
 use iced::Element;
 use image::{imageops, Pixel, RgbaImage};
 
-use kokoro::domains::enemy::filter::evaluation::entity_passes_filter;
-use kokoro::domains::enemy::filter::EnemyFilterState;
-use kokoro::domains::enemy::scanner::EnemyEntry;
+use foundry::domains::enemy::filter::evaluation::entity_passes_filter;
+use foundry::domains::enemy::filter::EnemyFilterState;
+use foundry::domains::enemy::scanner::EnemyEntry;
 
 use crate::common::udi_loader::Composite;
 use crate::editor::Target;

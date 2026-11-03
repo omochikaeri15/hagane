@@ -1,0 +1,234 @@
+import { ListView } from "std-widgets.slint";
+import { Theme } from "../theme.slint";
+import { Btn, Tone, Input, TextBox, Combo, Label, Dialog, Panel, Rule, OutlinedCard, Slider } from "../widgets/basics.slint";
+import { Drawer, EdgeGrab } from "../widgets/drawer.slint";
+import { Console } from "../widgets/console.slint";
+import { Shell } from "../shell.slint";
+
+export struct ModRow { name: string, icon: image, has-icon: bool, enabled: bool, selected: bool }
+
+export global Mods {
+    in property <[ModRow]> mods;
+    in-out property <string> search;
+    in-out property <bool> list-open;
+    in property <bool> selected;
+    in-out property <string> title;
+    in property <bool> enabled;
+    in property <bool> mounting;
+    in property <string> delete-label: "Delete Mod";
+    in property <bool> can-delete;
+    in-out property <string> author;
+    in-out property <string> version;
+    in-out property <string> package;
+    in-out property <string> description;
+
+    in-out property <bool> add-open;
+    in property <int> add-tab;
+    in-out property <string> new-name;
+    in property <int> pack-type;
+    in property <string> bcm-label: "Select Archive";
+    in property <Tone> bcm-tone: Tone.neutral;
+    in property <string> pack-label: "Select Source";
+    in property <Tone> pack-tone: Tone.neutral;
+    in property <bool> import-running;
+    in property <bool> can-import;
+    in property <string> import-log;
+
+    in-out property <bool> export-open;
+    in property <int> export-tab;
+    in-out property <string> export-title;
+    in property <[string]> regions;
+    in property <int> region;
+    in property <int> compression;
+    in property <int> compression-min;
+    in property <int> compression-max;
+    in-out property <string> pack-name;
+    in property <bool> export-running;
+    in property <string> export-log;
+
+    callback select(int);
+    callback search-changed(string);
+    callback rename(string);
+    callback toggle();
+    callback open-export();
+    callback delete();
+    callback metadata(int, string);
+    callback open-add();
+    callback add-tab-set(int);
+    callback new-name-changed(string);
+    callback pack-type-set(int);
+    callback pick-bcm();
+    callback pick-pack();
+    callback start-import();
+    callback export-tab-set(int);
+    callback export-title-changed(string);
+    callback region-set(int);
+    callback compression-changed(int);
+    callback pack-name-changed(string);
+    callback start-export();
+}
+
+component List inherits Panel {
+    VerticalLayout {
+        padding: 8px;
+        spacing: 4px;
+        Input { text <=> Mods.search; placeholder: "Search Mods..."; text-size: 13px; height: 32px; edited(value) => { Mods.search-changed(value); } }
+        Btn { tone: Tone.toggle; active: Mods.add-open; label: "Add Mod"; text-size: 13px; height: 32px; clicked => { Mods.open-add(); } }
+        Rectangle { height: 4px; }
+        if Mods.mods.length == 0: Label { text: "No Mods Found"; color: Theme.danger; font-size: 13px; horizontal-alignment: center; vertical-alignment: center; vertical-stretch: 1; }
+        if Mods.mods.length > 0: ListView {
+            mouse-drag-pan-enabled: true;
+            vertical-stretch: 1;
+            for row[index] in Mods.mods: Rectangle {
+                height: 44px;
+                width: parent.width;
+                Rectangle {
+                    y: 0;
+                    height: 40px;
+                    width: parent.width;
+                    border-radius: Theme.radius-sm;
+                    background: row.selected ? Theme.primary : (press.pressed ? Theme.bg-strongest : Theme.bg-strong);
+                    border-width: row.enabled ? 2px : 0px;
+                    border-color: Theme.success;
+                    HorizontalLayout {
+                        padding-left: 4px;
+                        padding-right: 4px;
+                        spacing: 4px;
+                        if row.has-icon: Rectangle { width: 40px; Image { source: row.icon; width: 32px; height: 32px; x: 4px; y: 4px; image-fit: contain; } }
+                        Text { text: row.name; color: row.selected ? Theme.white : Theme.text; font-size: 12px; horizontal-alignment: center; vertical-alignment: center; horizontal-stretch: 1; overflow: elide; }
+                    }
+                    press := TouchArea { clicked => { Mods.select(index); Mods.list-open = false; Shell.left-open = false; } }
+                }
+            }
+        }
+    }
+}
+
+component Field inherits HorizontalLayout {
+    in property <string> label;
+    spacing: 8px;
+    Label { text: root.label; font-size: 14px; width: 90px; vertical-alignment: center; }
+    @children
+}
+
+component Details inherits VerticalLayout {
+    padding: 16px;
+    spacing: 8px;
+    Input { text <=> Mods.title; placeholder: "Mod Title"; text-size: 22px; height: 44px; accepted(value) => { Mods.rename(value); } }
+    Rule { }
+    HorizontalLayout {
+        spacing: 8px;
+        Btn { tone: Mods.enabled ? Tone.danger : Tone.success; label: Mods.enabled ? "Disable Mod" : "Enable Mod"; enabled: !Mods.mounting; text-size: 13px; height: 32px; horizontal-stretch: 1; clicked => { Mods.toggle(); } }
+        Btn { label: "Export Mod"; text-size: 13px; height: 32px; horizontal-stretch: 1; clicked => { Mods.open-export(); } }
+        Btn { tone: Tone.danger; label: Mods.delete-label; enabled: Mods.can-delete && !Mods.mounting; text-size: 13px; height: 32px; horizontal-stretch: 1; clicked => { Mods.delete(); } }
+    }
+    Rule { }
+    OutlinedCard {
+        height: info.preferred-height + 24px;
+        info := VerticalLayout {
+            padding: 12px;
+            spacing: 8px;
+            Label { text: "Information"; font-size: 18px; }
+            Rule { }
+            Field { label: "Author"; Input { text <=> Mods.author; text-size: 14px; height: 32px; horizontal-stretch: 1; edited(value) => { Mods.metadata(0, value); } } }
+            Field { label: "Version"; Input { text <=> Mods.version; text-size: 14px; height: 32px; horizontal-stretch: 1; edited(value) => { Mods.metadata(1, value); } } }
+            Field { label: "Package"; Input { text <=> Mods.package; text-size: 14px; height: 32px; horizontal-stretch: 1; edited(value) => { Mods.metadata(2, value); } } }
+        }
+    }
+    OutlinedCard {
+        vertical-stretch: 1;
+        VerticalLayout {
+            padding: 12px;
+            spacing: 8px;
+            Label { text: "Description"; font-size: 18px; }
+            Rule { }
+            TextBox { vertical-stretch: 1; text <=> Mods.description; placeholder: "Enter mod description here..."; edited(value) => { Mods.metadata(3, value); } }
+        }
+    }
+}
+
+component Tabs inherits HorizontalLayout {
+    in property <[string]> labels;
+    in property <int> current;
+    callback picked(int);
+    spacing: 8px;
+    for label[index] in root.labels: Btn { tone: Tone.toggle; active: root.current == index; label: label; text-size: 13px; height: 30px; horizontal-stretch: 1; clicked => { root.picked(index); } }
+}
+
+component AddDialog inherits Dialog {
+    title: "Add Mod";
+    open <=> Mods.add-open;
+    panel-width: 360px;
+    body-height: Shell.app-height / 2;
+    VerticalLayout {
+        padding: 16px;
+        spacing: 8px;
+        Tabs { labels: ["New", "BCM", "Pack"]; current: Mods.add-tab; picked(index) => { Mods.add-tab-set(index); } }
+        Rule { }
+        if Mods.add-tab == 0: VerticalLayout {
+            spacing: 8px;
+            Label { text: "Start a blank mod with the standard internal layout"; font-size: 14px; wrap: word-wrap; }
+            Field { label: "Name"; Input { width: 140px; height: 30px; text-size: 14px; placeholder: "My Mod"; text <=> Mods.new-name; enabled: !Mods.import-running; edited(value) => { Mods.new-name-changed(value); } } }
+            Btn { width: 150px; height: 30px; text-size: 13px; label: "Create Mod"; tone: Mods.can-import ? Tone.primary : Tone.neutral; enabled: Mods.can-import && !Mods.import-running; clicked => { Mods.start-import(); } }
+        }
+        if Mods.add-tab == 1: VerticalLayout {
+            spacing: 8px;
+            Label { text: "Import packaged .bcm or .zip mod archives placed in the import folder"; font-size: 14px; wrap: word-wrap; }
+            Btn { width: 150px; height: 30px; text-size: 13px; label: Mods.bcm-label; tone: Mods.bcm-tone; enabled: !Mods.import-running; clicked => { Mods.pick-bcm(); } }
+            Btn { width: 150px; height: 30px; text-size: 13px; label: "Start Import"; tone: Mods.can-import ? Tone.primary : Tone.neutral; enabled: Mods.can-import && !Mods.import-running; clicked => { Mods.start-import(); } }
+        }
+        if Mods.add-tab == 2: VerticalLayout {
+            spacing: 8px;
+            Label { text: "Import modded files directly from game formats placed in the import folder"; font-size: 14px; wrap: word-wrap; }
+            Field { label: "Format"; Combo { width: 120px; height: 30px; text-size: 13px; options: ["APK", "Pack"]; current: Mods.pack-type; selected(index) => { Mods.pack-type-set(index); } } }
+            Field { label: "Source"; Btn { width: 150px; height: 30px; text-size: 13px; label: Mods.pack-label; tone: Mods.pack-tone; enabled: !Mods.import-running; clicked => { Mods.pick-pack(); } } }
+            Btn { width: 150px; height: 30px; text-size: 13px; label: "Start Import"; tone: Mods.can-import ? Tone.primary : Tone.neutral; enabled: Mods.can-import && !Mods.import-running; clicked => { Mods.start-import(); } }
+        }
+        Rule { }
+        Console { vertical-stretch: 1; log: Mods.import-log; }
+    }
+}
+
+component ExportDialog inherits Dialog {
+    title: "Export Mod";
+    open <=> Mods.export-open;
+    panel-width: 360px;
+    body-height: 9999px;
+    VerticalLayout {
+        padding: 16px;
+        spacing: 8px;
+        Tabs { labels: ["BCM", "Pack"]; current: Mods.export-tab; picked(index) => { Mods.export-tab-set(index); } }
+        Rule { }
+        if Mods.export-tab == 0: VerticalLayout {
+            spacing: 8px;
+            Label { text: "Package mod into a standalone .bcm archive"; font-size: 14px; wrap: word-wrap; }
+            Field { label: "Title"; Input { width: 160px; height: 30px; text-size: 14px; text <=> Mods.export-title; enabled: !Mods.export-running; edited(value) => { Mods.export-title-changed(value); } } }
+            Field { label: "Compression"; Slider { minimum: Mods.compression-min; maximum: Mods.compression-max; value: Mods.compression; enabled: !Mods.export-running; changed(value) => { Mods.compression-changed(value); } } Label { text: Mods.compression; font-size: 13px; vertical-alignment: center; } }
+            Btn { width: 170px; height: 30px; text-size: 13px; label: "Create BCM Package"; enabled: Mods.selected && !Mods.export-running; clicked => { Mods.start-export(); } }
+        }
+        if Mods.export-tab == 1: VerticalLayout {
+            spacing: 8px;
+            Label { text: "Compile mod files into raw .pack and .list files"; font-size: 14px; wrap: word-wrap; }
+            Field { label: "Name"; Input { width: 160px; height: 30px; text-size: 14px; placeholder: "DownloadLocal"; text <=> Mods.pack-name; enabled: !Mods.export-running; edited(value) => { Mods.pack-name-changed(value); } } }
+            Field { label: "Key"; Combo { width: 140px; height: 30px; text-size: 13px; options: Mods.regions; current: Mods.region; selected(index) => { Mods.region-set(index); } } }
+            Btn { width: 150px; height: 30px; text-size: 13px; label: "Create Pack"; enabled: Mods.selected && !Mods.export-running; clicked => { Mods.start-export(); } }
+        }
+        Rule { }
+        Console { vertical-stretch: 1; log: Mods.export-log; }
+    }
+}
+
+export component ModsPage inherits Rectangle {
+    EdgeGrab { armed: !Mods.list-open && !Shell.nav-open; pulled => { Mods.list-open = true; Shell.left-open = true; }
+        if !Mods.selected: Label { text: "Please select or import a Mod"; font-size: 18px; horizontal-alignment: center; vertical-alignment: center; width: parent.width - 32px; x: 16px; height: parent.height; wrap: word-wrap; }
+        if Mods.selected: Details { width: parent.width; height: parent.height; }
+    }
+    Drawer {
+        open <=> Mods.list-open;
+        panel-width: min(220px, root.width * 0.6);
+        closed => { Shell.left-open = false; }
+        List { width: 100%; height: 100%; }
+    }
+    AddDialog { }
+    ExportDialog { }
+}

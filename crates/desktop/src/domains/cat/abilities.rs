@@ -5,11 +5,11 @@ use iced::Element;
 use codex::cat::unit::LevelCurve;
 use codex::files::img015;
 
-use kokoro::common::context::GlobalContext;
+use foundry::common::context::GlobalContext;
 use codex::combat::Faction;
-use kokoro::domains::cat::scanner::CatEntry;
-use kokoro::domains::settings::Settings;
-use kokoro::systems::combat::{AbilityItem, CustomIcon, RenderContext, ABILITY_Y};
+use foundry::domains::cat::scanner::CatEntry;
+use foundry::domains::settings::Settings;
+use foundry::systems::combat::{AbilityItem, CustomIcon, RenderContext, ABILITY_Y};
 
 use crate::common::{CustomAssets, SpriteSheet};
 use crate::systems::combat::abilities::{self as shared, ListLayout};

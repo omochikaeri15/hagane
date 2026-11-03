@@ -8,8 +8,8 @@ use std::sync::Arc;
 
 use emulator::engine::{AssetSource, SheetImage};
 use emulator::runtime::HostLimits;
-use kokoro::common::io::APP_LANGUAGES;
-use kokoro::{Source, Vfs};
+use foundry::common::io::APP_LANGUAGES;
+use foundry::{Source, Vfs};
 use codex::combat::Separator;
 use rayon::prelude::*;
 use tracing::{debug, info, warn};

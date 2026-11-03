@@ -2,7 +2,7 @@ use iced::alignment::{Horizontal, Vertical};
 use iced::widget::{button, column, container, scrollable, text, Column, Row};
 use iced::{Element, Length, Theme};
 
-use kokoro::domains::settings::EditorMode;
+use foundry::domains::settings::EditorMode;
 
 use crate::app::theme;
 use crate::widget::smooth_scroll;

@@ -15,23 +15,23 @@ use iced::{Element, Point, Size, Task};
 use rustc_hash::FxHashMap;
 use tracing::{info, trace, warn};
 
-use kokoro::domains::cat::animation as cat_animation;
+use foundry::domains::cat::animation as cat_animation;
 use codex::combat::{Faction, Identity};
-use kokoro::domains::cat::combo as cat_combo;
-use kokoro::domains::cat::files as cat_files;
-use kokoro::domains::cat::waiter as cat_waiter;
-use kokoro::domains::enemy::animation as enemy_animation;
-use kokoro::domains::enemy::files as enemy_files;
-use kokoro::domains::enemy::scanner::EnemyEntry;
-use kokoro::common::architecture;
-use kokoro::domains::mods;
-use kokoro::domains::stage::files as stage_files;
-use kokoro::domains::stage::authoring as stage_authoring;
-use kokoro::domains::stage::materials as stage_materials;
+use foundry::domains::cat::combo as cat_combo;
+use foundry::domains::cat::files as cat_files;
+use foundry::domains::cat::waiter as cat_waiter;
+use foundry::domains::enemy::animation as enemy_animation;
+use foundry::domains::enemy::files as enemy_files;
+use foundry::domains::enemy::scanner::EnemyEntry;
+use foundry::common::architecture;
+use foundry::domains::mods;
+use foundry::domains::stage::files as stage_files;
+use foundry::domains::stage::authoring as stage_authoring;
+use foundry::domains::stage::materials as stage_materials;
 
-use kokoro::domains::stage::{names, GlobalMapId, GlobalStageId};
-use kokoro::domains::settings::{ContextScope, EditorMode};
-use kokoro::Vfs;
+use foundry::domains::stage::{names, GlobalMapId, GlobalStageId};
+use foundry::domains::settings::{ContextScope, EditorMode};
+use foundry::Vfs;
 use codex::chapter::stage::RewardStructure;
 use codex::common;
 use codex::graphics::tools::crash::Side;
@@ -40,7 +40,7 @@ use crate::app::state::SandboxTab;
 use crate::app::{theme, BattleCatsApp, Page};
 use crate::domains::cat::DetailTab;
 use crate::domains::studio;
-use kokoro::domains::studio as kore_studio;
+use foundry::domains::studio as foundry_studio;
 use crate::domains::enemy::DetailTab as EnemyTab;
 use crate::common::dialog;
 use crate::widget::popup;
@@ -53,7 +53,7 @@ pub(crate) use watch::watch;
 pub enum Target {
     FileRow(usize),
     CatRow(u32),
-    LineupCell(kokoro::domains::sandbox::Cell),
+    LineupCell(foundry::domains::sandbox::Cell),
     EnemyRow(u32),
     CatLevels,
     CatForms,
@@ -104,7 +104,7 @@ pub(crate) struct Context {
     offsets: Option<studio::Offsets>,
     ground: Option<GroundTarget>,
     making: Option<MakeTarget>,
-    lineup: Option<kokoro::domains::sandbox::Cell>,
+    lineup: Option<foundry::domains::sandbox::Cell>,
 }
 
 pub(crate) struct MakeTarget {
@@ -600,7 +600,7 @@ enum Action {
     AddOffset,
     DropOffset { row: usize },
     Locate { part: usize },
-    DropMember { cell: kokoro::domains::sandbox::Cell },
+    DropMember { cell: foundry::domains::sandbox::Cell },
     DropPart { part: usize },
     EditAnimation(AnimPlan),
     EditFigures(figures::Plan),
@@ -800,7 +800,7 @@ pub(crate) struct State {
     open: Option<Open>,
     opened: Option<Page>,
     rescan: bool,
-    dropped: Option<kokoro::domains::sandbox::Cell>,
+    dropped: Option<foundry::domains::sandbox::Cell>,
     pending: Option<Trail>,
     confirm: Slot<Trail>,
     failed: Slot<Trail>,
@@ -913,7 +913,7 @@ impl State {
         self.opened.take()
     }
 
-    pub(crate) fn take_dropped(&mut self) -> Option<kokoro::domains::sandbox::Cell> {
+    pub(crate) fn take_dropped(&mut self) -> Option<foundry::domains::sandbox::Cell> {
         self.dropped.take()
     }
 
@@ -1701,7 +1701,7 @@ fn drop_chara_targets(app: &BattleCatsApp) -> Vec<LevelTarget> {
     }]
 }
 
-fn drop_ids(stage: &kokoro::domains::stage::Stage) -> impl Iterator<Item = u32> + '_ {
+fn drop_ids(stage: &foundry::domains::stage::Stage) -> impl Iterator<Item = u32> + '_ {
     let timed = match &stage.rewards {
         RewardStructure::Timed { scores, .. } => Some(scores.iter().map(|score| score.item_id)),
         _ => None,
@@ -1783,7 +1783,7 @@ fn make_target(app: &BattleCatsApp, reached: bool) -> Option<MakeTarget> {
 fn making(
     app: &BattleCatsApp,
     map: &GlobalMapId,
-    held: &kokoro::domains::stage::MapAddress,
+    held: &foundry::domains::stage::MapAddress,
     target_mod: Option<String>,
     stage: u32,
     whole_map: bool,
@@ -2004,15 +2004,15 @@ fn adopt_set(plan: &AnimPlan, vfs: &Vfs) -> Option<(studio::Set, bool, Option<Si
         .iter()
         .find(|file| file.ends_with(".mamodel"))
         .and_then(|file| Path::new(file).file_stem()?.to_str())
-        .and_then(kore_studio::stem_side);
+        .and_then(foundry_studio::stem_side);
 
     if plan.target_mod.is_some() || plan.unlocked {
         return Some((set, false, side));
     }
 
-    let name = kore_studio::vacant(&plan.key);
+    let name = foundry_studio::vacant(&plan.key);
 
-    match kore_studio::adopt(&name, &set) {
+    match foundry_studio::adopt(&name, &set) {
         Ok(copied) => Some((copied, true, side)),
         Err(err) => {
             warn!(name, "Failed to copy a locked rig into studio: {}", err);

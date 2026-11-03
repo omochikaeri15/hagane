@@ -9,8 +9,8 @@ use iced::{task, Task};
 use image::RgbaImage;
 use tracing::{error, info, warn};
 
-use kokoro::domains::utilities::background::FRAME_RATE;
-use kokoro::systems::animation::export::{leader, process, EncoderMessage, EncoderStatus, ExportFormat, ExportMode, ExportRequest, FrameTiming, ShowcaseLengths};
+use foundry::domains::utilities::background::FRAME_RATE;
+use foundry::systems::animation::export::{leader, process, EncoderMessage, EncoderStatus, ExportFormat, ExportMode, ExportRequest, FrameTiming, ShowcaseLengths};
 use codex::graphics::backdrop::{Backdrop, Camera};
 
 use crate::common::feedback::Slot;

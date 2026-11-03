@@ -13,10 +13,10 @@ use std::panic;
 use iced::window;
 use iced::Size;
 
-use kokoro::common::architecture;
-use kokoro::common::assets;
+use foundry::common::architecture;
+use foundry::common::assets;
 #[cfg(target_os = "linux")]
-use kokoro::common::dirs::APP_DIR;
+use foundry::common::dirs::APP_DIR;
 
 pub fn main() -> iced::Result {
     architecture::anchor();

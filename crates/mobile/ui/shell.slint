@@ -1,0 +1,42 @@
+export enum Page { home, cats, enemies, stages, sandbox, mods, files, import, utilities, help, settings }
+
+export struct Tab {
+    title: string,
+    page: Page,
+}
+
+export global Shell {
+    in-out property <Page> page: Page.home;
+    in-out property <bool> nav-open: false;
+    in-out property <bool> left-open: false;
+    in-out property <int> taps;
+    in property <[Tab]> tabs: [
+        { title: "Home", page: Page.home },
+        { title: "Cats", page: Page.cats },
+        { title: "Enemies", page: Page.enemies },
+        { title: "Stages", page: Page.stages },
+        { title: "Sandbox", page: Page.sandbox },
+        { title: "Mods", page: Page.mods },
+        { title: "Files", page: Page.files },
+        { title: "Import", page: Page.import },
+        { title: "Utilities", page: Page.utilities },
+        { title: "Help", page: Page.help },
+        { title: "Settings", page: Page.settings },
+    ];
+    in-out property <bool> toast-shown;
+    in-out property <string> toast-text;
+    in-out property <string> toast-detail;
+    in-out property <bool> toast-danger: true;
+    in property <bool> game-empty: true;
+    in property <bool> engine-ready;
+    in property <string> engine-phase: "Starting the data engine...";
+    in property <string> engine-detail;
+    in property <string> engine-fault;
+    in-out property <int> engine-generation;
+    in-out property <length> app-width;
+    in-out property <length> app-height;
+    callback navigate(Page);
+    callback engine-landed();
+    callback back();
+    callback measured(length, length, length, length);
+}

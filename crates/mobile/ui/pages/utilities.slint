@@ -1,0 +1,331 @@
+import { Theme } from "../theme.slint";
+import { Btn, Tone, Input, Combo, Label, Rule, Workspace, Card, Dialog } from "../widgets/basics.slint";
+import { Console } from "../widgets/console.slint";
+import { HeaderToggle } from "../widgets/detail.slint";
+import { AnimViewer, Viewer, DebugToggles } from "../widgets/viewer.slint";
+
+export global Utilities {
+    in-out property <int> tool;
+
+    in property <string> cut-png-label: "Add PNG";
+    in property <Tone> cut-png-tone: Tone.neutral;
+    in property <string> cut-cut-label: "Add IMGCUT";
+    in property <Tone> cut-cut-tone: Tone.neutral;
+    in property <[string]> cut-choices;
+    in property <int> cut-choice;
+    in property <string> cut-export-label: "Export Image";
+    in property <Tone> cut-export-tone: Tone.neutral;
+    in property <bool> cut-export-enabled;
+    in property <image> cut-canvas;
+    in property <bool> cut-has-canvas;
+    in property <string> cut-notice: "Add a PNG and an IMGCUT to begin";
+
+    in property <string> anim-png-label: "Add PNG";
+    in property <Tone> anim-png-tone: Tone.neutral;
+    in property <string> anim-cut-label: "Add IMGCUT";
+    in property <Tone> anim-cut-tone: Tone.neutral;
+    in property <string> anim-model-label: "Add MAMODEL";
+    in property <Tone> anim-model-tone: Tone.neutral;
+    in property <string> anim-remove-label: "Missing MAANIM";
+    in property <Tone> anim-remove-tone: Tone.neutral;
+    in property <bool> anim-remove-enabled;
+    in-out property <bool> anim-settings-open;
+
+    in property <string> bg-png-label: "Add PNG";
+    in property <Tone> bg-png-tone: Tone.neutral;
+    in property <string> bg-cut-label: "Add IMGCUT";
+    in property <Tone> bg-cut-tone: Tone.neutral;
+    in property <string> bg-csv-label: "Add BG CSV";
+    in property <Tone> bg-csv-tone: Tone.neutral;
+    in property <bool> bg-files-enabled: true;
+    in-out property <string> bg-id;
+    in property <bool> bg-id-enabled;
+    in property <string> bg-hint;
+    in-out property <string> bg-seed;
+    in property <string> bg-notice;
+
+    in property <string> clone-apk-label: "Add APK";
+    in property <Tone> clone-apk-tone: Tone.neutral;
+    in property <string> clone-icon-label: "Add PNG";
+    in property <Tone> clone-icon-tone: Tone.neutral;
+    in property <bool> clone-icon-set;
+    in-out property <string> clone-name;
+    in-out property <string> clone-package;
+    in property <string> clone-label: "Clone App";
+    in property <bool> clone-enabled;
+    in property <string> clone-log;
+
+    callback tool-set(int);
+    callback pick-png(int);
+    callback pick-cut(int);
+    callback pick-model();
+    callback pick-csv();
+    callback add-anim();
+    callback remove-anim();
+    callback choice-set(int);
+    callback export-cut();
+    callback id-edited(string);
+    callback seed-edited(string);
+    callback pick-apk();
+    callback pick-icon();
+    callback clear-icon();
+    callback name-changed(string);
+    callback package-changed(string);
+    callback start-clone();
+}
+
+export global Backdrop {
+    in property <image> frame;
+    in property <bool> loaded;
+    in-out property <bool> playing: true;
+    in property <bool> animated;
+    in property <string> frame-text: "0";
+    in-out property <string> range-start;
+    in-out property <string> range-end;
+    in property <[string]> formats: ["GIF", "WebP", "ZIP"];
+    in-out property <int> format;
+    in property <string> export-label: "Export";
+    in property <Tone> export-tone: Tone.primary;
+    in property <bool> exporting;
+    in-out property <bool> controls-expanded: true;
+    callback resized(length, length);
+    callback pan(length, length);
+    callback pinch(float, length, length);
+    callback zoom-wheel(float, length, length);
+    callback toggle-play();
+    callback hold(int);
+    callback release();
+    callback set-frame(string);
+    callback set-range-start(string);
+    callback set-range-end(string);
+    callback format-set(int);
+    callback export-pressed();
+}
+
+component Slot inherits Btn {
+    height: 30px;
+    text-size: 12px;
+    pad-x: 6px;
+    pad-y: 0px;
+    horizontal-stretch: 1;
+}
+
+component BackdropViewer inherits Rectangle {
+    property <bool> dragging;
+    property <length> last-x;
+    property <length> last-y;
+    property <float> pinch-scale: 1.0;
+    border-width: 4px;
+    border-color: Theme.primary;
+    border-radius: 5px;
+    background: Theme.bg;
+    clip: true;
+    init => { Backdrop.resized(self.width, self.height); }
+    changed width => { Backdrop.resized(self.width, self.height); }
+    changed height => { Backdrop.resized(self.width, self.height); }
+    if Backdrop.loaded: Image { source: Backdrop.frame; width: parent.width; height: parent.height; image-fit: fill; image-rendering: smooth; }
+    if !Backdrop.loaded: Label { text: "Enter a Background ID to load a background"; horizontal-alignment: center; vertical-alignment: center; width: parent.width - 32px; x: 16px; height: parent.height; wrap: word-wrap; }
+    gesture := ScaleRotateGestureHandler {
+        started => { root.pinch-scale = 1.0; }
+        updated => {
+            if self.scale > 0 {
+                Backdrop.pinch(self.scale / root.pinch-scale, self.center.x, self.center.y);
+                root.pinch-scale = self.scale;
+            }
+        }
+        TouchArea {
+            pointer-event(event) => {
+                if event.kind == PointerEventKind.down {
+                    root.last-x = self.mouse-x;
+                    root.last-y = self.mouse-y;
+                    root.dragging = true;
+                } else if event.kind == PointerEventKind.move {
+                    if root.dragging && !gesture.active {
+                        Backdrop.pan(self.mouse-x - root.last-x, self.mouse-y - root.last-y);
+                        root.last-x = self.mouse-x;
+                        root.last-y = self.mouse-y;
+                    }
+                } else if event.kind == PointerEventKind.up || event.kind == PointerEventKind.cancel {
+                    root.dragging = false;
+                }
+            }
+            scroll-event(event) => {
+                Backdrop.zoom-wheel(event.delta-y / 1px, self.mouse-x, self.mouse-y);
+                return EventResult.accept;
+            }
+        }
+    }
+    controls := Rectangle {
+        x: 7px;
+        y: parent.height - self.height;
+        width: min(body.preferred-width + 16px, parent.width - 14px);
+        height: body.preferred-height + 16px;
+        background: Theme.controls-bg;
+        border-width: 1px;
+        border-color: Theme.bg-strong;
+        border-top-left-radius: Theme.radius-lg;
+        border-top-right-radius: Theme.radius-lg;
+        clip: true;
+        TouchArea { }
+        body := VerticalLayout {
+            padding: 8px;
+            padding-bottom: 0px;
+            spacing: 4px;
+            Rectangle {
+                height: 18px;
+                Text { text: Backdrop.controls-expanded ? "\u{25bc}" : "\u{25b2}"; color: Theme.text; font-size: 14px; font-weight: 700; font-family: "Miscellaneous-Symbols"; horizontal-alignment: center; vertical-alignment: center; width: parent.width; height: parent.height; }
+                TouchArea { clicked => { Backdrop.controls-expanded = !Backdrop.controls-expanded; } }
+            }
+            if Backdrop.controls-expanded: Rectangle { height: 1phx; background: Theme.bg-strong; }
+            if Backdrop.controls-expanded: HorizontalLayout {
+                spacing: 4px;
+                padding-top: 2px;
+                padding-bottom: 8px;
+                Btn { width: 60px; height: 28px; tone: Tone.toggle; symbols: true; text-size: 16px; label: Backdrop.playing ? "\u{25ae}\u{25ae}" : "\u{25b6}"; enabled: Backdrop.loaded && Backdrop.animated; pad-y: 0px; pad-x: 0px; clicked => { Backdrop.toggle-play(); } }
+                Rectangle { width: 10px; Rectangle { width: 1phx; height: 100%; x: 4.5px; background: Theme.bg-strong; } }
+                VerticalLayout {
+                    spacing: 4px;
+                    if Backdrop.playing: HorizontalLayout {
+                        spacing: 4px;
+                        Input { width: 60px; height: 28px; text-size: 14px; align: center; placeholder: "0"; enabled: Backdrop.loaded; text <=> Backdrop.range-start; edited(value) => { Backdrop.set-range-start(value); } }
+                        Rectangle { width: 20px; height: 28px; background: Theme.bg-weak; border-width: 1px; border-color: Theme.bg-strong; border-radius: Theme.radius-sm; Text { text: "~"; color: Theme.text; font-size: 14px; horizontal-alignment: center; vertical-alignment: center; width: parent.width; height: parent.height; } }
+                        Input { width: 60px; height: 28px; text-size: 14px; align: center; placeholder: "299"; enabled: Backdrop.loaded; text <=> Backdrop.range-end; edited(value) => { Backdrop.set-range-end(value); } }
+                    }
+                    if !Backdrop.playing: HorizontalLayout {
+                        spacing: 4px;
+                        Rectangle {
+                            width: 30px; height: 28px; border-radius: Theme.radius-sm; background: Theme.bg-strong;
+                            Text { text: "\u{25c0}"; color: Theme.text; font-family: "Miscellaneous-Symbols"; font-size: 14px; horizontal-alignment: center; vertical-alignment: center; width: parent.width; height: parent.height; }
+                            TouchArea { pointer-event(event) => { if event.kind == PointerEventKind.down { Backdrop.hold(-1); } else if event.kind == PointerEventKind.up || event.kind == PointerEventKind.cancel { Backdrop.release(); } } }
+                        }
+                        Input { width: 80px; height: 28px; text-size: 14px; align: center; placeholder: "0"; enabled: Backdrop.loaded; text: Backdrop.frame-text; edited(value) => { Backdrop.set-frame(value); } }
+                        Rectangle {
+                            width: 30px; height: 28px; border-radius: Theme.radius-sm; background: Theme.bg-strong;
+                            Text { text: "\u{25b6}"; color: Theme.text; font-family: "Miscellaneous-Symbols"; font-size: 14px; horizontal-alignment: center; vertical-alignment: center; width: parent.width; height: parent.height; }
+                            TouchArea { pointer-event(event) => { if event.kind == PointerEventKind.down { Backdrop.hold(1); } else if event.kind == PointerEventKind.up || event.kind == PointerEventKind.cancel { Backdrop.release(); } } }
+                        }
+                    }
+                    Rectangle { width: 144px; height: 28px; background: Theme.bg-weak; border-width: 1px; border-color: Theme.bg-strong; border-radius: Theme.radius-sm; Text { text: Backdrop.frame-text; color: Theme.text; font-size: 14px; horizontal-alignment: center; vertical-alignment: center; width: parent.width; height: parent.height; } }
+                }
+                Rectangle { width: 10px; Rectangle { width: 1phx; height: 100%; x: 4.5px; background: Theme.bg-strong; } }
+                VerticalLayout {
+                    spacing: 4px;
+                    Btn { width: 90px; height: 28px; tone: Backdrop.export-tone; label: Backdrop.export-label; text-size: 14px; enabled: Backdrop.loaded && !Backdrop.exporting; pad-y: 0px; pad-x: 0px; clicked => { Backdrop.export-pressed(); } }
+                    Combo { width: 90px; height: 28px; text-size: 14px; options: Backdrop.formats; current <=> Backdrop.format; enabled: Backdrop.loaded; selected(index) => { Backdrop.format-set(index); } }
+                }
+            }
+        }
+    }
+}
+
+component Imgcut inherits VerticalLayout {
+    spacing: 8px;
+    property <length> cell: (self.width - 12px) / 3;
+    HorizontalLayout {
+        spacing: 6px;
+        alignment: center;
+        Slot { width: root.cell; label: Utilities.cut-png-label; tone: Utilities.cut-png-tone; clicked => { Utilities.pick-png(0); } }
+        Slot { width: root.cell; label: Utilities.cut-cut-label; tone: Utilities.cut-cut-tone; clicked => { Utilities.pick-cut(0); } }
+    }
+    HorizontalLayout {
+        spacing: 6px;
+        alignment: center;
+        Combo { width: root.cell; height: 30px; text-size: 12px; options: Utilities.cut-choices; current: Utilities.cut-choice; placeholder: "Spritesheet"; enabled: Utilities.cut-choices.length > 0; selected(index) => { Utilities.choice-set(index); } }
+        Slot { width: root.cell; label: Utilities.cut-export-label; tone: Utilities.cut-export-tone; enabled: Utilities.cut-export-enabled; clicked => { Utilities.export-cut(); } }
+    }
+    Workspace {
+        vertical-stretch: 1;
+        if Utilities.cut-has-canvas: Image { source: Utilities.cut-canvas; width: parent.width - 16px; height: parent.height - 16px; x: 8px; y: 8px; image-fit: contain; image-rendering: pixelated; }
+        if !Utilities.cut-has-canvas: Label { text: Utilities.cut-notice; horizontal-alignment: center; vertical-alignment: center; width: parent.width - 32px; x: 16px; height: parent.height; wrap: word-wrap; }
+    }
+}
+
+component Animation inherits VerticalLayout {
+    spacing: 8px;
+    property <length> cell: (self.width - 12px) / 3;
+    HorizontalLayout {
+        spacing: 6px;
+        alignment: center;
+        Slot { width: root.cell; label: Utilities.anim-png-label; tone: Utilities.anim-png-tone; clicked => { Utilities.pick-png(1); } }
+        Slot { width: root.cell; label: Utilities.anim-cut-label; tone: Utilities.anim-cut-tone; clicked => { Utilities.pick-cut(1); } }
+        Slot { width: root.cell; label: Utilities.anim-model-label; tone: Utilities.anim-model-tone; clicked => { Utilities.pick-model(); } }
+    }
+    HorizontalLayout {
+        spacing: 6px;
+        alignment: center;
+        Slot { width: root.cell; label: "Add MAANIM"; clicked => { Utilities.add-anim(); } }
+        Slot { width: root.cell; label: Utilities.anim-remove-label; tone: Utilities.anim-remove-tone; enabled: Utilities.anim-remove-enabled; clicked => { Utilities.remove-anim(); } }
+        Slot { width: root.cell; label: "Settings"; tone: Tone.neutral; clicked => { Utilities.anim-settings-open = true; } }
+    }
+    if !Viewer.expanded: AnimViewer { vertical-stretch: 1; }
+    if Viewer.expanded: VerticalLayout {
+        vertical-stretch: 1;
+        alignment: center;
+        spacing: 12px;
+        Label { text: "Animation Expanded"; font-size: 20px; bold: true; horizontal-alignment: center; }
+        HorizontalLayout { alignment: center; Btn { label: "Restore View"; clicked => { Viewer.expanded = false; } } }
+    }
+}
+
+component Background inherits VerticalLayout {
+    spacing: 8px;
+    HorizontalLayout {
+        spacing: 6px;
+        Slot { label: Utilities.bg-png-label; tone: Utilities.bg-png-tone; enabled: Utilities.bg-files-enabled; clicked => { Utilities.pick-png(2); } }
+        Slot { label: Utilities.bg-cut-label; tone: Utilities.bg-cut-tone; enabled: Utilities.bg-files-enabled; clicked => { Utilities.pick-cut(2); } }
+        Slot { label: Utilities.bg-csv-label; tone: Utilities.bg-csv-tone; enabled: Utilities.bg-files-enabled; clicked => { Utilities.pick-csv(); } }
+    }
+    HorizontalLayout {
+        spacing: 8px;
+        Input { horizontal-stretch: 2; height: 30px; text-size: 13px; placeholder: "ID..."; text <=> Utilities.bg-id; enabled: Utilities.bg-id-enabled; edited(value) => { Utilities.id-edited(value); } }
+        Input { horizontal-stretch: 1; height: 30px; text-size: 13px; placeholder: "Seed..."; text <=> Utilities.bg-seed; edited(value) => { Utilities.seed-edited(value); } }
+    }
+    if Utilities.bg-notice != "": Label { text: Utilities.bg-notice; font-size: 12px; color: Theme.danger; wrap: word-wrap; }
+    BackdropViewer { vertical-stretch: 1; }
+}
+
+component Clone inherits VerticalLayout {
+    spacing: 8px;
+    property <length> cell: (self.width - 12px) / 3;
+    HorizontalLayout {
+        spacing: 6px;
+        alignment: start;
+        Slot { width: root.cell; label: Utilities.clone-apk-label; tone: Utilities.clone-apk-tone; clicked => { Utilities.pick-apk(); } }
+        Slot { width: root.cell; label: Utilities.clone-icon-label; tone: Utilities.clone-icon-tone; clicked => { Utilities.pick-icon(); } }
+        Slot { width: root.cell; label: "Clear Icon"; tone: Utilities.clone-icon-set ? Tone.danger : Tone.neutral; enabled: Utilities.clone-icon-set; clicked => { Utilities.clear-icon(); } }
+    }
+    HorizontalLayout {
+        spacing: 6px;
+        Input { horizontal-stretch: 1; height: 30px; text-size: 12px; placeholder: "App name..."; text <=> Utilities.clone-name; edited(value) => { Utilities.name-changed(value); } }
+        Input { horizontal-stretch: 1; height: 30px; text-size: 12px; placeholder: "Pkg name..."; text <=> Utilities.clone-package; edited(value) => { Utilities.package-changed(value); } }
+        Slot { width: root.cell; label: Utilities.clone-label; tone: Utilities.clone-enabled ? Tone.primary : Tone.neutral; enabled: Utilities.clone-enabled; clicked => { Utilities.start-clone(); } }
+    }
+    Console { vertical-stretch: 1; log: Utilities.clone-log; }
+}
+
+export component UtilitiesPage inherits Rectangle {
+    VerticalLayout {
+        padding: 12px;
+        spacing: 8px;
+        HorizontalLayout {
+            spacing: 4px;
+            for label[index] in ["Imgcut", "Animation", "Background", "Clone"]: HeaderToggle { label: label; selected: Utilities.tool == index; horizontal-stretch: 1; clicked => { Utilities.tool-set(index); } }
+        }
+        Rule { }
+        if Utilities.tool == 0: Imgcut { vertical-stretch: 1; }
+        if Utilities.tool == 1: Animation { vertical-stretch: 1; }
+        if Utilities.tool == 2: Background { vertical-stretch: 1; }
+        if Utilities.tool == 3: Clone { vertical-stretch: 1; }
+    }
+    Dialog {
+        title: "Animation Settings";
+        open <=> Utilities.anim-settings-open;
+        visible: Utilities.anim-settings-open && Utilities.tool == 1;
+        panel-width: 360px;
+        VerticalLayout {
+            padding: 16px;
+            alignment: center;
+            HorizontalLayout { alignment: center; DebugToggles { } }
+        }
+    }
+}

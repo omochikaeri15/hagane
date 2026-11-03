@@ -12,8 +12,8 @@ use wasm_bindgen::{JsCast, JsValue};
 use wasm_bindgen_futures::JsFuture;
 use web_sys::{AudioBuffer, AudioBufferSourceNode, AudioContext, AudioContextOptions, GainNode, HtmlCanvasElement};
 
-use omote::host::{Bounds, Canvas, Frame, Scene, Vertex, paint};
-use omote::platform::battle::{AudioCommand, BattleEvent, SheetWire};
+use crate::systems::host::{Bounds, Canvas, Frame, Scene, Vertex, paint};
+use crate::platform::battle::{AudioCommand, BattleEvent, SheetWire};
 
 const SHADER_SOURCE: &str = r"
 struct VertexInput {
@@ -668,7 +668,7 @@ impl Screen {
             BattleEvent::Standing(standing) => {
                 self.surfaced = standing.surfaced;
 
-                if standing.phase == omote::host::Phase::Idle {
+                if standing.phase == crate::systems::host::Phase::Idle {
                     self.frame = None;
                     self.speaker.silence();
                     self.dirty = true;

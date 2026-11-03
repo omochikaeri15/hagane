@@ -8,7 +8,7 @@ use codex::graphics::rig::{BoundingBox, Rig};
 use codex::graphics::tools::joint::Joint;
 use codex::graphics::tools::part;
 
-use kokoro::domains::settings::{Overlays, Scope, StudioSettings, Tier};
+use foundry::domains::settings::{Overlays, Scope, StudioSettings, Tier};
 
 use super::canvas as viewer;
 use super::data;
@@ -498,7 +498,7 @@ pub(super) fn paint(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use kokoro::domains::settings::Shown;
+    use foundry::domains::settings::Shown;
 
     fn sheet(pixels: &mut [u8], width: i32, height: i32) -> Sheet<'_> {
         Sheet { pixels, width, height }

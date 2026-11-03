@@ -13,11 +13,11 @@ use codex::graphics::rig::{Animation, Rig};
 use codex::graphics::tools::joint;
 use codex::graphics::tools::part;
 
-use kokoro::systems::animation::export::process::calculate_export_time;
-use kokoro::systems::animation::export::{EncoderMessage, ExportMode, FrameTiming, ShowcaseLengths};
-use kokoro::domains::settings::Scope;
-use kokoro::systems::animation::{multiply_mat3, Role};
-use kokoro::Source;
+use foundry::systems::animation::export::process::calculate_export_time;
+use foundry::systems::animation::export::{EncoderMessage, ExportMode, FrameTiming, ShowcaseLengths};
+use foundry::domains::settings::Scope;
+use foundry::systems::animation::{multiply_mat3, Role};
+use foundry::Source;
 
 use crate::systems::animation;
 

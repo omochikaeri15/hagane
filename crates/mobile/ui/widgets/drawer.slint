@@ -1,0 +1,74 @@
+import { Theme } from "../theme.slint";
+import { Shell } from "../shell.slint";
+
+export component Drawer inherits Rectangle {
+    in-out property <bool> open;
+    in property <bool> right;
+    in property <length> panel-width: 240px;
+    in property <bool> glass;
+    in property <bool> scrimmed: true;
+    callback opened;
+    callback closed;
+
+    width: 100%;
+    height: 100%;
+    background: transparent;
+    visible: root.open || root.progress > 0.0;
+
+    property <length> resting: root.right ? root.width : -root.panel-width;
+    property <length> shown: root.right ? root.width - root.panel-width : 0px;
+    property <float> progress: root.open ? 1.0 : 0.0;
+    animate progress { duration: Theme.slide; easing: ease-out; }
+
+    public function toggle() { root.open = !root.open; }
+
+    if root.open && root.scrimmed: SwipeGestureHandler {
+        x: root.right ? 0px : root.panel-width;
+        width: root.width - root.panel-width;
+        height: 100%;
+        handle-swipe-left: !root.right;
+        handle-swipe-right: root.right;
+        swiped => {
+            if (root.right && self.current-position.x > self.pressed-position.x + 40px) || (!root.right && self.current-position.x < self.pressed-position.x - 40px) {
+                root.open = false;
+                root.closed();
+            }
+        }
+        TouchArea {
+            clicked => { root.open = false; root.closed(); }
+        }
+    }
+
+    slide := Rectangle {
+        x: root.resting + (root.shown - root.resting) * root.progress;
+        width: root.panel-width;
+        height: 100%;
+        background: root.glass ? Theme.sidebar-bg : Theme.bg-weakest;
+        border-width: 1px;
+        border-color: root.glass ? Theme.sidebar-border : Theme.bg-weak;
+        border-top-left-radius: root.right ? Theme.sidebar-radius : 0px;
+        border-bottom-left-radius: root.right ? Theme.sidebar-radius : 0px;
+        border-top-right-radius: root.right ? 0px : Theme.radius-md;
+        border-bottom-right-radius: root.right ? 0px : Theme.radius-md;
+        clip: true;
+        TouchArea { }
+        @children
+    }
+}
+
+export component EdgeGrab inherits SwipeGestureHandler {
+    in property <bool> right;
+    in property <bool> armed: true;
+    callback pulled;
+    width: 100%;
+    height: 100%;
+    handle-swipe-left: root.right && root.armed && root.pressed-position.x > root.width - Theme.edge;
+    handle-swipe-right: !root.right && root.armed && root.pressed-position.x < Theme.edge;
+    changed pressed-position => { Shell.taps += 1; }
+    swiped => {
+        if (root.right && root.current-position.x < root.pressed-position.x - 24px) || (!root.right && root.current-position.x > root.pressed-position.x + 24px) {
+            root.pulled();
+        }
+    }
+    @children
+}

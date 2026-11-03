@@ -14,17 +14,17 @@ use iced::{mouse, Border, Color, Element, Length, Padding, Size, Task, Theme};
 use tracing::warn;
 
 use emulator::runtime::VERSION;
-use kokoro::common::context::GlobalContext;
-use kokoro::systems::combat::NameBook;
-use kokoro::common::frames;
-use kokoro::domains::cat::scanner;
-use kokoro::domains::sandbox::orb::Allowance;
-use kokoro::domains::sandbox::replay::{self as tape, Staged, Summary, Unit};
-use kokoro::domains::settings::{ScannerConfig, Settings};
-use kokoro::systems::treasure::{self, Bonus};
-use kokoro::Vault;
+use foundry::common::context::GlobalContext;
+use foundry::systems::combat::NameBook;
+use foundry::common::frames;
+use foundry::domains::cat::scanner;
+use foundry::domains::sandbox::orb::Allowance;
+use foundry::domains::sandbox::replay::{self as tape, Staged, Summary, Unit};
+use foundry::domains::settings::{ScannerConfig, Settings};
+use foundry::systems::treasure::{self, Bonus};
+use foundry::Vault;
 use codex::files::Localizable;
-use kokoro::common::gfx::open_image;
+use foundry::common::gfx::open_image;
 
 use crate::app::state::AppState;
 use crate::app::theme;
@@ -200,7 +200,7 @@ fn describe(title: String, summary: &Summary) -> Details {
     if let Some(save) = &summary.save {
         let phone = if save.screen.phone { " (Phone)" } else { "" };
 
-        meta.push(("Screen", format!("{} × {}{phone}", save.screen.width, save.screen.height)));
+        meta.push(("Screen", format!("{} × {}{phone}", save.screen.width.round(), save.screen.height.round())));
     }
 
     meta.push(("Assets", format!("{} files", summary.assets)));
@@ -388,7 +388,7 @@ impl State {
         let orbs = self.orbs.load(&staged.vault, &self.glossary).map(Message::Orbs);
 
         self.coin = staged.vault.vfs.find(NP_ICON).and_then(|path| open_image(&staged.vault.vfs.source(&path))).map(|opened| {
-            let cropped = kokoro::common::gfx::autocrop(opened.to_rgba8());
+            let cropped = foundry::common::gfx::autocrop(opened.to_rgba8());
 
             Handle::from_rgba(cropped.width(), cropped.height(), cropped.into_raw())
         });

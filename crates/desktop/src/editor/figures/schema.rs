@@ -9,7 +9,7 @@ use codex::common::{Column, FromColumn};
 use codex::enemy::t_unit;
 use codex::files::GatyaItemBuy;
 
-use kokoro::domains::settings::EditorMode;
+use foundry::domains::settings::EditorMode;
 
 use crate::app::Page;
 

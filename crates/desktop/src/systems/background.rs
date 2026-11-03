@@ -12,8 +12,8 @@ use std::time::Duration;
 use iced::widget::{container, stack, text, Space};
 use iced::{Background, Border, Color, Element, Length, Padding, Task, Theme};
 
-use kokoro::domains::utilities::background::{self as builder, Loaded, STAGE_WIDTH};
-use kokoro::systems::addons::paths::{self, Presence};
+use foundry::domains::utilities::background::{self as builder, Loaded, STAGE_WIDTH};
+use foundry::systems::addons::paths::{self, Presence};
 use codex::graphics::backdrop::{Backdrop, Camera, Layers, Quad, Screen};
 
 use crate::app::state::BackgroundState;

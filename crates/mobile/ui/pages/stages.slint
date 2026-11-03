@@ -1,0 +1,644 @@
+import { ListView } from "std-widgets.slint";
+import { Theme } from "../theme.slint";
+import { Btn, Tone, Input, Combo, Label, Status, Dialog, Panel, Rule, VRule, Card, OutlinedCard, TapTip } from "../widgets/basics.slint";
+import { Drawer, EdgeGrab } from "../widgets/drawer.slint";
+import { Line, StatCell, HeaderBtn, Lines, StatGrid, HeaderToggle, Zebra } from "../widgets/detail.slint";
+import { FilterIcon, FilterLabeled, RangeField, FilterIconsWrap, FilterLabeledList, RangeRows } from "../widgets/filter.slint";
+import { Shell } from "../shell.slint";
+
+export struct PickRow { label: string, selected: bool }
+export struct Crown { label: string, enabled: bool }
+export struct DropRow { left: string, icon: image, has-icon: bool, name: string, amount: string }
+export struct MaterialCell { name: string, icon: image, has-icon: bool, chance: string, faint: bool }
+export struct LineupSlot { icon: image, has-icon: bool, tip: string, cat-id: int, form: int, level: string, jumpable: bool }
+export struct Pair { left: string, right: string }
+export struct GroundRow { icon: image, has-icon: bool, id: string, name: string, enemy-id: int, magnification: string, cells: [string] }
+export struct FlagRow { label: string, value: int, id: int }
+export struct FilterCard { kind: int, index: int, exclude: bool, name: string, fields: [RangeField], boss: int, base: int, attributes: bool }
+
+export global Stages {
+    in property <bool> ready;
+    in property <string> status-title: "Loading Stages...";
+    in property <string> status-detail;
+    in property <bool> empty;
+    in-out property <bool> browser-open;
+    in property <bool> filter-active;
+    in property <[PickRow]> categories;
+    in property <[PickRow]> maps;
+    in property <[PickRow]> stages;
+    in property <bool> has-category;
+    in property <bool> has-map;
+    in property <bool> selected;
+
+    in property <image> map-banner;
+    in property <bool> has-map-banner;
+    in property <string> map-name;
+    in property <image> stage-banner;
+    in property <bool> has-stage-banner;
+    in property <string> stage-name;
+    in property <[Crown]> crowns;
+    in property <int> crown;
+    in property <[StatCell]> info-headers-1;
+    in property <[StatCell]> info-values-1;
+    in property <[StatCell]> info-headers-2;
+    in property <[StatCell]> info-values-2;
+
+    in property <bool> has-materials;
+    in property <string> materials-title;
+    in property <[[MaterialCell]]> material-chunks;
+    in property <bool> has-treasure;
+    in property <string> treasure-title;
+    in property <string> treasure-first;
+    in property <[DropRow]> treasure-rows;
+    in property <bool> has-timed;
+    in property <[DropRow]> timed-rows;
+
+    in property <bool> has-lineup;
+    in property <[LineupSlot]> lineup;
+    in property <[Pair]> cannon;
+    in property <[Pair]> upgrades;
+    in property <[Pair]> treasures;
+
+    in property <[string]> restrictions;
+    in property <bool> has-rule;
+    in property <string> rule;
+    in property <string> combos-note;
+    in property <bool> has-bonus;
+    in property <string> bonus;
+    in property <[string]> ground-headers;
+    in property <[GroundRow]> ground;
+    in property <bool> no-enemies;
+
+    in-out property <bool> filter-open;
+    in-out property <string> filter-category;
+    in-out property <string> filter-map;
+    in-out property <string> filter-stage;
+    in property <[FlagRow]> general-flags;
+    in property <[FlagRow]> rule-flags;
+    in property <[FlagRow]> bonus-flags;
+    in property <int> cost-type;
+    in property <int> cost-grade;
+    in property <[RangeField]> cost-fields;
+    in property <[RangeField]> stat-fields;
+    in property <[RangeField]> restriction-fields;
+    in property <[RangeField]> id-fields;
+    in property <[FilterCard]> enemy-cards;
+    in property <[FilterCard]> lineup-cards;
+    in property <[FilterCard]> treasure-cards;
+    in property <[FilterCard]> material-cards;
+
+    in-out property <bool> attributes-open;
+    in property <int> attr-mode;
+    in property <string> attr-mag;
+    in property <[RangeField]> attr-stats;
+    in property <[FilterIcon]> attr-traits;
+    in property <[FilterIcon]> attr-attack-types;
+    in property <[FilterIcon]> attr-headline-1;
+    in property <[FilterIcon]> attr-headline-2;
+    in property <[FilterLabeled]> attr-body-1;
+    in property <[FilterLabeled]> attr-body-2;
+    in property <[FilterIcon]> attr-footer;
+
+    callback pick-category(int);
+    callback pick-map(int);
+    callback pick-stage(int);
+    callback pick-crown(int);
+    callback open-filter();
+    callback jump-enemy(int, string);
+    callback jump-cat(int, int, string);
+    callback filter-name(int, string);
+    callback filter-flag(int);
+    callback filter-cost-type(int);
+    callback filter-cost-grade(int);
+    callback filter-range(int, int, string, bool);
+    callback filter-card-exclude(int, int, int);
+    callback filter-card-remove(int, int);
+    callback filter-card-name(int, int, string);
+    callback filter-card-range(int, int, int, string, bool);
+    callback filter-card-boss(int, int);
+    callback filter-card-base(int);
+    callback filter-card-attributes(int);
+    callback filter-card-add(int);
+    callback filter-clear();
+    callback attr-mode-set(int);
+    callback attr-mag-edited(string);
+    callback attr-stat(int, string, bool);
+    callback attr-icon(int);
+    callback attr-range(int, int, string, bool);
+    callback attr-clear();
+}
+
+component Column inherits VerticalLayout {
+    in property <string> title;
+    in property <[PickRow]> rows;
+    in property <string> empty-text;
+    callback picked(int);
+    spacing: 4px;
+    Label { text: root.title; font-size: 13px; bold: true; horizontal-alignment: center; }
+    Rule { }
+    if root.rows.length == 0: Label { text: root.empty-text; color: Theme.danger; font-size: 12px; horizontal-alignment: center; vertical-alignment: center; vertical-stretch: 1; }
+    if root.rows.length > 0: ListView {
+        mouse-drag-pan-enabled: true;
+        vertical-stretch: 1;
+        for row[index] in root.rows: Rectangle {
+            height: 36px;
+            width: parent.width;
+            Rectangle {
+                y: 1px;
+                height: 34px;
+                width: parent.width;
+                border-radius: Theme.radius-sm;
+                background: row.selected ? Theme.primary : (press.pressed ? Theme.list-hover : Theme.bg-strong);
+                Text { text: row.label; color: row.selected ? Theme.white : Theme.text; font-size: 13px; horizontal-alignment: center; vertical-alignment: center; width: parent.width - 8px; x: 4px; height: parent.height; overflow: elide; }
+                press := TouchArea { clicked => { root.picked(index); } }
+            }
+        }
+    }
+}
+
+component Browser inherits Panel {
+    background: Theme.sidebar-solid;
+    border-color: Theme.sidebar-border;
+    VerticalLayout {
+        padding: 8px;
+        spacing: 6px;
+        Btn { tone: Tone.toggle; active: Stages.filter-active; label: "Filter"; text-size: 13px; height: 32px; clicked => { Stages.open-filter(); } }
+        Column { title: "Category"; rows: Stages.categories; empty-text: "No Categories Found!"; vertical-stretch: 1; picked(index) => { Stages.pick-category(index); } }
+        if Stages.has-category: Column { title: "Map"; rows: Stages.maps; empty-text: "No Maps Found!"; vertical-stretch: 1; picked(index) => { Stages.pick-map(index); } }
+        if Stages.has-map: Column { title: "Stage"; rows: Stages.stages; empty-text: "No Stages Found!"; vertical-stretch: 1; picked(index) => { Stages.pick-stage(index); Stages.browser-open = false; Shell.left-open = false; } }
+    }
+}
+
+component Section inherits VerticalLayout {
+    in property <string> title;
+    spacing: 6px;
+    Label { text: root.title; font-size: 18px; }
+    Rule { }
+    @children
+}
+
+component Banner inherits Rectangle {
+    in property <image> source;
+    in property <bool> present;
+    in property <string> fallback;
+    in property <length> size: 50px;
+    height: root.size;
+    width: root.present ? root.source.width * root.size / max(root.source.height, 1) : label.preferred-width;
+    if root.present: Image { source: root.source; height: root.size; width: parent.width; image-fit: fill; }
+    label := Label { text: root.fallback; bold: true; vertical-alignment: center; visible: !root.present; height: parent.height; }
+}
+
+component Cell inherits Rectangle {
+    in property <string> text;
+    in property <color> ink: Theme.text;
+    in property <length> size: 13px;
+    in property <int> weight: 400;
+    in property <float> fade: 1.0;
+    horizontal-stretch: 1;
+    preferred-width: 0px;
+    Text { text: root.text; color: root.ink; font-size: root.size; font-weight: root.weight; opacity: root.fade; horizontal-alignment: center; vertical-alignment: center; width: parent.width; height: parent.height; overflow: elide; wrap: word-wrap; }
+}
+
+component DropTable inherits VerticalLayout {
+    in property <string> first;
+    in property <[DropRow]> rows;
+    spacing: 0px;
+    Rectangle {
+        height: 28px;
+        background: Theme.table-header;
+        border-top-left-radius: Theme.radius-sm;
+        border-top-right-radius: Theme.radius-sm;
+        HorizontalLayout {
+            padding-left: 6px; padding-right: 6px; spacing: 8px;
+            Cell { text: root.first; ink: Theme.white; size: 12px; }
+            Cell { text: "Item"; ink: Theme.white; size: 12px; }
+            Cell { text: "Amount"; ink: Theme.white; size: 12px; }
+        }
+    }
+    for row[index] in root.rows: Rectangle {
+        height: 36px;
+        background: mod(index, 2) == 0 ? Theme.table-row : Theme.bg;
+        HorizontalLayout {
+            padding-left: 6px; padding-right: 6px; spacing: 8px;
+            Cell { text: row.left; }
+            Rectangle {
+                horizontal-stretch: 1;
+                if row.has-icon: Image { source: row.icon; width: 32px; height: 32px; x: (parent.width - self.width) / 2; y: (parent.height - self.height) / 2; image-fit: contain; }
+                if !row.has-icon: Text { text: row.name; color: Theme.text; font-size: 12px; horizontal-alignment: center; vertical-alignment: center; width: parent.width; height: parent.height; overflow: elide; }
+            }
+            Cell { text: row.amount; }
+        }
+    }
+}
+
+component MaterialChunk inherits VerticalLayout {
+    in property <[MaterialCell]> cells;
+    spacing: 0px;
+    Rectangle {
+        height: 28px;
+        background: Theme.table-header;
+        border-top-left-radius: Theme.radius-sm;
+        border-top-right-radius: Theme.radius-sm;
+        HorizontalLayout {
+            padding-left: 4px; padding-right: 4px; spacing: 4px;
+            for cell in root.cells: Cell { text: cell.name; ink: Theme.white; size: 10px; }
+        }
+    }
+    Rectangle {
+        height: 40px;
+        background: Theme.table-row;
+        HorizontalLayout {
+            padding-left: 4px; padding-right: 4px; spacing: 4px;
+            for cell in root.cells: Rectangle {
+                horizontal-stretch: 1;
+                if cell.has-icon: Image { source: cell.icon; width: 32px; height: 32px; x: (parent.width - self.width) / 2; y: (parent.height - self.height) / 2; image-fit: contain; }
+                if !cell.has-icon: Text { text: cell.name; color: Theme.text; font-size: 10px; horizontal-alignment: center; vertical-alignment: center; width: parent.width; height: parent.height; wrap: word-wrap; }
+            }
+        }
+    }
+    Rectangle {
+        height: 28px;
+        background: Theme.bg;
+        HorizontalLayout {
+            padding-left: 4px; padding-right: 4px; spacing: 4px;
+            for cell in root.cells: Cell { text: cell.chance; fade: cell.faint ? 0.4 : 1.0; }
+        }
+    }
+}
+
+component PairTable inherits VerticalLayout {
+    in property <string> left;
+    in property <string> right;
+    in property <[Pair]> rows;
+    spacing: 0px;
+    Rectangle {
+        height: 24px;
+        background: Theme.table-header;
+        border-top-left-radius: Theme.radius-sm;
+        border-top-right-radius: Theme.radius-sm;
+        HorizontalLayout {
+            padding-left: 6px; padding-right: 6px; spacing: 8px;
+            Cell { text: root.left; ink: Theme.white; size: 11px; weight: 700; }
+            Cell { text: root.right; ink: Theme.white; size: 11px; weight: 700; }
+        }
+    }
+    for row[index] in root.rows: Rectangle {
+        height: 22px;
+        background: mod(index, 2) == 0 ? Theme.table-row : Theme.bg;
+        HorizontalLayout {
+            padding-left: 6px; padding-right: 6px; spacing: 8px;
+            Cell { text: row.left; size: 11px; }
+            Cell { text: row.right; size: 11px; }
+        }
+    }
+}
+
+component Info inherits VerticalLayout {
+    spacing: 10px;
+    property <length> map-natural: Stages.has-map-banner ? Stages.map-banner.width * 50px / max(Stages.map-banner.height, 1) : 0px;
+    property <length> stage-natural: Stages.has-stage-banner ? Stages.stage-banner.width * 35px / max(Stages.stage-banner.height, 1) : 0px;
+    property <float> fit: min(1.0, (Shell.app-width - 30px) / max(root.map-natural + root.stage-natural, 1px));
+    Rectangle {
+        height: 50px;
+        map := Banner { x: 0; y: 50px - self.height; source: Stages.map-banner; present: Stages.has-map-banner; fallback: Stages.map-name; size: 50px * root.fit; }
+        Banner { x: map.width + 10px; y: 50px - self.height; source: Stages.stage-banner; present: Stages.has-stage-banner; fallback: Stages.stage-name; size: 35px * root.fit; }
+    }
+    Rule { }
+    if Stages.crowns.length > 1: HorizontalLayout {
+        spacing: 4px;
+        alignment: start;
+        for crown[index] in Stages.crowns: HeaderToggle { label: crown.label; symbol: "\u{1f732}"; available: crown.enabled; selected: Stages.crown == index; square: true; width: 56px; clicked => { Stages.pick-crown(index); } }
+    }
+    Section {
+        title: "Information";
+        StatGrid { headers-1: Stages.info-headers-1; values-1: Stages.info-values-1; headers-2: Stages.info-headers-2; values-2: Stages.info-values-2; }
+    }
+}
+
+component Drops inherits VerticalLayout {
+    spacing: 14px;
+    if Stages.has-materials: Section {
+        title: Stages.materials-title;
+        for chunk in Stages.material-chunks: MaterialChunk { cells: chunk; }
+    }
+    if Stages.has-treasure: Section {
+        title: Stages.treasure-title;
+        DropTable { first: Stages.treasure-first; rows: Stages.treasure-rows; }
+    }
+    if Stages.has-timed: Section {
+        title: "Timed Score Rewards";
+        DropTable { first: "Score"; rows: Stages.timed-rows; }
+    }
+}
+
+component Lineup inherits Section {
+    title: "Fixed Lineup";
+    for row in [0, 1]: HorizontalLayout {
+        spacing: 4px;
+        alignment: start;
+        for col in [0, 1, 2, 3, 4]: slot := Rectangle {
+            property <int> at: row * 5 + col;
+            property <bool> real: self.at < Stages.lineup.length;
+            width: 56px;
+            height: 56px;
+            background: Theme.bg-weak;
+            border-radius: 4px;
+            if self.real && Stages.lineup[self.at].has-icon: Image { source: Stages.lineup[parent.at].icon; width: 52px; height: 52px; x: 2px; y: 2px; image-fit: contain; }
+            if self.real && Stages.lineup[self.at].level != "": Rectangle {
+                x: parent.width - self.width; y: parent.height - self.height;
+                width: badge.preferred-width + 6px; height: badge.preferred-height + 2px;
+                background: #000000a1; border-radius: 4px;
+                badge := Text { text: Stages.lineup[slot.at].level; color: Theme.white; font-size: 10px; horizontal-alignment: center; vertical-alignment: center; width: parent.width; height: parent.height; }
+            }
+            if self.real && Stages.lineup[self.at].jumpable: TouchArea { clicked => { Stages.jump-cat(Stages.lineup[parent.at].cat-id, Stages.lineup[parent.at].form, Stages.lineup[parent.at].level); } }
+        }
+    }
+    OutlinedCard {
+        height: upgrades.preferred-height + 16px;
+        upgrades := VerticalLayout {
+            padding: 8px;
+            spacing: 8px;
+            PairTable { left: "Cannon"; right: "Level"; rows: Stages.cannon; }
+            PairTable { left: "Upgrade"; right: "Level"; rows: Stages.upgrades; }
+            PairTable { left: "Chapter"; right: "Treasure"; rows: Stages.treasures; }
+        }
+    }
+}
+
+component Battleground inherits Section {
+    title: "Battleground";
+    if Stages.restrictions.length > 0: VerticalLayout {
+        spacing: 4px;
+        Label { text: "Restrictions"; font-size: 15px; bold: true; }
+        for line in Stages.restrictions: Label { text: line; font-size: 14px; wrap: word-wrap; }
+    }
+    if Stages.has-rule: VerticalLayout {
+        spacing: 4px;
+        Label { text: "Rules"; font-size: 15px; bold: true; }
+        Label { text: Stages.rule; font-size: 14px; wrap: word-wrap; }
+        if Stages.combos-note != "": Label { text: Stages.combos-note; font-size: 14px; }
+    }
+    if Stages.has-bonus: VerticalLayout {
+        spacing: 4px;
+        Label { text: "Score Bonus"; font-size: 15px; bold: true; }
+        Label { text: Stages.bonus; font-size: 14px; wrap: word-wrap; }
+    }
+    if Stages.no-enemies: Label { text: "No enemies defined for this stage."; }
+    if !Stages.no-enemies: Flickable {
+        mouse-drag-pan-enabled: true;
+        height: table.preferred-height;
+        content-width: max(self.width, 90px + Stages.ground-headers.length * 84px);
+        table := VerticalLayout {
+            spacing: 0px;
+            Rectangle {
+                height: 40px;
+                background: Theme.table-header;
+                border-top-left-radius: Theme.radius-sm;
+                border-top-right-radius: Theme.radius-sm;
+                HorizontalLayout {
+                    padding-left: 6px; padding-right: 6px; spacing: 6px;
+                    Rectangle { width: 48px; Text { text: "Enemy"; color: Theme.white; font-size: 11px; horizontal-alignment: center; vertical-alignment: center; width: parent.width; height: parent.height; } }
+                    for header[index] in Stages.ground-headers: Text { text: header; color: Theme.white; font-size: 11px; horizontal-alignment: center; vertical-alignment: center; width: index == 1 ? 108px : 78px; wrap: word-wrap; }
+                }
+            }
+            for row[index] in Stages.ground: Rectangle {
+                height: 44px;
+                background: mod(index, 2) == 0 ? Theme.table-row : Theme.bg;
+                HorizontalLayout {
+                    padding-left: 6px; padding-right: 6px; spacing: 6px;
+                    Rectangle {
+                        width: 48px;
+                        if row.has-icon: Image { source: row.icon; width: 40px; height: 40px; x: 4px; y: 2px; image-fit: contain; }
+                        if !row.has-icon: Text { text: row.id; color: Theme.text; font-size: 11px; horizontal-alignment: center; vertical-alignment: center; width: parent.width; height: parent.height; }
+                        TouchArea { clicked => { Stages.jump-enemy(row.enemy-id, row.magnification); } }
+                    }
+                    for cell[index] in row.cells: Text { text: cell; color: Theme.text; font-size: 12px; horizontal-alignment: center; vertical-alignment: center; width: index == 1 ? 108px : 78px; wrap: word-wrap; }
+                }
+            }
+        }
+    }
+}
+
+component Tristate inherits Btn {
+    in property <int> value;
+    width: 54px;
+    height: 26px;
+    text-size: 12px;
+    pad-y: 0px;
+    pad-x: 0px;
+    label: root.value == 1 ? "Yes" : (root.value == 2 ? "No" : "Any");
+    tone: root.value == 1 ? Tone.primary : (root.value == 2 ? Tone.danger : Tone.neutral);
+}
+
+component Flags inherits VerticalLayout {
+    in property <[FlagRow]> items;
+    spacing: 4px;
+    for flag in root.items: HorizontalLayout {
+        spacing: 8px;
+        Label { text: flag.label + ":"; font-size: 13px; vertical-alignment: center; horizontal-stretch: 1; }
+        Tristate { value: flag.value; clicked => { Stages.filter-flag(flag.id); } }
+    }
+}
+
+component Ranges inherits VerticalLayout {
+    in property <[RangeField]> fields;
+    in property <int> group;
+    spacing: 6px;
+    for field[index] in root.fields: HorizontalLayout {
+        spacing: 4px;
+        alignment: start;
+        Label { text: field.label; width: 110px; font-size: 13px; vertical-alignment: center; }
+        Input { width: 55px; height: 28px; text: field.min; placeholder: "Min"; text-size: 13px; edited(value) => { Stages.filter-range(root.group, field.owner, value, true); } }
+        Label { text: "~"; vertical-alignment: center; }
+        Input { width: 55px; height: 28px; text: field.max; placeholder: "Max"; text-size: 13px; edited(value) => { Stages.filter-range(root.group, field.owner, value, false); } }
+    }
+}
+
+component FilterCards inherits VerticalLayout {
+    in property <[FilterCard]> cards;
+    in property <int> kind;
+    in property <string> add-label;
+    spacing: 8px;
+    for card in root.cards: Card {
+        height: body.preferred-height + 16px;
+        body := VerticalLayout {
+            padding: 8px;
+            spacing: 6px;
+            HorizontalLayout {
+                spacing: 8px;
+                Combo { width: 110px; height: 28px; text-size: 13px; options: ["Include", "Exclude"]; current: card.exclude ? 1 : 0; selected(index) => { Stages.filter-card-exclude(root.kind, card.index, index); } }
+                Rectangle { horizontal-stretch: 1; }
+                Btn { tone: Tone.danger; label: "X"; width: 32px; height: 28px; pad-x: 0px; pad-y: 0px; text-size: 13px; clicked => { Stages.filter-card-remove(root.kind, card.index); } }
+            }
+            if root.kind == 0: Btn { tone: Tone.toggle; active: card.attributes; label: "Attributes"; height: 28px; text-size: 13px; clicked => { Stages.filter-card-attributes(card.index); } }
+            if root.kind == 0: HorizontalLayout {
+                spacing: 8px;
+                alignment: start;
+                Label { text: "Boss Type:"; font-size: 13px; vertical-alignment: center; }
+                Combo { width: 120px; height: 28px; text-size: 13px; options: ["Any", "None", "Boss", "Screen Shake"]; current: card.boss; selected(index) => { Stages.filter-card-boss(card.index, index); } }
+                Label { text: "Is Base:"; font-size: 13px; vertical-alignment: center; }
+                Tristate { value: card.base; clicked => { Stages.filter-card-base(card.index); } }
+            }
+            HorizontalLayout {
+                spacing: 8px;
+                alignment: start;
+                Label { text: "Name or ID:"; font-size: 13px; vertical-alignment: center; }
+                Input { width: 150px; height: 28px; text-size: 13px; text: card.name; placeholder: "Any"; edited(value) => { Stages.filter-card-name(root.kind, card.index, value); } }
+            }
+            for field[index] in card.fields: HorizontalLayout {
+                spacing: 4px;
+                alignment: start;
+                Label { text: field.label; width: 110px; font-size: 13px; vertical-alignment: center; }
+                Input { width: 55px; height: 28px; text: field.min; placeholder: "Min"; text-size: 13px; edited(value) => { Stages.filter-card-range(root.kind, card.index, index, value, true); } }
+                Label { text: "~"; vertical-alignment: center; }
+                Input { width: 55px; height: 28px; text: field.max; placeholder: "Max"; text-size: 13px; edited(value) => { Stages.filter-card-range(root.kind, card.index, index, value, false); } }
+            }
+        }
+    }
+    Btn { label: root.add-label; height: 30px; text-size: 13px; clicked => { Stages.filter-card-add(root.kind); } }
+}
+
+component FilterDialog inherits Dialog {
+    title: "Advanced Stage Filter";
+    open <=> Stages.filter-open;
+    body-height: 9999px;
+    Flickable {
+        mouse-drag-pan-enabled: true;
+        width: 100%;
+        height: 100%;
+        content-height: content.preferred-height;
+        content := VerticalLayout {
+            padding: 16px;
+            spacing: 16px;
+            Section {
+                title: "Name";
+                for pair[index] in [{ label: "Category:", id: 0 }, { label: "Map:", id: 1 }, { label: "Stage:", id: 2 }]: HorizontalLayout {
+                    spacing: 8px;
+                    alignment: start;
+                    Label { text: pair.label; width: 80px; font-size: 13px; vertical-alignment: center; }
+                    Input { width: 170px; height: 28px; text-size: 13px; placeholder: "Any"; text: pair.id == 0 ? Stages.filter-category : (pair.id == 1 ? Stages.filter-map : Stages.filter-stage); edited(value) => { Stages.filter-name(pair.id, value); } }
+                }
+            }
+            Section { title: "General Rules"; Flags { items: Stages.general-flags; } }
+            Section { title: "Special Map Rules"; Flags { items: Stages.rule-flags; } }
+            Section { title: "Score Bonuses"; Flags { items: Stages.bonus-flags; } }
+            Section {
+                title: "Entry Cost";
+                HorizontalLayout {
+                    spacing: 8px;
+                    alignment: start;
+                    Label { text: "Type:"; font-size: 13px; vertical-alignment: center; }
+                    Combo { width: 120px; height: 28px; text-size: 13px; options: ["Any", "Energy", "Item", "Catamin"]; current: Stages.cost-type; selected(index) => { Stages.filter-cost-type(index); } }
+                }
+                if Stages.cost-fields.length > 0: Ranges { fields: Stages.cost-fields; group: 0; }
+                if Stages.cost-type == 3: HorizontalLayout {
+                    spacing: 8px;
+                    alignment: start;
+                    Label { text: "Grade:"; font-size: 13px; vertical-alignment: center; }
+                    Combo { width: 100px; height: 28px; text-size: 13px; options: ["Any", "A", "B", "C"]; current: Stages.cost-grade; selected(index) => { Stages.filter-cost-grade(index); } }
+                }
+            }
+            Section { title: "Stats"; Ranges { fields: Stages.stat-fields; group: 1; } }
+            Section { title: "Restrictions"; Ranges { fields: Stages.restriction-fields; group: 2; } }
+            Section { title: "IDs & Audio"; Ranges { fields: Stages.id-fields; group: 3; } }
+            Section { title: "Battleground"; FilterCards { cards: Stages.enemy-cards; kind: 0; add-label: "+ Add New Enemy"; } }
+            Section { title: "Fixed Lineup Cats"; FilterCards { cards: Stages.lineup-cards; kind: 1; add-label: "+ Add Lineup Cat"; } }
+            Section { title: "Treasures"; FilterCards { cards: Stages.treasure-cards; kind: 2; add-label: "+ Add New Treasure"; } }
+            Section { title: "Materials"; FilterCards { cards: Stages.material-cards; kind: 3; add-label: "+ Add New Material"; } }
+            HorizontalLayout {
+                alignment: center;
+                padding: 8px;
+                Btn { tone: Tone.danger; label: "Clear Filter"; clicked => { Stages.filter-clear(); } }
+            }
+        }
+    }
+}
+
+component AttributesDialog inherits Dialog {
+    title: "Battleground Attributes";
+    open <=> Stages.attributes-open;
+    body-height: 9999px;
+    Flickable {
+        mouse-drag-pan-enabled: true;
+        width: 100%;
+        height: 100%;
+        content-height: content.preferred-height;
+        content := VerticalLayout {
+            padding: 16px;
+            spacing: 16px;
+            VerticalLayout {
+                spacing: 8px;
+                Label { text: "Attributes"; font-size: 18px; }
+                HorizontalLayout {
+                    spacing: 8px; alignment: start;
+                    Label { text: "Mode:"; vertical-alignment: center; }
+                    Combo { options: ["And", "Or"]; current: Stages.attr-mode; selected(index) => { Stages.attr-mode-set(index); } }
+                }
+            }
+            VerticalLayout {
+                spacing: 8px;
+                Label { text: "Stats"; font-size: 18px; }
+                HorizontalLayout {
+                    spacing: 8px; alignment: start;
+                    Label { text: "Target Magnification:"; vertical-alignment: center; }
+                    Input { width: 70px; text: Stages.attr-mag; placeholder: "Stage"; edited(value) => { Stages.attr-mag-edited(value); } }
+                    Label { text: "%"; vertical-alignment: center; }
+                }
+                RangeRows { fields: Stages.attr-stats; min-edited(index, value) => { Stages.attr-stat(index, value, true); } max-edited(index, value) => { Stages.attr-stat(index, value, false); } }
+            }
+            VerticalLayout { spacing: 8px; Label { text: "Trait Type"; font-size: 18px; } FilterIconsWrap { items: Stages.attr-traits; toggled(id) => { Stages.attr-icon(id); } } }
+            VerticalLayout { spacing: 8px; Label { text: "Attack Type"; font-size: 18px; } FilterIconsWrap { items: Stages.attr-attack-types; toggled(id) => { Stages.attr-icon(id); } } }
+            VerticalLayout {
+                spacing: 8px;
+                Label { text: "Abilities"; font-size: 18px; }
+                if Stages.attr-headline-1.length > 0: FilterIconsWrap { items: Stages.attr-headline-1; toggled(id) => { Stages.attr-icon(id); } }
+                if Stages.attr-headline-2.length > 0: FilterIconsWrap { items: Stages.attr-headline-2; toggled(id) => { Stages.attr-icon(id); } }
+                if Stages.attr-body-1.length > 0: FilterLabeledList { items: Stages.attr-body-1; toggled(id) => { Stages.attr-icon(id); } range-min(owner, index, value) => { Stages.attr-range(owner, index, value, true); } range-max(owner, index, value) => { Stages.attr-range(owner, index, value, false); } }
+                if Stages.attr-body-2.length > 0: FilterLabeledList { items: Stages.attr-body-2; toggled(id) => { Stages.attr-icon(id); } range-min(owner, index, value) => { Stages.attr-range(owner, index, value, true); } range-max(owner, index, value) => { Stages.attr-range(owner, index, value, false); } }
+                if Stages.attr-footer.length > 0: FilterIconsWrap { items: Stages.attr-footer; toggled(id) => { Stages.attr-icon(id); } }
+            }
+            HorizontalLayout {
+                alignment: center;
+                padding: 8px;
+                Btn { tone: Tone.danger; label: "Clear Filter"; clicked => { Stages.attr-clear(); } }
+            }
+        }
+    }
+}
+
+export component StagesPage inherits Rectangle {
+    EdgeGrab { armed: Stages.ready && !Stages.browser-open && !Shell.nav-open; pulled => { Stages.browser-open = true; Shell.left-open = true; }
+        if !Stages.ready: Status { title: Stages.status-title; detail: Stages.status-detail; x: (parent.width - self.width) / 2; y: (parent.height - self.height) / 2; width: min(parent.width - 32px, 360px); }
+        if Stages.ready && !Stages.selected: Label { text: Stages.empty ? "No Stage Data" : "Select a stage to view details"; font-size: 20px; horizontal-alignment: center; vertical-alignment: center; width: parent.width - 32px; x: 16px; height: parent.height; wrap: word-wrap; }
+        if Stages.ready && Stages.selected: Flickable {
+            mouse-drag-pan-enabled: true;
+            width: parent.width;
+            height: parent.height;
+            content-width: self.width;
+            content-height: body.preferred-height + 24px > self.height ? body.preferred-height + 24px : self.height;
+            body := VerticalLayout {
+                x: 0;
+                y: 0;
+                width: parent.width;
+                height: self.preferred-height;
+                padding-left: 10px;
+                padding-right: 10px;
+                padding-top: 8px;
+                padding-bottom: 16px;
+                spacing: 14px;
+                Info { }
+                Drops { }
+                if Stages.has-lineup: Lineup { }
+                Battleground { }
+            }
+        }
+    }
+    Drawer {
+        open <=> Stages.browser-open;
+        panel-width: min(260px, root.width * 0.7);
+        closed => { Shell.left-open = false; }
+        Browser { width: 100%; height: 100%; }
+    }
+    FilterDialog { }
+    AttributesDialog { }
+}

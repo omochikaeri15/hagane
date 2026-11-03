@@ -4,7 +4,7 @@ use std::sync::Arc;
 use dioxus::history::History;
 use dioxus::web::WebHistory;
 
-use omote::platform::{URL_FOLLOWING, URL_TYPE_KEY};
+use crate::platform::{URL_FOLLOWING, URL_TYPE_KEY};
 
 use crate::bridge;
 

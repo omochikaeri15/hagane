@@ -1,5 +1,5 @@
 use emulator::runtime::{BattleOptions, CatGod, PartLevels, Seeds, Setup, SetupUnit, StageEntry, StageVariant, TechLevel, TutorialFlags};
-use kokoro::domains::sandbox::replay::{self as tape, Key};
+use foundry::domains::sandbox::replay::{self as tape, Key};
 
 use super::keys::Action;
 

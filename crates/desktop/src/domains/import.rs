@@ -14,13 +14,13 @@ use iced::{Alignment, Element, Length, Subscription, Task, Theme};
 use smol::Timer;
 use tracing::{info, trace, warn};
 
-use kokoro::systems::addons::paths::{self, Presence};
-use kokoro::common::job::{JobEvent, JobOutcome, ProgressCounter};
-use kokoro::common::region::Region;
-use kokoro::domains::import::{
+use foundry::systems::addons::paths::{self, Presence};
+use foundry::common::job::{JobEvent, JobOutcome, ProgressCounter};
+use foundry::common::region::Region;
+use foundry::domains::import::{
     android, pack, raw, AdbImportType, AdbTarget, DataConfigState, ImportMode, ImportSubTab,
 };
-use kokoro::domains::settings::Settings;
+use foundry::domains::settings::Settings;
 
 use crate::app::state::AppState;
 use crate::app::theme;

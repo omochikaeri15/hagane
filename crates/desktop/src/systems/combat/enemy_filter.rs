@@ -5,12 +5,12 @@ use iced::widget::{button, column, container, image as iced_image, operation, pi
 use iced::{Element, Length, Size, Task};
 use codex::combat::{AttrUnit, Identity, REGISTRY};
 
-use kokoro::domains::enemy::filter::evaluation::get_identity_name;
-use kokoro::systems::combat::NameBook;
-use kokoro::domains::enemy::filter::{EnemyFilterState, MatchMode, ATTACK_TYPE_IDENTITIES};
-use kokoro::domains::enemy::scanner::EnemyEntry;
-use kokoro::systems::combat::present_identities;
-use kokoro::systems::combat::registry::{get_display_def, AbilityIcon, DisplayGroup};
+use foundry::domains::enemy::filter::evaluation::get_identity_name;
+use foundry::systems::combat::NameBook;
+use foundry::domains::enemy::filter::{EnemyFilterState, MatchMode, ATTACK_TYPE_IDENTITIES};
+use foundry::domains::enemy::scanner::EnemyEntry;
+use foundry::systems::combat::present_identities;
+use foundry::systems::combat::registry::{get_display_def, AbilityIcon, DisplayGroup};
 
 use crate::app::theme;
 use crate::common::ability_icon;

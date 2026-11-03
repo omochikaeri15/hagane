@@ -7,7 +7,7 @@ use tracing::{debug, info, Level};
 use tracing_subscriber::fmt::writer::{BoxMakeWriter, MakeWriterExt};
 use tracing_subscriber::{fmt, EnvFilter};
 
-use kokoro::common::dirs;
+use foundry::common::dirs;
 
 static LAUNCHED: OnceLock<bool> = OnceLock::new();
 
@@ -46,9 +46,9 @@ pub(crate) fn init_logging(enable_logging: bool) {
     let app_dir = dirs::data();
 
     let (log_level, filter_directive, override_file) = if let Some(path) = trace_file {
-        (Level::TRACE, "info,desktop=trace,kokoro=trace,codex=trace,zbus=error,wgpu_core=warn,naga=warn", Some(path))
+        (Level::TRACE, "info,desktop=trace,foundry=trace,codex=trace,zbus=error,wgpu_core=warn,naga=warn", Some(path))
     } else if let Some(path) = debug_file {
-        (Level::DEBUG, "info,desktop=debug,kokoro=debug,codex=debug,zbus=error,wgpu_core=warn,naga=warn", Some(path))
+        (Level::DEBUG, "info,desktop=debug,foundry=debug,codex=debug,zbus=error,wgpu_core=warn,naga=warn", Some(path))
     } else if enable_logging {
         (Level::INFO, "info,zbus=error,wgpu_core=warn,wgpu_hal=warn,naga=warn", None)
     } else {

@@ -1,0 +1,981 @@
+import { ListView } from "std-widgets.slint";
+import { Theme } from "../theme.slint";
+import { Btn, Tone, Input, Combo, Toggle, Label, Dialog, Rule, Progress, OutlinedCard, Card, Panel, Status, Slider } from "../widgets/basics.slint";
+import { HeaderToggle, RosterRow, OrbSlot, OrbPicture, Line, Lines } from "../widgets/detail.slint";
+import { Drawer, EdgeGrab } from "../widgets/drawer.slint";
+import { Shell } from "../shell.slint";
+import { StagesPage } from "stages.slint";
+import { Cats, FilterDialog, CatDetail } from "cats.slint";
+import { TreasureEditor, ArcRow, ChapterFold } from "settings.slint";
+
+export struct DeckCell { filled: bool, icon: image, has-icon: bool, fallback: string, level: string, cost: string, has-cost: bool, barred: bool, talented: bool, np: image, has-np: bool, orbs: [image] }
+export struct ComboRow { line: int, name: string, effect: string, note: string, name-size: length, effect-size: length, note-size: length, active: bool, banned: bool, icons: [image], has: [bool] }
+export struct SavedRow { index: int, name: string, count: string, selected: bool }
+export struct ConfigEntry { label: string, hint: string, value: string }
+export struct ItemRow { label: string, on: bool, allowed: bool }
+export struct VitalRow { name: string, hp: string }
+export struct Field { label: string, lines: [Line] }
+export struct ReplayRow { label: string, selected: bool }
+
+export global Sandbox {
+    in-out property <int> tab;
+    in property <bool> agreed;
+    in property <string> terms;
+    in property <string> status;
+    in property <bool> playable;
+    in property <bool> watchable;
+    in property <bool> ready;
+    in property <string> status-title: "Loading Cats...";
+    in property <string> status-detail;
+
+    in property <[DeckCell]> slots;
+    in property <[DeckCell]> bench;
+    in property <string> lineup-name;
+    in-out property <bool> roster-open;
+    in property <[RosterRow]> roster;
+    in property <int> roster-count;
+    in-out property <string> search;
+    in property <bool> filter-active;
+    in property <[ComboRow]> combos;
+    in-out property <string> combo-search;
+    in property <[string]> combo-kinds;
+    in property <int> combo-kind;
+    in property <[string]> combo-strengths;
+    in property <int> combo-strength;
+    in-out property <length> combo-width;
+    in property <float> combo-scale: 1.0;
+    in property <length> combo-block: 170px;
+    in-out property <bool> lineups-open;
+    in property <[SavedRow]> saved;
+    in-out property <string> saved-search;
+    in property <string> delete-label: "Delete";
+    in-out property <string> rename;
+
+    in-out property <bool> unit-open;
+    in property <string> unit-title;
+    in property <bool> unit-locked;
+    in-out property <bool> orb-open;
+    in property <OrbSlot> orb-preview;
+    in property <[string]> orb-types;
+    in property <int> orb-type;
+    in property <[string]> orb-traits;
+    in property <int> orb-trait;
+    in property <bool> orb-trait-enabled;
+    in property <[string]> orb-grades;
+    in property <int> orb-grade;
+    in property <bool> orb-held;
+
+    in-out property <int> panel;
+    in property <[string]> panels: ["Settings", "Treasure", "Tech", "Base", "Items", "Invasions", "Tutorial"];
+    in property <[string]> volumes: ["Off", "Low", "Medium", "High"];
+    in property <int> music;
+    in property <int> effects;
+    in property <int> vibration;
+    in property <int> formation;
+    in property <int> device;
+    in property <int> scaling;
+    in property <bool> scaling-enabled;
+    in property <int> lag;
+    in property <int> quality: 100;
+    in property <[ArcRow]> arcs;
+    in property <[ChapterFold]> chapters;
+    in property <[string]> grades;
+    in property <[ConfigEntry]> techs;
+    in property <int> cat-god;
+    in property <string> altar;
+    in property <[string]> cannons;
+    in property <int> cannon;
+    in property <[string]> styles;
+    in property <int> style;
+    in property <[string]> foundations;
+    in property <int> foundation;
+    in property <[ConfigEntry]> base-levels;
+    in property <[string]> speeds;
+    in property <int> speed;
+    in property <bool> speed-enabled;
+    in property <[ItemRow]> items;
+    in property <[string]> filibusters;
+    in property <int> filibuster;
+    in property <[string]> outbreaks;
+    in property <int> outbreak;
+    in property <[ItemRow]> tutorials;
+
+    in property <[ReplayRow]> replays;
+    in-out property <bool> replays-open;
+    in property <string> replay-title;
+    in property <bool> replay-ready;
+    in property <bool> replay-renamable;
+    in property <[Field]> meta;
+    in property <[Field]> game;
+    in property <[DeckCell]> tiles;
+    in property <string> save-label: "Save to Library";
+    in property <Tone> save-tone: Tone.primary;
+    in property <bool> save-enabled;
+    in property <string> export-label: "Export to BCV";
+    in property <Tone> export-tone: Tone.primary;
+    in property <bool> export-enabled;
+    in property <string> replay-delete-label: "Delete";
+    in property <bool> replay-delete-enabled;
+    in property <string> job-status: "Ready";
+    in property <float> job-progress: 1.0;
+    in property <string> replay-failure;
+
+    in property <bool> active;
+    in property <bool> blackout;
+    in property <image> frame;
+    in property <bool> has-frame;
+    in property <bool> covered;
+    in property <bool> frozen;
+    in property <bool> watching;
+    in property <string> hint;
+    in-out property <bool> fault-open;
+    in property <string> fault-reason;
+    in-out property <bool> diagnostics-open;
+    in property <string> seed;
+    in property <[VitalRow]> vital-cats;
+    in property <[VitalRow]> vital-enemies;
+    in-out property <bool> version-open;
+    in property <string> version-text;
+
+    callback tab-set(int);
+    callback agree();
+    callback disagree();
+    callback play();
+    callback watch();
+    callback recruit(int);
+    callback search-changed(string);
+    callback open-filter();
+    in-out property <bool> dragging;
+    in property <int> battle-orientation;
+    callback cell-tapped(int, bool);
+    callback cell-dropped(int, bool, int, bool);
+    callback cell-discarded(int, bool);
+    callback battle-orientation-set(int);
+    callback adopt-combo(int);
+    callback combo-tapped(int);
+    callback combo-search-changed(string);
+    callback combo-kind-set(int);
+    callback combo-strength-set(int);
+    callback combo-resized();
+    callback lineup-new();
+    callback lineup-delete();
+    callback lineup-pick(int);
+    callback lineup-renamed(string);
+    callback saved-search-changed(string);
+    callback unit-closed();
+    callback orb-type-set(int);
+    callback orb-trait-set(int);
+    callback orb-grade-set(int);
+    callback orb-cleared();
+    callback panel-set(int);
+    callback music-set(int);
+    callback effects-set(int);
+    callback vibration-set(int);
+    callback formation-set(int);
+    callback device-set(int);
+    callback scaling-set(int);
+    callback lag-set(int);
+    callback quality-set(int);
+    callback arc-edited(int, string);
+    callback fold(int);
+    callback grade(int, int, int);
+    callback tech-edited(int, string);
+    callback cat-god-set(int);
+    callback altar-edited(string);
+    callback cannon-set(int);
+    callback style-set(int);
+    callback foundation-set(int);
+    callback base-level-edited(int, string);
+    callback speed-set(int);
+    callback item-toggled(int, bool);
+    callback filibuster-set(int);
+    callback outbreak-set(int);
+    callback tutorial-toggled(int, bool);
+    callback replay-pick(int);
+    callback replay-renamed(string);
+    callback replay-save();
+    callback replay-export();
+    callback replay-delete();
+    callback tile-tapped(int);
+    callback touch(int, length, length);
+    callback pinch(float);
+    callback hold-started();
+    callback hold-ended();
+    callback resized(length, length);
+    callback resume();
+    callback terminate();
+    callback close-diagnostics();
+    callback tapped();
+    callback version-close();
+    callback version-ignore();
+    callback version-continue();
+}
+
+component DeckSlot inherits Rectangle {
+    in property <DeckCell> cell;
+    in property <int> index;
+    in property <bool> bench;
+    in property <bool> lifted;
+    callback tapped;
+    callback drag-started(image, bool);
+    callback dragged(length, length);
+    callback dropped(length, length);
+    property <length> press-x;
+    property <length> press-y;
+    property <bool> dragging;
+    property <bool> spent;
+    property <bool> armed;
+    border-radius: Theme.radius-sm;
+    border-width: root.cell.filled ? 0px : 1px;
+    border-color: Theme.bg-strong;
+    background: root.cell.filled ? Theme.bg-weak : Theme.bg-weakest;
+    opacity: root.lifted ? 0.35 : 1.0;
+    clip: true;
+    if root.cell.filled && root.cell.has-icon: Image { source: root.cell.icon; width: parent.width; height: parent.height; image-fit: contain; }
+    if root.cell.filled && !root.cell.has-icon: Label { text: root.cell.fallback; font-size: 11px; horizontal-alignment: center; vertical-alignment: center; width: parent.width; height: parent.height; }
+    if root.cell.filled && root.cell.barred: Rectangle { background: Theme.scrim; }
+    if root.cell.filled: HorizontalLayout {
+        x: 2px;
+        y: 2px;
+        spacing: -9px;
+        for orb in root.cell.orbs: Image { source: orb; width: 20px; height: 20px; }
+    }
+    if root.cell.filled: Rectangle {
+        x: parent.width - self.width - 2px;
+        y: 2px;
+        width: level.preferred-width + 6px;
+        height: 14px;
+        border-radius: 3px;
+        background: Theme.scrim;
+        level := Text { text: root.cell.level; color: Theme.white; font-size: 9px; vertical-alignment: center; horizontal-alignment: center; width: parent.width; height: parent.height; }
+    }
+    if root.cell.filled && root.cell.has-cost: Rectangle {
+        x: parent.width - self.width - 2px;
+        y: parent.height - self.height - 2px;
+        width: cost.preferred-width + 6px;
+        height: 14px;
+        border-radius: 3px;
+        background: Theme.scrim;
+        cost := Text { text: root.cell.cost; color: Theme.white; font-size: 9px; vertical-alignment: center; horizontal-alignment: center; width: parent.width; height: parent.height; }
+    }
+    if root.cell.filled && root.cell.talented && root.cell.has-np: Image {
+        x: 0;
+        y: parent.height - self.height;
+        height: parent.height * 0.28;
+        width: self.source.width * self.height / max(self.source.height, 1);
+        source: root.cell.np;
+        image-fit: fill;
+    }
+    if root.cell.filled && root.cell.talented && !root.cell.has-np: Rectangle {
+        x: 0;
+        y: parent.height - self.height;
+        width: parent.height * 0.28;
+        height: parent.height * 0.28;
+        border-radius: 8px;
+        background: Theme.warning;
+        Text { text: "NP"; color: Theme.white; font-size: 7px; horizontal-alignment: center; vertical-alignment: center; width: parent.width; height: parent.height; }
+    }
+    TouchArea {
+        pointer-event(event) => {
+            if event.kind == PointerEventKind.down {
+                root.press-x = self.mouse-x;
+                root.press-y = self.mouse-y;
+                root.dragging = false;
+                root.spent = false;
+                root.armed = true;
+            } else if event.kind == PointerEventKind.move {
+                if self.pressed && root.cell.filled {
+                    if !root.dragging && !root.spent && (abs(self.mouse-x - root.press-x) > 6px || abs(self.mouse-y - root.press-y) > 6px) {
+                        root.dragging = true;
+                        root.spent = true;
+                        root.drag-started(root.cell.icon, root.cell.has-icon);
+                    }
+                    if root.dragging {
+                        root.dragged(self.mouse-x, self.mouse-y);
+                    }
+                }
+            } else if event.kind == PointerEventKind.up {
+                if root.dragging {
+                    root.dropped(self.mouse-x, self.mouse-y);
+                } else if !root.spent && root.armed {
+                    root.tapped();
+                }
+                root.dragging = false;
+                root.armed = false;
+            } else if event.kind == PointerEventKind.cancel {
+                if root.dragging {
+                    root.dropped(root.press-x, root.press-y);
+                }
+                root.dragging = false;
+                root.armed = false;
+            }
+        }
+    }
+}
+
+component Deck inherits OutlinedCard {
+    in property <length> avail;
+    property <length> gap: 6px;
+    property <length> cell-width: min((root.avail - 24px - self.gap * 4) / 5, 110px);
+    property <length> cell-height: self.cell-width * 85 / 110;
+    property <length> grid-width: self.cell-width * 5 + self.gap * 4;
+    property <length> left: 12px + (root.avail - 24px - self.grid-width) / 2;
+    property <length> slots-top: 40px;
+    property <length> bench-title-top: self.slots-top + self.cell-height * 2 + self.gap * 2 + 2px;
+    property <length> bench-top: self.bench-title-top + 36px;
+    property <int> drag-from: -1;
+    property <bool> drag-bench;
+    property <length> drag-x;
+    property <length> drag-y;
+    property <image> drag-icon;
+    property <bool> drag-has-icon;
+    height: self.bench-top + self.cell-height + 12px;
+
+    pure function col-at(x: length) -> int {
+        return x < root.left || x >= root.left + root.grid-width ? -1 : floor((x - root.left) / (root.cell-width + root.gap));
+    }
+
+    pure function row-at(y: length) -> int {
+        return y < root.slots-top || y >= root.slots-top + root.cell-height * 2 + root.gap ? -1 : floor((y - root.slots-top) / (root.cell-height + root.gap));
+    }
+
+    pure function on-bench(y: length) -> bool {
+        return y >= root.bench-top && y < root.bench-top + root.cell-height;
+    }
+
+    function drop(x: length, y: length) {
+        if root.col-at(x) >= 0 && root.row-at(y) >= 0 && root.row-at(y) < 2 {
+            Sandbox.cell-dropped(root.drag-from, root.drag-bench, root.row-at(y) * 5 + root.col-at(x), false);
+        } else if root.col-at(x) >= 0 && root.on-bench(y) {
+            Sandbox.cell-dropped(root.drag-from, root.drag-bench, root.col-at(x), true);
+        } else {
+            Sandbox.cell-discarded(root.drag-from, root.drag-bench);
+        }
+        root.drag-from = -1;
+        Sandbox.dragging = false;
+    }
+
+    Label { x: 12px; y: 12px; width: root.avail - 24px; text: "Lineup"; bold: true; font-size: 16px; horizontal-alignment: center; }
+    Label { x: 12px; y: root.bench-title-top; width: root.avail - 24px; text: "Bench"; bold: true; font-size: 14px; horizontal-alignment: center; }
+    Label { x: 12px; y: root.bench-title-top + 18px; width: root.avail - 24px; text: "Does not affect battle"; weak: true; font-size: 11px; horizontal-alignment: center; }
+    for index in [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]: DeckSlot {
+        x: root.left + mod(index, 5) * (root.cell-width + root.gap);
+        y: root.slots-top + floor(index / 5) * (root.cell-height + root.gap);
+        width: root.cell-width;
+        height: root.cell-height;
+        cell: Sandbox.slots[index];
+        index: index;
+        lifted: root.drag-from == index && !root.drag-bench;
+        tapped => { if Sandbox.slots[index].filled { Sandbox.cell-tapped(index, false); } else { Sandbox.roster-open = true; Shell.left-open = true; } }
+        drag-started(icon, has) => { root.drag-from = index; root.drag-bench = false; root.drag-icon = icon; root.drag-has-icon = has; root.drag-x = self.x + self.width / 2; root.drag-y = self.y + self.height / 2; Sandbox.dragging = true; }
+        dragged(x, y) => { root.drag-x = self.x + x; root.drag-y = self.y + y; }
+        dropped(x, y) => { root.drop(self.x + x, self.y + y); }
+    }
+    for index in [0, 1, 2, 3, 4]: DeckSlot {
+        x: root.left + index * (root.cell-width + root.gap);
+        y: root.bench-top;
+        width: root.cell-width;
+        height: root.cell-height;
+        cell: Sandbox.bench[index];
+        index: index;
+        bench: true;
+        lifted: root.drag-from == index && root.drag-bench;
+        tapped => { if Sandbox.bench[index].filled { Sandbox.cell-tapped(index, true); } else { Sandbox.roster-open = true; Shell.left-open = true; } }
+        drag-started(icon, has) => { root.drag-from = index; root.drag-bench = true; root.drag-icon = icon; root.drag-has-icon = has; root.drag-x = self.x + self.width / 2; root.drag-y = self.y + self.height / 2; Sandbox.dragging = true; }
+        dragged(x, y) => { root.drag-x = self.x + x; root.drag-y = self.y + y; }
+        dropped(x, y) => { root.drop(self.x + x, self.y + y); }
+    }
+    if root.drag-from >= 0: Rectangle {
+        x: root.drag-x - root.cell-width / 2;
+        y: root.drag-y - root.cell-height / 2;
+        width: root.cell-width;
+        height: root.cell-height;
+        border-radius: Theme.radius-sm;
+        border-width: 2px;
+        border-color: Theme.primary;
+        background: Theme.bg-weak;
+        opacity: 0.9;
+        if root.drag-has-icon: Image { source: root.drag-icon; width: parent.width; height: parent.height; image-fit: contain; }
+    }
+}
+
+component ComboCard inherits Rectangle {
+    in property <ComboRow> combo;
+    property <length> slot-width: 52px * 110 / 85 * Sandbox.combo-scale;
+    property <length> slot-height: 52px * Sandbox.combo-scale;
+    height: 88px * Sandbox.combo-scale;
+    border-radius: Theme.radius-md;
+    background: root.combo.banned ? Theme.danger.with-alpha(0.18) : (root.combo.active ? Theme.success : Theme.text.with-alpha(0.06));
+    HorizontalLayout {
+        padding-left: 8px;
+        padding-right: 8px;
+        spacing: 8px;
+        VerticalLayout {
+            alignment: center;
+            spacing: 1px;
+            width: Sandbox.combo-block;
+            Text { text: root.combo.name; color: Theme.text; font-size: root.combo.name-size; font-weight: 700; horizontal-alignment: center; wrap: word-wrap; overflow: clip; }
+            Text { text: root.combo.effect; color: Theme.text; font-size: root.combo.effect-size; horizontal-alignment: center; wrap: word-wrap; overflow: clip; }
+            if root.combo.note != "": Text { text: root.combo.note; color: Theme.text; font-size: root.combo.note-size; horizontal-alignment: center; wrap: no-wrap; overflow: clip; }
+        }
+        VerticalLayout {
+            alignment: center;
+            HorizontalLayout {
+                spacing: 3px;
+                alignment: start;
+                for icon[index] in root.combo.icons: Rectangle {
+                    width: root.slot-width;
+                    height: root.slot-height;
+                    border-radius: Theme.radius-sm;
+                    background: root.combo.has[index] ? transparent : Theme.text.with-alpha(0.08);
+                    if root.combo.has[index]: Image { source: icon; width: parent.width; height: parent.height; image-fit: contain; }
+                }
+            }
+        }
+    }
+    TouchArea { clicked => { Sandbox.combo-tapped(root.combo.line); } }
+}
+
+component ComboList inherits OutlinedCard {
+    changed width => { Sandbox.combo-width = self.width - 20px; Sandbox.combo-resized(); }
+    VerticalLayout {
+        padding: 10px;
+        spacing: 6px;
+        HorizontalLayout {
+            spacing: 8px;
+            Label { text: "Combos"; bold: true; font-size: 16px; vertical-alignment: center; }
+            Input { text <=> Sandbox.combo-search; placeholder: "Name..."; height: 28px; text-size: 12px; horizontal-stretch: 1; edited(value) => { Sandbox.combo-search-changed(value); } }
+        }
+        HorizontalLayout {
+            spacing: 8px;
+            Combo { horizontal-stretch: 3; height: 28px; text-size: 12px; options: Sandbox.combo-kinds; current: Sandbox.combo-kind; selected(index) => { Sandbox.combo-kind-set(index); } }
+            Combo { horizontal-stretch: 2; height: 28px; text-size: 12px; options: Sandbox.combo-strengths; current: Sandbox.combo-strength; selected(index) => { Sandbox.combo-strength-set(index); } }
+        }
+        ListView {
+            mouse-drag-pan-enabled: true;
+            vertical-stretch: 1;
+            for combo in Sandbox.combos: VerticalLayout {
+                padding-bottom: 4px;
+                ComboCard { combo: combo; }
+            }
+        }
+    }
+}
+
+component RosterPanel inherits Panel {
+    VerticalLayout {
+        padding: 8px;
+        spacing: 4px;
+        Btn { tone: Tone.toggle; active: Sandbox.filter-active; label: "Filter"; text-size: 13px; height: 32px; clicked => { Sandbox.open-filter(); } }
+        Input { text <=> Sandbox.search; placeholder: "Search Cat..."; text-size: 13px; height: 32px; edited(value) => { Sandbox.search-changed(value); } }
+        Rectangle { height: 4px; }
+        if Sandbox.roster-count == 0: Label { text: "No Cats Found!"; color: Theme.danger; horizontal-alignment: center; vertical-stretch: 1; vertical-alignment: center; }
+        if Sandbox.roster-count > 0: ListView {
+            mouse-drag-pan-enabled: true;
+            vertical-stretch: 1;
+            for row in Sandbox.roster: Rectangle {
+                height: 54px;
+                width: parent.width;
+                Rectangle {
+                    y: 0;
+                    height: 50px;
+                    width: parent.width;
+                    border-radius: Theme.radius-sm;
+                    background: press.pressed ? Theme.list-hover : transparent;
+                    if row.has-banner: Image {
+                        x: 0;
+                        y: 0;
+                        height: 50px;
+                        width: self.source.width * 50px / max(self.source.height, 1);
+                        source: row.banner;
+                        image-fit: fill;
+                    }
+                    press := TouchArea { clicked => { Sandbox.recruit(row.id); } }
+                }
+            }
+        }
+    }
+}
+
+component LineupTab inherits Rectangle {
+    EdgeGrab { armed: !Sandbox.roster-open && !Shell.nav-open && Sandbox.active == false && !Sandbox.dragging; pulled => { Sandbox.roster-open = true; Shell.left-open = true; }
+        VerticalLayout {
+            padding-left: 10px;
+            padding-right: 10px;
+            padding-top: 6px;
+            padding-bottom: 62px;
+            spacing: 8px;
+            HorizontalLayout {
+                spacing: 8px;
+                Label { text: Sandbox.lineup-name; font-size: 16px; bold: true; vertical-alignment: center; horizontal-stretch: 1; overflow: elide; }
+                Btn { label: "Lineups"; tone: Tone.neutral; width: 90px; height: 30px; text-size: 13px; clicked => { Sandbox.lineups-open = true; } }
+            }
+            Deck { avail: root.width - 20px; }
+            ComboList { vertical-stretch: 1; }
+        }
+    }
+    Drawer {
+        open <=> Sandbox.roster-open;
+        panel-width: 152px;
+        closed => { Shell.left-open = false; }
+        RosterPanel { width: 100%; height: 100%; }
+    }
+}
+
+component Row inherits HorizontalLayout {
+    in property <string> label;
+    spacing: 10px;
+    alignment: start;
+    Label { text: root.label; vertical-alignment: center; width: 120px; }
+    @children
+}
+
+component Note inherits Label {
+    font-size: 12px;
+    weak: true;
+    wrap: word-wrap;
+}
+
+component Section inherits VerticalLayout {
+    in property <string> title;
+    spacing: 8px;
+    Label { text: root.title; font-size: 20px; }
+    @children
+}
+
+component EntryRow inherits HorizontalLayout {
+    in property <string> label;
+    in property <string> hint;
+    in property <string> value;
+    callback edited(string);
+    spacing: 10px;
+    alignment: start;
+    Label { text: root.label; vertical-alignment: center; width: 170px; wrap: word-wrap; font-size: 14px; }
+    Input { width: 80px; height: 28px; text-size: 13px; placeholder: root.hint; text: root.value; edited(value) => { root.edited(value); } }
+}
+
+component ConfigTab inherits VerticalLayout {
+    padding-left: 10px;
+    padding-right: 10px;
+    padding-top: 6px;
+    spacing: 8px;
+    Flickable {
+        mouse-drag-pan-enabled: true;
+        height: 32px;
+        content-width: tabs.preferred-width;
+        tabs := HorizontalLayout {
+            spacing: 4px;
+            for label[index] in Sandbox.panels: HeaderToggle { label: label; selected: Sandbox.panel == index; available: true; width: max(self.preferred-width, 84px); clicked => { Sandbox.panel-set(index); } }
+        }
+    }
+    Rule { }
+    Flickable {
+        mouse-drag-pan-enabled: true;
+        vertical-stretch: 1;
+        content-height: body.preferred-height + 72px > self.height ? body.preferred-height + 72px : self.height;
+        body := VerticalLayout {
+            x: 0;
+            y: 0;
+            width: parent.width;
+            height: self.preferred-height;
+            spacing: 27px;
+            padding-right: 44px;
+            if Sandbox.panel == 0: Section {
+                title: "Game";
+                Row { label: "Music Volume"; Combo { width: 110px; height: 30px; text-size: 13px; options: Sandbox.volumes; current: Sandbox.music; selected(index) => { Sandbox.music-set(index); } } }
+                Row { label: "Sound Volume"; Combo { width: 110px; height: 30px; text-size: 13px; options: Sandbox.volumes; current: Sandbox.effects; selected(index) => { Sandbox.effects-set(index); } } }
+                Row { label: "Vibration"; Combo { width: 110px; height: 30px; text-size: 13px; options: ["On", "Off"]; current: Sandbox.vibration; selected(index) => { Sandbox.vibration-set(index); } } }
+                Row { label: "Formation"; Combo { width: 110px; height: 30px; text-size: 13px; options: ["One Row", "Two Rows"]; current: Sandbox.formation; selected(index) => { Sandbox.formation-set(index); } } }
+            }
+            if Sandbox.panel == 0: Section {
+                title: "Device";
+                Row { label: "Type"; Combo { width: 110px; height: 30px; text-size: 13px; options: ["Tablet", "Phone"]; current: Sandbox.device; selected(index) => { Sandbox.device-set(index); } } }
+                Row { label: "Scaling"; Combo { width: 110px; height: 30px; text-size: 13px; options: Sandbox.scaling-enabled ? ["Stretch", "Pad"] : ["Native"]; current: Sandbox.scaling-enabled ? Sandbox.scaling : 0; enabled: Sandbox.scaling-enabled; selected(index) => { Sandbox.scaling-set(index); } } }
+                Row { label: "Lag"; Combo { width: 110px; height: 30px; text-size: 13px; options: ["Catch-up", "Slowdown"]; current: Sandbox.lag; selected(index) => { Sandbox.lag-set(index); } } }
+                Row { label: "Orientation"; Combo { width: 130px; height: 30px; text-size: 13px; options: ["Automatic", "Portrait", "Landscape"]; current: Sandbox.battle-orientation; selected(index) => { Sandbox.battle-orientation-set(index); } } }
+                Row { label: "Quality"; Slider { width: 160px; minimum: 15; maximum: 100; value: Sandbox.quality; changed(value) => { Sandbox.quality-set(value); } } Label { text: Sandbox.quality + "%"; vertical-alignment: center; } }
+            }
+            if Sandbox.panel == 1: Section {
+                title: "Treasures";
+                TreasureEditor { arcs: Sandbox.arcs; chapters: Sandbox.chapters; grades: Sandbox.grades; arc-edited(index, value) => { Sandbox.arc-edited(index, value); } fold(slot) => { Sandbox.fold(slot); } grade(slot, stage, level) => { Sandbox.grade(slot, stage, level); } }
+            }
+            if Sandbox.panel == 2: Section {
+                title: "Tech Levels";
+                for tech[index] in Sandbox.techs: EntryRow { label: tech.label; hint: tech.hint; value: tech.value; edited(value) => { Sandbox.tech-edited(index, value); } }
+            }
+            if Sandbox.panel == 2: Section {
+                title: "Cat God";
+                Row { label: "Availability"; Combo { width: 130px; height: 30px; text-size: 13px; options: ["Absent", "Present", "Discounted"]; current: Sandbox.cat-god; selected(index) => { Sandbox.cat-god-set(index); } } }
+            }
+            if Sandbox.panel == 2: Section {
+                title: "Aku Altar";
+                EntryRow { label: "Level Cap"; hint: "None"; value: Sandbox.altar; edited(value) => { Sandbox.altar-edited(value); } }
+            }
+            if Sandbox.panel == 3: Section {
+                title: "Cat Base";
+                Row { label: "Cannon"; Combo { width: 180px; height: 30px; text-size: 13px; options: Sandbox.cannons; current: Sandbox.cannon; selected(index) => { Sandbox.cannon-set(index); } } }
+                Row { label: "Style"; Combo { width: 180px; height: 30px; text-size: 13px; options: Sandbox.styles; current: Sandbox.style; selected(index) => { Sandbox.style-set(index); } } }
+                Row { label: "Foundation"; Combo { width: 180px; height: 30px; text-size: 13px; options: Sandbox.foundations; current: Sandbox.foundation; selected(index) => { Sandbox.foundation-set(index); } } }
+                for entry[index] in Sandbox.base-levels: EntryRow { label: entry.label; hint: entry.hint; value: entry.value; edited(value) => { Sandbox.base-level-edited(index, value); } }
+            }
+            if Sandbox.panel == 4: Section {
+                title: "Battle Items";
+                Row { label: "Start Speed"; Combo { width: 90px; height: 30px; text-size: 13px; options: Sandbox.speeds; current: Sandbox.speed; enabled: Sandbox.speed-enabled; selected(index) => { Sandbox.speed-set(index); } } }
+                for item[index] in Sandbox.items: Toggle { value: item.on; label: item.label; enabled: item.allowed; changed(value) => { Sandbox.item-toggled(index, value); } }
+            }
+            if Sandbox.panel == 5: Section {
+                title: "Filibuster Invasion";
+                Row { label: "Invasion Stage"; Combo { width: 180px; height: 30px; text-size: 13px; options: Sandbox.filibusters; current: Sandbox.filibuster; selected(index) => { Sandbox.filibuster-set(index); } } }
+                Row { label: "Outbreak Stage"; Combo { width: 180px; height: 30px; text-size: 13px; options: Sandbox.outbreaks; current: Sandbox.outbreak; selected(index) => { Sandbox.outbreak-set(index); } } }
+            }
+            if Sandbox.panel == 6: Section {
+                title: "Cleared Tutorials";
+                for step[index] in Sandbox.tutorials: Toggle { value: step.on; label: step.label; changed(value) => { Sandbox.tutorial-toggled(index, value); } }
+            }
+        }
+    }
+}
+
+component TileCard inherits Card {
+    in property <length> avail;
+    property <length> gap: 6px;
+    property <length> cell-width: min((root.avail - 24px - self.gap * 4) / 5, 110px);
+    height: lineup.preferred-height;
+    lineup := VerticalLayout {
+        padding: 12px;
+        spacing: root.gap;
+        Label { text: "Lineup"; bold: true; font-size: 16px; }
+        Rule { }
+        for row in [0, 1]: HorizontalLayout {
+            spacing: root.gap;
+            alignment: center;
+            for column in [0, 1, 2, 3, 4]: DeckSlot { width: root.cell-width; height: root.cell-width * 85 / 110; cell: Sandbox.tiles[row * 5 + column]; index: row * 5 + column; tapped => { Sandbox.tile-tapped(row * 5 + column); } }
+        }
+    }
+}
+
+component FieldRows inherits VerticalLayout {
+    in property <[Field]> fields;
+    spacing: 4px;
+    for field in root.fields: HorizontalLayout {
+        spacing: 8px;
+        Label { text: field.label; width: 80px; font-size: 14px; }
+        Lines { lines: field.lines; size: 14px; horizontal-stretch: 1; }
+    }
+}
+
+component ReplayTab inherits Rectangle {
+    EdgeGrab { armed: !Sandbox.replays-open && !Shell.nav-open && Sandbox.active == false; pulled => { Sandbox.replays-open = true; Shell.left-open = true; }
+        VerticalLayout {
+            padding-left: 10px;
+            padding-right: 10px;
+            padding-top: 6px;
+            spacing: 8px;
+            HorizontalLayout {
+                spacing: 8px;
+                Input { text <=> Sandbox.rename; placeholder: "Replay Name"; height: 32px; text-size: 14px; horizontal-stretch: 1; enabled: Sandbox.replay-renamable; edited(value) => { Sandbox.replay-renamed(value); } }
+                Btn { label: "Replays"; tone: Tone.neutral; width: 90px; height: 32px; text-size: 13px; clicked => { Sandbox.replays-open = true; Shell.left-open = true; } }
+            }
+            Flickable {
+                mouse-drag-pan-enabled: true;
+                vertical-stretch: 1;
+                content-height: column.preferred-height + 72px > self.height ? column.preferred-height + 72px : self.height;
+                column := VerticalLayout {
+                    x: 0;
+                    y: 0;
+                    width: parent.width;
+                    height: self.preferred-height;
+                    spacing: 10px;
+                    Card { height: meta.preferred-height; meta := VerticalLayout { padding: 12px; spacing: 6px; Label { text: "Meta"; bold: true; font-size: 16px; } Rule { } FieldRows { fields: Sandbox.meta; } } }
+                    Card { height: game.preferred-height; game := VerticalLayout { padding: 12px; spacing: 6px; Label { text: "Game"; bold: true; font-size: 16px; } Rule { } FieldRows { fields: Sandbox.game; } } }
+                    TileCard { avail: root.width - 20px; }
+                    Card {
+                        height: manage.preferred-height;
+                        manage := VerticalLayout {
+                            padding: 12px;
+                            spacing: 8px;
+                            Label { text: "Manage"; bold: true; font-size: 16px; }
+                            Rule { }
+                            Btn { label: Sandbox.save-label; tone: Sandbox.save-tone; enabled: Sandbox.save-enabled; height: 32px; text-size: 13px; clicked => { Sandbox.replay-save(); } }
+                            Btn { label: Sandbox.export-label; tone: Sandbox.export-tone; enabled: Sandbox.export-enabled; height: 32px; text-size: 13px; clicked => { Sandbox.replay-export(); } }
+                            Btn { label: Sandbox.replay-delete-label; tone: Tone.danger; enabled: Sandbox.replay-delete-enabled; height: 32px; text-size: 13px; clicked => { Sandbox.replay-delete(); } }
+                            Label { text: Sandbox.job-status; font-size: 13px; horizontal-alignment: center; }
+                            Progress { fraction: Sandbox.job-progress; }
+                            if Sandbox.replay-failure != "": Note { text: Sandbox.replay-failure; color: Theme.danger; }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    Drawer {
+        open <=> Sandbox.replays-open;
+        panel-width: min(220px, root.width * 0.6);
+        closed => { Shell.left-open = false; }
+        Panel {
+            VerticalLayout {
+                padding: 8px;
+                spacing: 4px;
+                Label { text: "Replays"; bold: true; font-size: 16px; }
+                Rule { }
+                ListView {
+                    mouse-drag-pan-enabled: true;
+                    vertical-stretch: 1;
+                    for row[index] in Sandbox.replays: Rectangle {
+                        height: 40px;
+                        background: row.selected ? Theme.primary : (press.pressed ? Theme.bg-strongest : Theme.bg-strong);
+                        border-radius: Theme.radius-sm;
+                        Text { text: row.label; color: row.selected ? Theme.white : Theme.text; font-size: 12px; vertical-alignment: center; width: parent.width - 12px; x: 6px; height: parent.height; overflow: elide; }
+                        press := TouchArea { clicked => { Sandbox.replay-pick(index); Sandbox.replays-open = false; Shell.left-open = false; } }
+                    }
+                }
+            }
+        }
+    }
+}
+
+component LineupsDialog inherits Dialog {
+    open <=> Sandbox.lineups-open;
+    title: "Lineups";
+    panel-width: 340px;
+    body-height: 420px;
+    VerticalLayout {
+        padding: 16px;
+        spacing: 10px;
+        HorizontalLayout {
+            spacing: 10px;
+            Btn { tone: Tone.success; label: "New"; height: 30px; text-size: 13px; horizontal-stretch: 1; clicked => { Sandbox.lineup-new(); } }
+            Btn { tone: Tone.danger; label: Sandbox.delete-label; height: 30px; text-size: 13px; horizontal-stretch: 1; clicked => { Sandbox.lineup-delete(); } }
+        }
+        Input { text <=> Sandbox.saved-search; placeholder: "Search Lineup..."; height: 30px; text-size: 13px; edited(value) => { Sandbox.saved-search-changed(value); } }
+        ListView {
+            mouse-drag-pan-enabled: true;
+            vertical-stretch: 1;
+            for row in Sandbox.saved: Rectangle {
+                height: 40px;
+                background: row.selected ? Theme.primary : (press.pressed ? Theme.bg-strongest : Theme.bg-strong);
+                border-radius: Theme.radius-sm;
+                HorizontalLayout {
+                    padding-left: 8px;
+                    padding-right: 8px;
+                    spacing: 6px;
+                    Text { text: row.name; color: row.selected ? Theme.white : Theme.text; font-size: 13px; vertical-alignment: center; horizontal-stretch: 1; overflow: elide; }
+                    Text { text: row.count; color: row.selected ? Theme.white : Theme.weak-text; font-size: 12px; vertical-alignment: center; }
+                }
+                press := TouchArea { clicked => { Sandbox.lineup-pick(row.index); } }
+            }
+        }
+        Input { text: Sandbox.lineup-name; placeholder: "Lineup Name"; height: 30px; text-size: 13px; edited(value) => { Sandbox.lineup-renamed(value); } }
+    }
+}
+
+component UnitDialog inherits Dialog {
+    open <=> Sandbox.unit-open;
+    title: Sandbox.unit-title;
+    panel-width: 760px;
+    body-height: 560px;
+    closed => { Sandbox.unit-closed(); }
+    VerticalLayout {
+        padding: 10px;
+        spacing: 6px;
+        CatDetail { vertical-stretch: 1; }
+    }
+}
+
+component OrbDialog inherits Dialog {
+    open <=> Sandbox.orb-open;
+    title: "Orb";
+    panel-width: 320px;
+    VerticalLayout {
+        padding: 16px;
+        spacing: 12px;
+        alignment: center;
+        HorizontalLayout { alignment: center; OrbPicture { orb: Sandbox.orb-preview; width: 56px; height: 56px; } }
+        Row { label: "Type"; Combo { width: 150px; height: 30px; text-size: 13px; options: Sandbox.orb-types; current: Sandbox.orb-type; placeholder: "None"; selected(index) => { Sandbox.orb-type-set(index); } } }
+        Row { label: "Trait"; Combo { width: 150px; height: 30px; text-size: 13px; options: Sandbox.orb-traits; current: Sandbox.orb-trait; placeholder: "None"; enabled: Sandbox.orb-trait-enabled; selected(index) => { Sandbox.orb-trait-set(index); } } }
+        Row { label: "Grade"; Combo { width: 150px; height: 30px; text-size: 13px; options: Sandbox.orb-grades; current: Sandbox.orb-grade; placeholder: "None"; selected(index) => { Sandbox.orb-grade-set(index); } } }
+        HorizontalLayout { alignment: center; Btn { tone: Tone.danger; label: "None"; width: 110px; height: 30px; text-size: 13px; enabled: Sandbox.orb-held; clicked => { Sandbox.orb-cleared(); } } }
+    }
+}
+
+component AgreementDialog inherits Dialog {
+    open: !Sandbox.agreed;
+    title: "Acknowledgment";
+    panel-width: 460px;
+    body-height: 480px;
+    closed => { Sandbox.disagree(); }
+    VerticalLayout {
+        padding: 20px;
+        spacing: 18px;
+        Flickable {
+            mouse-drag-pan-enabled: true;
+            vertical-stretch: 1;
+            content-height: terms.preferred-height;
+            terms := Label { text: Sandbox.terms; font-size: 14px; wrap: word-wrap; width: parent.width; }
+        }
+        HorizontalLayout {
+            spacing: 12px;
+            alignment: center;
+            Btn { tone: Tone.success; label: "Agree"; width: 110px; height: 30px; text-size: 13px; clicked => { Sandbox.agree(); } }
+            Btn { tone: Tone.danger; label: "Disagree"; width: 110px; height: 30px; text-size: 13px; clicked => { Sandbox.disagree(); } }
+        }
+    }
+}
+
+export component SandboxPage inherits Rectangle {
+    VerticalLayout {
+        padding-top: 4px;
+        spacing: 6px;
+        HorizontalLayout {
+            padding-left: 10px;
+            padding-right: 10px;
+            spacing: 4px;
+            for label[index] in ["Lineup", "Stage", "Config", "Replay"]: HeaderToggle { label: label; selected: Sandbox.tab == index; available: true; horizontal-stretch: 1; clicked => { Sandbox.tab-set(index); } }
+        }
+        Rule { }
+        Rectangle {
+            vertical-stretch: 1;
+            if !Sandbox.ready && Sandbox.tab != 1: Status { title: Sandbox.status-title; detail: Sandbox.status-detail; x: (parent.width - self.width) / 2; y: (parent.height - self.height) / 2; width: min(parent.width - 32px, 360px); }
+            if Sandbox.ready && Sandbox.tab == 0: LineupTab { width: 100%; height: 100%; }
+            if Sandbox.tab == 1: StagesPage { width: 100%; height: 100%; }
+            if Sandbox.ready && Sandbox.tab == 2: ConfigTab { width: 100%; height: 100%; }
+            if Sandbox.ready && Sandbox.tab == 3: ReplayTab { width: 100%; height: 100%; }
+        }
+    }
+    floating := VerticalLayout {
+        x: (root.width - self.width) / 2;
+        y: root.height - self.height - 16px;
+        width: min(240px, root.width - 32px);
+        height: self.preferred-height;
+        spacing: 6px;
+        if Sandbox.status != "": Rectangle {
+            height: status.preferred-height + 8px;
+            border-radius: Theme.radius-sm;
+            background: Theme.scrim;
+            status := Label { x: 6px; y: 4px; width: parent.width - 12px; text: Sandbox.status; font-size: 12px; horizontal-alignment: center; wrap: word-wrap; }
+        }
+        HorizontalLayout {
+            alignment: center;
+            if Sandbox.tab != 3: Btn { label: "Play"; width: 160px; height: 40px; text-size: 16px; enabled: Sandbox.playable; drop-shadow-blur: 12px; drop-shadow-offset-y: 4px; drop-shadow-color: #00000080; clicked => { Sandbox.play(); } }
+            if Sandbox.tab == 3: Btn { label: "Watch"; width: 160px; height: 40px; text-size: 16px; enabled: Sandbox.watchable; drop-shadow-blur: 12px; drop-shadow-offset-y: 4px; drop-shadow-color: #00000080; clicked => { Sandbox.watch(); } }
+        }
+    }
+    LineupsDialog { }
+    FilterDialog { }
+    UnitDialog { }
+    OrbDialog { }
+    AgreementDialog { }
+}
+
+export component BattleLayer inherits Rectangle {
+    property <float> pinch-scale: 1.0;
+    background: Sandbox.blackout ? #000000 : transparent;
+    init => { Sandbox.resized(self.width, self.height); }
+    changed width => { Sandbox.resized(self.width, self.height); }
+    changed height => { Sandbox.resized(self.width, self.height); }
+    if Sandbox.has-frame && !Sandbox.blackout: Image { source: Sandbox.frame; width: parent.width; height: parent.height; image-fit: fill; image-rendering: smooth; }
+    gesture := ScaleRotateGestureHandler {
+        started => { root.pinch-scale = 1.0; }
+        updated => {
+            if self.scale > 0 {
+                Sandbox.pinch(self.scale / root.pinch-scale);
+                root.pinch-scale = self.scale;
+            }
+        }
+        TouchArea {
+            enabled: !Sandbox.covered && !Sandbox.frozen;
+            pointer-event(event) => {
+                if event.kind == PointerEventKind.down {
+                    Sandbox.touch(0, self.mouse-x, self.mouse-y);
+                    if Sandbox.watching { Sandbox.hold-started(); Sandbox.tapped(); }
+                } else if event.kind == PointerEventKind.move {
+                    Sandbox.touch(1, self.mouse-x, self.mouse-y);
+                } else if event.kind == PointerEventKind.up || event.kind == PointerEventKind.cancel {
+                    Sandbox.touch(2, self.mouse-x, self.mouse-y);
+                    Sandbox.hold-ended();
+                }
+            }
+        }
+    }
+    if Sandbox.hint != "": Rectangle {
+        x: (parent.width - self.width) / 2;
+        y: 24px;
+        width: hint.preferred-width + 24px;
+        height: 32px;
+        border-radius: Theme.radius-sm;
+        background: Theme.scrim;
+        hint := Text { text: Sandbox.hint; color: Theme.white; font-size: 14px; vertical-alignment: center; horizontal-alignment: center; width: parent.width; height: parent.height; }
+    }
+}
+
+export component SandboxDialogs {
+    Dialog {
+        open <=> Sandbox.fault-open;
+        title: "FAULT";
+        panel-width: 420px;
+        closed => { Sandbox.terminate(); }
+        VerticalLayout {
+            padding: 20px;
+            spacing: 14px;
+            Label { text: "The game attempted to crash due to a fault"; font-size: 14px; horizontal-alignment: center; wrap: word-wrap; }
+            Flickable {
+                mouse-drag-pan-enabled: true;
+                height: 120px;
+                content-height: reason.preferred-height;
+                reason := Label { text: Sandbox.fault-reason; font-size: 13px; wrap: word-wrap; width: parent.width; }
+            }
+            HorizontalLayout {
+                spacing: 12px;
+                alignment: center;
+                Btn { tone: Tone.success; label: "Continue"; width: 110px; height: 30px; text-size: 13px; clicked => { Sandbox.resume(); } }
+                Btn { tone: Tone.danger; label: "Terminate"; width: 110px; height: 30px; text-size: 13px; clicked => { Sandbox.terminate(); } }
+            }
+        }
+    }
+    Dialog {
+        open <=> Sandbox.diagnostics-open;
+        title: "Live Diagnostics";
+        panel-width: 480px;
+        body-height: 400px;
+        modal: false;
+        closed => { Sandbox.close-diagnostics(); }
+        VerticalLayout {
+            padding: 16px;
+            spacing: 10px;
+            Label { text: "Seed " + Sandbox.seed; bold: true; font-size: 13px; horizontal-alignment: center; }
+            HorizontalLayout {
+                spacing: 12px;
+                VerticalLayout {
+                    horizontal-stretch: 1;
+                    spacing: 4px;
+                    Label { text: "Enemies (" + Sandbox.vital-enemies.length + ")"; bold: true; font-size: 13px; }
+                    ListView { vertical-stretch: 1; for row in Sandbox.vital-enemies: HorizontalLayout { height: 20px; Label { text: row.name; font-size: 12px; horizontal-stretch: 1; overflow: elide; } Label { text: row.hp; font-size: 12px; } } }
+                }
+                VerticalLayout {
+                    horizontal-stretch: 1;
+                    spacing: 4px;
+                    Label { text: "Cats (" + Sandbox.vital-cats.length + ")"; bold: true; font-size: 13px; }
+                    ListView { vertical-stretch: 1; for row in Sandbox.vital-cats: HorizontalLayout { height: 20px; Label { text: row.name; font-size: 12px; horizontal-stretch: 1; overflow: elide; } Label { text: row.hp; font-size: 12px; } } }
+                }
+            }
+        }
+    }
+    Dialog {
+        open <=> Sandbox.version-open;
+        title: "Version Mismatch";
+        panel-width: 420px;
+        closed => { Sandbox.version-close(); }
+        VerticalLayout {
+            padding: 20px;
+            spacing: 14px;
+            Label { text: Sandbox.version-text; font-size: 14px; wrap: word-wrap; }
+            HorizontalLayout {
+                spacing: 10px;
+                alignment: center;
+                Btn { tone: Tone.danger; label: "Close"; width: 90px; height: 30px; text-size: 13px; clicked => { Sandbox.version-close(); } }
+                Btn { tone: Tone.warning; label: "Ignore"; width: 90px; height: 30px; text-size: 13px; clicked => { Sandbox.version-ignore(); } }
+                Btn { tone: Tone.success; label: "Continue"; width: 90px; height: 30px; text-size: 13px; clicked => { Sandbox.version-continue(); } }
+            }
+        }
+    }
+}

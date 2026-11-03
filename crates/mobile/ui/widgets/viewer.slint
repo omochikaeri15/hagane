@@ -1,0 +1,330 @@
+import { Theme } from "../theme.slint";
+import { Btn, Tone, Input, Combo, Toggle } from "basics.slint";
+
+export struct MotionTile { label: string, present: bool, active: bool, size: length }
+
+export global Viewer {
+    in property <image> frame;
+    in property <bool> missing;
+    in property <string> missing-text: "Missing essential files needed to load Entity";
+    in property <bool> has-rig;
+    in property <bool> has-anim;
+    in-out property <bool> playing: true;
+    in property <string> frame-text: "0";
+    in property <string> max-text: "0";
+    in property <string> effective-max: "0";
+    in-out property <string> range-start;
+    in-out property <string> range-end;
+    in property <[MotionTile]> tiles;
+    in property <bool> tiles-scroll;
+    in property <[string]> offsets;
+    in-out property <int> offset-current;
+    in-out property <bool> expanded;
+    in-out property <bool> controls-expanded: true;
+    in property <string> export-label: "Export";
+    in property <Tone> export-tone: Tone.primary;
+    in property <bool> exporting;
+    in-out property <bool> selecting;
+    in property <bool> show-rig;
+    in property <bool> show-origin;
+    in property <bool> show-world;
+    callback resized(length, length, float);
+    callback pan(length, length);
+    callback pinch(float, length, length);
+    callback zoom-wheel(float);
+    callback orient();
+    callback toggle-play();
+    callback step(int);
+    callback hold(int);
+    callback release();
+    callback set-frame(string);
+    callback set-range-start(string);
+    callback set-range-end(string);
+    callback pick-tile(int);
+    callback pick-offset(int);
+    callback export-pressed();
+    callback region-picked(length, length, length, length);
+    callback region-canceled();
+    callback toggle-debug(int, bool);
+}
+
+export component DebugToggles inherits VerticalLayout {
+    spacing: 2px;
+    Toggle { value: Viewer.show-rig; label: "Show Rig"; text-size: 12px; track-width: 36px; track-height: 18px; row-height: 22px; changed(value) => { Viewer.toggle-debug(0, value); } }
+    Toggle { value: Viewer.show-origin; label: "Show Origin"; text-size: 12px; track-width: 36px; track-height: 18px; row-height: 22px; changed(value) => { Viewer.toggle-debug(1, value); } }
+    Toggle { value: Viewer.show-world; label: "Show World"; text-size: 12px; track-width: 36px; track-height: 18px; row-height: 22px; changed(value) => { Viewer.toggle-debug(2, value); } }
+}
+
+component Controls inherits Rectangle {
+    in property <length> room: 400px;
+    property <bool> expanded: Viewer.controls-expanded;
+    out property <length> lift: root.expanded ? root.height : 32px;
+    width: min(body.preferred-width + 16px, root.room - 7px);
+    height: body.preferred-height + 2px;
+    background: Theme.controls-bg;
+    border-width: 1px;
+    border-color: Theme.bg-strong;
+    border-top-left-radius: Theme.radius-lg;
+    border-top-right-radius: Theme.radius-lg;
+    clip: true;
+    TouchArea { }
+    body := VerticalLayout {
+        padding: 8px;
+        padding-bottom: 0px;
+        spacing: 3px;
+        Rectangle {
+            height: 18px;
+            Text {
+                text: root.expanded ? "\u{25bc}" : "\u{25b2}";
+                color: Theme.text;
+                font-size: 14px;
+                font-weight: 700;
+                font-family: "Miscellaneous-Symbols";
+                horizontal-alignment: center;
+                vertical-alignment: center;
+                width: parent.width;
+                height: parent.height;
+            }
+            TouchArea { clicked => { Viewer.controls-expanded = !Viewer.controls-expanded; } }
+        }
+        Rectangle { height: 1px; background: Theme.bg-strong; }
+        Flickable {
+            mouse-drag-pan-enabled: true;
+            height: Viewer.tiles-scroll ? 55px : grid.preferred-height;
+            content-height: grid.preferred-height;
+            grid := VerticalLayout {
+                padding-top: 0px;
+                padding-bottom: 0px;
+                spacing: 4px;
+                for row in [0, 1, 2, 3, 4, 5]: HorizontalLayout {
+                    spacing: 5px;
+                    alignment: center;
+                    for col in [0, 1, 2, 3]: Rectangle {
+                        property <int> at: row * 4 + col;
+                        property <bool> real: self.at < Viewer.tiles.length;
+                        visible: row * 4 < Viewer.tiles.length;
+                        width: 70px;
+                        height: row * 4 < Viewer.tiles.length ? 25px : 0px;
+                        border-radius: Theme.radius-sm;
+                        background: self.real && Viewer.tiles[self.at].active ? Theme.primary : Theme.bg-strong;
+                        clip: true;
+                        if self.real && Viewer.tiles[self.at].present: Text {
+                            text: Viewer.tiles[parent.at].label;
+                            color: Viewer.tiles[parent.at].active ? Theme.white : Theme.text;
+                            font-size: Viewer.tiles[parent.at].size;
+                            horizontal-alignment: center;
+                            vertical-alignment: center;
+                            wrap: word-wrap;
+                            width: parent.width - 4px;
+                            height: parent.height;
+                            x: 2px;
+                        }
+                        if self.real && Viewer.tiles[self.at].present: TouchArea {
+                            clicked => { Viewer.pick-tile(parent.at); }
+                        }
+                    }
+                }
+            }
+        }
+        Rectangle { height: 1px; background: Theme.bg-strong; }
+        HorizontalLayout {
+            spacing: 4px;
+            padding-top: 2px;
+            padding-bottom: 4px;
+            VerticalLayout {
+                spacing: 4px;
+                Btn { width: 60px; height: 28px; tone: Tone.toggle; symbols: true; text-size: 16px; label: Viewer.playing ? "\u{25ae}\u{25ae}" : "\u{25b6}"; enabled: Viewer.has-anim; pad-y: 0px; pad-x: 0px; clicked => { Viewer.toggle-play(); } }
+                Btn { width: 60px; height: 28px; tone: Tone.toggle; label: "Orient"; text-size: 14px; enabled: Viewer.has-rig; pad-y: 0px; pad-x: 0px; clicked => { Viewer.orient(); } }
+            }
+            Rectangle { width: 10px; Rectangle { width: 1px; height: 100%; x: 4.5px; background: Theme.bg-strong; } }
+            VerticalLayout {
+                spacing: 4px;
+                if Viewer.playing: HorizontalLayout {
+                    spacing: 4px;
+                    Input { width: 60px; height: 28px; text-size: 14px; align: center; placeholder: "0"; enabled: Viewer.has-anim; text <=> Viewer.range-start; input-type: InputType.number; edited(value) => { Viewer.set-range-start(value); } }
+                    Rectangle { width: 20px; height: 28px; background: Theme.bg-weak; border-width: 1px; border-color: Theme.bg-strong; border-radius: Theme.radius-sm; Text { text: "~"; color: Theme.text; font-size: 14px; horizontal-alignment: center; vertical-alignment: center; width: parent.width; height: parent.height; } }
+                    Input { width: 60px; height: 28px; text-size: 14px; align: center; placeholder: Viewer.max-text; enabled: Viewer.has-anim; text <=> Viewer.range-end; input-type: InputType.number; edited(value) => { Viewer.set-range-end(value); } }
+                }
+                if !Viewer.playing: HorizontalLayout {
+                    spacing: 4px;
+                    Rectangle {
+                        width: 30px; height: 28px; border-radius: Theme.radius-sm; background: Theme.bg-strong; opacity: Viewer.has-anim ? 1.0 : 0.5;
+                        Text { text: "\u{25c0}"; color: Theme.text; font-family: "Miscellaneous-Symbols"; font-size: 14px; horizontal-alignment: center; vertical-alignment: center; width: parent.width; height: parent.height; }
+                        TouchArea { enabled: Viewer.has-anim; pointer-event(event) => { if event.kind == PointerEventKind.down { Viewer.hold(-1); } else if event.kind == PointerEventKind.up || event.kind == PointerEventKind.cancel { Viewer.release(); } } }
+                    }
+                    Input { width: 80px; height: 28px; text-size: 14px; align: center; placeholder: "0"; enabled: Viewer.has-anim; text: Viewer.frame-text; input-type: InputType.number; edited(value) => { Viewer.set-frame(value); } }
+                    Rectangle {
+                        width: 30px; height: 28px; border-radius: Theme.radius-sm; background: Theme.bg-strong; opacity: Viewer.has-anim ? 1.0 : 0.5;
+                        Text { text: "\u{25b6}"; color: Theme.text; font-family: "Miscellaneous-Symbols"; font-size: 14px; horizontal-alignment: center; vertical-alignment: center; width: parent.width; height: parent.height; }
+                        TouchArea { enabled: Viewer.has-anim; pointer-event(event) => { if event.kind == PointerEventKind.down { Viewer.hold(1); } else if event.kind == PointerEventKind.up || event.kind == PointerEventKind.cancel { Viewer.release(); } } }
+                    }
+                }
+                HorizontalLayout {
+                    spacing: 4px;
+                    Rectangle { width: 60px; height: 28px; background: Theme.bg-weak; border-width: 1px; border-color: Theme.bg-strong; border-radius: Theme.radius-sm; Text { text: Viewer.frame-text; color: Theme.text; font-size: 14px; horizontal-alignment: center; vertical-alignment: center; width: parent.width; height: parent.height; } }
+                    Rectangle { width: 20px; height: 28px; background: Theme.bg-weak; border-width: 1px; border-color: Theme.bg-strong; border-radius: Theme.radius-sm; Text { text: "/"; color: Theme.text; font-size: 14px; horizontal-alignment: center; vertical-alignment: center; width: parent.width; height: parent.height; } }
+                    Rectangle { width: 60px; height: 28px; background: Theme.bg-weak; border-width: 1px; border-color: Theme.bg-strong; border-radius: Theme.radius-sm; Text { text: Viewer.effective-max; color: Theme.text; font-size: 14px; horizontal-alignment: center; vertical-alignment: center; width: parent.width; height: parent.height; } }
+                }
+            }
+            Rectangle { width: 10px; Rectangle { width: 1px; height: 100%; x: 4.5px; background: Theme.bg-strong; } }
+            VerticalLayout {
+                spacing: 4px;
+                Btn { width: 100px; height: 28px; tone: Viewer.export-tone; label: Viewer.export-label; text-size: 14px; enabled: Viewer.has-rig && !Viewer.exporting; pad-y: 0px; pad-x: 0px; clicked => { Viewer.export-pressed(); } }
+                Combo { width: 100px; height: 28px; text-size: 14px; options: Viewer.offsets; current <=> Viewer.offset-current; enabled: Viewer.has-rig; selected(index) => { Viewer.pick-offset(index); } }
+            }
+        }
+    }
+}
+
+export component AnimViewer inherits Rectangle {
+    in property <bool> live: true;
+    property <bool> dragging;
+    property <length> last-x;
+    property <length> last-y;
+    property <float> pinch-scale: 1.0;
+    property <length> select-x;
+    property <length> select-y;
+    property <length> select-w;
+    property <length> select-h;
+    property <bool> select-started;
+
+    border-width: 4px;
+    border-color: Theme.primary;
+    border-radius: 5px;
+    background: Theme.bg;
+    clip: true;
+
+    init => { Viewer.resized(self.width, self.height, 1.0); }
+    changed width => { Viewer.resized(self.width, self.height, 1.0); }
+    changed height => { Viewer.resized(self.width, self.height, 1.0); }
+
+    if !Viewer.missing: Image {
+        source: Viewer.frame;
+        width: parent.width;
+        height: parent.height;
+        image-fit: contain;
+        image-rendering: smooth;
+    }
+    if Viewer.missing: Rectangle {
+        background: Theme.viewer-missing;
+        Text {
+            text: Viewer.missing-text;
+            color: Theme.text;
+            horizontal-alignment: center;
+            vertical-alignment: center;
+            wrap: word-wrap;
+            width: parent.width - 32px;
+            height: parent.height;
+            x: 16px;
+        }
+    }
+
+    gesture := ScaleRotateGestureHandler {
+        started => { root.pinch-scale = 1.0; }
+        updated => {
+            if self.scale > 0 {
+                Viewer.pinch(self.scale / root.pinch-scale, self.center.x, self.center.y);
+                root.pinch-scale = self.scale;
+            }
+        }
+        drag := TouchArea {
+            pointer-event(event) => {
+                if event.kind == PointerEventKind.down {
+                    root.last-x = self.mouse-x;
+                    root.last-y = self.mouse-y;
+                    if Viewer.selecting {
+                        root.select-x = self.mouse-x;
+                        root.select-y = self.mouse-y;
+                        root.select-w = 0;
+                        root.select-h = 0;
+                        root.select-started = true;
+                    } else {
+                        root.dragging = true;
+                    }
+                } else if event.kind == PointerEventKind.move {
+                    if root.select-started {
+                        root.select-w = self.mouse-x - root.select-x;
+                        root.select-h = self.mouse-y - root.select-y;
+                    } else if root.dragging && !gesture.active {
+                        Viewer.pan(self.mouse-x - root.last-x, self.mouse-y - root.last-y);
+                        root.last-x = self.mouse-x;
+                        root.last-y = self.mouse-y;
+                    }
+                } else if event.kind == PointerEventKind.up {
+                    if root.select-started {
+                        root.select-started = false;
+                        Viewer.region-picked(min(root.select-x, root.select-x + root.select-w), min(root.select-y, root.select-y + root.select-h), abs(root.select-w / 1px) * 1px, abs(root.select-h / 1px) * 1px);
+                    }
+                    root.dragging = false;
+                } else if event.kind == PointerEventKind.cancel {
+                    root.dragging = false;
+                    if root.select-started {
+                        root.select-started = false;
+                        Viewer.region-canceled();
+                    }
+                }
+            }
+            scroll-event(event) => {
+                Viewer.zoom-wheel(event.delta-y / 1px);
+                return EventResult.accept;
+            }
+        }
+    }
+
+    if Viewer.selecting: Rectangle {
+        background: #0000007d;
+        TouchArea { enabled: false; }
+    }
+    if Viewer.selecting && root.select-started: Rectangle {
+        x: min(root.select-x, root.select-x + root.select-w);
+        y: min(root.select-y, root.select-y + root.select-h);
+        width: abs(root.select-w / 1px) * 1px;
+        height: abs(root.select-h / 1px) * 1px;
+        background: #ffff001e;
+        border-width: 2px;
+        border-color: yellow;
+    }
+    if Viewer.selecting: Rectangle {
+        y: 0;
+        x: (parent.width - self.width) / 2;
+        width: hint.preferred-width + 16px;
+        height: hint.preferred-height + 10px;
+        background: Theme.hint-bg;
+        border-width: 1px;
+        border-color: Theme.bg-strong;
+        border-bottom-left-radius: Theme.radius-lg;
+        border-bottom-right-radius: Theme.radius-lg;
+        hint := Text { text: "Drag to set the camera"; color: Theme.text; font-size: 13px; horizontal-alignment: center; vertical-alignment: center; width: parent.width; height: parent.height; }
+    }
+
+    if !Viewer.missing: Rectangle {
+        x: 8px;
+        y: 8px;
+        width: 30px;
+        height: 30px;
+        border-radius: Theme.radius-sm;
+        border-width: 1px;
+        border-color: Theme.bg-strong;
+        background: Viewer.expanded ? Theme.primary : Theme.bg-strong;
+        for mark in [
+            { x: 0px, y: 0px, w: 5px, h: 2px }, { x: 0px, y: 0px, w: 2px, h: 5px },
+            { x: 9px, y: 0px, w: 5px, h: 2px }, { x: 12px, y: 0px, w: 2px, h: 5px },
+            { x: 0px, y: 12px, w: 5px, h: 2px }, { x: 0px, y: 9px, w: 2px, h: 5px },
+            { x: 9px, y: 12px, w: 5px, h: 2px }, { x: 12px, y: 9px, w: 2px, h: 5px }
+        ]: Rectangle {
+            x: 8px + mark.x;
+            y: 8px + mark.y;
+            width: mark.w;
+            height: mark.h;
+            background: Viewer.expanded ? Theme.white : Theme.text;
+        }
+        TouchArea { clicked => { Viewer.expanded = !Viewer.expanded; } }
+    }
+
+    Controls {
+        room: parent.width;
+        x: 7px;
+        y: parent.height - self.lift;
+        animate y { duration: Theme.slide; easing: ease-out; }
+    }
+}

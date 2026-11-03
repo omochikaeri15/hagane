@@ -15,18 +15,18 @@ use std::sync::Arc;
 use std::rc::Rc;
 
 use emulator::runtime::{BattleOptions, CASTLE_PART, Setup, SetupUnit, StageEntry, TechLevel, TutorialFlags, VERSION};
-use kokoro::common::context::GlobalContext;
-use kokoro::systems::combat::NameBook;
-use kokoro::domains::cat::scanner::CatEntry;
-use kokoro::domains::sandbox::config::CatGod;
-use kokoro::systems::treasure::{Bonus, Catalog};
-use kokoro::domains::sandbox::keybind::Bind;
-use kokoro::domains::sandbox::altar::Altars;
-use kokoro::domains::sandbox::TECHS;
-use kokoro::domains::sandbox::replay as replay_tape;
-use kokoro::domains::settings::{ReplaySource, ScannerConfig, Settings};
-use kokoro::domains::stage::StageRegistry;
-use kokoro::Vault;
+use foundry::common::context::GlobalContext;
+use foundry::systems::combat::NameBook;
+use foundry::domains::cat::scanner::CatEntry;
+use foundry::domains::sandbox::config::CatGod;
+use foundry::systems::treasure::{Bonus, Catalog};
+use foundry::domains::sandbox::keybind::Bind;
+use foundry::domains::sandbox::altar::Altars;
+use foundry::domains::sandbox::TECHS;
+use foundry::domains::sandbox::replay as replay_tape;
+use foundry::domains::settings::{ReplaySource, ScannerConfig, Settings};
+use foundry::domains::stage::StageRegistry;
+use foundry::Vault;
 use codex::files::Localizable;
 
 use crate::app::state::{AppState, SandboxDevice, SandboxState, SandboxTab, SandboxVolume};
@@ -219,7 +219,7 @@ fn agreement() -> String {
 }
 
 impl Message {
-    pub(crate) fn dropping(cell: kokoro::domains::sandbox::Cell) -> Self {
+    pub(crate) fn dropping(cell: foundry::domains::sandbox::Cell) -> Self {
         Self::Lineup(lineup::Message::Drop(cell))
     }
 
@@ -264,7 +264,7 @@ impl State {
         self.config.set_invadable(registry);
     }
 
-    pub(crate) fn set_rules(&mut self, rules: kokoro::domains::sandbox::rules::Rules, app_state: &AppState) {
+    pub(crate) fn set_rules(&mut self, rules: foundry::domains::sandbox::rules::Rules, app_state: &AppState) {
         self.lineup.set_rules(rules, app_state);
     }
 

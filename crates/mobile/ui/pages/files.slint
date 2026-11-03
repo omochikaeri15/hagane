@@ -1,0 +1,161 @@
+import { ListView } from "std-widgets.slint";
+import { Theme } from "../theme.slint";
+import { Btn, Tone, Input, TextBox, Combo, Label, Panel, Rule, Workspace, Toast } from "../widgets/basics.slint";
+import { Drawer, EdgeGrab } from "../widgets/drawer.slint";
+import { Shell } from "../shell.slint";
+
+export struct FileRow { name: string, depth: int, folder: bool, expanded: bool, selected: bool }
+
+export global Files {
+    in property <[string]> mounts;
+    in property <int> mount;
+    in property <bool> stale;
+    in property <int> mode;
+    in-out property <string> search;
+    in property <[FileRow]> rows;
+    in property <string> empty-label;
+    in-out property <bool> list-open;
+    in property <string> header: "Please select a file";
+    in property <int> body: 0;
+    in-out property <string> text;
+    in property <bool> writable;
+    in property <bool> dirty;
+    in property <image> picture;
+    in property <string> notice;
+    in property <string> toast;
+    in property <bool> toast-shown;
+    callback mount-set(int);
+    callback mode-set(int);
+    callback search-changed(string);
+    callback activate(int);
+    callback text-edited(string);
+    callback save();
+    callback upload();
+}
+
+component Browser inherits Panel {
+    dark: true;
+    VerticalLayout {
+        padding: 8px;
+        spacing: 4px;
+        HorizontalLayout {
+            spacing: 4px;
+            Combo { horizontal-stretch: 1; height: 30px; text-size: 13px; options: Files.mounts; current: Files.mount; placeholder: "Mount"; selected(index) => { Files.mount-set(index); } }
+            Combo { width: 70px; height: 30px; text-size: 13px; options: ["Tree", "Flat", "Pack"]; current: Files.mode; selected(index) => { Files.mode-set(index); } }
+        }
+        Input { text <=> Files.search; placeholder: "Search File..."; text-size: 13px; height: 30px; edited(value) => { Files.search-changed(value); } }
+        Rectangle { height: 4px; }
+        if Files.empty-label != "": Label { text: Files.empty-label; color: Theme.danger; font-size: 14px; horizontal-alignment: center; vertical-alignment: center; vertical-stretch: 1; wrap: word-wrap; }
+        if Files.empty-label == "": ListView {
+            mouse-drag-pan-enabled: true;
+            vertical-stretch: 1;
+            for row[index] in Files.rows: Rectangle {
+                height: 26px;
+                width: parent.width;
+                background: row.selected ? Theme.primary : (press.pressed ? Theme.list-hover : transparent);
+                border-radius: Theme.radius-sm;
+                HorizontalLayout {
+                    padding-left: 6px + row.depth * 12px;
+                    padding-right: 6px;
+                    spacing: 2px;
+                    if row.folder: Text { text: row.expanded ? "\u{25be}" : "\u{25b8}"; color: row.selected ? Theme.white : Theme.text; font-family: "Miscellaneous-Symbols"; font-size: 12px; width: 14px; vertical-alignment: center; }
+                    Text { text: row.name; color: row.selected ? Theme.white : Theme.text; font-size: 13px; vertical-alignment: center; horizontal-stretch: 1; overflow: elide; }
+                }
+                press := TouchArea { clicked => { Files.activate(index); if !row.folder { Files.list-open = false; Shell.left-open = false; } } }
+            }
+        }
+    }
+}
+
+export component FilesPage inherits Rectangle {
+    EdgeGrab { armed: !Files.list-open && !Shell.nav-open; pulled => { Files.list-open = true; Shell.left-open = true; }
+        VerticalLayout {
+            padding: 5px;
+            padding-top: 3px;
+            spacing: 3px;
+            Rectangle {
+                height: 38px;
+                Rectangle {
+                    x: 42px;
+                    width: parent.width - 84px;
+                    height: 38px;
+                    background: Theme.workspace-header;
+                    border-radius: Theme.radius-sm;
+                    Text { text: Files.header; color: Theme.text; font-size: 13px; font-weight: 700; font-family: "monospace"; horizontal-alignment: center; vertical-alignment: center; width: parent.width - 20px; x: 10px; height: parent.height; overflow: elide; }
+                }
+            }
+            Workspace {
+                vertical-stretch: 1;
+                if Files.body == 0: Label { text: "Select a file from the list"; horizontal-alignment: center; vertical-alignment: center; width: parent.width; height: parent.height; weak: true; }
+                if Files.body == 1: VerticalLayout {
+                    padding: 8px;
+                    spacing: 6px;
+                    TextBox { vertical-stretch: 1; text <=> Files.text; read-only: !Files.writable; text-size: 13px; edited(value) => { Files.text-edited(value); } }
+                    if Files.writable: HorizontalLayout {
+                        alignment: end;
+                        Btn { label: Files.dirty ? "Save Changes" : "Saved"; enabled: Files.dirty; tone: Files.dirty ? Tone.primary : Tone.neutral; height: 30px; text-size: 13px; width: 140px; clicked => { Files.save(); } }
+                    }
+                }
+                if Files.body == 2: pic := Rectangle {
+                    property <float> zoom: 1.0;
+                    property <float> pinch-scale: 1.0;
+                    property <length> pan-x;
+                    property <length> pan-y;
+                    property <length> last-x;
+                    property <length> last-y;
+                    property <bool> dragging;
+                    clip: true;
+                    Image {
+                        source: Files.picture;
+                        width: (pic.width - 16px) * pic.zoom;
+                        height: (pic.height - 16px) * pic.zoom;
+                        x: 8px + (pic.width - 16px - self.width) / 2 + pic.pan-x;
+                        y: 8px + (pic.height - 16px - self.height) / 2 + pic.pan-y;
+                        image-fit: contain;
+                        image-rendering: pixelated;
+                    }
+                    gesture := ScaleRotateGestureHandler {
+                        started => { pic.pinch-scale = 1.0; }
+                        updated => {
+                            if self.scale > 0 {
+                                pic.zoom = clamp(pic.zoom * self.scale / pic.pinch-scale, 1.0, 16.0);
+                                pic.pinch-scale = self.scale;
+                            }
+                        }
+                        TouchArea {
+                            pointer-event(event) => {
+                                if event.kind == PointerEventKind.down {
+                                    pic.last-x = self.mouse-x;
+                                    pic.last-y = self.mouse-y;
+                                    pic.dragging = true;
+                                } else if event.kind == PointerEventKind.move {
+                                    if pic.dragging && !gesture.active {
+                                        pic.pan-x += self.mouse-x - pic.last-x;
+                                        pic.pan-y += self.mouse-y - pic.last-y;
+                                        pic.last-x = self.mouse-x;
+                                        pic.last-y = self.mouse-y;
+                                    }
+                                } else if event.kind == PointerEventKind.up || event.kind == PointerEventKind.cancel {
+                                    pic.dragging = false;
+                                }
+                            }
+                            scroll-event(event) => {
+                                pic.zoom = clamp(pic.zoom * (event.delta-y > 0px ? 1.1 : 0.9), 1.0, 16.0);
+                                return EventResult.accept;
+                            }
+                        }
+                    }
+                    if Files.writable: Btn { x: parent.width - self.width - 10px; y: 10px; width: 100px; height: 28px; text-size: 12px; label: "Replace PNG"; clicked => { Files.upload(); } }
+                }
+                if Files.body == 3: Label { text: Files.notice; horizontal-alignment: center; vertical-alignment: center; width: parent.width; height: parent.height; wrap: word-wrap; }
+            }
+        }
+    }
+    Drawer {
+        open <=> Files.list-open;
+        panel-width: min(300px, root.width * 0.8);
+        closed => { Shell.left-open = false; }
+        Browser { width: 100%; height: 100%; }
+    }
+    Toast { shown: Files.toast-shown; text: Files.toast; tone: Tone.danger; }
+}

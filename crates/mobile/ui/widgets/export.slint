@@ -1,0 +1,174 @@
+import { Theme } from "../theme.slint";
+import { Btn, Tone, Input, Combo, Toggle, Label, Dialog, Progress, Rule, SectionTitle } from "basics.slint";
+
+export global Export {
+    in-out property <bool> open;
+    in property <[string]> modes: ["Manual", "Loop"];
+    in-out property <int> mode;
+    in property <[string]> formats: ["GIF", "WebP", "ZIP"];
+    in-out property <int> format;
+    in property <string> end-hint: "0";
+    in-out property <string> frame-start;
+    in-out property <string> frame-end;
+    in-out property <string> tolerance;
+    in-out property <string> loop-min;
+    in-out property <string> loop-max;
+    in property <string> loop-label: "Find Loop";
+    in property <Tone> loop-tone: Tone.neutral;
+    in property <bool> loop-enabled: true;
+    in-out property <string> walk;
+    in-out property <string> idle;
+    in-out property <string> attack;
+    in-out property <string> kb;
+    in property <string> walk-hint;
+    in property <string> idle-hint;
+    in property <string> attack-hint;
+    in property <string> kb-hint;
+    in-out property <string> cull;
+    in property <string> cull-hint: "100";
+    in property <bool> camera-enabled: true;
+    in property <string> bounds-label: "Use Bounds";
+    in property <Tone> bounds-tone: Tone.neutral;
+    in property <bool> bounds-enabled: true;
+    in-out property <string> region-x;
+    in-out property <string> region-y;
+    in-out property <string> region-w;
+    in-out property <string> region-h;
+    in-out property <string> name;
+    in property <string> name-hint;
+    in-out property <string> quality;
+    in-out property <string> compression;
+    in-out property <bool> background;
+    in property <bool> background-enabled: true;
+    in property <string> status: "Ready";
+    in property <float> ratio: 1.0;
+    in property <string> export-label: "No Camera Set";
+    in property <Tone> export-tone: Tone.neutral;
+    in property <bool> export-enabled;
+    callback set-mode(int);
+    callback set-format(int);
+    callback set-name(string);
+    callback set-start(string);
+    callback set-end(string);
+    callback set-tolerance(string);
+    callback set-loop-min(string);
+    callback set-loop-max(string);
+    callback set-cull(string);
+    callback set-walk(string);
+    callback set-idle(string);
+    callback set-attack(string);
+    callback set-kb(string);
+    callback set-region(int, string);
+    callback set-quality(string);
+    callback set-compression(string);
+    callback toggle-background(bool);
+    callback begin();
+    callback find-loop();
+    callback use-bounds();
+    callback set-camera();
+    callback closed();
+}
+
+component Field inherits HorizontalLayout {
+    in property <string> label;
+    spacing: 8px;
+    alignment: start;
+    Label { text: root.label; font-size: 13px; width: 82px; vertical-alignment: center; }
+    @children
+}
+
+component Small inherits Input {
+    width: 55px;
+    height: 28px;
+    text-size: 13px;
+}
+
+component Axis inherits HorizontalLayout {
+    in property <string> label;
+    in property <int> which;
+    in-out property <string> value;
+    spacing: 4px;
+    Label { text: root.label; width: 18px; font-size: 13px; vertical-alignment: center; }
+    Input { width: 100px; height: 28px; text-size: 13px; text <=> root.value; edited(value) => { Export.set-region(root.which, value); } }
+}
+
+component Section inherits VerticalLayout {
+    in property <string> title;
+    spacing: 4px;
+    SectionTitle { text: root.title; }
+    Rule { }
+    @children
+}
+
+export component ExportDialog inherits Dialog {
+    open <=> Export.open;
+    title: "Export Animation";
+    panel-width: 320px;
+    body-height: min(root.height - 50px, content.preferred-height + footer.preferred-height + 1phx + 36px);
+    closed => { Export.closed(); }
+    VerticalLayout {
+        padding: 10px;
+        spacing: 8px;
+        Flickable {
+            mouse-drag-pan-enabled: true;
+            vertical-stretch: 1;
+            content-height: content.preferred-height;
+            content := VerticalLayout {
+                width: parent.width;
+                spacing: 10px;
+                Section {
+                    title: "Input";
+                    Field { label: "Mode"; Combo { width: 130px; height: 28px; text-size: 13px; options: Export.modes; current <=> Export.mode; selected(index) => { Export.set-mode(index); } } }
+                    if Export.mode != 2: Field {
+                        label: "Frames";
+                        Small { placeholder: "0"; text <=> Export.frame-start; edited(value) => { Export.set-start(value); } }
+                        Label { text: "~"; font-size: 13px; vertical-alignment: center; }
+                        Small { placeholder: Export.end-hint; text <=> Export.frame-end; edited(value) => { Export.set-end(value); } }
+                    }
+                    if Export.mode == 1: Field { label: "Tolerance"; Small { placeholder: "30"; text <=> Export.tolerance; edited(value) => { Export.set-tolerance(value); } } }
+                    if Export.mode == 1: Field { label: "Min Frames"; Small { placeholder: "15"; text <=> Export.loop-min; edited(value) => { Export.set-loop-min(value); } } }
+                    if Export.mode == 1: Field { label: "Max Frames"; Small { placeholder: "None"; text <=> Export.loop-max; edited(value) => { Export.set-loop-max(value); } } }
+                    if Export.mode == 1: Btn { label: Export.loop-label; tone: Export.loop-tone; enabled: Export.loop-enabled; text-size: 13px; height: 30px; clicked => { Export.find-loop(); } }
+                    if Export.mode == 2: Field { label: "Walk"; Small { placeholder: Export.walk-hint; text <=> Export.walk; edited(value) => { Export.set-walk(value); } } }
+                    if Export.mode == 2: Field { label: "Idle"; Small { placeholder: Export.idle-hint; text <=> Export.idle; edited(value) => { Export.set-idle(value); } } }
+                    if Export.mode == 2: Field { label: "Attack"; Small { placeholder: Export.attack-hint; text <=> Export.attack; edited(value) => { Export.set-attack(value); } } }
+                    if Export.mode == 2: Field { label: "Knockback"; Small { placeholder: Export.kb-hint; text <=> Export.kb; edited(value) => { Export.set-kb(value); } } }
+                }
+                Section {
+                    title: "Camera";
+                    Field { label: "Cull %"; Small { placeholder: Export.cull-hint; text <=> Export.cull; edited(value) => { Export.set-cull(value); } } }
+                    HorizontalLayout {
+                        spacing: 8px;
+                        Btn { label: "Set Camera"; tone: Tone.neutral; enabled: Export.camera-enabled; text-size: 13px; height: 30px; clicked => { Export.set-camera(); } }
+                        Btn { label: Export.bounds-label; tone: Export.bounds-tone; enabled: Export.bounds-enabled; text-size: 13px; height: 30px; clicked => { Export.use-bounds(); } }
+                    }
+                    HorizontalLayout {
+                        spacing: 8px;
+                        Axis { label: "X"; which: 0; value <=> Export.region-x; }
+                        Axis { label: "Y"; which: 1; value <=> Export.region-y; }
+                    }
+                    HorizontalLayout {
+                        spacing: 8px;
+                        Axis { label: "W"; which: 2; value <=> Export.region-w; }
+                        Axis { label: "H"; which: 3; value <=> Export.region-h; }
+                    }
+                }
+                Section {
+                    title: "Output";
+                    Field { label: "Name"; Input { width: 170px; height: 28px; text-size: 13px; placeholder: Export.name-hint; text <=> Export.name; edited(value) => { Export.set-name(value); } } }
+                    Field { label: "Format"; Combo { width: 130px; height: 28px; text-size: 13px; options: Export.formats; current <=> Export.format; selected(index) => { Export.set-format(index); } } }
+                    Field { label: "Quality %"; Small { placeholder: "80"; text <=> Export.quality; edited(value) => { Export.set-quality(value); } } }
+                    Field { label: "Compress %"; Small { placeholder: "30"; text <=> Export.compression; edited(value) => { Export.set-compression(value); } } }
+                    Toggle { value: Export.background; label: "Background"; enabled: Export.background-enabled; text-size: 13px; track-width: 40px; track-height: 20px; changed(value) => { Export.toggle-background(value); } }
+                }
+            }
+        }
+        Rule { }
+        footer := VerticalLayout {
+            spacing: 6px;
+            Btn { label: Export.export-label; tone: Export.export-tone; enabled: Export.export-enabled; height: 32px; clicked => { Export.begin(); } }
+            Label { text: Export.status; font-size: 13px; horizontal-alignment: center; }
+            Progress { fraction: Export.ratio; }
+        }
+    }
+}

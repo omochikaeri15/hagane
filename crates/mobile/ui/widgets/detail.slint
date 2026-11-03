@@ -1,0 +1,262 @@
+import { Theme } from "../theme.slint";
+import { Tip } from "basics.slint";
+import { Shell } from "../shell.slint";
+
+export struct Seg { text: string, raised: bool, symbol: bool }
+export struct Line { segs: [Seg] }
+export struct AbilityIcon { icon: image, has-icon: bool, border: image, has-border: bool, fallback: string, tip: string }
+export struct AbilityLine { icon: AbilityIcon, lines: [Line], conjure: bool }
+export struct StatCell { header: string, value: [Line], tip: string }
+export struct HeaderBtn { label: string, available: bool }
+export struct RosterRow { id: int, banner: image, has-banner: bool, tooltip: string }
+
+export component Lines inherits VerticalLayout {
+    in property <[Line]> lines;
+    in property <length> size: 13px;
+    in property <color> color: Theme.text;
+    in property <bool> bold;
+    in property <TextHorizontalAlignment> align: left;
+    spacing: 0px;
+    for line in root.lines: HorizontalLayout {
+        alignment: root.align == TextHorizontalAlignment.center ? center : start;
+        for seg in line.segs: Text {
+            text: seg.text;
+            color: root.color;
+            font-size: seg.raised ? max(root.size - 3px, 1px) : root.size;
+            font-family: seg.symbol ? "Miscellaneous-Symbols" : "";
+            font-weight: root.bold ? 700 : 400;
+            vertical-alignment: top;
+            opacity: seg.raised ? 0.7 : 1.0;
+            wrap: word-wrap;
+        }
+    }
+}
+
+export component IconBox inherits Rectangle {
+    in property <AbilityIcon> icon;
+    in property <length> size: 40px;
+    width: root.size;
+    height: root.size;
+    if root.icon.has-icon: Image {
+        source: root.icon.icon;
+        width: parent.width;
+        height: parent.height;
+        image-fit: fill;
+    }
+    if root.icon.has-icon && root.icon.has-border: Image {
+        source: root.icon.border;
+        width: parent.width;
+        height: parent.height;
+        image-fit: fill;
+    }
+    if !root.icon.has-icon: Rectangle {
+        background: Theme.danger;
+        border-width: 1.5px;
+        border-color: #00000059;
+        clip: true;
+        Text {
+            text: root.icon.fallback;
+            color: Theme.white;
+            font-size: 10px;
+            horizontal-alignment: center;
+            vertical-alignment: center;
+            wrap: word-wrap;
+            width: parent.width;
+            height: parent.height;
+        }
+    }
+}
+
+export component TipIcon inherits Rectangle {
+    in property <AbilityIcon> icon;
+    in property <length> size: 40px;
+    in-out property <bool> open;
+    callback tapped;
+    width: root.size;
+    height: root.size;
+    IconBox { icon: root.icon; size: root.size; }
+    TouchArea {
+        clicked => { root.tapped(); }
+    }
+}
+
+export component AbilityRows inherits VerticalLayout {
+    in property <[AbilityLine]> items;
+    in property <bool> conjure-open;
+    in property <length> text-size: 13px;
+    callback conjure-toggled;
+    spacing: 5px;
+    for item in root.items: HorizontalLayout {
+        spacing: 8px;
+        alignment: start;
+        IconBox { icon: item.icon; size: 40px; y: (parent.height - self.height) / 2; }
+        Lines { lines: item.lines; size: root.text-size; vertical-stretch: 0; y: (parent.height - self.height) / 2; }
+        if item.conjure: Rectangle {
+            width: 70px;
+            height: 24px;
+            y: (parent.height - self.height) / 2;
+            border-radius: Theme.radius-sm;
+            background: root.conjure-open ? Theme.primary : Theme.bg-strong;
+            Text {
+                text: "Details";
+                color: root.conjure-open ? Theme.white : Theme.text;
+                font-size: 11px;
+                horizontal-alignment: center;
+                vertical-alignment: center;
+                width: parent.width;
+                height: parent.height;
+            }
+            TouchArea { clicked => { root.conjure-toggled(); } }
+        }
+    }
+}
+
+export component IconRow inherits Rectangle {
+    in property <[AbilityIcon]> items;
+    in property <length> size: 40px;
+    in-out property <int> open: -1;
+    height: flow.preferred-height;
+    flow := HorizontalLayout {
+        spacing: 3px;
+        alignment: start;
+        for item[index] in root.items: Rectangle {
+            width: root.size;
+            height: root.size;
+            IconBox { icon: item; size: root.size; }
+            TouchArea { clicked => { root.open = root.open == index ? -1 : index; } }
+        }
+    }
+    if root.open >= 0 && root.open < root.items.length: Tip {
+        text: root.items[root.open].tip;
+        shown: true;
+        x: min(max(0px, root.open * (root.size + 3px) + root.size / 2 - self.width / 2), root.width - self.width);
+        y: -self.height - 4px;
+    }
+}
+
+export component StatGrid inherits VerticalLayout {
+    in property <[StatCell]> headers-1;
+    in property <[StatCell]> values-1;
+    in property <[StatCell]> headers-2;
+    in property <[StatCell]> values-2;
+    property <int> columns: max(root.headers-1.length, root.values-1.length, root.headers-2.length, root.values-2.length, 1);
+    in property <length> avail: Shell.app-width - 20px;
+    in property <length> cell-width: min(82px, (root.avail - 4px * (root.columns - 1)) / root.columns);
+    property <float> shrink: min(1.0, root.cell-width / 82px);
+    spacing: 4px;
+    Rectangle {
+        height: rows.preferred-height;
+        rows := VerticalLayout {
+            spacing: 4px;
+            for group in [root.headers-1, root.values-1, root.headers-2, root.values-2]: HorizontalLayout {
+                spacing: 4px;
+                alignment: start;
+                for cell in group: Rectangle {
+                    width: root.cell-width;
+                    height: 28px;
+                    border-width: 2px;
+                    border-color: Theme.stat-border;
+                    border-radius: Theme.radius-sm;
+                    background: cell.tip == "" ? Theme.stat-header : Theme.stat-value;
+                    clip: true;
+                    if cell.tip == "": Text {
+                        text: cell.header;
+                        color: Theme.text;
+                        font-size: 13px * root.shrink;
+                        horizontal-alignment: center;
+                        vertical-alignment: center;
+                        width: parent.width;
+                        height: parent.height;
+                    }
+                    if cell.tip != "": Lines {
+                        lines: cell.value;
+                        size: 13px;
+                        align: center;
+                        y: (parent.height - self.preferred-height) / 2;
+                        x: 0;
+                        width: parent.width;
+                    }
+                }
+            }
+        }
+    }
+}
+
+export struct OrbSlot { icon: image, has-icon: bool }
+
+export component OrbPicture inherits Rectangle {
+    in property <OrbSlot> orb;
+    if root.orb.has-icon: Image { source: root.orb.icon; width: parent.width; height: parent.height; image-fit: contain; }
+}
+
+export component HeaderToggle inherits Rectangle {
+    in property <string> label;
+    in property <string> symbol;
+    in property <bool> selected;
+    in property <bool> available: true;
+    in property <bool> square;
+    callback clicked;
+    min-width: 65px;
+    height: 32px;
+    border-radius: root.square ? 0px : Theme.radius-sm;
+    background: !root.available ? Theme.disabled-bg : (root.selected ? (ta.pressed ? Theme.primary-strong : Theme.primary) : (ta.pressed ? Theme.bg-strongest : Theme.bg-strong));
+    border-width: root.selected && root.available ? 2px : 1px;
+    border-color: root.selected && root.available ? Theme.white : Theme.outline;
+    property <color> ink: !root.available ? Theme.weak-text : (root.selected ? Theme.white : Theme.text);
+    HorizontalLayout {
+        alignment: center;
+        spacing: 0px;
+        Text { text: root.label; color: root.ink; font-size: 13px; vertical-alignment: center; }
+        if root.symbol != "": Text { text: root.symbol; color: root.ink; font-size: 13px; font-family: "Miscellaneous-Symbols"; vertical-alignment: center; }
+    }
+    ta := TouchArea {
+        enabled: root.available;
+        clicked => { root.clicked(); }
+    }
+}
+
+export component Zebra inherits VerticalLayout {
+    in property <[string]> headers;
+    in property <[[string]]> rows;
+    in property <length> text-size: 13px;
+    spacing: 0px;
+    Rectangle {
+        height: 28px;
+        background: Theme.table-header;
+        border-top-left-radius: Theme.radius-sm;
+        border-top-right-radius: Theme.radius-sm;
+        HorizontalLayout {
+            padding-left: 6px;
+            padding-right: 6px;
+            spacing: 8px;
+            for header in root.headers: Text {
+                text: header;
+                color: Theme.white;
+                font-size: 12px;
+                horizontal-alignment: center;
+                vertical-alignment: center;
+                horizontal-stretch: 1;
+                wrap: word-wrap;
+            }
+        }
+    }
+    for row[index] in root.rows: Rectangle {
+        height: max(28px, cells.preferred-height);
+        background: mod(index, 2) == 0 ? Theme.table-row : Theme.bg;
+        cells := HorizontalLayout {
+            padding: 4px;
+            padding-left: 6px;
+            padding-right: 6px;
+            spacing: 8px;
+            for cell in row: Text {
+                text: cell;
+                color: Theme.text;
+                font-size: root.text-size;
+                horizontal-alignment: center;
+                vertical-alignment: center;
+                horizontal-stretch: 1;
+                wrap: word-wrap;
+            }
+        }
+    }
+}

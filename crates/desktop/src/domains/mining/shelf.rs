@@ -1,6 +1,6 @@
 use super::*;
 use iced::widget::{column, container, Column, Space};
-use kokoro::Source;
+use foundry::Source;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(super) enum Seam {

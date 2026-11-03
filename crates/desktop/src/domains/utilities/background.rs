@@ -8,8 +8,8 @@ use iced::{Element, Length, Task};
 use codex::chapter::stage::Background;
 use tracing::warn;
 
-use kokoro::domains::utilities::background::{self as builder, Catalog, Loaded, Names, Overrides, DEFAULT_SEED};
-use kokoro::Vault;
+use foundry::domains::utilities::background::{self as builder, Catalog, Loaded, Names, Overrides, DEFAULT_SEED};
+use foundry::Vault;
 
 use crate::app::state::BackgroundState;
 use crate::app::theme;

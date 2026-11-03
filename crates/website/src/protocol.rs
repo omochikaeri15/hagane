@@ -1,12 +1,12 @@
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 
-use kokoro::domains::cat::scanner::CatEntry;
-use kokoro::domains::enemy::scanner::EnemyEntry;
-use kokoro::domains::settings::ScannerConfig;
-use kokoro::domains::stage::scanner::StageBundle;
-use omote::platform::battle::{BattleCommand, BattleEvent};
-use omote::platform::mods::{ModCommand, ModState};
+use foundry::domains::cat::scanner::CatEntry;
+use foundry::domains::enemy::scanner::EnemyEntry;
+use foundry::domains::settings::ScannerConfig;
+use foundry::domains::stage::scanner::StageBundle;
+use crate::platform::battle::{BattleCommand, BattleEvent};
+use crate::platform::mods::{ModCommand, ModState};
 
 pub(crate) const HELLO: u32 = 0;
 

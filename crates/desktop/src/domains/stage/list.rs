@@ -7,10 +7,10 @@ use iced::widget::{button, column, container, row, rule, scrollable, space, text
 use iced::{Element, Length, Padding, Theme};
 use codex::chapter::Category;
 
-use kokoro::domains::stage::filter::{CompiledStageFilter, StageFilterState, StageLookupContext};
-use kokoro::domains::stage::{navigate, GlobalMapId, GlobalStageId, StageDataState};
-use kokoro::systems::treasure::Bonus;
-use kokoro::Vault;
+use foundry::domains::stage::filter::{CompiledStageFilter, StageFilterState, StageLookupContext};
+use foundry::domains::stage::{navigate, GlobalMapId, GlobalStageId, StageDataState};
+use foundry::systems::treasure::Bonus;
+use foundry::Vault;
 
 use crate::app::theme;
 use crate::editor;

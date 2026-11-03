@@ -7,11 +7,11 @@ use iced::widget::image::Handle;
 use iced::widget::{column, container, image, mouse_area, pick_list, responsive, row, scrollable, space, text, text_input, Column, Row};
 use iced::{Border, Color, Element, Length, Size, Theme};
 
-use kokoro::common::context::GlobalContext;
-use kokoro::domains::cat::combo::{self, CatCombo};
-use kokoro::domains::cat::scanner::CatEntry;
-use kokoro::domains::sandbox::rules::Rules;
-use kokoro::domains::sandbox::Lineup;
+use foundry::common::context::GlobalContext;
+use foundry::domains::cat::combo::{self, CatCombo};
+use foundry::domains::cat::scanner::CatEntry;
+use foundry::domains::sandbox::rules::Rules;
+use foundry::domains::sandbox::Lineup;
 
 use crate::app::theme;
 use crate::common::header_icon;

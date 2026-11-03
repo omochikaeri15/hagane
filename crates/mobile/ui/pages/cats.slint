@@ -1,0 +1,554 @@
+import { ListView } from "std-widgets.slint";
+import { Theme } from "../theme.slint";
+import { Btn, Tone, Input, Combo, Toggle, Label, Status, Dialog, Panel, Rule, VRule, Card, OutlinedCard, Tip, Slider } from "../widgets/basics.slint";
+import { Drawer, EdgeGrab } from "../widgets/drawer.slint";
+import { Line, Seg, AbilityIcon, AbilityLine, StatCell, HeaderBtn, RosterRow, Lines, IconBox, IconRow, AbilityRows, StatGrid, HeaderToggle, OrbSlot, OrbPicture } from "../widgets/detail.slint";
+import { AnimViewer, Viewer, DebugToggles } from "../widgets/viewer.slint";
+import { Shell } from "../shell.slint";
+import { FilterIcon, FilterLabeled, RangeField, FilterIconsWrap, FilterLabeledList, RangeRows } from "../widgets/filter.slint";
+
+export struct TalentRow { index: int, ultra: bool, icon: AbilityIcon, name-image: image, has-name-image: bool, name: string, expanded: bool, description: [Line], np-cost: string, max-level: int, level: int, input: string, shown: [Line], has-shown: bool }
+export struct Material { icon: image, has-icon: bool, id-label: string, quantity: string, tip: string }
+export struct ComboSlot { icon: image, has-icon: bool, label: string, tip: string, cat-id: int, form: int, jumpable: bool }
+export struct ComboCard { name: string, effect: string, restriction: string, slots: [ComboSlot] }
+export struct ComboEffect { label: string, active: bool, id: int }
+
+export global Cats {
+    in property <[RosterRow]> roster;
+    in property <int> roster-count;
+    in-out property <string> search;
+    in property <bool> filter-active;
+    in property <int> selected: -1;
+    in property <bool> ready;
+    in property <string> status-title: "Loading Cats...";
+    in property <string> status-detail;
+    in-out property <bool> roster-open;
+
+    in property <string> name;
+    in property <length> name-size: 22px;
+    in property <string> id-text;
+    in property <image> icon;
+    in property <bool> has-icon;
+    in property <[HeaderBtn]> forms;
+    in property <int> form;
+    in property <[HeaderBtn]> tabs;
+    in property <int> tab;
+    in-out property <string> level-input;
+    in property <bool> locked;
+
+    in property <[StatCell]> stat-headers-1;
+    in property <[StatCell]> stat-values-1;
+    in property <[StatCell]> stat-headers-2;
+    in property <[StatCell]> stat-values-2;
+    in property <[AbilityIcon]> traits;
+    in property <[AbilityIcon]> headline-1;
+    in property <[AbilityIcon]> headline-2;
+    in property <[AbilityLine]> body-1;
+    in property <[AbilityLine]> body-2;
+    in property <[AbilityIcon]> footer;
+    in property <bool> conjure-open;
+    in property <bool> has-spirit;
+    in property <[Line]> spirit-damage;
+    in property <AbilityIcon> spirit-icon;
+    in property <[AbilityIcon]> spirit-traits;
+    in property <[AbilityIcon]> spirit-headline-1;
+    in property <[AbilityIcon]> spirit-headline-2;
+    in property <[AbilityLine]> spirit-body-1;
+    in property <[AbilityLine]> spirit-body-2;
+    in property <[AbilityIcon]> spirit-footer;
+    in property <bool> stats-missing;
+    in property <string> export-label: "Export Image";
+    in property <Tone> export-tone: Tone.primary;
+
+    in property <bool> has-talents;
+    in property <string> np-total;
+    in property <image> np-icon;
+    in property <bool> has-np-icon;
+    in property <string> normal-label: "All Talents";
+    in property <string> ultra-label: "All Ultra";
+    in property <bool> ultra-available;
+    in property <[TalentRow]> talents;
+    in property <bool> has-orbs;
+    in property <[OrbSlot]> orb-slots;
+
+    in property <[Line]> description;
+    in property <bool> has-evolve;
+    in property <[Line]> evolve-text;
+    in property <[Material]> materials;
+    in property <bool> has-xp;
+    in property <image> xp-icon;
+    in property <bool> has-xp-icon;
+    in property <length> xp-width: 32px;
+    in property <string> xp-cost;
+    in property <[ComboCard]> combos;
+
+    in-out property <bool> filter-open;
+    in property <[bool]> filter-rarities;
+    in property <[bool]> filter-forms;
+    in property <int> filter-mode;
+    in property <int> filter-talents;
+    in property <int> filter-ultra;
+    in property <string> filter-level;
+    in property <[RangeField]> filter-stats;
+    in property <[FilterIcon]> filter-traits;
+    in property <[FilterIcon]> filter-attack-types;
+    in property <[FilterIcon]> filter-headline-1;
+    in property <[FilterIcon]> filter-headline-2;
+    in property <[FilterLabeled]> filter-body-1;
+    in property <[FilterLabeled]> filter-body-2;
+    in property <[FilterIcon]> filter-footer;
+    in property <[FilterIcon]> filter-talent-icons;
+    in property <[[ComboEffect]]> filter-combos;
+
+    callback select(int);
+    callback search-changed(string);
+    callback open-filter();
+    callback set-form(int);
+    callback set-tab(int);
+    callback level-edited(string);
+    callback conjure-toggled();
+    callback export-image();
+    callback toggle-talents(bool);
+    callback orb-tapped(int);
+    callback group-toggled(int);
+    callback talent-level(int, int);
+    callback talent-input(int, string);
+    callback jump-cat(int, int);
+    callback filter-rarity(int);
+    callback filter-form(int);
+    callback filter-mode-set(int);
+    callback filter-talents-set(int);
+    callback filter-ultra-set(int);
+    callback filter-level-edited(string);
+    callback filter-stat-min(int, string);
+    callback filter-stat-max(int, string);
+    callback filter-icon(int);
+    callback filter-range-min(int, int, string);
+    callback filter-range-max(int, int, string);
+    callback filter-combo(int);
+    callback filter-clear();
+}
+
+export component FilterDialog inherits Dialog {
+    title: "Advanced Cat Filter";
+    open <=> Cats.filter-open;
+    body-height: 9999px;
+    Flickable {
+        mouse-drag-pan-enabled: true;
+        width: 100%;
+        height: 100%;
+        content-height: content.preferred-height;
+        content := VerticalLayout {
+            padding: 16px;
+            spacing: 16px;
+            VerticalLayout {
+                spacing: 8px;
+                Label { text: "Attributes"; font-size: 18px; }
+                HorizontalLayout {
+                    spacing: 4px; alignment: start;
+                    for label[index] in ["Normal", "Special", "Rare", "Super Rare", "Uber Rare", "Legend Rare"]: Btn { tone: Tone.toggle; active: Cats.filter-rarities[index]; label: label; text-size: 12px; pad-x: 6px; clicked => { Cats.filter-rarity(index); } }
+                }
+                HorizontalLayout {
+                    spacing: 4px; alignment: start;
+                    for label[index] in ["Normal Form", "Evolved Form", "True Form", "Ultra Form"]: Btn { tone: Tone.toggle; active: Cats.filter-forms[index]; label: label; text-size: 12px; pad-x: 6px; clicked => { Cats.filter-form(index); } }
+                }
+                HorizontalLayout {
+                    spacing: 8px; alignment: start;
+                    Label { text: "Mode:"; vertical-alignment: center; }
+                    Combo { options: ["And", "Or"]; current: Cats.filter-mode; selected(index) => { Cats.filter-mode-set(index); } }
+                }
+                HorizontalLayout {
+                    spacing: 8px; alignment: start;
+                    Label { text: "Talents:"; vertical-alignment: center; }
+                    Combo { options: ["Ignore", "Consider", "Only"]; current: Cats.filter-talents; selected(index) => { Cats.filter-talents-set(index); } }
+                }
+                HorizontalLayout {
+                    spacing: 8px; alignment: start;
+                    Label { text: "Ultra Talents:"; vertical-alignment: center; }
+                    Combo { options: ["Ignore", "Consider", "Only"]; current: Cats.filter-ultra; selected(index) => { Cats.filter-ultra-set(index); } }
+                }
+            }
+            VerticalLayout {
+                spacing: 8px;
+                Label { text: "Stats"; font-size: 18px; }
+                HorizontalLayout {
+                    spacing: 8px; alignment: start;
+                    Label { text: "Target Level:"; vertical-alignment: center; }
+                    Input { width: 60px; text: Cats.filter-level; placeholder: "Any"; input-type: InputType.number; edited(value) => { Cats.filter-level-edited(value); } }
+                }
+                RangeRows { fields: Cats.filter-stats; min-edited(index, value) => { Cats.filter-stat-min(index, value); } max-edited(index, value) => { Cats.filter-stat-max(index, value); } }
+            }
+            VerticalLayout { spacing: 8px; Label { text: "Target Traits"; font-size: 18px; } FilterIconsWrap { items: Cats.filter-traits; toggled(id) => { Cats.filter-icon(id); } } }
+            VerticalLayout { spacing: 8px; Label { text: "Attack Type"; font-size: 18px; } FilterIconsWrap { items: Cats.filter-attack-types; toggled(id) => { Cats.filter-icon(id); } } }
+            VerticalLayout {
+                spacing: 8px;
+                Label { text: "Abilities"; font-size: 18px; }
+                if Cats.filter-headline-1.length > 0: FilterIconsWrap { items: Cats.filter-headline-1; toggled(id) => { Cats.filter-icon(id); } }
+                if Cats.filter-headline-2.length > 0: FilterIconsWrap { items: Cats.filter-headline-2; toggled(id) => { Cats.filter-icon(id); } }
+                if Cats.filter-body-1.length > 0: FilterLabeledList { items: Cats.filter-body-1; toggled(id) => { Cats.filter-icon(id); } range-min(owner, index, value) => { Cats.filter-range-min(owner, index, value); } range-max(owner, index, value) => { Cats.filter-range-max(owner, index, value); } }
+                if Cats.filter-body-2.length > 0: FilterLabeledList { items: Cats.filter-body-2; toggled(id) => { Cats.filter-icon(id); } range-min(owner, index, value) => { Cats.filter-range-min(owner, index, value); } range-max(owner, index, value) => { Cats.filter-range-max(owner, index, value); } }
+                if Cats.filter-footer.length > 0: FilterIconsWrap { items: Cats.filter-footer; toggled(id) => { Cats.filter-icon(id); } }
+                if Cats.filter-talent-icons.length > 0: Label { text: "Talents"; font-size: 18px; }
+                if Cats.filter-talent-icons.length > 0: FilterIconsWrap { items: Cats.filter-talent-icons; toggled(id) => { Cats.filter-icon(id); } }
+            }
+            if Cats.filter-combos.length > 0: VerticalLayout {
+                spacing: 8px;
+                Label { text: "Combo"; font-size: 18px; }
+                for group in Cats.filter-combos: HorizontalLayout {
+                    spacing: 4px; alignment: start;
+                    for effect in group: Btn { tone: Tone.toggle; active: effect.active; label: effect.label; text-size: 12px; pad-x: 6px; clicked => { Cats.filter-combo(effect.id); } }
+                }
+            }
+            HorizontalLayout {
+                alignment: center;
+                padding: 8px;
+                Btn { tone: Tone.danger; label: "Clear Filter"; clicked => { Cats.filter-clear(); } }
+            }
+        }
+    }
+}
+
+component Roster inherits Panel {
+    VerticalLayout {
+        padding: 8px;
+        spacing: 4px;
+        Btn { tone: Tone.toggle; active: Cats.filter-active; label: "Filter"; text-size: 13px; height: 32px; clicked => { Cats.open-filter(); } }
+        Input { text <=> Cats.search; placeholder: "Search Cat..."; text-size: 13px; height: 32px; edited(value) => { Cats.search-changed(value); } }
+        Rectangle { height: 4px; }
+        if Cats.roster-count == 0: Label { text: "No Cats Found!"; color: Theme.danger; horizontal-alignment: center; vertical-stretch: 1; vertical-alignment: center; }
+        if Cats.roster-count > 0: ListView {
+            mouse-drag-pan-enabled: true;
+            vertical-stretch: 1;
+            for row in Cats.roster: Rectangle {
+                height: 54px;
+                width: parent.width;
+                Rectangle {
+                    y: 0;
+                    height: 50px;
+                    width: parent.width;
+                    border-radius: Theme.radius-sm;
+                    background: row.id == Cats.selected ? Theme.primary : (press.pressed ? Theme.list-hover : transparent);
+                    if row.has-banner: Image {
+                        x: 0;
+                        y: 0;
+                        height: 50px;
+                        width: self.source.width * 50px / max(self.source.height, 1);
+                        source: row.banner;
+                        image-fit: fill;
+                    }
+                    press := TouchArea {
+                        clicked => { Cats.select(row.id); Cats.roster-open = false; }
+                    }
+                }
+            }
+        }
+    }
+}
+
+component Header inherits VerticalLayout {
+    spacing: 8px;
+    padding-top: 5px;
+    VerticalLayout {
+        spacing: 6px;
+        HorizontalLayout {
+            spacing: 4px;
+            for form[index] in Cats.forms: HeaderToggle { label: form.label; available: form.available && !Cats.locked; selected: Cats.form == index; square: true; horizontal-stretch: 1; clicked => { Cats.set-form(index); } }
+        }
+        HorizontalLayout {
+            spacing: 4px;
+            for tab[index] in Cats.tabs: HeaderToggle { label: tab.label; available: tab.available; selected: Cats.tab == index; horizontal-stretch: 1; clicked => { Cats.set-tab(index); } }
+        }
+    }
+    Rule { }
+    HorizontalLayout {
+        spacing: 0px;
+        alignment: start;
+        Rectangle {
+            property <length> icon-width: Cats.has-icon ? Cats.icon.width * 96px / max(Cats.icon.height, 1) : 0px;
+            width: max(110px, self.icon-width);
+            height: 96px;
+            if Cats.has-icon: Image {
+                source: Cats.icon;
+                height: 96px;
+                width: parent.icon-width;
+                x: (parent.width - self.width) / 2;
+                image-fit: fill;
+            }
+        }
+        Rectangle { width: 12px; }
+        VerticalLayout {
+            alignment: start;
+            spacing: 2px;
+            Rectangle {
+                width: 113px;
+                height: 56px;
+                Text {
+                    x: 0;
+                    text: Cats.name;
+                    color: Theme.text;
+                    font-size: Cats.name-size;
+                    wrap: word-wrap;
+                    overflow: elide;
+                    width: 120px;
+                    height: parent.height;
+                    vertical-alignment: center;
+                }
+            }
+            Label { text: Cats.id-text; weak: true; font-size: 11px; }
+            HorizontalLayout {
+                spacing: 6px;
+                alignment: start;
+                Label { text: "Level:"; font-size: 11px; vertical-alignment: center; }
+                Input { width: 45px; height: 22px; text-size: 11px; text <=> Cats.level-input; read-only: Cats.locked; input-type: InputType.text; edited(value) => { Cats.level-edited(value); } }
+            }
+        }
+        Rectangle { width: 16px; }
+        VRule { height: 96px; }
+        Rectangle { width: 10px; }
+        if Cats.tab == 0: VerticalLayout {
+            alignment: center;
+            Btn { width: 100px; height: 24px; text-size: 12px; tone: Cats.export-tone; label: Cats.export-label; pad-y: 0px; clicked => { Cats.export-image(); } }
+        }
+        if Cats.tab == 1 && Cats.has-talents: VerticalLayout {
+            alignment: center;
+            spacing: 3px;
+            HorizontalLayout {
+                spacing: 6px;
+                alignment: start;
+                if Cats.has-np-icon: Image { source: Cats.np-icon; height: 22px; width: self.source.width * 22px / max(self.source.height, 1); }
+                if !Cats.has-np-icon: Label { text: "NP Cost"; bold: true; color: Theme.white; }
+                Label { text: Cats.np-total; font-size: 18px; bold: true; color: Theme.white; }
+            }
+            Btn { width: 100px; height: 21px; text-size: 12px; label: Cats.normal-label; enabled: !Cats.locked; pad-y: 0px; clicked => { Cats.toggle-talents(false); } }
+            Btn { width: 100px; height: 21px; text-size: 12px; label: Cats.ultra-label; enabled: Cats.ultra-available && !Cats.locked; pad-y: 0px; clicked => { Cats.toggle-talents(true); } }
+            if Cats.has-orbs: HorizontalLayout {
+                spacing: 4px;
+                alignment: start;
+                Label { text: "Orb"; bold: true; font-size: 12px; vertical-alignment: center; }
+                for orb[index] in Cats.orb-slots: Rectangle {
+                    width: 21px;
+                    height: 21px;
+                    border-radius: Theme.radius-sm;
+                    background: press.pressed ? Theme.bg-strongest : Theme.bg-strong;
+                    OrbPicture { orb: orb; width: 19px; height: 19px; x: 1px; y: 1px; }
+                    if !orb.has-icon: Label { text: "+"; font-size: 13px; horizontal-alignment: center; vertical-alignment: center; width: parent.width; height: parent.height; }
+                    press := TouchArea { enabled: !Cats.locked; clicked => { Cats.orb-tapped(index); } }
+                }
+            }
+        }
+        if Cats.tab == 3: VerticalLayout {
+            alignment: center;
+            DebugToggles { }
+        }
+    }
+    Rule { }
+}
+
+component Abilities inherits VerticalLayout {
+    spacing: 8px;
+    if Cats.stats-missing: Label { text: "Stats data not found"; }
+    if !Cats.stats-missing: StatGrid { headers-1: Cats.stat-headers-1; values-1: Cats.stat-values-1; headers-2: Cats.stat-headers-2; values-2: Cats.stat-values-2; }
+    if !Cats.stats-missing: VerticalLayout {
+        spacing: 7px;
+        if Cats.traits.length > 0: IconRow { items: Cats.traits; }
+        if Cats.headline-1.length > 0: IconRow { items: Cats.headline-1; }
+        if Cats.headline-2.length > 0: IconRow { items: Cats.headline-2; }
+        if Cats.body-1.length > 0: AbilityRows { items: Cats.body-1; conjure-open: Cats.conjure-open; conjure-toggled => { Cats.conjure-toggled(); } }
+        if Cats.conjure-open && Cats.has-spirit: Card {
+            height: spirit.preferred-height + 16px;
+            border-top-left-radius: 0px;
+            border-top-right-radius: 0px;
+            spirit := VerticalLayout {
+                padding: 8px;
+                spacing: 5px;
+                HorizontalLayout {
+                    spacing: 8px; alignment: start;
+                    IconBox { icon: Cats.spirit-icon; }
+                    Lines { lines: Cats.spirit-damage; }
+                }
+                if Cats.spirit-traits.length > 0: IconRow { items: Cats.spirit-traits; }
+                if Cats.spirit-headline-1.length > 0: IconRow { items: Cats.spirit-headline-1; }
+                if Cats.spirit-headline-2.length > 0: IconRow { items: Cats.spirit-headline-2; }
+                if Cats.spirit-body-1.length > 0: AbilityRows { items: Cats.spirit-body-1; }
+                if Cats.spirit-body-2.length > 0: AbilityRows { items: Cats.spirit-body-2; }
+                if Cats.spirit-footer.length > 0: IconRow { items: Cats.spirit-footer; }
+            }
+        }
+        if Cats.body-2.length > 0: AbilityRows { items: Cats.body-2; }
+        if Cats.footer.length > 0: IconRow { items: Cats.footer; }
+    }
+}
+
+component Talents inherits VerticalLayout {
+    spacing: 8px;
+    if !Cats.has-talents: Label { text: "No Talents Available"; }
+    for group in Cats.talents: Rectangle {
+        background: group.ultra ? #781414 : #b48c14;
+        border-radius: 5px;
+        height: inner.preferred-height;
+        inner := VerticalLayout {
+            padding: 6px;
+            spacing: 0px;
+            Rectangle {
+                height: 36px;
+                IconBox { icon: group.icon; size: 30px; x: 1.5px; y: (parent.height - self.height) / 2; }
+                if group.has-name-image: Image { source: group.name-image; height: 26px; width: self.source.width * 26px / max(self.source.height, 1); x: 36px; y: (parent.height - self.height) / 2; }
+                if !group.has-name-image: Label { text: group.name; bold: true; color: Theme.white; font-size: 13.5px; vertical-alignment: center; x: 36px; y: 0; height: parent.height; width: parent.width - 72px; overflow: elide; }
+                Rectangle {
+                    width: 30px; height: 30px; x: parent.width - self.width - 1.5px; y: (parent.height - self.height) / 2;
+                    background: #00000066; border-radius: 3.75px; border-width: 1.5px; border-color: #000000cc;
+                    Text { text: group.expanded ? "\u{25b2}" : "\u{25bc}"; color: Theme.white; font-family: "Miscellaneous-Symbols"; font-size: 16.5px; horizontal-alignment: center; vertical-alignment: center; width: parent.width; height: parent.height; }
+                }
+                TouchArea { clicked => { Cats.group-toggled(group.index); } }
+            }
+            if group.expanded: VerticalLayout {
+                spacing: 2px;
+                padding-top: 6px;
+                Rectangle { background: #00000066; border-radius: 4px; height: desc.preferred-height + 8px; desc := Lines { x: 4px; y: 4px; width: parent.width - 8px; lines: group.description; color: Theme.white; size: 13px; } }
+                Rectangle {
+                    background: #00000066; border-radius: 4px; height: 32px;
+                    HorizontalLayout {
+                        padding: 4px; spacing: 6px; alignment: start;
+                        if Cats.has-np-icon: Image { source: Cats.np-icon; height: 20px; width: self.source.width * 20px / max(self.source.height, 1); y: (parent.height - self.height) / 2; }
+                        if !Cats.has-np-icon: Label { text: "NP Cost"; bold: true; color: Theme.white; vertical-alignment: center; }
+                        Label { text: group.np-cost; bold: true; color: Theme.white; font-size: 18px; vertical-alignment: center; }
+                    }
+                }
+                Rectangle {
+                    background: #00000066; border-radius: 4px; height: level.preferred-height + 8px;
+                    level := VerticalLayout {
+                        padding: 4px; spacing: 6px;
+                        HorizontalLayout {
+                            spacing: 8px; alignment: start;
+                            Label { text: "Level:"; bold: true; color: Theme.white; font-size: 14px; vertical-alignment: center; }
+                            Slider { minimum: 0; maximum: group.max-level; value: group.level; enabled: !Cats.locked; changed(value) => { Cats.talent-level(group.index, value); } }
+                            Input { width: 50px; height: 28px; text-size: 13px; text: group.input; placeholder: "0"; read-only: Cats.locked; input-type: InputType.number; edited(value) => { Cats.talent-input(group.index, value); } }
+                        }
+                        if group.has-shown: Lines { lines: group.shown; color: Theme.white; size: 15px; bold: true; }
+                    }
+                }
+            }
+        }
+    }
+}
+
+component Details inherits VerticalLayout {
+    spacing: 27px;
+    VerticalLayout {
+        spacing: 8px;
+        Label { text: "Description"; font-size: 20px; }
+        Lines { lines: Cats.description; size: 16px; }
+    }
+    if Cats.has-evolve: VerticalLayout {
+        spacing: 8px;
+        Label { text: "Evolve"; font-size: 20px; }
+        if Cats.evolve-text.length > 0: Lines { lines: Cats.evolve-text; size: 16px; }
+        if Cats.materials.length > 0: HorizontalLayout {
+            spacing: 5px;
+            alignment: start;
+            for material in Cats.materials: Rectangle {
+                width: 64px;
+                height: 64px;
+                if material.has-icon: Image { source: material.icon; width: 64px; height: 64px; image-fit: contain; }
+                if !material.has-icon: Rectangle { background: Theme.bg-weak; border-radius: 4px; Text { text: material.id-label; color: Theme.text; font-size: 14px; horizontal-alignment: center; vertical-alignment: center; width: parent.width; height: parent.height; } }
+                Rectangle {
+                    x: parent.width - self.width; y: parent.height - self.height;
+                    width: badge.preferred-width + 8px; height: badge.preferred-height + 2px;
+                    background: #000000a1; border-radius: 4px;
+                    badge := Text { text: material.quantity; color: Theme.white; font-size: 13px; horizontal-alignment: center; vertical-alignment: center; width: parent.width; height: parent.height; }
+                }
+            }
+        }
+        if Cats.has-xp: HorizontalLayout {
+            spacing: 5px;
+            alignment: start;
+            if Cats.has-xp-icon: Image { source: Cats.xp-icon; height: 32px; width: Cats.xp-width; }
+            if !Cats.has-xp-icon: Rectangle { width: 32px; height: 32px; background: Theme.bg-weak; border-radius: 4px; Text { text: "XP"; color: Theme.text; font-size: 13px; horizontal-alignment: center; vertical-alignment: center; width: parent.width; height: parent.height; } }
+            Label { text: Cats.xp-cost; bold: true; font-size: 18px; vertical-alignment: center; }
+        }
+    }
+    if Cats.combos.length > 0: VerticalLayout {
+        spacing: 4px;
+        Label { text: "Cat Combo"; font-size: 20px; }
+        for combo in Cats.combos: Card {
+            outlined: true;
+            height: card.preferred-height;
+            card := VerticalLayout {
+                padding: 6px;
+                spacing: 3px;
+                Label { text: combo.name; font-size: 16px; horizontal-alignment: center; }
+                if combo.effect != "": Label { text: combo.effect; font-size: 13px; horizontal-alignment: center; }
+                if combo.restriction != "": Label { text: combo.restriction; font-size: 11px; horizontal-alignment: center; }
+                HorizontalLayout {
+                    spacing: 4px;
+                    alignment: center;
+                    for slot in combo.slots: Rectangle {
+                        width: 44px;
+                        height: 44px;
+                        if slot.has-icon: Image { source: slot.icon; width: 44px; height: 44px; image-fit: contain; }
+                        if !slot.has-icon: Rectangle { background: Theme.bg-weak; border-radius: 4px; }
+                        if slot.label != "": Rectangle {
+                            x: (parent.width - self.width) / 2; y: (parent.height - self.height) / 2;
+                            width: mark.preferred-width + 6px; height: mark.preferred-height + 2px;
+                            background: #000000a1; border-radius: 4px;
+                            mark := Text { text: slot.label; color: Theme.white; font-size: 10px; horizontal-alignment: center; vertical-alignment: center; width: parent.width; height: parent.height; }
+                        }
+                        TouchArea { enabled: slot.jumpable; clicked => { Cats.jump-cat(slot.cat-id, slot.form); } }
+                    }
+                }
+            }
+        }
+    }
+}
+
+export component CatDetail inherits VerticalLayout {
+    Header { }
+    if Cats.tab != 3: Flickable {
+        mouse-drag-pan-enabled: true;
+        vertical-stretch: 1;
+        content-width: self.width;
+        content-height: body.preferred-height + 16px > self.height ? body.preferred-height + 16px : self.height;
+        body := VerticalLayout {
+            x: 0;
+            y: 0;
+            width: parent.width;
+            height: self.preferred-height;
+            padding-top: 8px;
+            if Cats.tab == 0: Abilities { }
+            if Cats.tab == 1: Talents { }
+            if Cats.tab == 2: Details { }
+        }
+    }
+    if Cats.tab == 3 && !Viewer.expanded: Rectangle {
+        vertical-stretch: 1;
+        AnimViewer { y: 8px; height: parent.height - 8px; width: parent.width; }
+    }
+    if Cats.tab == 3 && Viewer.expanded: VerticalLayout {
+        vertical-stretch: 1;
+        alignment: center;
+        spacing: 12px;
+        Label { text: "Animation Expanded"; font-size: 20px; bold: true; horizontal-alignment: center; }
+        HorizontalLayout { alignment: center; Btn { label: "Restore View"; clicked => { Viewer.expanded = false; } } }
+    }
+}
+
+export component CatsPage inherits Rectangle {
+    EdgeGrab { armed: Cats.ready && !Cats.roster-open && !Shell.nav-open; pulled => { Cats.roster-open = true; Shell.left-open = true; }
+        if !Cats.ready: Status { title: Cats.status-title; detail: Cats.status-detail; x: (parent.width - self.width) / 2; y: (parent.height - self.height) / 2; width: min(parent.width - 32px, 360px); }
+        if Cats.ready: VerticalLayout {
+            padding-left: 10px;
+            padding-right: 10px;
+            padding-top: 4px;
+            padding-bottom: 12px;
+            if Cats.selected < 0: Label { text: "Select a Unit"; font-size: 24px; horizontal-alignment: center; vertical-alignment: center; vertical-stretch: 1; }
+            if Cats.selected >= 0: CatDetail { vertical-stretch: 1; }
+        }
+    }
+    Drawer {
+        open <=> Cats.roster-open;
+        panel-width: 152px;
+        closed => { Shell.left-open = false; }
+        Roster { width: 100%; height: 100%; }
+    }
+    FilterDialog { }
+}

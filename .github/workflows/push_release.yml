@@ -22,6 +22,7 @@ jobs:
       app_version: ${{ steps.get_version.outputs.version }}
       desktop: ${{ steps.builds.outputs.desktop }}
       website: ${{ steps.builds.outputs.website }}
+      mobile: ${{ steps.builds.outputs.mobile }}
     steps:
       - uses: actions/checkout@v5
 
@@ -51,7 +52,7 @@ jobs:
         id: builds
         run: |
           VERSION=${{ steps.get_version.outputs.version }}
-          for NAME in desktop website; do
+          for NAME in desktop website mobile; do
             if [ ! -f .github/release-builds ] && [ "$NAME" = desktop ]; then
               BUILD=true
             elif grep -q "^$NAME $VERSION " .github/release-builds 2>/dev/null; then
@@ -263,16 +264,121 @@ jobs:
           path: target/dx/website/release/web/public
           retention-days: 1
 
+  build-mobile:
+    name: Build Mobile (${{ matrix.flavor }})
+    needs: check-version
+    if: needs.check-version.outputs.should_release == 'true' && needs.check-version.outputs.mobile == 'true'
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      matrix:
+        include:
+          - flavor: apk
+            runner: ubuntu-latest
+          - flavor: ipa
+            runner: macos-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Cache Cargo Dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: ${{ runner.os }}-cargo-mobile-${{ matrix.flavor }}-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Set up Java
+        if: matrix.flavor == 'apk'
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - name: Set up the Android SDK
+        if: matrix.flavor == 'apk'
+        uses: android-actions/setup-android@v3
+        with:
+          packages: "platforms;android-35 build-tools;35.0.0 ndk;27.2.12479018 platform-tools"
+
+      - name: Add Android targets
+        if: matrix.flavor == 'apk'
+        run: rustup target add aarch64-linux-android x86_64-linux-android
+
+      - name: Install cargo-binstall
+        if: matrix.flavor == 'apk'
+        uses: cargo-bins/cargo-binstall@main
+
+      - name: Install cargo-apk
+        if: matrix.flavor == 'apk'
+        run: cargo binstall cargo-apk --locked --no-confirm
+
+      - name: Restore the release keystore
+        if: matrix.flavor == 'apk'
+        env:
+          KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+        run: |
+          if [ -z "$KEYSTORE_BASE64" ] || [ -z "$KEYSTORE_PASSWORD" ]; then
+            echo "ANDROID_KEYSTORE_BASE64 and ANDROID_KEYSTORE_PASSWORD must be set; a release signed with a throwaway key cannot update an installed one."
+            exit 1
+          fi
+          echo "$KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/release.keystore"
+          keytool -list -keystore "$RUNNER_TEMP/release.keystore" -storepass "$KEYSTORE_PASSWORD" > /dev/null
+
+      - name: Build the APK
+        if: matrix.flavor == 'apk'
+        env:
+          ANDROID_NDK_ROOT: ${{ env.ANDROID_HOME }}/ndk/27.2.12479018
+          ANDROID_NDK_HOME: ${{ env.ANDROID_HOME }}/ndk/27.2.12479018
+          CARGO_APK_RELEASE_KEYSTORE: ${{ runner.temp }}/release.keystore
+          CARGO_APK_RELEASE_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+        run: cargo apk build --release -p mobile --lib
+
+      - name: Zip the APK
+        if: matrix.flavor == 'apk'
+        run: |
+          mkdir -p apk-bundle
+          cp target/release/apk/bcc_mobile.apk "apk-bundle/${{ env.BIN_NAME }}.apk"
+          (cd apk-bundle && zip ../bcc_mobile_apk.zip "${{ env.BIN_NAME }}.apk")
+
+      - name: Add the iOS target
+        if: matrix.flavor == 'ipa'
+        run: rustup target add aarch64-apple-ios
+
+      - name: Build the iOS binary
+        if: matrix.flavor == 'ipa'
+        run: cargo build --release --target aarch64-apple-ios -p mobile --bin mobile
+
+      - name: Bundle the unsigned IPA
+        if: matrix.flavor == 'ipa'
+        run: |
+          APP="Payload/${{ env.BIN_NAME }}.app"
+          mkdir -p "$APP"
+          cp target/aarch64-apple-ios/release/mobile "$APP/BattleCatsComplete"
+          sed "s/__VERSION__/${{ needs.check-version.outputs.app_version }}/g" crates/mobile/ios/Info.plist > "$APP/Info.plist"
+          cp crates/mobile/ios/AppIcon.png "$APP/AppIcon.png"
+          codesign --force --sign - "$APP" || echo "ad-hoc signing skipped"
+          zip -r bcc_mobile_ipa.zip Payload
+
+      - name: Upload Mobile Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: mobile-${{ matrix.flavor }}-build
+          path: bcc_mobile_${{ matrix.flavor }}.zip
+          retention-days: 1
+
   create-release:
     name: Publish Release
-    needs: [check-version, build-windows, build-linux, build-macos, build-website]
+    needs: [check-version, build-windows, build-linux, build-macos, build-website, build-mobile]
     if: ${{ !cancelled() && needs.check-version.outputs.should_release == 'true' && !contains(needs.*.result, 'failure') }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
 
       - uses: actions/download-artifact@v4
-        if: needs.check-version.outputs.desktop == 'true' || needs.check-version.outputs.website == 'true'
+        if: needs.check-version.outputs.desktop == 'true' || needs.check-version.outputs.website == 'true' || needs.check-version.outputs.mobile == 'true'
 
       - name: List artifacts (Verification)
         run: ls -R
@@ -301,6 +407,12 @@ jobs:
           fi
           if [ "${{ needs.check-version.outputs.website }}" = true ]; then
             ASSETS+=(website-wasm-build/bcc_website_wasm.zip)
+          fi
+          if [ "${{ needs.check-version.outputs.mobile }}" = true ]; then
+            ASSETS+=(
+              mobile-apk-build/bcc_mobile_apk.zip
+              mobile-ipa-build/bcc_mobile_ipa.zip
+            )
           fi
           gh release create "v${{ needs.check-version.outputs.app_version }}" \
             --repo "${{ github.repository }}" \

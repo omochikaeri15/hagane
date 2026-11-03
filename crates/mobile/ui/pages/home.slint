@@ -1,0 +1,166 @@
+import { Theme } from "../theme.slint";
+import { Btn, Tone, Label, Dialog, Combo } from "../widgets/basics.slint";
+import { Shell, Page } from "../shell.slint";
+
+export global Home {
+    in property <[string]> changelog-versions;
+    in-out property <int> changelog-current;
+    in property <styled-text> changelog-body;
+    in property <bool> changelog-loading;
+    in property <bool> changelog-failed;
+    in-out property <bool> changelog-open;
+    in property <string> version;
+    callback open-changelog();
+    callback pick-changelog(int);
+    callback open-url(string);
+}
+
+component NavButton inherits Btn {
+    in property <Page> page;
+    in property <length> cell: 120px;
+    width: root.cell;
+    text-size: 15px * root.cell / 120px;
+    pad-x: 0px;
+    clicked => { Shell.navigate(root.page); }
+}
+
+export component HomePage inherits Rectangle {
+    property <length> avail: root.width - 32px;
+    property <float> title-fit: min(1.0, root.avail / max(probe.preferred-width, 1px));
+    property <length> cell: min(120px, (root.avail - 30px) / 4);
+    probe := Text { text: "Battle Cats Complete"; font-size: 32px; wrap: no-wrap; visible: false; x: 0; y: 0; }
+    Flickable {
+        mouse-drag-pan-enabled: true;
+        width: 100%;
+        height: 100%;
+        content-height: body.height;
+        body := VerticalLayout {
+            height: max(self.preferred-height, root.height);
+            padding-top: 20px;
+            padding-left: 16px;
+            padding-right: 16px;
+            VerticalLayout {
+                alignment: start;
+                spacing: 0px;
+                Text {
+                    text: "Battle Cats Complete";
+                    color: Theme.text;
+                    font-size: 32px * root.title-fit;
+                    horizontal-alignment: center;
+                    wrap: no-wrap;
+                }
+                Text {
+                    text: "All-In-One Battle Cats Toolkit";
+                    color: Theme.weak-text;
+                    font-size: 16px * root.title-fit;
+                    horizontal-alignment: center;
+                    wrap: no-wrap;
+                }
+            }
+            Rectangle { height: 32px; }
+            if Shell.game-empty && Shell.engine-ready: VerticalLayout {
+                spacing: 8px;
+                alignment: start;
+                Label {
+                    text: "To get started, populate the \"game\" folder with game files using the \"Import\" page.\nAlternatively, you can put decrypted files in the \"game\" folder yourself using any folder structure you desire.";
+                    font-size: 15px;
+                    horizontal-alignment: center;
+                }
+                HorizontalLayout { alignment: center; NavButton { cell: root.cell; label: "Import"; page: Page.import; } }
+                Rectangle { height: 27px; }
+                Label {
+                    text: "To import encrypted \"pack\" files or an APK, you will need to provide Decryption Keys and Initialization Vectors using the \"Manage Keys\" button under the \"Import\" tab in the \"Settings\" page.";
+                    font-size: 15px;
+                    horizontal-alignment: center;
+                }
+                HorizontalLayout { alignment: center; Btn { label: "Settings > Import > Manage Keys"; text-size: 15px; clicked => { Shell.navigate(Page.settings); } } }
+                Rectangle { height: 27px; }
+                Label {
+                    text: "Without an APK you can download the vanilla game files from the file host under the \"Import\" page's \"Download\" tab.";
+                    font-size: 15px;
+                    horizontal-alignment: center;
+                }
+            }
+            if !(Shell.game-empty && Shell.engine-ready): VerticalLayout {
+                alignment: start;
+                spacing: 10px;
+                Label { text: "Game"; font-size: 18px; horizontal-alignment: center; }
+                HorizontalLayout {
+                    alignment: center;
+                    spacing: 10px;
+                    NavButton { cell: root.cell; label: "Sandbox"; page: Page.sandbox; }
+                    NavButton { cell: root.cell; label: "Cats"; page: Page.cats; }
+                    NavButton { cell: root.cell; label: "Enemies"; page: Page.enemies; }
+                    NavButton { cell: root.cell; label: "Stages"; page: Page.stages; }
+                }
+                Rectangle { height: 10px; }
+                Label { text: "Data"; font-size: 18px; horizontal-alignment: center; }
+                HorizontalLayout {
+                    alignment: center;
+                    spacing: 10px;
+                    NavButton { cell: root.cell; label: "Mods"; page: Page.mods; }
+                    NavButton { cell: root.cell; label: "Files"; page: Page.files; }
+                    NavButton { cell: root.cell; label: "Import"; page: Page.import; }
+                }
+                Rectangle { height: 10px; }
+                Label { text: "Other"; font-size: 18px; horizontal-alignment: center; }
+                HorizontalLayout {
+                    alignment: center;
+                    spacing: 10px;
+                    NavButton { cell: root.cell; label: "Utilities"; page: Page.utilities; }
+                    NavButton { cell: root.cell; label: "Help"; page: Page.help; }
+                    NavButton { cell: root.cell; label: "Settings"; page: Page.settings; }
+                }
+            }
+            Rectangle { vertical-stretch: 1; min-height: 24px; }
+            VerticalLayout {
+                padding-bottom: 10px;
+                spacing: 6px;
+                HorizontalLayout {
+                    alignment: space-between;
+                    HorizontalLayout {
+                        spacing: 6px;
+                        Btn { label: "v" + Home.version; tone: Tone.text; text-size: 13px; pad-x: 0px; pad-y: 0px; clicked => { Home.open-url("https://github.com/omochikaeri15/battle-cats-complete/releases/tag/v" + Home.version); } }
+                        Label { text: "|"; font-size: 13px; vertical-alignment: center; }
+                        Btn { label: "Changelogs"; tone: Tone.text; text-size: 13px; pad-x: 0px; pad-y: 0px; clicked => { Home.changelog-open = true; Home.open-changelog(); } }
+                    }
+                    HorizontalLayout {
+                        spacing: 6px;
+                        Btn { label: "Discord"; tone: Tone.text; text-size: 13px; pad-x: 0px; pad-y: 0px; clicked => { Home.open-url("https://discord.com/invite/SNSE8HNhmP"); } }
+                        Label { text: "|"; font-size: 13px; vertical-alignment: center; }
+                        Btn { label: "GitHub"; tone: Tone.text; text-size: 13px; pad-x: 0px; pad-y: 0px; clicked => { Home.open-url("https://github.com/omochikaeri15/battle-cats-complete"); } }
+                    }
+                }
+            }
+        }
+    }
+
+    Dialog {
+        title: "Changelogs";
+        open <=> Home.changelog-open;
+        body-height: 430px;
+        VerticalLayout {
+            padding: 20px;
+            spacing: 15px;
+            if Home.changelog-failed: Label { text: "Couldn't connect to GitHub"; font-size: 18px; horizontal-alignment: center; vertical-alignment: center; vertical-stretch: 1; }
+            if Home.changelog-loading && !Home.changelog-failed: Label { text: "Loading..."; horizontal-alignment: center; vertical-alignment: center; vertical-stretch: 1; }
+            if !Home.changelog-loading && !Home.changelog-failed: HorizontalLayout {
+                alignment: start;
+                Combo {
+                    options: Home.changelog-versions;
+                    current <=> Home.changelog-current;
+                    selected(index) => { Home.pick-changelog(index); }
+                }
+            }
+            if !Home.changelog-loading && !Home.changelog-failed: Flickable {
+                mouse-drag-pan-enabled: true;
+                vertical-stretch: 1;
+                content-height: notes.preferred-height;
+                notes := StyledText {
+                    width: parent.width;
+                    text: Home.changelog-body;
+                }
+            }
+        }
+    }
+}

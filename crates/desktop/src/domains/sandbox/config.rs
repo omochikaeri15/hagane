@@ -2,13 +2,13 @@ use iced::alignment::Vertical;
 use iced::widget::{column, container, row, scrollable, slider, text, Column};
 use iced::{Element, Length};
 
-use kokoro::domains::sandbox::base::{self, Parts};
-use kokoro::systems::combat::NameBook;
-use kokoro::domains::sandbox::config::{CatGod, StartSpeed, Tutorial, FILIBUSTER_MAP};
-use kokoro::domains::sandbox::{config, ITEMS, TECHS};
-use kokoro::domains::stage::{navigate, GlobalMapId, StageRegistry};
-use kokoro::systems::treasure::Catalog;
-use kokoro::Vfs;
+use foundry::domains::sandbox::base::{self, Parts};
+use foundry::systems::combat::NameBook;
+use foundry::domains::sandbox::config::{CatGod, StartSpeed, Tutorial, FILIBUSTER_MAP};
+use foundry::domains::sandbox::{config, ITEMS, TECHS};
+use foundry::domains::stage::{navigate, GlobalMapId, StageRegistry};
+use foundry::systems::treasure::Catalog;
+use foundry::Vfs;
 use codex::chapter::Category;
 
 use crate::app::state::{SandboxScaling, SandboxDevice, SandboxPanel, SandboxState, SandboxVolume, QUALITY_RANGE, QUALITY_STEP};

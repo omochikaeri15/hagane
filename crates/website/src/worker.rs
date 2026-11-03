@@ -23,11 +23,11 @@ use web_sys::{
 };
 
 use codex::graphics::rig::SpriteSheet as SheetRig;
-use kokoro::common::formats::{self, SpriteSheet};
-use kokoro::common::gfx;
-use kokoro::common::payload::{MANIFEST, Manifest};
-use kokoro::domains::{cat, enemy, stage};
-use kokoro::{Lazy, Loader, Vault};
+use foundry::common::formats::{self, SpriteSheet};
+use foundry::common::gfx;
+use foundry::common::payload::{MANIFEST, Manifest};
+use foundry::domains::{cat, enemy, stage};
+use foundry::{Lazy, Loader, Vault};
 
 use crate::protocol::{self, Answer, Call, HELLO, PictureKind, Prepared, Reply, Request, RigWire};
 

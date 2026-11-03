@@ -16,7 +16,7 @@ use iced::{Alignment, Color, Element, Length, Size, Task, Theme};
 use self_update::{cargo_crate_version, version, Download, Extract, TempDir};
 use tracing::{error, info, warn};
 
-use kokoro::common::{github, platform, process};
+use foundry::common::{github, platform, process};
 
 use crate::common::feedback::CONFIRM_SHORT_LABEL;
 use crate::widget::popup;
@@ -355,7 +355,7 @@ pub(crate) fn restart_app() {
 fn asset_candidates() -> [String; 2] {
     [
         format!("bcc_{}.zip", platform::suffix()),
-        format!("bcc_gui_{}={}_{}.zip", cargo_crate_version!(), kokoro::VERSION, platform::suffix()),
+        format!("bcc_gui_{}={}_{}.zip", cargo_crate_version!(), foundry::VERSION, platform::suffix()),
     ]
 }
 
@@ -376,7 +376,7 @@ impl From<github::Error> for CheckError {
         let reason = match err.kind {
             github::ErrorKind::RateLimited => CheckFailure::RateLimited,
             github::ErrorKind::InvalidUrl => CheckFailure::InvalidUrl,
-            github::ErrorKind::Network | github::ErrorKind::Malformed => CheckFailure::Unknown,
+            github::ErrorKind::Network | github::ErrorKind::Malformed | github::ErrorKind::Disk => CheckFailure::Unknown,
         };
 
         Self { reason, detail: err.to_string() }

@@ -4,8 +4,8 @@ use std::collections::HashMap;
 use iced::widget::image::Handle;
 use codex::cat::unit::TalentGroup;
 
-use kokoro::common::gfx::{autocrop, open_image};
-use kokoro::Vfs;
+use foundry::common::gfx::{autocrop, open_image};
+use foundry::Vfs;
 
 pub(crate) type Cache = RefCell<HashMap<String, Option<Handle>>>;
 

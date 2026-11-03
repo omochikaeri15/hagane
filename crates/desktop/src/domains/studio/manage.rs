@@ -3,7 +3,7 @@ use std::path::PathBuf;
 use iced::widget::{column, container, pick_list, row, rule, text_input};
 use iced::{Alignment, Element, Length, Padding, Size};
 
-use kokoro::domains::studio::{self as sets, Set, Slot};
+use foundry::domains::studio::{self as sets, Set, Slot};
 
 use crate::app::theme;
 use crate::common::feedback::{self, Slot as Confirm};

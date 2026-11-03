@@ -1,5 +1,3 @@
-mod raster;
-
 use std::cell::RefCell;
 use std::hash::{Hash, Hasher};
 use std::ops::Range;
@@ -16,9 +14,11 @@ use image::RgbaImage;
 use rustc_hash::FxHasher;
 use tracing::{info, trace};
 
+use foundry::systems::raster;
+
 use crate::app::timing::{self, Span};
 
-pub(crate) use raster::{Alpha, Vertex};
+pub(crate) use foundry::systems::raster::{Alpha, Vertex};
 
 static SOFTWARE: AtomicBool = AtomicBool::new(false);
 

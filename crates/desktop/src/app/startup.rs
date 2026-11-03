@@ -14,15 +14,15 @@ use tracing::{debug, error, info, warn};
 #[cfg(windows)]
 use windows_sys::Win32::System::Threading::{GetCurrentThread, SetThreadPriority, THREAD_MODE_BACKGROUND_BEGIN};
 
-use kokoro::common::architecture;
-use kokoro::common::dirs;
-use kokoro::common::io::json;
-use kokoro::domains::import;
-use kokoro::domains::mods;
-use kokoro::domains::settings::{lang, nightly, AutoGraphics, ExceptionList, GraphicsBackend, ScannerConfig, Settings, UpdateMode, WindowSettings};
+use foundry::common::architecture;
+use foundry::common::dirs;
+use foundry::common::io::json;
+use foundry::domains::import;
+use foundry::domains::mods;
+use foundry::domains::settings::{lang, nightly, AutoGraphics, ExceptionList, GraphicsBackend, ScannerConfig, Settings, UpdateMode, WindowSettings};
 #[cfg(target_os = "linux")]
-use kokoro::domains::settings::desktop;
-use kokoro::{ContentStore, Vault};
+use foundry::domains::settings::desktop;
+use foundry::{ContentStore, Vault};
 
 use crate::domains::{home, settings::{self as gui_settings, source}};
 use crate::widget::popup;

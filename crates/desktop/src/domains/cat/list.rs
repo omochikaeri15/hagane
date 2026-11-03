@@ -5,9 +5,9 @@ use std::time::Duration;
 use iced::Element;
 use image::{imageops, RgbaImage};
 
-use kokoro::common::gfx;
-use kokoro::domains::cat::filter::{evaluation, CatFilterState};
-use kokoro::domains::cat::scanner::CatEntry;
+use foundry::common::gfx;
+use foundry::domains::cat::filter::{evaluation, CatFilterState};
+use foundry::domains::cat::scanner::CatEntry;
 
 use crate::common::udi_loader::Composite;
 use crate::editor::Target;

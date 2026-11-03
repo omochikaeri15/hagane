@@ -1,0 +1,526 @@
+import { ListView } from "std-widgets.slint";
+import { Updater } from "../widgets/update.slint";
+import { Theme } from "../theme.slint";
+import { Btn, Tone, Input, Combo, Toggle, Label, Dialog, Panel, Rule, OutlinedCard, Card } from "../widgets/basics.slint";
+import { Drawer, EdgeGrab } from "../widgets/drawer.slint";
+import { Shell } from "../shell.slint";
+
+export struct LangRow { label: string, weak: bool, none: bool }
+export struct ArcRow { name: string, value: string, tuned: bool }
+export struct TreasureItem { label: string, level: int, stage: int }
+export struct TreasureSet { name: string, effect: string, items: [TreasureItem] }
+export struct ChapterFold { title: string, slot: int, open: bool, sets: [TreasureSet], empty: bool }
+export struct KeyRow { region: string, key: string, iv: string, key-valid: bool, iv-valid: bool }
+export struct RuleRow { pattern: string, extension: string, handling: int, languages: string }
+export struct LangToggle { code: string, enabled: bool }
+
+export global Settings {
+    in-out property <int> tab;
+    in-out property <bool> tabs-open;
+    in property <[string]> tabs: ["General", "Sandbox", "Cats", "Enemies", "Mods", "Files", "Import", "Utilities", "Animation", "About"];
+
+    in property <bool> logging;
+    in property <[LangRow]> languages;
+    in property <[ArcRow]> arcs;
+    in property <[ChapterFold]> chapters;
+    in property <[string]> grades;
+    in property <bool> enforce-keys;
+
+    in-out property <bool> keys-open;
+    in property <[KeyRow]> keys;
+    in property <bool> keys-validated;
+    in property <string> keys-load-label: "Load Keys";
+    in property <Tone> keys-load-tone: Tone.primary;
+    in property <string> keys-export-label: "Export Keys";
+    in property <Tone> keys-export-tone: Tone.primary;
+    in property <string> keys-delete-label: "Delete Keys";
+
+    in property <[string]> forms;
+    in property <int> banner-form;
+    in property <bool> invalid-cats;
+    in property <bool> expand-spirit;
+    in-out property <string> default-level;
+    in property <bool> auto-level;
+    in property <bool> bump-ultra;
+    in property <bool> invalid-enemies;
+    in property <bool> force-names;
+    in property <bool> unlock-game;
+    in property <int> utf8-mode;
+    in property <int> import-structure;
+    in property <bool> ignore-modified;
+    in property <int> frame-count;
+    in property <bool> auto-camera;
+    in-out property <string> showcase-walk;
+    in-out property <string> showcase-idle;
+    in-out property <string> showcase-kb;
+
+    in-out property <bool> exceptions-open;
+    in property <[RuleRow]> rules;
+    in property <string> rules-load-label: "Load List";
+    in property <Tone> rules-load-tone: Tone.primary;
+    in property <string> rules-export-label: "Export List";
+    in property <Tone> rules-export-tone: Tone.primary;
+    in property <string> rules-reset-label: "Set to Default";
+    in-out property <bool> languages-open;
+    in property <[LangToggle]> rule-languages;
+
+    in property <string> game-label: "No \"game\"";
+    in property <Tone> game-tone: Tone.neutral;
+    in property <bool> game-enabled;
+    in property <string> game-size;
+    in property <string> cache-label: "Cache Empty";
+    in property <Tone> cache-tone: Tone.neutral;
+    in property <bool> cache-enabled;
+    in property <string> cache-size;
+    in property <string> data-path;
+
+    in property <int> orientation;
+    in property <int> exports;
+    in property <int> replay-source;
+    in property <int> sandbox-banner-form;
+    in property <bool> disable-replays;
+
+    in property <string> licenses;
+
+    callback tab-set(int);
+    in property <int> source-mode;
+    callback toggle-logging(bool);
+    callback source-mode-set(int);
+    in-out property <int> lang-drag: -1;
+    in-out property <int> lang-target;
+    in-out property <length> lang-shift;
+    callback lang-move(int, int);
+    callback lang-default();
+    callback arc-edited(int, string);
+    callback fold(int);
+    callback grade(int, int, int);
+    callback toggle-enforce(bool);
+    callback open-keys();
+    callback key-changed(int, string);
+    callback iv-changed(int, string);
+    callback keys-load();
+    callback keys-export();
+    callback keys-validate();
+    callback keys-delete();
+    callback banner-form-set(int);
+    callback toggle-invalid-cats(bool);
+    callback toggle-expand-spirit(bool);
+    callback default-level-edited(string);
+    callback toggle-auto-level(bool);
+    callback toggle-bump-ultra(bool);
+    callback toggle-invalid-enemies(bool);
+    callback toggle-force-names(bool);
+    callback toggle-unlock-game(bool);
+    callback utf8-mode-set(int);
+    callback structure-set(int);
+    callback toggle-ignore-modified(bool);
+    callback frame-count-set(int);
+    callback toggle-auto-camera(bool);
+    callback showcase-edited(int, string);
+    callback open-exceptions();
+    callback rule-add();
+    callback rule-remove(int);
+    callback rule-pattern(int, string);
+    callback rule-extension(int, string);
+    callback rule-handling(int, int);
+    callback open-rule-languages(int);
+    callback rule-language-toggled(int, bool);
+    callback rules-load();
+    callback rules-export();
+    callback rules-reset();
+    callback delete-game();
+    callback clear-cache();
+    callback orientation-set(int);
+    callback exports-set(int);
+    callback replay-source-set(int);
+    callback sandbox-banner-form-set(int);
+    callback toggle-disable-replays(bool);
+}
+
+component Section inherits VerticalLayout {
+    in property <string> title;
+    in property <length> title-size: 24px;
+    spacing: 10px;
+    Label { text: root.title; font-size: root.title-size; }
+    @children
+}
+
+component Row inherits HorizontalLayout {
+    in property <string> label;
+    spacing: 10px;
+    alignment: start;
+    Label { text: root.label; vertical-alignment: center; }
+    @children
+}
+
+component Note inherits Label {
+    font-size: 12px;
+    weak: true;
+    wrap: word-wrap;
+}
+
+export component TreasureEditor inherits VerticalLayout {
+    in property <[ArcRow]> arcs;
+    in property <[ChapterFold]> chapters;
+    in property <[string]> grades;
+    callback arc-edited(int, string);
+    callback fold(int);
+    callback grade(int, int, int);
+    spacing: 10px;
+
+        Label { text: "General"; font-size: 15px; bold: true; }
+        for arc[index] in root.arcs: HorizontalLayout {
+            spacing: 10px;
+            alignment: start;
+            Label { text: arc.name; width: 160px; vertical-alignment: center; }
+            Input { width: 60px; height: 28px; text-size: 13px; placeholder: "300"; text: arc.value; edited(value) => { root.arc-edited(index, value); } }
+            Label { text: "%"; vertical-alignment: center; }
+            if arc.tuned: Note { text: "Adjusted per treasure below"; vertical-alignment: center; }
+        }
+        Label { text: "Advanced"; font-size: 15px; bold: true; }
+        for chapter in root.chapters: VerticalLayout {
+            spacing: 6px;
+            Rectangle {
+                height: 30px;
+                HorizontalLayout {
+                    spacing: 6px;
+                    alignment: start;
+                    Label { text: chapter.title; font-size: 15px; bold: true; vertical-alignment: center; }
+                    if !chapter.open: Note { text: "(collapsed)"; vertical-alignment: center; }
+                }
+                TouchArea { clicked => { root.fold(chapter.slot); } }
+            }
+            Rule { }
+            if chapter.open && chapter.empty: Note { text: "No treasure data was found for this chapter"; }
+            if chapter.open: VerticalLayout {
+                spacing: 10px;
+                for set in chapter.sets: VerticalLayout {
+                    spacing: 4px;
+                    HorizontalLayout { spacing: 6px; alignment: start; Label { text: set.name; bold: true; vertical-alignment: center; } if set.effect != "": Note { text: set.effect; vertical-alignment: center; } }
+                    for item in set.items: HorizontalLayout {
+                        spacing: 10px;
+                        alignment: start;
+                        padding-left: 12px;
+                        Label { text: item.label; width: 150px; vertical-alignment: center; font-size: 14px; wrap: word-wrap; }
+                        Combo { width: 110px; height: 28px; text-size: 13px; options: root.grades; current: item.level; selected(index) => { root.grade(chapter.slot, item.stage, index); } }
+                    }
+                }
+            }
+        }
+}
+
+component General inherits VerticalLayout {
+    spacing: 20px;
+    Section {
+        title: "Keys & IV";
+        Btn { label: "Manage Keys"; width: 160px; height: 32px; text-size: 14px; clicked => { Settings.open-keys(); } }
+        Toggle { value: Settings.enforce-keys; label: "Enforce Key Validation"; changed(value) => { Settings.toggle-enforce(value); } }
+    }
+    Section {
+        title: "System";
+        Btn { label: Updater.label; tone: Updater.tone; enabled: Updater.enabled; width: 210px; height: 32px; text-size: 14px; clicked => { Updater.check(); } }
+        Row { label: "Orientation"; Combo { width: 130px; height: 30px; text-size: 13px; options: ["Automatic", "Portrait", "Landscape"]; current: Settings.orientation; selected(index) => { Settings.orientation-set(index); } } }
+        Row { label: "Exports"; Combo { width: 130px; height: 30px; text-size: 13px; options: ["App Folder", "Ask Where"]; current: Settings.exports; selected(index) => { Settings.exports-set(index); } } }
+    }
+    Section {
+        title: "Behavior";
+        Row { label: "Update Handling"; Combo { width: 120px; height: 30px; text-size: 13px; options: ["Prompt", "Ignore"]; current: Updater.mode; selected(index) => { Updater.mode-set(index); } } }
+        Toggle { value: Settings.logging; label: "Enable Logging"; changed(value) => { Settings.toggle-logging(value); } }
+    }
+    Section {
+        title: "Language Priority";
+        Btn { tone: Tone.danger; label: "Set to Default"; width: 160px; height: 32px; text-size: 14px; clicked => { Settings.lang-default(); } }
+        Card {
+            outlined: true;
+            width: 164px;
+            height: langs.preferred-height;
+            langs := VerticalLayout {
+                padding: 12px;
+                spacing: 0px;
+                for lang[index] in Settings.languages: cell := Rectangle {
+                    property <bool> lifted: Settings.lang-drag == index;
+                    property <length> slot-shift: Settings.lang-drag < 0 || cell.lifted ? 0px
+                        : index > Settings.lang-drag && index <= Settings.lang-target ? -32px
+                        : index < Settings.lang-drag && index >= Settings.lang-target ? 32px
+                        : 0px;
+                    animate slot-shift { duration: 120ms; easing: ease-out; }
+                    width: 140px;
+                    height: 32px;
+                    z: cell.lifted ? 1 : 0;
+                    Rectangle {
+                        y: cell.lifted ? Settings.lang-shift : cell.slot-shift;
+                        width: 100%;
+                        height: 100%;
+                        border-radius: Theme.radius-sm;
+                        background: cell.lifted ? Theme.primary.with-alpha(0.25) : transparent;
+                        HorizontalLayout {
+                            padding-left: 6px;
+                            padding-right: 6px;
+                            spacing: 8px;
+                            VerticalLayout {
+                                width: 14px;
+                                alignment: center;
+                                spacing: 3px;
+                                Rectangle { height: 2px; border-radius: 1px; background: Theme.text; }
+                                Rectangle { height: 2px; border-radius: 1px; background: Theme.text; }
+                                Rectangle { height: 2px; border-radius: 1px; background: Theme.text; }
+                            }
+                            Label { text: lang.label; bold: lang.none; weak: lang.weak; vertical-alignment: center; horizontal-stretch: 1; overflow: elide; }
+                        }
+                    }
+                    TouchArea {
+                        pointer-event(event) => {
+                            if event.kind == PointerEventKind.down {
+                                Settings.lang-shift = 0px;
+                                Settings.lang-target = index;
+                                Settings.lang-drag = index;
+                            } else if (event.kind == PointerEventKind.up || event.kind == PointerEventKind.cancel) && Settings.lang-drag == index {
+                                Settings.lang-move(index, Settings.lang-target);
+                            }
+                        }
+                        moved => {
+                            if self.pressed && Settings.lang-drag == index {
+                                Settings.lang-shift = clamp(self.mouse-y - self.pressed-y, -index * 32px, (Settings.languages.length - 1 - index) * 32px);
+                                Settings.lang-target = clamp(index + round(Settings.lang-shift / 32px), 0, Settings.languages.length - 1);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    Section {
+        title: "Treasures";
+        TreasureEditor { arcs: Settings.arcs; chapters: Settings.chapters; grades: Settings.grades; arc-edited(index, value) => { Settings.arc-edited(index, value); } fold(slot) => { Settings.fold(slot); } grade(slot, stage, level) => { Settings.grade(slot, stage, level); } }
+    }
+}
+
+component KeysDialog inherits Dialog {
+    title: "Manage Decryption Keys";
+    open <=> Settings.keys-open;
+    panel-width: 380px;
+    body-height: min(content.preferred-height, root.height - 50px);
+    flick := Flickable {
+        mouse-drag-pan-enabled: true;
+        width: 100%;
+        height: 100%;
+        content-height: content.preferred-height;
+        content := VerticalLayout {
+            width: flick.width;
+            padding: 16px;
+            spacing: 12px;
+            HorizontalLayout {
+                spacing: 8px;
+                Btn { label: Settings.keys-load-label; tone: Settings.keys-load-tone; height: 30px; text-size: 12px; horizontal-stretch: 1; pad-x: 4px; clicked => { Settings.keys-load(); } }
+                Btn { label: Settings.keys-export-label; tone: Settings.keys-export-tone; height: 30px; text-size: 12px; horizontal-stretch: 1; pad-x: 4px; clicked => { Settings.keys-export(); } }
+            }
+            HorizontalLayout {
+                spacing: 8px;
+                Btn { label: "Validate Keys"; height: 30px; text-size: 12px; horizontal-stretch: 1; pad-x: 4px; clicked => { Settings.keys-validate(); } }
+                Btn { label: Settings.keys-delete-label; tone: Tone.danger; height: 30px; text-size: 12px; horizontal-stretch: 1; pad-x: 4px; clicked => { Settings.keys-delete(); } }
+            }
+            for row[index] in Settings.keys: Card {
+                height: fields.preferred-height;
+                fields := VerticalLayout {
+                    padding: 8px;
+                    spacing: 6px;
+                    Label { text: row.region; bold: true; font-size: 14px; }
+                    Input { height: 30px; text-size: 12px; placeholder: "Decryption Key"; text: row.key; fill: Settings.keys-validated ? (row.key-valid ? #1e5028 : #781e1e) : Theme.input-bg; edited(value) => { Settings.key-changed(index, value); } }
+                    Input { height: 30px; text-size: 12px; placeholder: "Initialization Vector"; text: row.iv; fill: Settings.keys-validated ? (row.iv-valid ? #1e5028 : #781e1e) : Theme.input-bg; edited(value) => { Settings.iv-changed(index, value); } }
+                }
+            }
+        }
+    }
+}
+
+component ExceptionsDialog inherits Dialog {
+    title: "Manage Exceptions";
+    open <=> Settings.exceptions-open;
+    panel-width: 400px;
+    body-height: min(content.preferred-height, root.height - 50px);
+    flick := Flickable {
+        mouse-drag-pan-enabled: true;
+        width: 100%;
+        height: 100%;
+        content-height: content.preferred-height;
+        content := VerticalLayout {
+            width: flick.width;
+            padding: 16px;
+            spacing: 12px;
+            HorizontalLayout {
+                spacing: 8px;
+                Btn { label: "Add Rule"; height: 30px; text-size: 12px; horizontal-stretch: 1; pad-x: 4px; clicked => { Settings.rule-add(); } }
+                Btn { label: Settings.rules-load-label; tone: Settings.rules-load-tone; height: 30px; text-size: 12px; horizontal-stretch: 1; pad-x: 4px; clicked => { Settings.rules-load(); } }
+            }
+            HorizontalLayout {
+                spacing: 8px;
+                Btn { label: Settings.rules-export-label; tone: Settings.rules-export-tone; height: 30px; text-size: 12px; horizontal-stretch: 1; pad-x: 4px; clicked => { Settings.rules-export(); } }
+                Btn { label: Settings.rules-reset-label; tone: Tone.danger; height: 30px; text-size: 12px; horizontal-stretch: 1; pad-x: 4px; clicked => { Settings.rules-reset(); } }
+            }
+            for rule[index] in Settings.rules: Card {
+                height: fields.preferred-height;
+                fields := VerticalLayout {
+                    padding: 8px;
+                    spacing: 6px;
+                    HorizontalLayout {
+                        spacing: 6px;
+                        Input { horizontal-stretch: 2; height: 30px; text-size: 12px; placeholder: "pattern"; text: rule.pattern; edited(value) => { Settings.rule-pattern(index, value); } }
+                        Input { horizontal-stretch: 1; height: 30px; text-size: 12px; placeholder: "ext"; text: rule.extension; edited(value) => { Settings.rule-extension(index, value); } }
+                    }
+                    HorizontalLayout {
+                        spacing: 6px;
+                        Combo { width: 100px; height: 30px; text-size: 12px; options: ["Include", "Only", "Ignore"]; current: rule.handling; selected(value) => { Settings.rule-handling(index, value); } }
+                        Btn { tone: Tone.toggle; label: rule.languages; height: 30px; text-size: 12px; horizontal-stretch: 1; pad-x: 4px; clicked => { Settings.open-rule-languages(index); } }
+                        Btn { tone: Tone.danger; label: "X"; width: 36px; height: 30px; text-size: 12px; pad-x: 0px; pad-y: 0px; clicked => { Settings.rule-remove(index); } }
+                    }
+                }
+            }
+        }
+    }
+}
+
+component LanguagesDialog inherits Dialog {
+    title: "Languages";
+    open <=> Settings.languages-open;
+    panel-width: 300px;
+    VerticalLayout {
+        padding: 16px;
+        spacing: 8px;
+        for lang[index] in Settings.rule-languages: Toggle { value: lang.enabled; label: lang.code; changed(value) => { Settings.rule-language-toggled(index, value); } }
+    }
+}
+
+component Tabs inherits Panel {
+    VerticalLayout {
+        padding: 8px;
+        spacing: 4px;
+        for tab[index] in Settings.tabs: Rectangle {
+            height: 36px;
+            border-radius: Theme.radius-sm;
+            background: Settings.tab == index ? Theme.primary : (press.pressed ? Theme.bg-strongest : Theme.bg-strong);
+            Text { text: tab; color: Settings.tab == index ? Theme.white : Theme.text; font-size: 14px; horizontal-alignment: center; vertical-alignment: center; width: parent.width; height: parent.height; }
+            press := TouchArea { clicked => { Settings.tab-set(index); Settings.tabs-open = false; Shell.left-open = false; } }
+        }
+    }
+}
+
+export component SettingsPage inherits Rectangle {
+    EdgeGrab { armed: !Settings.tabs-open && !Shell.nav-open; pulled => { Settings.tabs-open = true; Shell.left-open = true; }
+        flick := Flickable {
+            mouse-drag-pan-enabled: true;
+            width: parent.width;
+            height: parent.height;
+            interactive: Settings.lang-drag < 0;
+            content-height: body.preferred-height;
+            body := VerticalLayout {
+                width: flick.width;
+                padding: 15px;
+                spacing: 20px;
+                if Settings.tab == 0: General { }
+                if Settings.tab == 1: VerticalLayout {
+                    spacing: 20px;
+                    Section {
+                        title: "Lineup List";
+                        Row { label: "Lineup Banner Form"; Combo { width: 110px; height: 30px; text-size: 13px; options: ["Normal", "Evolved", "True", "Ultra"]; current: Settings.sandbox-banner-form; selected(index) => { Settings.sandbox-banner-form-set(index); } } }
+                    }
+                    Section {
+                        title: "Replay";
+                        Row { label: "Replay Source"; Combo { width: 110px; height: 30px; text-size: 13px; options: ["Hybrid", "BCV", "VFS"]; current: Settings.replay-source; selected(index) => { Settings.replay-source-set(index); } } }
+                        Toggle { value: Settings.disable-replays; label: "Disable Replays"; changed(value) => { Settings.toggle-disable-replays(value); } }
+                    }
+                }
+                if Settings.tab == 2: VerticalLayout {
+                    spacing: 20px;
+                    Section {
+                        title: "Cat List";
+                        Row { label: "Preferred Banner Form"; Combo { width: 120px; height: 30px; text-size: 13px; options: Settings.forms; current: Settings.banner-form; selected(index) => { Settings.banner-form-set(index); } } }
+                        Toggle { value: Settings.invalid-cats; label: "Show Invalid Cats"; changed(value) => { Settings.toggle-invalid-cats(value); } }
+                    }
+                    Section {
+                        title: "Ability Display";
+                        Toggle { value: Settings.expand-spirit; label: "Expand Spirit Details by Default"; changed(value) => { Settings.toggle-expand-spirit(value); } }
+                    }
+                    Section {
+                        title: "Level Display";
+                        Row { label: "Default Level"; Input { width: 60px; height: 30px; text-size: 13px; placeholder: "Level"; text <=> Settings.default-level; enabled: !Settings.auto-level; edited(value) => { Settings.default-level-edited(value); } } }
+                        Toggle { value: Settings.auto-level; label: "Auto Level Calculations"; changed(value) => { Settings.toggle-auto-level(value); } }
+                        Toggle { value: Settings.bump-ultra; label: "Lv60 For Ultra"; changed(value) => { Settings.toggle-bump-ultra(value); } }
+                    }
+                }
+                if Settings.tab == 3: Section {
+                    title: "Enemy List";
+                    Toggle { value: Settings.invalid-enemies; label: "Show Invalid Enemies"; changed(value) => { Settings.toggle-invalid-enemies(value); } }
+                }
+                if Settings.tab == 4: Section {
+                    title: "Behavior";
+                    Toggle { value: Settings.force-names; label: "Force Name Fallbacks"; changed(value) => { Settings.toggle-force-names(value); } }
+                }
+                if Settings.tab == 5: VerticalLayout {
+                    spacing: 20px;
+                    Section {
+                        title: "Disk";
+                        Btn { label: Settings.game-label; tone: Settings.game-tone; enabled: Settings.game-enabled; width: 200px; height: 32px; text-size: 14px; clicked => { Settings.delete-game(); } }
+                        Note { text: Settings.game-size; }
+                        Btn { label: Settings.cache-label; tone: Settings.cache-tone; enabled: Settings.cache-enabled; width: 200px; height: 32px; text-size: 14px; clicked => { Settings.clear-cache(); } }
+                        Note { text: Settings.cache-size; }
+                        Label { text: Settings.data-path; font-size: 13px; wrap: word-wrap; }
+                    }
+                    Section {
+                        title: "Source";
+                        Row { label: "File Handling"; Combo { width: 120px; height: 30px; text-size: 13px; options: ["Prompt", "Ignore"]; current: Settings.source-mode; selected(index) => { Settings.source-mode-set(index); } } }
+                    }
+                    Section {
+                        title: "Viewer";
+                        Row { label: "UTF-8 Mode"; Combo { width: 120px; height: 30px; text-size: 13px; options: ["Fill", "Virtual"]; current: Settings.utf8-mode; selected(index) => { Settings.utf8-mode-set(index); } } }
+                    }
+                    Section {
+                        title: "Editor";
+                        Toggle { value: Settings.unlock-game; label: "Unlock \"game\" Mount"; changed(value) => { Settings.toggle-unlock-game(value); } }
+                    }
+                }
+                if Settings.tab == 6: Section {
+                    title: "Management";
+                    Btn { label: "Manage Exceptions"; width: 180px; height: 32px; text-size: 14px; clicked => { Settings.open-exceptions(); } }
+                    Row { label: "Import Structure"; Combo { width: 100px; height: 30px; text-size: 13px; options: ["Bcc", "Flat"]; current: Settings.import-structure; selected(index) => { Settings.structure-set(index); } } }
+                    Toggle { value: Settings.ignore-modified; label: "Ignore Modified App"; changed(value) => { Settings.toggle-ignore-modified(value); } }
+                }
+                if Settings.tab == 7: Section {
+                    title: "Animation";
+                    Row { label: "Frame Count Handling"; Combo { width: 130px; height: 30px; text-size: 13px; options: ["Automatic", "Continuous"]; current: Settings.frame-count; selected(index) => { Settings.frame-count-set(index); } } }
+                }
+                if Settings.tab == 8: VerticalLayout {
+                    spacing: 20px;
+                    Section {
+                        title: "Exporter";
+                        Toggle { value: Settings.auto-camera; label: "Auto-Set Camera Region"; changed(value) => { Settings.toggle-auto-camera(value); } }
+                    }
+                    Section {
+                        title: "Showcase";
+                        title-size: 18px;
+                        Row { label: "Walk Frames"; Input { width: 60px; height: 30px; text-size: 13px; placeholder: "0"; text <=> Settings.showcase-walk; edited(value) => { Settings.showcase-edited(0, value); } } }
+                        Row { label: "Idle Frames"; Input { width: 60px; height: 30px; text-size: 13px; placeholder: "0"; text <=> Settings.showcase-idle; edited(value) => { Settings.showcase-edited(1, value); } } }
+                        Row { label: "KB Frames"; Input { width: 60px; height: 30px; text-size: 13px; placeholder: "0"; text <=> Settings.showcase-kb; edited(value) => { Settings.showcase-edited(2, value); } } }
+                    }
+                }
+                if Settings.tab == 9: VerticalLayout {
+                    spacing: 15px;
+                    Label { text: "About Battle Cats Complete"; font-size: 32px; wrap: word-wrap; }
+                    Label { text: "A high-performance Battle Cats toolkit built by Omochi"; wrap: word-wrap; }
+                    Label { text: "Open Source & Legal Info"; font-size: 20px; }
+                    Rule { }
+                    Label { text: "This app is built with Slint, used under the Slint Royalty-free License. Slint is a trademark of SixtyFPS GmbH. https://slint.dev"; font-size: 13px; wrap: word-wrap; }
+                    Label { text: Settings.licenses; font-size: 11px; wrap: word-wrap; }
+                }
+            }
+        }
+    }
+    Drawer {
+        open <=> Settings.tabs-open;
+        panel-width: min(160px, root.width * 0.5);
+        closed => { Shell.left-open = false; }
+        Tabs { width: 100%; height: 100%; }
+    }
+    KeysDialog { visible: Settings.keys-open && Settings.tab == 0; }
+    ExceptionsDialog { visible: Settings.exceptions-open && Settings.tab == 6; }
+    LanguagesDialog { visible: Settings.languages-open && Settings.tab == 6; }
+}

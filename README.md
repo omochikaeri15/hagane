@@ -16,6 +16,8 @@ Because BCC is not signed with a paid certificate, your OS may flag it on the fi
 
 > #### Windows
 >
+> Only Windows 10+ is supported by this application.
+>
 > You may see a blue popup saying **"Windows protected your PC"** (Microsoft Defender SmartScreen).
 >
 > To start the app, click **More info**, then click **Run anyway**.

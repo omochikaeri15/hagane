@@ -7,7 +7,7 @@ use image::RgbaImage;
 
 use codex::graphics::animate::FrameData;
 
-use kokoro::systems::animation::multiply_mat3;
+use foundry::systems::animation::multiply_mat3;
 
 const VERTEX_STRIDE: u64 = 36;
 const VERTS_PER_PART: u32 = 4;

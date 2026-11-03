@@ -16,10 +16,10 @@ use iced::widget::{
 use iced::{Alignment, Element, Length, Size, Task, Theme};
 use tracing::{info, warn};
 
-use kokoro::common::job::{JobEvent, JobOutcome};
-use kokoro::domains::mods::{self, ModDataState};
-use kokoro::domains::settings::Settings;
-use kokoro::Vault;
+use foundry::common::job::{JobEvent, JobOutcome};
+use foundry::domains::mods::{self, ModDataState};
+use foundry::domains::settings::Settings;
+use foundry::Vault;
 
 use crate::app::state::ModsListState;
 use crate::app::theme;

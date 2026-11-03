@@ -10,11 +10,11 @@ use codex::chapter::stage::{BossType, EnemyAmount};
 use codex::common::{strip_html_tags, BreakHandling};
 use tracing::warn;
 
-use kokoro::common::context::GlobalContext;
-use kokoro::domains::enemy::scanner::EnemyEntry;
-use kokoro::domains::stage::{restrictions, Map, Stage};
-use kokoro::systems::treasure::{self, Bonus};
-use kokoro::Source;
+use foundry::common::context::GlobalContext;
+use foundry::domains::enemy::scanner::EnemyEntry;
+use foundry::domains::stage::{restrictions, Map, Stage};
+use foundry::systems::treasure::{self, Bonus};
+use foundry::Source;
 
 use crate::app::theme;
 use crate::editor;

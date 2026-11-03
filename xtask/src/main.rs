@@ -5,7 +5,7 @@ use std::path::Path;
 use std::process::{Command, Stdio, exit};
 
 const BUILDS: &str = ".github/release-builds";
-const FRONTENDS: [&str; 2] = ["desktop", "website"];
+const FRONTENDS: [&str; 3] = ["desktop", "website", "mobile"];
 const APP_REMOTE: &str = "origin";
 const APP_RELEASE_BRANCH: &str = "main";
 const APP_DEV_BRANCH: &str = "dev";

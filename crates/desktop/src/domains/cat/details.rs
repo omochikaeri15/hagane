@@ -7,12 +7,12 @@ use iced::widget::image::Handle;
 use iced::widget::{button, column, container, image as iced_image, row, scrollable, stack, text, tooltip, Space};
 use iced::{font, Border, Color, Element, Font, Length, Padding, Theme};
 
-use kokoro::common::context::GlobalContext;
-use kokoro::common::io;
-use kokoro::domains::cat::combo::{self, CatCombo, ComboMember};
-use kokoro::domains::cat::scanner::CatEntry;
-use kokoro::Vfs;
-use kokoro::Source;
+use foundry::common::context::GlobalContext;
+use foundry::common::io;
+use foundry::domains::cat::combo::{self, CatCombo, ComboMember};
+use foundry::domains::cat::scanner::CatEntry;
+use foundry::Vfs;
+use foundry::Source;
 
 use crate::app::theme;
 use crate::common::item_icon;
@@ -72,9 +72,14 @@ pub(super) struct State {
     trimmed_icons: RefCell<HashMap<i32, Option<TrimmedIcon>>>,
     combos: ComboMemo,
     slot_icons: RefCell<HashMap<PathBuf, Option<Handle>>>,
+    inspecting: bool,
 }
 
 impl State {
+    pub(super) fn inspecting() -> Self {
+        Self { inspecting: true, ..Self::default() }
+    }
+
     pub(super) fn forget(&self, id: i32) {
         self.boxed_icons.borrow_mut().remove(&id);
         self.trimmed_icons.borrow_mut().remove(&id);
@@ -270,7 +275,7 @@ impl State {
             None => icon,
         };
 
-        let jump = member.id.filter(|id| *id != cat_id).map(|id| Message::JumpToUnit(id, member.form));
+        let jump = member.id.filter(|id| *id != cat_id && !self.inspecting).map(|id| Message::JumpToUnit(id, member.form));
 
         let slot: Element<'static, Message> = match jump {
             Some(message) => button(slot).padding(0).style(slot_button_style).on_press(message).into(),

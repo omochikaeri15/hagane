@@ -10,8 +10,8 @@ use iced::widget::{container, image as iced_image, row, scrollable, space, text,
 use iced::{Element, Length, Task};
 use image::imageops;
 
-use kokoro::common::gfx;
-use kokoro::domains::mods::{self, ModData};
+use foundry::common::gfx;
+use foundry::domains::mods::{self, ModData};
 
 use crate::app::theme;
 use crate::widget::{list_row, smooth_scroll};

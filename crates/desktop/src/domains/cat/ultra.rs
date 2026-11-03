@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use kokoro::domains::cat::scanner::CatEntry;
+use foundry::domains::cat::scanner::CatEntry;
 
 pub struct Ctx<'a> {
     pub cat: Option<&'a CatEntry>,

@@ -1,5 +1,5 @@
 use super::*;
-use kokoro::common::glyphs::ARROW;
+use foundry::common::glyphs::ARROW;
 use iced::widget::{button, column, container, row, rule, text, Column};
 
 struct Lands<'a, 'b> {

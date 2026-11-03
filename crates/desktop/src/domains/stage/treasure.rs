@@ -9,10 +9,10 @@ use iced::{Alignment, Element, Length, Theme};
 use codex::cat::unit::UnitBuy;
 use codex::chapter::stage::{DropOdds, RewardStructure};
 
-use kokoro::domains::stage::treasure;
-use kokoro::domains::stage::Stage;
-use kokoro::{ItemStore, Vfs};
-use kokoro::Source;
+use foundry::domains::stage::treasure;
+use foundry::domains::stage::Stage;
+use foundry::{ItemStore, Vfs};
+use foundry::Source;
 
 use crate::app::theme;
 use crate::common::item_icon;

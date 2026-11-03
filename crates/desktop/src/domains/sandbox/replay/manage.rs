@@ -11,11 +11,11 @@ use iced::widget::{column, pick_list, progress_bar, row, text, text_input};
 use iced::{Element, Length, Task};
 use tracing::warn;
 
-use kokoro::common::job::JobOutcome;
-use kokoro::domains::sandbox::replay as tape;
-use kokoro::domains::settings::Settings;
-use kokoro::systems::addons::ffmpeg::{self, video::{Quality, VideoFormat}};
-use kokoro::Vfs;
+use foundry::common::job::JobOutcome;
+use foundry::domains::sandbox::replay as tape;
+use foundry::domains::settings::Settings;
+use foundry::systems::addons::ffmpeg::{self, video::{Quality, VideoFormat}};
+use foundry::Vfs;
 
 use crate::app::theme;
 use crate::common::feedback::{Slot, FAILURE_LABEL};

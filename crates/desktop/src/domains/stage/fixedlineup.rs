@@ -7,11 +7,11 @@ use iced::widget::{button, column, container, image as iced_image, row, scrollab
 use iced::{Alignment, Border, Element, Length, Theme};
 use codex::chapter::stage::{AbilityType, CannonType, CertificationPreset, EvolutionForm, TreasureType};
 
-use kokoro::domains::cat::waiter::unitexplanation;
-use kokoro::domains::stage::fixedlineup::{ResolvedFixedLineup, ResolvedSlot};
-use kokoro::systems::combat::NameBook;
-use kokoro::Vfs;
-use kokoro::Source;
+use foundry::domains::cat::waiter::unitexplanation;
+use foundry::domains::stage::fixedlineup::{ResolvedFixedLineup, ResolvedSlot};
+use foundry::systems::combat::NameBook;
+use foundry::Vfs;
+use foundry::Source;
 
 use crate::app::theme;
 use crate::common::item_icon;

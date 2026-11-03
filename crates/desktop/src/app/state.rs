@@ -5,10 +5,10 @@ use serde::{Deserialize, Serialize};
 
 use codex::chapter::Category;
 
-use kokoro::systems::animation::export::ExportFormat;
-use kokoro::systems::animation::Placement;
-use kokoro::domains::import::ImportSubTab;
-use kokoro::domains::stage::{GlobalMapId, GlobalStageId};
+use foundry::systems::animation::export::ExportFormat;
+use foundry::systems::animation::Placement;
+use foundry::domains::import::ImportSubTab;
+use foundry::domains::stage::{GlobalMapId, GlobalStageId};
 
 use crate::domains::files::Mode;
 use crate::systems::host::Lag;
@@ -172,8 +172,8 @@ pub(crate) struct SandboxState {
     pub agreement: String,
     pub tab: SandboxTab,
     pub panel: SandboxPanel,
-    pub roster: kokoro::domains::sandbox::Roster,
-    pub config: kokoro::domains::sandbox::Config,
+    pub roster: foundry::domains::sandbox::Roster,
+    pub config: foundry::domains::sandbox::Config,
     pub list_scroll_offset: f32,
     pub search_query: String,
     pub music_volume: i32,
@@ -193,8 +193,8 @@ impl Default for SandboxState {
             agreement: String::new(),
             tab: SandboxTab::default(),
             panel: SandboxPanel::default(),
-            roster: kokoro::domains::sandbox::Roster::default(),
-            config: kokoro::domains::sandbox::Config::default(),
+            roster: foundry::domains::sandbox::Roster::default(),
+            config: foundry::domains::sandbox::Config::default(),
             list_scroll_offset: 0.0,
             search_query: String::new(),
             music_volume: SandboxVolume::Medium.percent(),

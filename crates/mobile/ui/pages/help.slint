@@ -1,0 +1,33 @@
+import { Theme } from "../theme.slint";
+import { Label, Rule } from "../widgets/basics.slint";
+import { HeaderToggle } from "../widgets/detail.slint";
+
+export global Help {
+    in property <[string]> pages;
+    in property <int> page;
+    in property <styled-text> body;
+    callback pick(int);
+}
+
+export component HelpPage inherits Rectangle {
+    VerticalLayout {
+        padding: 12px;
+        spacing: 8px;
+        HorizontalLayout {
+            spacing: 4px;
+            for label[index] in Help.pages: HeaderToggle { label: label; selected: Help.page == index; horizontal-stretch: 1; clicked => { Help.pick(index); } }
+        }
+        Rule { }
+        Flickable {
+            mouse-drag-pan-enabled: true;
+            vertical-stretch: 1;
+            content-height: body.preferred-height + 32px > self.height ? body.preferred-height + 32px : self.height;
+            body := StyledText {
+                x: (parent.width - self.width) / 2;
+                y: 16px;
+                width: min(parent.width - 16px, 680px);
+                text: Help.body;
+            }
+        }
+    }
+}

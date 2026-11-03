@@ -9,9 +9,9 @@ use codex::chapter::map::LockSkipDataEntry;
 use codex::chapter::stage::ScatCpuSetting;
 use codex::chapter::Category;
 
-use kokoro::domains::stage::{cost, files as stage_files, Map, Stage, StageDataState};
-use kokoro::{ItemStore, Vfs};
-use kokoro::Source;
+use foundry::domains::stage::{cost, files as stage_files, Map, Stage, StageDataState};
+use foundry::{ItemStore, Vfs};
+use foundry::Source;
 
 use crate::app::theme;
 use crate::common::item_icon;

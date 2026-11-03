@@ -8,9 +8,9 @@ use image::RgbaImage;
 
 use codex::graphics::animate::{resolve_frame, FrameData};
 
-use kokoro::domains::settings::{Scope, StudioSettings};
+use foundry::domains::settings::{Scope, StudioSettings};
 
-use kokoro::systems::animation::multiply_mat3;
+use foundry::systems::animation::multiply_mat3;
 
 use crate::widget::{cpu, LINE_PIXELS};
 

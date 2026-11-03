@@ -9,11 +9,11 @@ use codex::combat::{get_talent, Entity, Faction};
 use codex::cat::unit::{LevelCurve, Talent, TalentCost, TalentGroup};
 use codex::files::img022;
 
-use kokoro::systems::combat::registry::{get_display_def, AbilityIcon};
-use kokoro::systems::combat::NameBook;
-use kokoro::systems::treasure::Bonus;
-use kokoro::domains::cat::game::talents as talent_logic;
-use kokoro::Vfs;
+use foundry::systems::combat::registry::{get_display_def, AbilityIcon};
+use foundry::systems::combat::NameBook;
+use foundry::systems::treasure::Bonus;
+use foundry::domains::cat::game::talents as talent_logic;
+use foundry::Vfs;
 
 use crate::app::theme;
 use crate::common::ability_icon;

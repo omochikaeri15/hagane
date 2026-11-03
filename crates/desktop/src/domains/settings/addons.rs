@@ -9,13 +9,13 @@ use iced::Alignment;
 use iced::{Element, Task, Theme};
 use tracing::error;
 
-use kokoro::systems::addons::adb::AdbManager;
-use kokoro::systems::addons::apkeditor::ApkeditorManager;
-use kokoro::systems::addons::avifenc::AvifManager;
-use kokoro::systems::addons::ffmpeg::FfmpegManager;
+use foundry::systems::addons::adb::AdbManager;
+use foundry::systems::addons::apkeditor::ApkeditorManager;
+use foundry::systems::addons::avifenc::AvifManager;
+use foundry::systems::addons::ffmpeg::FfmpegManager;
 #[cfg(target_os = "windows")]
-use kokoro::systems::addons::oem::{OemDriver, OemManager};
-use kokoro::systems::addons::{manager, AddonStatus};
+use foundry::systems::addons::oem::{OemDriver, OemManager};
+use foundry::systems::addons::{manager, AddonStatus};
 
 use crate::app::theme;
 use crate::common::feedback::{Slot as Confirm, CONFIRM_LABEL};

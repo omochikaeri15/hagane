@@ -1,0 +1,54 @@
+name: Build iOS Test IPA
+
+on:
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+  BIN_NAME: "Battle Cats Complete"
+
+jobs:
+  build-ipa:
+    name: Build unsigned IPA
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Cache Cargo Dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: ${{ runner.os }}-cargo-mobile-ipa-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Get version from root Cargo.toml
+        id: get_version
+        run: |
+          VERSION=$(grep "^version" Cargo.toml | head -1 | awk -F '"' '{print $2}')
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+
+      - name: Add the iOS target
+        run: rustup target add aarch64-apple-ios
+
+      - name: Build the iOS binary
+        run: cargo build --release --target aarch64-apple-ios -p mobile --bin mobile
+
+      - name: Bundle the unsigned IPA
+        run: |
+          APP="Payload/${{ env.BIN_NAME }}.app"
+          mkdir -p "$APP"
+          cp target/aarch64-apple-ios/release/mobile "$APP/BattleCatsComplete"
+          sed "s/__VERSION__/${{ steps.get_version.outputs.version }}/g" crates/mobile/ios/Info.plist > "$APP/Info.plist"
+          cp crates/mobile/ios/AppIcon.png "$APP/AppIcon.png"
+          codesign --force --sign - "$APP" || echo "ad-hoc signing skipped"
+          zip -r bcc_mobile_ipa.zip Payload
+
+      - name: Upload the IPA
+        uses: actions/upload-artifact@v4
+        with:
+          name: bcc_mobile_ipa
+          path: bcc_mobile_ipa.zip
+          retention-days: 7

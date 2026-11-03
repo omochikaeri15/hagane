@@ -27,11 +27,11 @@ use codex::combat::Separator;
 use codex::common;
 use tracing::warn;
 
-use kokoro::common::preview::{self, Stamp};
-use kokoro::systems::combat::NameBook;
-use kokoro::domains::cat::scanner::CatEntry;
-use kokoro::domains::{mods, settings::EditorMode};
-use kokoro::{Vault, Vfs};
+use foundry::common::preview::{self, Stamp};
+use foundry::systems::combat::NameBook;
+use foundry::domains::cat::scanner::CatEntry;
+use foundry::domains::{mods, settings::EditorMode};
+use foundry::{Vault, Vfs};
 
 use crate::common::feedback::Slot;
 use crate::widget::popup;
@@ -1506,9 +1506,9 @@ pub(super) fn plan(
 mod tests {
     use std::path::Path;
 
-    use kokoro::common::preview::{self, Stamp};
-    use kokoro::domains::settings::EditorMode;
-    use kokoro::Vfs;
+    use foundry::common::preview::{self, Stamp};
+    use foundry::domains::settings::EditorMode;
+    use foundry::Vfs;
 
     use super::resolved::{self, Rule};
     use super::schema::{self, Subject};
@@ -1671,7 +1671,7 @@ mod tests {
     #[test]
     fn resolved_leaves_a_value_it_cannot_represent_alone() {
         use super::resolved::{self, Face, Rule};
-        use kokoro::domains::settings::EditorMode;
+        use foundry::domains::settings::EditorMode;
 
         let schema = schema::of(Subject::Cat);
         let Some(index) = schema.index_of("boss_wave_immune") else {
@@ -2098,8 +2098,8 @@ mod tests {
 mod append_tests {
     use std::fs;
 
-    use kokoro::domains::settings::EditorMode;
-    use kokoro::Vfs;
+    use foundry::domains::settings::EditorMode;
+    use foundry::Vfs;
 
     use super::schema::{self, Subject};
     use super::{plan, Address, Draft};

@@ -23,19 +23,19 @@ use iced::{Border, Color, Element, Length, Size, Subscription, Task, Theme};
 use codex::combat::Entity;
 use tracing::info;
 
-use kokoro::common::context::GlobalContext;
-use kokoro::systems::combat::NameBook;
-use kokoro::common::formats::SpriteSheet as CoreSpriteSheet;
-use kokoro::domains::cat::animation as cat_animation;
-use kokoro::domains::cat::game::stats::{get_final_stats, seeded_level};
-use kokoro::domains::cat::scanner::{self, CatEntry};
-use kokoro::domains::cat::waiter::unitid;
-use kokoro::domains::cat::CatDataState;
-use kokoro::systems::combat::registry::{format_stat, Magnification, StatContext, STAT_ATK_CYCLE, STAT_ATTACK, STAT_COOLDOWN, STAT_COST, STAT_DPS, STAT_HITPOINTS, STAT_KNOCKBACKS, STAT_RANGE, STAT_RARITY, STAT_SPEED};
-use kokoro::systems::combat::RenderContext;
-use kokoro::domains::settings::{ScannerConfig, Settings};
-use kokoro::systems::treasure::Bonus;
-use kokoro::{Vfs, Vault};
+use foundry::common::context::GlobalContext;
+use foundry::systems::combat::NameBook;
+use foundry::common::formats::SpriteSheet as CoreSpriteSheet;
+use foundry::domains::cat::animation as cat_animation;
+use foundry::domains::cat::game::stats::{get_final_stats, seeded_level};
+use foundry::domains::cat::scanner::{self, CatEntry};
+use foundry::domains::cat::waiter::unitid;
+use foundry::domains::cat::CatDataState;
+use foundry::systems::combat::registry::{format_stat, Magnification, StatContext, STAT_ATK_CYCLE, STAT_ATTACK, STAT_COOLDOWN, STAT_COST, STAT_DPS, STAT_HITPOINTS, STAT_KNOCKBACKS, STAT_RANGE, STAT_RARITY, STAT_SPEED};
+use foundry::systems::combat::RenderContext;
+use foundry::domains::settings::{ScannerConfig, Settings};
+use foundry::systems::treasure::Bonus;
+use foundry::{Vfs, Vault};
 
 use crate::systems::animation;
 use crate::app::state::{AnimState, AppState, CatListState};
@@ -285,7 +285,7 @@ impl Message {
 
 impl State {
     pub(crate) fn inspector(scope: &'static str, banner_form: usize, export: popup::Kind) -> Self {
-        Self { list: list::State::scoped(scope, banner_form), animation: animation::State::with_popup(export), ..Self::default() }
+        Self { list: list::State::scoped(scope, banner_form), animation: animation::State::with_popup(export), details: details::State::inspecting(), ..Self::default() }
     }
 
     pub(crate) fn set_banner_form(&mut self, banner_form: usize) {

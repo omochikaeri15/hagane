@@ -8,9 +8,9 @@ use std::time::{Duration, Instant};
 use serde::{Deserialize, Serialize};
 
 use emulator::runtime::BattleOptions;
-use kokoro::Vfs;
-use kokoro::domains::sandbox::replay as tape;
-use kokoro::domains::settings::ReplaySource;
+use foundry::Vfs;
+use foundry::domains::sandbox::replay as tape;
+use foundry::domains::settings::ReplaySource;
 use tracing::{trace, warn};
 
 use crate::app::timing::{self, Span};

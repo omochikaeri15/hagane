@@ -1,0 +1,1156 @@
+use std::cell::{Cell, RefCell};
+use std::collections::{BTreeSet, HashSet, VecDeque};
+use std::mem;
+use std::ops::Range;
+use std::rc::Rc;
+use std::time::Instant;
+
+use tracing::{debug, info, trace, warn};
+
+use emulator::Site;
+use emulator::engine::{AppContext, set_bgm_volume_setting, set_se_volume_setting, sound_manager, sound_pause_all};
+use emulator::runtime::{
+    BattleOptions, DECK_SLOTS, DeviceProfile, InertMeta, InertPlatform, InertScene, InertUi, Seeds, Setup, VERSION, apply_battle_options, fill_dummy_cannon_parts, fill_dummy_save,
+    fill_dummy_talents, plant_seeds, preload_sounds, pump_stage_return, read_battle_options, relatch_battle_rects, seed_altar_records, seed_cat_god, seed_point_cap, set_limits,
+    stock_battle_items, unlock_dummy_combos,
+};
+use foundry::Vfs;
+use foundry::domains::sandbox::replay::{self as tape, Cue, Forgiven, Recording};
+
+use super::assets::{DiskAssets, FileIndex, Ledger, SharedLedger, SheetCache};
+use super::diagnostics::{self, Diagnostics};
+use super::input::{Touch, TouchQueue};
+use super::keys::{Keys, LEAVE_AFTER};
+use super::replay;
+use super::sink::{Frame, Recorder};
+use super::sound::{Pool, Speaker};
+use super::text::{Formatter, LABEL_PREFIX};
+
+const CURTAIN_CLOSING: i32 = 1;
+const TOUCH_PRESSED: i32 = 0;
+const TOUCH_MOVED: i32 = 1;
+const TOUCH_RELEASED: i32 = 2;
+const SECOND_FINGER: i32 = 1;
+const BATTLE_SCENE: i32 = 0x12c;
+const TRANSITION_SCENE: i32 = 0x3e7;
+const FADE_STEPS: usize = 0x10;
+const FINGER_GAP: i32 = 400;
+const PINCH_EASE: i32 = 4;
+const PINCH_LIFT_FRAMES: u32 = 2;
+const FULL_VOLUME: i32 = 100;
+const DIM_ALPHA: i32 = 0x80;
+const NOTCH_SHARE: f32 = 0.04;
+const ALTAR_ROW_SHIFT: i32 = -2;
+const BUTTON_SLOTS: i32 = 21;
+const REWARD_CELLS: usize = 0x2f;
+const FIRST_CHARA_DROP: i32 = 1000;
+const SECOND_CHARA_DROP: i32 = 1100;
+const FORM_DROPS: Range<i32> = 10000..0x7530;
+const PAIRED_DROP_ITEM: i32 = 0x3ea;
+const PAIRED_DROP_UNIT: i32 = 0x1b;
+const UNIT_REWARD: i32 = 1;
+
+enum Tape {
+    Off,
+    Recording(Recording),
+    Playing { frames: Vec<Vec<Cue>>, at: usize, faults: Vec<Forgiven> },
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Label {
+    pub app: String,
+    pub map: String,
+    pub stage: String,
+}
+
+pub(super) struct Driver {
+    ctx: Box<AppContext>,
+    frame: Rc<RefCell<Frame>>,
+    sheets: Rc<RefCell<SheetCache>>,
+    files: Rc<RefCell<FileIndex>>,
+    touches: TouchQueue,
+    speaker: Rc<Speaker>,
+    options: BattleOptions,
+    setup: Setup,
+    changed: bool,
+    returning: Rc<Cell<bool>>,
+    profile: Rc<DeviceProfile>,
+    phone: bool,
+    spread: i32,
+    gap: Option<i32>,
+    pinching: bool,
+    finger: (i32, i32),
+    second: (i32, i32),
+    keys: Keys,
+    reach: i32,
+    idle: u32,
+    booted: bool,
+    forgiven: HashSet<Site>,
+    tripped: Option<Site>,
+    reason: String,
+    ledger: SharedLedger,
+    seeds: Seeds,
+    tape: Tape,
+    pending: Vec<Cue>,
+    window: (f32, f32),
+    applied: (f32, f32),
+    wanted_phone: bool,
+    finished: bool,
+    label: Label,
+    recorded: Option<tape::Save>,
+    leaving: Option<u16>,
+    needed: Option<BTreeSet<u32>>,
+    cut: bool,
+}
+
+fn reward_unit(ctx: &AppContext, item: i32) -> Option<u32> {
+    if item == PAIRED_DROP_ITEM && item <= ctx.drop_chara_max_1000 {
+        return u32::try_from(PAIRED_DROP_UNIT).ok();
+    }
+
+    let listed = (FIRST_CHARA_DROP..=ctx.drop_chara_max_1000).contains(&item) || (SECOND_CHARA_DROP..=ctx.drop_chara_max_1100).contains(&item) || FORM_DROPS.contains(&item);
+
+    listed.then(|| emulator::engine::reward_unit_id(ctx, item).ok()).flatten().and_then(|unit| u32::try_from(unit).ok())
+}
+
+fn needed_units(ctx: &AppContext) -> BTreeSet<u32> {
+    let deck: Vec<(i32, i32, i32)> = [0, 1]
+        .into_iter()
+        .flat_map(|faction| (0..BUTTON_SLOTS).map(move |slot| (faction, slot)))
+        .filter_map(|(faction, slot)| {
+            let unit = emulator::engine::get_button_unit_id(ctx, faction, slot).ok().filter(|unit| *unit >= 0)?;
+            let form = emulator::engine::get_button_unit_form(ctx, faction, slot).unwrap_or(0);
+
+            Some((faction, unit, form))
+        })
+        .collect();
+    let spirits = deck.iter().filter_map(|&(faction, unit, form)| emulator::engine::stat_conjure_unit_id(ctx, faction, unit, form).ok());
+    let row = AppContext::MAP_STAGE_ROWS + usize::try_from(ctx.i32_at(AppContext::STAGE_ROW).unwrap_or(0)).unwrap_or(0) * AppContext::MAP_STAGE_ROW_STRIDE;
+    let cells: Vec<i32> = ctx.bytes_from(row).map(|bytes| (0..REWARD_CELLS).filter_map(|cell| emulator::engine::xor_row46_get(bytes, cell)).map(|item| item as i32).collect()).unwrap_or_default();
+    let points: Vec<i32> = ctx
+        .event_items
+        .as_ref()
+        .and_then(|store| emulator::engine::get_point_rewards(&ctx.point_event_rewards, emulator::engine::get_point_id(store)))
+        .map(|record| record.rewards.iter().filter(|reward| reward.kind == UNIT_REWARD).map(|reward| reward.id).collect())
+        .unwrap_or_default();
+
+    deck.iter().map(|&(_, unit, _)| unit).chain(spirits).chain(points).filter_map(|unit| u32::try_from(unit).ok()).chain(cells.into_iter().filter_map(|item| reward_unit(ctx, item))).collect()
+}
+
+impl Driver {
+    pub(super) fn new() -> Self {
+        let frame = Rc::new(RefCell::new(Frame::default()));
+        let sheets: Rc<RefCell<SheetCache>> = Rc::new(RefCell::new(SheetCache::new()));
+        let files: Rc<RefCell<FileIndex>> = Rc::new(RefCell::new(FileIndex::new()));
+        let profile = Rc::new(DeviceProfile::default());
+        let returning = Rc::new(Cell::new(false));
+
+        profile.tablet.set(true);
+
+        let mut driver = Self {
+            ctx: Box::new(AppContext::default()),
+            frame,
+            sheets,
+            files,
+            touches: super::input::queue(),
+            speaker: Speaker::open(),
+            options: BattleOptions { music: FULL_VOLUME, effects: FULL_VOLUME, two_rows: false, vibrate: false },
+            setup: Setup::default(),
+            changed: false,
+            returning,
+            profile,
+            phone: false,
+            spread: 0,
+            gap: None,
+            pinching: false,
+            finger: (0, 0),
+            second: (0, 0),
+            keys: Keys::default(),
+            reach: FINGER_GAP,
+            idle: 0,
+            booted: false,
+            forgiven: HashSet::new(),
+            tripped: None,
+            reason: String::new(),
+            ledger: Rc::new(RefCell::new(Ledger::default())),
+            seeds: Seeds::draw(),
+            tape: Tape::Off,
+            pending: Vec::new(),
+            window: (0.0, 0.0),
+            applied: (0.0, 0.0),
+            wanted_phone: false,
+            finished: false,
+            label: Label::default(),
+            recorded: None,
+            leaving: None,
+            needed: None,
+            cut: false,
+        };
+
+        driver.host();
+        driver
+    }
+
+    fn host(&mut self) {
+        let ctx = &mut self.ctx;
+        let assets = DiskAssets::new(Rc::clone(&self.files), Rc::clone(&self.sheets), Rc::clone(&self.ledger));
+        let wanted = assets.limits();
+        let applied = set_limits(ctx, wanted);
+
+        if applied != wanted {
+            debug!("emu: limits wanted {wanted:?}, applied {applied:?}");
+        }
+
+        ctx.set_assets(Box::new(assets));
+        ctx.set_platform(Box::new(InertPlatform { profile: Rc::clone(&self.profile) }));
+        ctx.set_audio(Box::new(Pool::new(Rc::clone(&self.files), Rc::clone(&self.ledger), Rc::clone(&self.speaker))));
+        ctx.set_meta(Box::new(InertMeta));
+        ctx.set_scene_host(Box::new(InertScene { returning: Rc::clone(&self.returning) }));
+        ctx.set_text_renderer(Box::new(Formatter::new(Rc::clone(&self.sheets))));
+        ctx.set_ui(Box::new(InertUi));
+        ctx.draw = Some(Box::new(Recorder::new(Rc::clone(&self.frame))));
+        ctx.default_font = b"FONT_SYSTEM_BOLD".to_vec();
+
+        if let Err(fault) = fill_dummy_save(ctx, &self.setup) {
+            warn!("emu: dummy save could not be filled: {fault}");
+        }
+    }
+
+    pub(super) fn renew(&mut self) {
+        self.forgiven.clear();
+        self.tripped = None;
+
+        let (width, height) = if self.watching() {
+            self.phone = self.wanted_phone;
+            self.window
+        } else {
+            (self.ctx.device_screen_w as f32, self.ctx.device_screen_h as f32)
+        };
+        let options = self.options;
+
+        self.close_tape();
+        self.seeds = Seeds::draw();
+
+        *self.ctx = AppContext::default();
+        self.sheets.borrow_mut().retain(|name, _| !name.starts_with(LABEL_PREFIX));
+        self.touches.borrow_mut().clear();
+        self.returning.set(false);
+        self.spread = 0;
+        self.gap = None;
+        self.keys.reset();
+        self.booted = false;
+        self.host();
+        self.apply_size(width, height);
+        self.set_options(options);
+    }
+
+    fn close_tape(&mut self) {
+        if let Tape::Recording(recording) = &mut self.tape
+            && let Err(error) = recording.finish()
+        {
+            warn!("emu: the latest battle could not be written out: {error}");
+        }
+
+        self.tape = Tape::Off;
+        self.recorded = None;
+        self.pending.clear();
+        self.finished = false;
+        self.leaving = None;
+        self.needed = None;
+        self.cut = false;
+        self.ledger.borrow_mut().disarm();
+    }
+
+    pub(super) fn arm_recording(&mut self) {
+        self.close_tape();
+
+        let Some(dir) = tape::latest() else {
+            warn!("emu: there is no state folder, so this battle is not recorded");
+
+            return;
+        };
+
+        let recording = match Recording::begin(&dir) {
+            Ok(recording) => recording,
+            Err(error) => {
+                warn!("emu: the latest battle could not be started at {}: {error}", dir.display());
+
+                return;
+            }
+        };
+        let save = tape::Save {
+            version: VERSION.to_owned(),
+            app: self.label.app.clone(),
+            seeds: replay::seeds_to(self.seeds),
+            screen: tape::Screen { width: self.applied.0, height: self.applied.1, phone: self.phone },
+            options: replay::options_to(self.options),
+            setup: replay::setup_to(&self.setup, &self.label.map, &self.label.stage),
+            icons: Vec::new(),
+            costs: Vec::new(),
+            altar_cap: None,
+            terminated: false,
+        };
+
+        if let Err(error) = recording.write_save(&save) {
+            warn!("emu: the latest battle's save could not be written: {error}");
+
+            return;
+        }
+
+        self.ledger.borrow_mut().arm();
+        self.tape = Tape::Recording(recording);
+        self.recorded = Some(save);
+    }
+
+    pub(super) fn stamp_deck(&mut self) {
+        if !matches!(self.tape, Tape::Recording(_)) {
+            return;
+        }
+
+        self.needed = Some(needed_units(&self.ctx));
+
+        let Tape::Recording(recording) = &self.tape else {
+            return;
+        };
+        let Some(save) = self.recorded.as_mut() else {
+            return;
+        };
+
+        save.icons = self.ctx.unit_icon_textures.iter().map(|texture| texture.as_ref().map_or_else(String::new, |texture| String::from_utf8_lossy(&texture.png).into_owned())).collect();
+        save.costs = (0..DECK_SLOTS as i32).map(|slot| emulator::engine::get_effective_deploy_cost(&mut self.ctx, 0, slot).map_or(-1, emulator::ops::div_100)).collect();
+        save.altar_cap = emulator::engine::get_castle_enemy_row(&self.ctx).ok().and_then(|row| {
+            let enemy = row.wrapping_add(ALTAR_ROW_SHIFT);
+            let sealed = emulator::engine::stage_not_sealed(&self.ctx, enemy).is_ok_and(|open| !open);
+
+            sealed.then(|| emulator::engine::get_altar_level_cap(&self.ctx, enemy).unwrap_or(-1))
+        });
+
+        if let Err(error) = recording.write_save(save) {
+            warn!("emu: the latest battle's deck icons could not be written: {error}");
+        }
+    }
+
+    pub(super) fn label(&mut self, label: Label) {
+        self.label = label;
+    }
+
+    pub(super) fn arm_playback(&mut self, save: &tape::Save, frames: Vec<Vec<Cue>>, faults: Vec<Forgiven>, index: FileIndex) {
+        self.close_tape();
+        self.set_setup(replay::setup_from(&save.setup));
+        self.phone = save.screen.phone;
+        self.apply_size(save.screen.width, save.screen.height);
+        self.set_options(replay::options_from(save.options));
+        self.seeds = replay::seeds_from(save.seeds);
+        self.adopt_index(index);
+        self.tape = Tape::Playing { frames, at: 0, faults };
+        self.cut = save.terminated;
+    }
+
+    pub(super) fn forgive_scripted(&mut self) -> bool {
+        let Some(site) = self.tripped else {
+            return false;
+        };
+        let Tape::Playing { frames, at, faults } = &self.tape else {
+            return false;
+        };
+        let Some(failed) = at.checked_sub(1) else {
+            return false;
+        };
+        let scripted = frames.get(*at).is_some_and(|cues| cues.contains(&Cue::Forgive));
+        let Some(entry) = faults.iter().find(|entry| entry.frame == failed) else {
+            return false;
+        };
+
+        if !scripted || entry.site.replace("::", ":") != site.to_string().replace("::", ":") {
+            return false;
+        }
+
+        trace!("emu: replay forgives the recorded fault at frame {failed} ({site}): {}", entry.reason);
+
+        self.forgive();
+
+        true
+    }
+
+    pub(super) fn cut(&self) -> bool {
+        self.cut
+    }
+
+    pub(super) fn diagnose(&self) -> Diagnostics {
+        diagnostics::read(&self.ctx)
+    }
+
+    pub(super) fn end_playback(&mut self) {
+        if !self.watching() {
+            return;
+        }
+
+        self.close_tape();
+        self.phone = self.wanted_phone;
+
+        let (width, height) = self.window;
+
+        self.apply_size(width, height);
+    }
+
+    pub(super) fn watching(&self) -> bool {
+        matches!(self.tape, Tape::Playing { .. })
+    }
+
+    pub(super) fn reel_finished(&self) -> bool {
+        self.finished
+    }
+
+    pub(super) fn frame_aspect(&self) -> f32 {
+        let width = self.ctx.screen_metrics.design_w;
+
+        if width <= 0 {
+            return 0.0;
+        }
+
+        emulator::engine::get_design_height2(&self.ctx) as f32 / width as f32
+    }
+
+    fn screen(&self) -> (i32, i32) {
+        (self.ctx.device_screen_w, self.ctx.device_screen_h)
+    }
+
+    pub(super) fn keep_assets(&mut self) {
+        let Tape::Recording(recording) = &mut self.tape else {
+            return;
+        };
+        let mut requested = self.ledger.borrow_mut().drain();
+
+        if let Some(needed) = &self.needed {
+            requested.retain(|(name, _)| tape::unit_file(name).is_none_or(|unit| needed.contains(&unit)));
+        }
+
+        if requested.is_empty() {
+            return;
+        }
+
+        for (name, error) in recording.keep(requested) {
+            warn!("emu: {name} could not be kept for the replay: {error}");
+        }
+    }
+
+    pub(super) fn resolved(&self) -> usize {
+        self.files.borrow().len()
+    }
+
+    pub(super) fn forget_assets(&mut self) {
+        self.files.borrow_mut().clear();
+        self.sheets.borrow_mut().clear();
+    }
+
+    pub(super) fn reindex(&mut self, vfs: &Vfs) {
+        self.adopt_index(DiskAssets::index(vfs));
+    }
+
+    fn adopt_index(&mut self, fresh: FileIndex) {
+        {
+            let held = self.files.borrow();
+
+            self.sheets.borrow_mut().retain(|name, _| held.get(name) == fresh.get(name));
+        }
+
+        *self.files.borrow_mut() = fresh;
+    }
+
+    pub(super) fn sheets(&self) -> &Rc<RefCell<SheetCache>> {
+        &self.sheets
+    }
+
+    pub(super) fn frame(&self) -> &Rc<RefCell<Frame>> {
+        &self.frame
+    }
+
+    pub(super) fn touches(&self) -> &TouchQueue {
+        &self.touches
+    }
+
+    fn pump_input(&mut self, script: Option<Vec<Cue>>) -> Vec<Cue> {
+        self.keys.pump(&mut self.ctx, &mut self.spread, &mut self.gap);
+
+        let mut played: Vec<Cue> = Vec::new();
+
+        match script {
+            Some(cues) => {
+                self.touches.borrow_mut().clear();
+
+                for cue in cues.into_iter().filter(|cue| !cue.before_input()) {
+                    self.play(cue);
+                }
+            }
+            None => {
+                let keyed = self.keys.busy();
+                let mut pending: VecDeque<Touch> = self.touches.borrow_mut().drain(..).collect();
+
+                while let Some(touch) = pending.pop_front() {
+                    let cue = match touch {
+                        Touch::Pinched { spread: step } => Some(Cue::Pinch(step)),
+                        Touch::Moved { .. } | Touch::Pressed { .. } | Touch::Released if keyed => None,
+                        Touch::Moved { x, y } => Some(Cue::Move(x, y)),
+                        Touch::Pressed { .. } if self.gap.is_some() => {
+                            pending.push_front(touch);
+                            self.touches.borrow_mut().extend(pending.drain(..));
+
+                            Some(Cue::Settle)
+                        }
+                        Touch::Pressed { x, y } => Some(Cue::Press(x, y)),
+                        Touch::Released => Some(Cue::Release),
+                    };
+                    let Some(cue) = cue else {
+                        continue;
+                    };
+
+                    self.play(cue);
+
+                    match (played.last_mut(), cue) {
+                        (Some(last @ Cue::Move(..)), Cue::Move(..)) => *last = cue,
+                        _ => played.push(cue),
+                    }
+                }
+            }
+        }
+
+        self.ease_pinch();
+
+        if (self.gap.is_some() || self.pinching)
+            && let Err(fault) = emulator::runtime::pump_pinch(&mut self.ctx, self.gap)
+        {
+            warn!("emu: pinch could not be pumped: {fault}");
+        }
+
+        self.pinching = self.gap.is_some();
+
+        if let Err(fault) = emulator::runtime::pump_touch(&mut self.ctx) {
+            warn!("emu: touch could not be pumped: {fault}");
+        }
+
+        played
+    }
+
+    fn play(&mut self, cue: Cue) {
+        let fed = match cue {
+            Cue::Pinch(step) => {
+                self.spread = self.spread.wrapping_add(step);
+
+                Ok(())
+            }
+            Cue::Settle => {
+                self.spread = 0;
+                self.gap = None;
+
+                Ok(())
+            }
+            Cue::Move(x, y) => {
+                self.finger = (x, y);
+
+                emulator::engine::app_on_touch(&mut self.ctx, TOUCH_MOVED, x, y, 0)
+            }
+            Cue::Press(x, y) => {
+                self.finger = (x, y);
+
+                emulator::engine::app_on_touch(&mut self.ctx, TOUCH_PRESSED, x, y, 0)
+            }
+            Cue::Release => emulator::engine::app_on_touch(&mut self.ctx, TOUCH_RELEASED, self.finger.0, self.finger.1, 0),
+            Cue::SecondMove(x, y) => {
+                self.second = (x, y);
+
+                emulator::engine::app_on_touch(&mut self.ctx, TOUCH_MOVED, x, y, SECOND_FINGER)
+            }
+            Cue::SecondPress(x, y) => {
+                self.second = (x, y);
+
+                emulator::engine::app_on_touch(&mut self.ctx, TOUCH_PRESSED, x, y, SECOND_FINGER)
+            }
+            Cue::SecondRelease => emulator::engine::app_on_touch(&mut self.ctx, TOUCH_RELEASED, self.second.0, self.second.1, SECOND_FINGER),
+            Cue::Forgive => Ok(()),
+            Cue::Key(key, pressed) => {
+                let action = replay::action_of(key);
+
+                if pressed {
+                    self.keys.press(action);
+                } else {
+                    self.keys.release(action);
+                }
+
+                Ok(())
+            }
+            Cue::Resize(width, height) => {
+                self.apply_size(width, height);
+
+                Ok(())
+            }
+            Cue::Phone(phone) => {
+                let (width, height) = self.screen();
+
+                self.phone = phone;
+                self.apply_size(width as f32, height as f32);
+
+                Ok(())
+            }
+        };
+
+        if let Err(fault) = fed {
+            warn!("emu: touch could not be queued: {fault}");
+        }
+    }
+
+    fn ease_pinch(&mut self) {
+        let spread = mem::take(&mut self.spread);
+
+        let Some(gap) = self.gap else {
+            if spread != 0 {
+                self.gap = Some(FINGER_GAP);
+                self.reach = FINGER_GAP.wrapping_add(spread).max(1);
+                self.idle = 0;
+            }
+
+            return;
+        };
+
+        self.reach = self.reach.wrapping_add(spread).max(1);
+
+        let left = self.reach.wrapping_sub(gap);
+
+        if left == 0 {
+            self.idle = self.idle.saturating_add(1);
+
+            if self.idle > PINCH_LIFT_FRAMES {
+                self.gap = None;
+            }
+
+            return;
+        }
+
+        let eased = left / PINCH_EASE;
+        let moved = if eased == 0 { left.signum() } else { eased };
+
+        self.idle = 0;
+        self.gap = Some(gap.wrapping_add(moved));
+    }
+
+    pub(super) fn resize(&mut self, width: f32, height: f32) {
+        if width < 1.0 || height < 1.0 {
+            return;
+        }
+
+        self.window = (width, height);
+
+        if self.watching() {
+            return;
+        }
+
+        if matches!(self.tape, Tape::Recording(_)) {
+            self.pending.push(Cue::Resize(width, height));
+        }
+
+        self.apply_size(width, height);
+    }
+
+    fn apply_size(&mut self, width: f32, height: f32) {
+        if width < 1.0 || height < 1.0 {
+            return;
+        }
+
+        self.applied = (width, height);
+
+        trace!(width, height, phone = self.phone, in_battle = self.in_battle(), "emu: screen size applied");
+
+        let before = emulator::runtime::layout_snapshot(&mut self.ctx);
+
+        self.ctx.device_screen_w = width as i32;
+        self.ctx.device_screen_h = height as i32;
+        self.profile.tablet.set(!self.phone);
+        self.profile.side_inset.set(if self.phone { (width * NOTCH_SHARE).round() as i32 } else { 0 });
+
+        if let Err(fault) = emulator::engine::compute_layout_metrics(&mut self.ctx) {
+            warn!("emu: layout metrics could not be computed: {fault}");
+        }
+
+        if !self.in_battle() {
+            return;
+        }
+
+        let relatched = before.and_then(|before| relatch_battle_rects(&mut self.ctx, before));
+
+        if let Err(fault) = relatched {
+            warn!("emu: battle rects could not be re-latched: {fault}");
+        }
+    }
+
+    pub(super) fn set_phone(&mut self, phone: bool) {
+        self.wanted_phone = phone;
+
+        if self.watching() {
+            return;
+        }
+
+        if matches!(self.tape, Tape::Recording(_)) {
+            self.pending.push(Cue::Phone(phone));
+        }
+
+        self.phone = phone;
+
+        let width = self.ctx.device_screen_w as f32;
+        let height = self.ctx.device_screen_h as f32;
+
+        self.apply_size(width, height);
+    }
+
+    pub(super) fn in_battle(&self) -> bool {
+        emulator::engine::get_scene_id(&self.ctx).is_ok_and(|scene| scene == BATTLE_SCENE)
+    }
+
+    pub(super) fn fading(&self) -> bool {
+        self.ctx.u8_at(AppContext::CURTAIN_ACTIVE).is_ok_and(|active| active != 0)
+    }
+
+    pub(super) fn boot(&mut self) -> bool {
+        if self.booted {
+            return true;
+        }
+
+        plant_seeds(&mut self.ctx, self.seeds);
+
+        let mark = Instant::now();
+
+        if let Err(fault) = emulator::engine::load_misc_data_tables(&mut self.ctx) {
+            warn!("emu: text tables failed to load: {fault}");
+
+            return false;
+        }
+
+        trace!(ms = mark.elapsed().as_millis(), "emu: text tables loaded");
+
+        let mark = Instant::now();
+        let initialized = emulator::engine::initialize_game_data(&mut self.ctx);
+
+        trace!(ms = mark.elapsed().as_millis(), files = self.files.borrow().len(), "emu: game data initialized");
+
+        match initialized {
+            Ok(true) => {
+                if let Err(fault) = preload_sounds(&mut self.ctx) {
+                    warn!("emu: sound effects failed to load: {fault}");
+                }
+
+                unlock_dummy_combos(&mut self.ctx);
+
+                fill_dummy_talents(&mut self.ctx, &self.setup);
+                fill_dummy_cannon_parts(&mut self.ctx, &self.setup);
+
+                if let Err(fault) = emulator::engine::img_dialog_context_init(&mut self.ctx) {
+                    warn!("emu: scene sheets failed to load: {fault}");
+                }
+
+                self.booted = true;
+                info!("emu: game data loaded");
+            }
+            Ok(false) => warn!("emu: game data refused to load"),
+            Err(fault) => warn!("emu: game data failed to load: {fault}"),
+        }
+
+        self.booted
+    }
+
+    pub(super) fn enter_battle(&mut self) -> bool {
+        let mark = Instant::now();
+
+        trace!(map = self.setup.stage.map_id, stage = self.setup.stage.stage, units = self.setup.lineup.len(), "emu: entering the battle");
+
+        if let Err(fault) = stock_battle_items(&mut self.ctx, &self.setup) {
+            warn!("emu: battle items could not be stocked: {fault}");
+        }
+
+        if let Err(fault) = seed_cat_god(&mut self.ctx, &self.setup) {
+            warn!("emu: Cat God could not be seeded: {fault}");
+        }
+
+        if let Err(fault) = seed_altar_records(&mut self.ctx, &self.setup) {
+            warn!("emu: altar records could not be seeded: {fault}");
+        }
+
+        seed_point_cap(&mut self.ctx);
+
+        if let Err(fault) = emulator::runtime::select_stage(&mut self.ctx, self.setup.stage) {
+            warn!("emu: stage could not be selected: {fault}");
+
+            return false;
+        }
+
+        if let Err(fault) = emulator::runtime::seed_stage_variant(&mut self.ctx, self.setup.stage) {
+            warn!("emu: stage variant could not be seeded: {fault}");
+
+            return false;
+        }
+
+        let prepared = match emulator::runtime::is_extra_entry(&self.ctx) {
+            Ok(true) => emulator::runtime::prepare_extra_entry(&mut self.ctx),
+            _ => emulator::engine::prepare_battle_entry(&mut self.ctx),
+        };
+
+        trace!(ms = mark.elapsed().as_millis(), outcome = ?prepared, "emu: battle entry prepared");
+
+        match prepared {
+            Ok(true) => {}
+            Ok(false) => {
+                warn!("emu: battle entry was refused by the stage data");
+
+                return false;
+            }
+            Err(fault) => {
+                warn!("emu: battle entry faulted: {fault}");
+
+                return false;
+            }
+        }
+
+        if let Err(fault) = emulator::runtime::select_dungeon_stage(&mut self.ctx, self.setup.stage) {
+            warn!("emu: dungeon stage could not be selected: {fault}");
+
+            return false;
+        }
+
+        if let Err(fault) = self.fade_into_battle() {
+            warn!("emu: stage setup faulted: {fault}");
+
+            return false;
+        }
+
+        let entered = self.in_battle();
+
+        trace!(entered, scene = ?emulator::engine::get_scene_id(&self.ctx), "emu: stage set up");
+
+        entered
+    }
+
+    fn fade_into_battle(&mut self) -> Result<(), emulator::Fault> {
+        emulator::engine::set_scene(&mut self.ctx, TRANSITION_SCENE)?;
+        emulator::runtime::reload_entry_map(&mut self.ctx)?;
+        self.ctx.set_block_at::<1>(AppContext::CURTAIN_ACTIVE, [1])?;
+        self.ctx.set_i32_at(AppContext::CURTAIN_STYLE, CURTAIN_CLOSING)?;
+        self.ctx.set_block_at::<1>(AppContext::FADE_STARTED, [0])?;
+        self.ctx.set_i32_at(AppContext::FADE_FRAME, 0)?;
+
+        for _ in 0..FADE_STEPS {
+            if self.in_battle() {
+                break;
+            }
+
+            emulator::engine::fade_update(&mut self.ctx, CURTAIN_CLOSING)?;
+        }
+
+        Ok(())
+    }
+
+    pub(super) fn set_setup(&mut self, setup: Setup) {
+        if self.setup == setup {
+            return;
+        }
+
+        self.setup = setup;
+        self.renew();
+    }
+
+    pub(super) fn advance(&mut self) -> Result<(), String> {
+        if let Some(held) = self.leaving.as_mut() {
+            *held = held.saturating_add(1);
+        }
+
+        match self.run_frame() {
+            Ok(()) => Ok(()),
+            Err((site, reason)) if self.forgiven.contains(&site) => {
+                trace!("emu: {reason} (forgiven for this battle)");
+
+                Ok(())
+            }
+            Err((site, reason)) => {
+                self.tripped = Some(site);
+                self.reason.clone_from(&reason);
+
+                Err(reason)
+            }
+        }
+    }
+
+    pub(super) fn exit_requested(&mut self) -> bool {
+        let held = self.leaving.is_some_and(|held| held >= LEAVE_AFTER);
+
+        if held {
+            self.leaving = None;
+        }
+
+        self.keys.take_exit() || held
+    }
+
+    pub(super) fn forgive(&mut self) {
+        let Some(site) = self.tripped.take() else {
+            return;
+        };
+
+        if self.forgiven.insert(site) {
+            info!("emu: {site} was continued past, so it stays quiet for the rest of this battle");
+        }
+
+        if let Tape::Recording(recording) = &mut self.tape {
+            self.pending.push(Cue::Forgive);
+
+            if let Err(error) = recording.forgive(&site.to_string(), &self.reason) {
+                warn!("emu: the forgiven fault could not be written to the latest battle: {error}");
+            }
+        }
+    }
+
+    fn run_frame(&mut self) -> Result<(), (Site, String)> {
+        if !self.in_battle() {
+            return Ok(());
+        }
+
+        let script = match &mut self.tape {
+            Tape::Playing { frames, at, .. } => {
+                let Some(cues) = frames.get_mut(*at).map(mem::take) else {
+                    self.finished = true;
+
+                    return Ok(());
+                };
+
+                *at += 1;
+
+                Some(cues)
+            }
+            Tape::Off | Tape::Recording(_) => None,
+        };
+
+        if let Some(cues) = &script {
+            for cue in cues.iter().copied().filter(|cue| cue.before_input()) {
+                self.play(cue);
+            }
+        }
+
+        let before = mem::take(&mut self.pending);
+        let played = self.pump_input(script);
+
+        if !self.cut
+            && let Tape::Recording(recording) = &mut self.tape
+        {
+            let line: Vec<Cue> = before.into_iter().chain(played).collect();
+
+            if let Err(error) = recording.frame(&line) {
+                warn!("emu: the latest battle's input could not be written: {error}");
+            }
+        }
+
+        self.keep_assets();
+
+        let notice = emulator::engine::notice_popup_update(&mut self.ctx).map_err(|fault| (fault.site(), format!("notice_popup_update::{fault}")))?;
+
+        if emulator::engine::ad_is_showing(&mut self.ctx).map_err(|fault| (fault.site(), format!("ad_is_showing::{fault}")))? {
+            return Ok(());
+        }
+
+        emulator::engine::dialog_manager_process(&mut self.ctx).map_err(|fault| (fault.site(), format!("dialog_manager_process::{fault}")))?;
+        emulator::engine::button_bank_process(&mut self.ctx).map_err(|fault| (fault.site(), format!("button_bank_process::{fault}")))?;
+        emulator::engine::medal_popup_update(&mut self.ctx).map_err(|fault| (fault.site(), format!("medal_popup_update::{fault}")))?;
+        emulator::engine::mission_popup_update(&mut self.ctx).map_err(|fault| (fault.site(), format!("mission_popup_update::{fault}")))?;
+
+        let shop_open = self.ctx.u8_at(AppContext::CAT_FOOD_SHOP_OPEN).unwrap_or(0) != 0;
+        let tutorial_open = self.ctx.u8_at(AppContext::TUTORIAL_POPUP_OPEN).unwrap_or(0) != 0;
+
+        let mut continued = true;
+
+        if !(notice || shop_open || tutorial_open) {
+            continued = emulator::engine::main_battle_loop(&mut self.ctx).map_err(|fault| (fault.site(), format!("main_battle_loop::{fault}")))?;
+        }
+
+        pump_stage_return(&mut self.ctx, &self.returning).map_err(|fault| (fault.site(), format!("pump_stage_return::{fault}")))?;
+        self.sync_options();
+
+        if !continued {
+            return Ok(());
+        }
+
+        if tutorial_open {
+            emulator::engine::tutorial_popup_update(&mut self.ctx).map_err(|fault| (fault.site(), format!("tutorial_popup_update::{fault}")))?;
+        } else {
+            emulator::engine::cat_food_shop_update(&mut self.ctx).map_err(|fault| (fault.site(), format!("cat_food_shop_update::{fault}")))?;
+
+            if self.ctx.i32_at(AppContext::SHOP_UPDATE_CONSUMED).unwrap_or(0) != 0 {
+                self.ctx.set_i32_at(AppContext::SHOP_UPDATE_CONSUMED, 0).map_err(|fault| (fault.site(), format!("app_on_process::{fault}")))?;
+            }
+        }
+
+        if !self.in_battle() {
+            return Ok(());
+        }
+
+        self.frame.borrow_mut().clear();
+        emulator::engine::app_on_draw(&mut self.ctx).map_err(|fault| (fault.site(), format!("app_on_draw::{fault}")))?;
+        self.stamp_frame();
+
+        Ok(())
+    }
+
+    fn stamp_frame(&self) {
+        let mut frame = self.frame.borrow_mut();
+
+        frame.design_width = self.ctx.screen_metrics.design_w as f32;
+        frame.design_height = emulator::engine::get_design_height2(&self.ctx) as f32;
+        frame.letterbox = self.ctx.i32_at(AppContext::LETTERBOX_PAD).map_or(0.0, |pad| pad.max(0) as f32);
+        frame.aspect = if self.watching() { self.frame_aspect() } else { 0.0 };
+    }
+
+    fn sync_options(&mut self) {
+        match read_battle_options(&mut self.ctx) {
+            Ok(options) if options != self.options => {
+                self.options = options;
+                self.changed = true;
+            }
+            Ok(_) => (),
+            Err(fault) => warn!("emu: battle options could not be read: {fault}"),
+        }
+    }
+
+    pub(super) fn dim(&mut self) {
+        let Ok(width) = emulator::engine::get_drawable_width(&self.ctx) else {
+            return;
+        };
+        let height = emulator::engine::get_design_height2(&self.ctx);
+
+        if let Err(fault) = emulator::engine::set_draw_origin(&mut self.ctx, 0, 0) {
+            warn!("emu: dim origin could not be set: {fault}");
+
+            return;
+        }
+
+        let dimmed = emulator::engine::draw_context(&mut self.ctx.draw).map(|sink| {
+            emulator::engine::set_draw_scale(sink, 1.0);
+            emulator::engine::set_tint(sink, 0, 0, 0, DIM_ALPHA);
+            emulator::engine::fill_rect(sink, 0, 0, width, height);
+            emulator::engine::set_tint(sink, 0xff, 0xff, 0xff, 0xff);
+        });
+
+        if let Err(fault) = dimmed {
+            warn!("emu: frame could not be dimmed: {fault}");
+        }
+    }
+
+    pub(super) fn silence(&mut self) {
+        if let Err(fault) = sound_manager(&mut self.ctx).and_then(sound_pause_all) {
+            warn!("emu: sound could not be paused: {fault}");
+        }
+    }
+
+    pub(super) fn set_volumes(&mut self, music: i32, effects: i32) {
+        let applied = sound_manager(&mut self.ctx).and_then(|mgr| {
+            set_bgm_volume_setting(mgr, music);
+            set_se_volume_setting(mgr, effects)
+        });
+
+        if let Err(fault) = applied {
+            warn!("emu: sound volumes could not be applied: {fault}");
+        }
+    }
+
+    pub(super) fn set_options(&mut self, options: BattleOptions) {
+        self.options = options;
+
+        if let Err(fault) = apply_battle_options(&mut self.ctx, options) {
+            warn!("emu: battle options could not be applied: {fault}");
+        }
+    }
+
+    pub(super) fn take_options(&mut self) -> Option<BattleOptions> {
+        let changed = mem::take(&mut self.changed);
+
+        (changed && !self.watching()).then_some(self.options)
+    }
+
+    pub(super) fn draw_curtain_over(&mut self, sweep: i32) {
+        let armed = self.ctx.set_block_at::<1>(AppContext::CURTAIN_ACTIVE, [1]).and_then(|()| self.ctx.set_i32_at(AppContext::FADE_FRAME, sweep));
+
+        if let Err(fault) = armed {
+            warn!("emu: curtain frame could not be set: {fault}");
+
+            return;
+        }
+
+        if let Err(fault) = self.paint_curtain() {
+            warn!("emu: curtain draw faulted: {fault}");
+        }
+    }
+
+    fn paint_curtain(&mut self) -> Result<(), emulator::Fault> {
+        self.stamp_frame();
+
+        let scale = self.ctx.screen_metrics.scale2;
+
+        emulator::engine::set_draw_scale(emulator::engine::draw_context(&mut self.ctx.draw)?, scale);
+
+        let top = self.ctx.i32_at(AppContext::LETTERBOX_PAD)?.wrapping_add(self.ctx.i32_at(AppContext::LETTERBOX_SHIFT)?);
+
+        emulator::engine::set_draw_origin(&mut self.ctx, 0, top)?;
+        emulator::engine::draw_screen_transition(&mut self.ctx, CURTAIN_CLOSING)?;
+        emulator::engine::set_draw_origin(&mut self.ctx, 0, 0)?;
+
+        let pad = self.ctx.i32_at(AppContext::LETTERBOX_PAD)?;
+
+        if pad <= 0 {
+            return Ok(());
+        }
+
+        let width = emulator::engine::get_drawable_width(&self.ctx)?;
+        let height = emulator::engine::get_design_height2(&self.ctx);
+        let sink = emulator::engine::draw_context(&mut self.ctx.draw)?;
+
+        emulator::engine::set_tint(sink, 0, 0, 0, 0xff);
+        emulator::engine::fill_rect(sink, 0, 0, width, pad);
+        emulator::engine::fill_rect(sink, 0, height.wrapping_sub(pad), width, pad);
+        emulator::engine::set_tint(sink, 0xff, 0xff, 0xff, 0xff);
+
+        Ok(())
+    }
+
+    pub(super) fn release_curtain(&mut self) {
+        let cleared = self.ctx.set_block_at::<1>(AppContext::CURTAIN_ACTIVE, [0]).and_then(|()| self.ctx.set_i32_at(AppContext::FADE_FRAME, 0));
+
+        if let Err(fault) = cleared {
+            warn!("emu: curtain could not be released: {fault}");
+        }
+    }
+
+    pub(super) fn draw_curtain(&mut self, sweep: i32) {
+        let pad = match self.ctx.i32_at(AppContext::LETTERBOX_PAD) {
+            Ok(pad) => pad,
+            Err(fault) => {
+                warn!("emu: letterbox could not be read: {fault}");
+
+                return;
+            }
+        };
+
+        if let Err(fault) = self.ctx.set_i32_at(AppContext::LETTERBOX_PAD, 0) {
+            warn!("emu: letterbox could not be lifted: {fault}");
+
+            return;
+        }
+
+        self.frame.borrow_mut().clear();
+
+        let armed = self.ctx.set_block_at::<1>(AppContext::CURTAIN_ACTIVE, [1]).and_then(|()| self.ctx.set_i32_at(AppContext::FADE_FRAME, sweep));
+
+        match armed {
+            Ok(()) => {
+                if let Err(fault) = self.paint_curtain() {
+                    warn!("emu: curtain draw faulted: {fault}");
+                }
+            }
+            Err(fault) => warn!("emu: curtain frame could not be set: {fault}"),
+        }
+
+        if let Err(fault) = self.ctx.set_i32_at(AppContext::LETTERBOX_PAD, pad) {
+            warn!("emu: letterbox could not be restored: {fault}");
+        }
+    }
+}

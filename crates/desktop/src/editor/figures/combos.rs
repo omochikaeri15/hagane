@@ -8,13 +8,13 @@ use iced::widget::{button, column, container, image as iced_image, scrollable, t
 use iced::{ContentFit, Element, Length};
 use rustc_hash::FxHashMap;
 
-use kokoro::common::gfx::autocrop;
-use kokoro::domains::cat::combo;
-use kokoro::domains::cat::files;
-use kokoro::domains::cat::scanner::CatEntry;
-use kokoro::domains::settings::EditorMode;
+use foundry::common::gfx::autocrop;
+use foundry::domains::cat::combo;
+use foundry::domains::cat::files;
+use foundry::domains::cat::scanner::CatEntry;
+use foundry::domains::settings::EditorMode;
 use codex::cat::unit::{ComboStrength, NyancomboData};
-use kokoro::Vault;
+use foundry::Vault;
 
 use crate::app::theme;
 use crate::common::feedback::CONFIRM_LABEL;

@@ -7,11 +7,11 @@ use iced::widget::{column, container, pick_list, row, rule, scrollable, slider, 
 use iced::{Element, Length, Padding, Size, Task, Theme};
 use tracing::{error, info};
 
-use kokoro::common::job::{JobEvent, JobOutcome};
-use kokoro::common::region::Region;
-use kokoro::domains::mods::export::{apk, bcm, pack, ExportType};
-use kokoro::domains::mods::ModDataState;
-use kokoro::domains::settings::Settings;
+use foundry::common::job::{JobEvent, JobOutcome};
+use foundry::common::region::Region;
+use foundry::domains::mods::export::{apk, bcm, pack, ExportType};
+use foundry::domains::mods::ModDataState;
+use foundry::domains::settings::Settings;
 
 use crate::app::theme;
 use crate::common::dialog;

@@ -48,3 +48,5 @@ tmp_new_version
 # OS Junk
 .DS_Store
 Thumbs.db
+
+crates/mobile/release.keystore

@@ -6,9 +6,9 @@ use std::sync::Arc;
 use tracing::{info, warn};
 use wasm_bindgen_futures::spawn_local;
 
-use kokoro::domains::settings::ReplaySource;
-use omote::host::{Backend, Clip, Equipment, Film, Playing};
-use omote::platform::battle::{AudioCommand, BattleEvent, Rolled, SheetWire};
+use foundry::domains::settings::ReplaySource;
+use crate::systems::host::{Backend, Clip, Equipment, Film, Playing};
+use crate::platform::battle::{AudioCommand, BattleEvent, Rolled, SheetWire};
 
 use crate::worker::{self, Engine};
 

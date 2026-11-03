@@ -9,7 +9,7 @@ publish = false
 
 [dependencies]
 codex = { workspace = true }
-kokoro = { path = "../kokoro" }
+foundry = { path = "../foundry" }
 emulator = { path = "../emulator" }
 ab_glyph = "0.2.32"
 rodio = { version = "0.22", default-features = false, features = ["playback", "vorbis"] }

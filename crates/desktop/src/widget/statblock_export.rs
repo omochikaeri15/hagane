@@ -7,9 +7,9 @@ use iced::widget::{button, column};
 use iced::{Background, Border, Color, Element, Length, Task, Theme};
 use tracing::{error, warn};
 
-use kokoro::common::formats::SpriteSheet as CoreSpriteSheet;
-use kokoro::domains::settings::Settings;
-use kokoro::systems::statblock::{self, StatblockData};
+use foundry::common::formats::SpriteSheet as CoreSpriteSheet;
+use foundry::domains::settings::Settings;
+use foundry::systems::statblock::{self, StatblockData};
 
 use crate::app::theme;
 use crate::common::feedback::Slot;

@@ -1,0 +1,131 @@
+import "../../website/assets/fonts/FiraSans-Regular.ttf";
+import "../../website/assets/fonts/FiraSans-Bold.ttf";
+import "../../foundry/fonts/Miscellaneous-Symbols.ttf";
+import "../../foundry/fonts/NotoSansJP-Regular.ttf";
+import "../../foundry/fonts/NotoSansKR-Regular.ttf";
+import "../../foundry/fonts/NotoSansTC-Regular.ttf";
+import "../../foundry/fonts/NotoSansThai-Regular.ttf";
+
+import { Theme } from "theme.slint";
+import { Btn, Tone, Toast } from "widgets/basics.slint";
+import { Drawer, EdgeGrab } from "widgets/drawer.slint";
+import { Shell, Page } from "shell.slint";
+import { HomePage, Home } from "pages/home.slint";
+import { CatsPage, Cats } from "pages/cats.slint";
+import { EnemiesPage, Enemies } from "pages/enemies.slint";
+import { ModsPage, Mods, ModRow } from "pages/mods.slint";
+import { FilesPage, Files, FileRow } from "pages/files.slint";
+import { ImportPage, ImportDialogs, Import } from "pages/import.slint";
+import { UtilitiesPage, Utilities, Backdrop } from "pages/utilities.slint";
+import { HelpPage, Help } from "pages/help.slint";
+import { SettingsPage, Settings, LangRow, ArcRow, TreasureItem, TreasureSet, ChapterFold, KeyRow, RuleRow, LangToggle } from "pages/settings.slint";
+import { Picker, PickerDialog } from "widgets/console.slint";
+import { StagesPage, Stages, PickRow, Crown, DropRow, MaterialCell, LineupSlot, Pair, GroundRow, FlagRow, FilterCard } from "pages/stages.slint";
+import { SandboxPage, BattleLayer, SandboxDialogs, Sandbox, DeckCell, ComboRow, SavedRow, ConfigEntry, ItemRow, VitalRow, Field, ReplayRow } from "pages/sandbox.slint";
+import { FilterIcon, FilterLabeled, RangeField } from "widgets/filter.slint";
+import { Viewer, MotionTile, AnimViewer } from "widgets/viewer.slint";
+import { Export, ExportDialog } from "widgets/export.slint";
+import { Updater, UpdateDialog } from "widgets/update.slint";
+import { Line, Seg, AbilityIcon, AbilityLine, StatCell, HeaderBtn, RosterRow, OrbSlot } from "widgets/detail.slint";
+
+export { Theme, Shell, Page, Updater, Sandbox, DeckCell, ComboRow, SavedRow, OrbSlot, ConfigEntry, ItemRow, VitalRow, Field, ReplayRow, Home, Cats, Enemies, Mods, ModRow, Picker, Files, FileRow, Import, Utilities, Backdrop, Help, Settings, LangRow, ArcRow, TreasureItem, TreasureSet, ChapterFold, KeyRow, RuleRow, LangToggle, Stages, PickRow, Crown, DropRow, MaterialCell, LineupSlot, Pair, GroundRow, FlagRow, FilterCard, Viewer, Export, Tone, FilterIcon, FilterLabeled, RangeField, MotionTile, Line, Seg, AbilityIcon, AbilityLine, StatCell, HeaderBtn, RosterRow }
+
+export component AppWindow inherits Window {
+    title: "Battle Cats Complete";
+    default-font-family: "Fira Sans";
+    default-font-size: Theme.text-size;
+    background: Theme.bg;
+    preferred-width: 412px;
+    preferred-height: 915px;
+
+    property <int> landed: Shell.engine-generation;
+    changed landed => { Shell.engine-landed(); }
+
+    property <length> inset-top: root.safe-area-insets.top;
+    property <length> inset-bottom: root.safe-area-insets.bottom;
+    property <length> inset-left: root.safe-area-insets.left;
+    property <length> inset-right: root.safe-area-insets.right;
+
+    app := Rectangle {
+        x: root.inset-left;
+        y: root.inset-top;
+        width: root.width - root.inset-left - root.inset-right;
+        height: root.height - root.inset-top - root.inset-bottom;
+        clip: true;
+        init => { Shell.app-width = self.width; Shell.app-height = self.height; Shell.measured(root.width, root.height, root.safe-area-insets.top, root.safe-area-insets.bottom); }
+        changed width => { Shell.app-width = self.width; Shell.measured(root.width, root.height, root.safe-area-insets.top, root.safe-area-insets.bottom); }
+        changed height => { Shell.app-height = self.height; Shell.measured(root.width, root.height, root.safe-area-insets.top, root.safe-area-insets.bottom); }
+
+        EdgeGrab {
+            right: true;
+            armed: !Shell.nav-open && !Shell.left-open && !Sandbox.active;
+            pulled => { Shell.nav-open = true; }
+            if Shell.page == Page.home: HomePage { width: 100%; height: 100%; }
+            if Shell.page == Page.cats: CatsPage { width: 100%; height: 100%; }
+            if Shell.page == Page.enemies: EnemiesPage { width: 100%; height: 100%; }
+            if Shell.page == Page.stages: StagesPage { width: 100%; height: 100%; }
+            if Shell.page == Page.sandbox: SandboxPage { width: 100%; height: 100%; }
+            if Shell.page == Page.mods: ModsPage { width: 100%; height: 100%; }
+            if Shell.page == Page.files: FilesPage { width: 100%; height: 100%; }
+            if Shell.page == Page.import: ImportPage { width: 100%; height: 100%; }
+            if Shell.page == Page.utilities: UtilitiesPage { width: 100%; height: 100%; }
+            if Shell.page == Page.help: HelpPage { width: 100%; height: 100%; }
+            if Shell.page == Page.settings: SettingsPage { width: 100%; height: 100%; }
+        }
+
+        if Viewer.expanded: AnimViewer { width: 100%; height: 100%; }
+        if Sandbox.active: BattleLayer { width: 100%; height: 100%; }
+
+        nav := Drawer {
+            right: true;
+            glass: true;
+            panel-width: Theme.sidebar-width;
+            open <=> Shell.nav-open;
+            VerticalLayout {
+                padding: Theme.sidebar-padding;
+                padding-right: 0px;
+                Flickable {
+                    mouse-drag-pan-enabled: true;
+                    content-height: tabs.preferred-height;
+                    tabs := VerticalLayout {
+                        padding-right: Theme.sidebar-padding;
+                        spacing: Theme.tab-spacing;
+                        for tab in Shell.tabs: Rectangle {
+                            height: Theme.tab-height;
+                            border-radius: Theme.radius-sm;
+                            background: tab.page == Shell.page ? (press.pressed ? Theme.primary-strong : Theme.primary) : (press.pressed ? Theme.bg-strongest : Theme.bg-strong);
+                            Text {
+                                text: tab.title;
+                                color: tab.page == Shell.page ? Theme.white : Theme.text;
+                                font-size: Theme.tab-text;
+                                horizontal-alignment: center;
+                                vertical-alignment: center;
+                                width: parent.width;
+                                height: parent.height;
+                            }
+                            press := TouchArea {
+                                clicked => {
+                                    Shell.navigate(tab.page);
+                                    Shell.nav-open = false;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        ExportDialog { }
+        PickerDialog { }
+        ImportDialogs { }
+        UpdateDialog { }
+        SandboxDialogs { }
+
+        Toast {
+            shown: Shell.toast-shown;
+            text: Shell.toast-text;
+            detail: Shell.toast-detail;
+            tone: Shell.toast-danger ? Tone.danger : Tone.primary;
+        }
+    }
+}

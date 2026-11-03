@@ -7,9 +7,9 @@ use iced::widget::{column, container, row, scrollable, text_input};
 use iced::{task, Alignment, Element, Length, Task, Theme};
 use tracing::{error, info};
 
-use kokoro::common::job::{JobEvent, JobOutcome};
-use kokoro::systems::addons::apkeditor;
-use kokoro::systems::apk::clone::{self, CloneConfig};
+use foundry::common::job::{JobEvent, JobOutcome};
+use foundry::systems::addons::apkeditor;
+use foundry::systems::apk::clone::{self, CloneConfig};
 
 use crate::app::theme;
 use crate::common::dialog;

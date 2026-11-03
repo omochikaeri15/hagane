@@ -7,9 +7,9 @@ use iced::widget::{button, column, container, operation, responsive, scrollable,
 use iced::{widget, Element, Font, Length, Padding, Size, Task, Theme};
 use tracing::warn;
 
-use kokoro::common::preview::{self, Preview, Stamp};
-use kokoro::domains::settings::Utf8Mode;
-use kokoro::Vfs;
+use foundry::common::preview::{self, Preview, Stamp};
+use foundry::domains::settings::Utf8Mode;
+use foundry::Vfs;
 
 use crate::app::theme;
 use crate::common::fonts;

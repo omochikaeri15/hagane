@@ -3,9 +3,9 @@ use std::collections::HashSet;
 use iced::{Element, Size, Task};
 use codex::combat::Identity;
 
-use kokoro::domains::enemy::filter::EnemyFilterState;
-use kokoro::domains::enemy::scanner::EnemyEntry;
-use kokoro::systems::combat::NameBook;
+use foundry::domains::enemy::filter::EnemyFilterState;
+use foundry::domains::enemy::scanner::EnemyEntry;
+use foundry::systems::combat::NameBook;
 
 use crate::common::{CustomAssets, SpriteSheet};
 use crate::systems::combat::enemy_filter::{Art, Catalog, Panel, Profile};

@@ -1,9 +1,9 @@
 use std::collections::HashMap;
 
-use kokoro::common::context::GlobalContext;
-use kokoro::domains::cat::scanner::CatEntry;
-use kokoro::domains::cat::statblock::{self, Subject};
-use kokoro::domains::settings::Settings;
+use foundry::common::context::GlobalContext;
+use foundry::domains::cat::scanner::CatEntry;
+use foundry::domains::cat::statblock::{self, Subject};
+use foundry::domains::settings::Settings;
 
 use crate::common::SpriteSheet;
 use crate::widget::statblock_export::Request;

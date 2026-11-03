@@ -3,9 +3,9 @@ use std::rc::Rc;
 
 use tracing::{info, warn};
 
-use kokoro::Lazy;
-use kokoro::domains::mods::Package;
-use omote::platform::mods::{ModCommand, ModInfo, ModState, Mounted};
+use foundry::Lazy;
+use foundry::domains::mods::Package;
+use crate::platform::mods::{ModCommand, ModInfo, ModState, Mounted};
 
 use crate::protocol::Reply;
 use crate::worker::{self, Engine, Layer};

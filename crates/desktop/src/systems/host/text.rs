@@ -5,7 +5,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 use ab_glyph::{Font, FontRef, PxScale, ScaleFont, point};
 use emulator::engine::{FormatArg, TextRenderer, Texture};
-use kokoro::common::assets::{
+use foundry::common::assets::{
     FONT_JP_BOLD, FONT_KR_BOLD, FONT_LATIN_BOLD, FONT_SYMBOLS, FONT_TC_BOLD, FONT_TH_BOLD,
 };
 

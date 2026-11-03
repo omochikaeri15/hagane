@@ -1,6 +1,6 @@
 use std::fmt;
 
-use kokoro::domains::settings::EditorMode;
+use foundry::domains::settings::EditorMode;
 
 use super::combat::{cats, enemies};
 use super::{combos, costs, itembuy, mapdata, mapdrops, schema::Subject, talents, unitbuy, unitlevel};
@@ -231,7 +231,7 @@ fn lookup(field: Option<&str>, find: fn(&str) -> Option<Rule>) -> Rule {
 
 #[cfg(test)]
 mod tests {
-    use kokoro::domains::settings::EditorMode;
+    use foundry::domains::settings::EditorMode;
 
     use super::{rule, Rule};
     use crate::editor::figures::combat::{cats, enemies};

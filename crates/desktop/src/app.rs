@@ -16,21 +16,21 @@ use rustc_hash::FxHasher;
 use smol::Timer;
 use tracing::{debug, info, trace, warn};
 
-use kokoro::common::context::GlobalContext;
-use kokoro::systems::combat::NameBook;
-use kokoro::common::game::{localizable, param};
-use kokoro::common::io::json;
-use kokoro::domains::cat::files as cat_files;
-use kokoro::domains::cat::scanner as cat_scanner;
-use kokoro::domains::enemy::scanner as enemy_scanner;
-use kokoro::domains::mods as kore_mods;
-use kokoro::common::architecture;
-use kokoro::domains::settings::{GraphicsBackend, Settings, UpdateMode};
-use kokoro::domains::stage::lottery::Lottery;
-use kokoro::domains::stage::scanner::{self as stage_scanner, Touch};
-use kokoro::domains::stage::{navigate::{invaded_stage, is_invader, is_invasion, map_screen_slot}, GlobalMapId, GlobalStageId};
-use kokoro::systems::treasure::{Bonus, Catalog};
-use kokoro::{ContentStore, Evicted, StageStore, Vault};
+use foundry::common::context::GlobalContext;
+use foundry::systems::combat::NameBook;
+use foundry::common::game::{localizable, param};
+use foundry::common::io::json;
+use foundry::domains::cat::files as cat_files;
+use foundry::domains::cat::scanner as cat_scanner;
+use foundry::domains::enemy::scanner as enemy_scanner;
+use foundry::domains::mods as foundry_mods;
+use foundry::common::architecture;
+use foundry::domains::settings::{GraphicsBackend, Settings, UpdateMode};
+use foundry::domains::stage::lottery::Lottery;
+use foundry::domains::stage::scanner::{self as stage_scanner, Touch};
+use foundry::domains::stage::{navigate::{invaded_stage, is_invader, is_invasion, map_screen_slot}, GlobalMapId, GlobalStageId};
+use foundry::systems::treasure::{Bonus, Catalog};
+use foundry::{ContentStore, Evicted, StageStore, Vault};
 
 use crate::common::feedback::Slot;
 use crate::common::fonts;
@@ -501,7 +501,7 @@ impl Default for BattleCatsApp {
             cat_state: cat::State::default(),
             enemy_state: enemy::EnemyState::default(),
             stage_state: stage::State::default(),
-            mods_state: mods::State::new(kokoro::domains::mods::ModDataState::default()),
+            mods_state: mods::State::new(foundry::domains::mods::ModDataState::default()),
             files_state: files::State::default(),
             import_state: import::State::default(),
             mining_state: mining::State::default(),
@@ -759,7 +759,7 @@ impl BattleCatsApp {
 
             if mount != architecture::GAME {
 
-                if name.eq_ignore_ascii_case(kore_mods::ICON) {
+                if name.eq_ignore_ascii_case(foundry_mods::ICON) {
                     restyled_mods.insert(mount.clone());
                 }
 
@@ -1788,7 +1788,7 @@ impl BattleCatsApp {
                     let setup = self.sandbox_state.setup(&self.app_state, entry);
 
                     let label = (!self.settings.sandbox.disable_replays).then(|| self.replay_label());
-                    let lineup = kokoro::domains::sandbox::replay::Save { setup: host::tape_setup(&setup, "", ""), ..Default::default() };
+                    let lineup = foundry::domains::sandbox::replay::Save { setup: host::tape_setup(&setup, "", ""), ..Default::default() };
                     let recording = label.is_some();
 
                     self.sandbox_state.start(self.window_size.width, self.window_size.height, &self.app_state.sandbox, setup, label);
@@ -2025,18 +2025,18 @@ impl BattleCatsApp {
         let data = &self.stage_state.data;
         let rules = data.selected_stage.as_ref().and_then(|picked| {
             let stage = data.registry.stages.get(picked)?;
-            let map = kokoro::domains::stage::GlobalMapId { category: picked.category.clone(), map: picked.map };
+            let map = foundry::domains::stage::GlobalMapId { category: picked.category.clone(), map: picked.map };
 
-            Some(kokoro::domains::sandbox::rules::Rules::of(stage, data.registry.maps.get(&map), self.stage_state.selected_crown as i8))
+            Some(foundry::domains::sandbox::rules::Rules::of(stage, data.registry.maps.get(&map), self.stage_state.selected_crown as i8))
         });
 
         let global = data.selected_stage.as_ref().and_then(|picked| {
-            let map = kokoro::domains::stage::GlobalMapId { category: picked.category.clone(), map: picked.map };
+            let map = foundry::domains::stage::GlobalMapId { category: picked.category.clone(), map: picked.map };
 
             i32::try_from(data.registry.addresses.get(&map)?.global?).ok()
         });
 
-        let scored = kokoro::domains::sandbox::scored::score_stage_maps(&self.vault.vfs);
+        let scored = foundry::domains::sandbox::scored::score_stage_maps(&self.vault.vfs);
 
         self.app_state.sandbox.usable_items = global.map_or([true; 6], |map_id| {
             emulator::runtime::usable_items(map_id, scored.contains(&map_id))
@@ -2050,10 +2050,10 @@ impl BattleCatsApp {
     fn replay_label(&self) -> host::Label {
         let data = &self.stage_state.data;
         let picked = data.selected_stage.as_ref();
-        let map = picked.map(|picked| kokoro::domains::stage::GlobalMapId { category: picked.category.clone(), map: picked.map });
+        let map = picked.map(|picked| foundry::domains::stage::GlobalMapId { category: picked.category.clone(), map: picked.map });
 
         host::Label {
-            app: self.mods_state.active_mod().unwrap_or_else(|| kokoro::domains::sandbox::replay::VANILLA_APP.to_owned()),
+            app: self.mods_state.active_mod().unwrap_or_else(|| foundry::domains::sandbox::replay::VANILLA_APP.to_owned()),
             map: map.and_then(|map| data.registry.maps.get(&map)).map_or_else(String::new, |map| match map.category {
                 Category::ZombieOutbreaks => format!("{} ({OUTBREAK_TAG})", map.name),
                 _ => map.name.clone(),
@@ -2087,7 +2087,7 @@ impl BattleCatsApp {
 
     fn staged_entry(&self) -> Option<emulator::runtime::StageEntry> {
         let picked = self.stage_state.data.selected_stage.as_ref()?;
-        let map = kokoro::domains::stage::GlobalMapId { category: picked.category.clone(), map: picked.map };
+        let map = foundry::domains::stage::GlobalMapId { category: picked.category.clone(), map: picked.map };
         let global = self.stage_state.data.registry.addresses.get(&map)?.global?;
 
         if let Some(target) = invaded_stage(&self.stage_state.data.registry, picked) {

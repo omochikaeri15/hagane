@@ -16,16 +16,16 @@ use web_sys::{
 };
 
 use codex::graphics::rig::{Opaque, SpriteCut, SpriteSheet};
-use kokoro::domains::cat::scanner::CatEntry;
-use kokoro::domains::enemy::scanner::EnemyEntry;
-use kokoro::domains::settings::ScannerConfig;
-use kokoro::domains::stage::scanner::StageBundle;
+use foundry::domains::cat::scanner::CatEntry;
+use foundry::domains::enemy::scanner::EnemyEntry;
+use foundry::domains::settings::ScannerConfig;
+use foundry::domains::stage::scanner::StageBundle;
 
-use omote::host::Phase as BattlePhase;
-use omote::platform::battle::{BattleCommand, BattleEvent, BattleWatch};
-use omote::platform::mods::{ModCommand, ModState};
-use omote::platform::{LOGGING_KEY, LOGGING_ON};
-use omote::{Bytes, Fault, Fetched, Host, Pending, Phase, Picked, Picture, Prepared, Progress, Report, RigParts, Script, Surface, Watch};
+use crate::systems::host::Phase as BattlePhase;
+use crate::platform::battle::{BattleCommand, BattleEvent, BattleWatch};
+use crate::platform::mods::{ModCommand, ModState};
+use crate::platform::{LOGGING_KEY, LOGGING_ON};
+use crate::platform::{Bytes, Fault, Fetched, Host, Pending, Phase, Picked, Picture, Prepared, Progress, Report, RigParts, Script, Surface, Watch};
 
 use crate::battle::{self, Screen, SharedScreen};
 use crate::film;
@@ -496,10 +496,10 @@ impl Host for WebHost {
 
     fn font(&self, script: Script) -> Pending<Result<Bytes, Fault>> {
         let url = match script {
-            Script::Japanese => &omote::theme::NOTO_JP,
-            Script::Korean => &omote::theme::NOTO_KR,
-            Script::TraditionalChinese => &omote::theme::NOTO_TC,
-            Script::Thai => &omote::theme::NOTO_TH,
+            Script::Japanese => &crate::theme::NOTO_JP,
+            Script::Korean => &crate::theme::NOTO_KR,
+            Script::TraditionalChinese => &crate::theme::NOTO_TC,
+            Script::Thai => &crate::theme::NOTO_TH,
         }
         .to_string();
 

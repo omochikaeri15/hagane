@@ -7,7 +7,7 @@ use tracing::{error, warn};
 use wasm_bindgen::JsCast;
 use web_sys::{CanvasRenderingContext2d, HtmlCanvasElement};
 
-use omote::{Atlas, Captured, Fault, Painted, Pending, Scene, Shape, Surface};
+use crate::platform::{Atlas, Captured, Fault, Painted, Pending, Scene, Shape, Surface};
 
 const VERTEX_STRIDE: u64 = 36;
 const VERTS_PER_PART: u32 = 4;

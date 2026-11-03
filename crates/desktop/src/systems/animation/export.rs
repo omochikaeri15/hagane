@@ -11,11 +11,11 @@ use tracing::trace;
 
 use codex::graphics::rig::Animation;
 
-use kokoro::common::job::ProgressCounter;
-use kokoro::systems::addons::paths::{self, Presence};
-use kokoro::systems::animation::export::{find_bounds, find_loop, leader, process, BoundsOutcome, EncoderStatus, ExportFormat, ExportMode, ExportRequest, FrameTiming, LoopStatus, ShowcaseLengths};
-use kokoro::systems::animation::{playback_frames, Role};
-use kokoro::domains::settings::Settings;
+use foundry::common::job::ProgressCounter;
+use foundry::systems::addons::paths::{self, Presence};
+use foundry::systems::animation::export::{find_bounds, find_loop, leader, process, BoundsOutcome, EncoderStatus, ExportFormat, ExportMode, ExportRequest, FrameTiming, LoopStatus, ShowcaseLengths};
+use foundry::systems::animation::{playback_frames, Role};
+use foundry::domains::settings::Settings;
 
 use crate::app::state::AnimState;
 use crate::app::theme;
@@ -1629,8 +1629,8 @@ fn derive_name_prefix(raw_id: &str, type_string: &str) -> String {
 mod tests {
     use std::sync::Arc;
 
-    use kokoro::systems::animation::{Motion, MotionSet, Loop, Rigging, Role};
-    use kokoro::Source;
+    use foundry::systems::animation::{Motion, MotionSet, Loop, Rigging, Role};
+    use foundry::Source;
 
     use super::*;
 

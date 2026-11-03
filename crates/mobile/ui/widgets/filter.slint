@@ -1,0 +1,73 @@
+import { Theme } from "../theme.slint";
+import { Btn, Tone, Input, Label } from "basics.slint";
+import { AbilityIcon, IconBox } from "detail.slint";
+
+export struct RangeField { label: string, min: string, max: string, owner: int }
+export struct FilterIcon { icon: AbilityIcon, active: bool, name: string, id: int }
+export struct FilterLabeled { icon: AbilityIcon, active: bool, name: string, id: int, expanded: bool, ranges: [RangeField] }
+
+export component FilterIconsWrap inherits VerticalLayout {
+    in property <[FilterIcon]> items;
+    in property <int> per-row: 7;
+    callback toggled(int);
+    spacing: 5px;
+    for row in [0, 1, 2, 3, 4, 5, 6, 7]: HorizontalLayout {
+        spacing: 3px;
+        alignment: start;
+        visible: row * root.per-row < root.items.length;
+        height: row * root.per-row < root.items.length ? 40px : 0px;
+        for col in [0, 1, 2, 3, 4, 5, 6]: Rectangle {
+            property <int> at: row * root.per-row + col;
+            visible: self.at < root.items.length && col < root.per-row;
+            width: self.at < root.items.length && col < root.per-row ? 40px : 0px;
+            height: 40px;
+            opacity: self.at < root.items.length && root.items[self.at].active ? 1.0 : 0.4;
+            if self.at < root.items.length: IconBox { icon: root.items[parent.at].icon; size: 40px; }
+            if self.at < root.items.length: TouchArea { clicked => { root.toggled(root.items[parent.at].id); } }
+        }
+    }
+}
+
+export component RangeRows inherits VerticalLayout {
+    in property <[RangeField]> fields;
+    callback min-edited(int, string);
+    callback max-edited(int, string);
+    spacing: 6px;
+    for field[index] in root.fields: HorizontalLayout {
+        spacing: 4px;
+        alignment: start;
+        Label { text: field.label; width: 110px; vertical-alignment: center; }
+        Input { width: 55px; text: field.min; placeholder: "Min"; text-size: 13px; input-type: InputType.number; edited(value) => { root.min-edited(index, value); } }
+        Label { text: "~"; vertical-alignment: center; }
+        Input { width: 55px; text: field.max; placeholder: "Max"; text-size: 13px; input-type: InputType.number; edited(value) => { root.max-edited(index, value); } }
+    }
+}
+
+export component FilterLabeledList inherits VerticalLayout {
+    in property <[FilterLabeled]> items;
+    callback toggled(int);
+    callback range-min(int, int, string);
+    callback range-max(int, int, string);
+    spacing: 4px;
+    for item in root.items: Rectangle {
+        background: item.expanded ? Theme.card-bg : transparent;
+        border-radius: Theme.radius-md;
+        height: column.preferred-height + (item.expanded ? 16px : 0px);
+        column := VerticalLayout {
+            padding: item.expanded ? 8px : 0px;
+            spacing: 6px;
+            HorizontalLayout {
+                spacing: 10px;
+                alignment: start;
+                Rectangle {
+                    width: 40px; height: 40px; opacity: item.active ? 1.0 : 0.4;
+                    IconBox { icon: item.icon; size: 40px; }
+                    TouchArea { clicked => { root.toggled(item.id); } }
+                }
+                Btn { tone: Tone.text; label: item.name; pad-x: 0px; clicked => { root.toggled(item.id); } }
+            }
+            if item.expanded: RangeRows { fields: item.ranges; min-edited(index, value) => { root.range-min(item.id, index, value); } max-edited(index, value) => { root.range-max(item.id, index, value); } }
+        }
+    }
+}
+

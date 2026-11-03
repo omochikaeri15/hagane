@@ -21,23 +21,23 @@ use rustc_hash::FxHasher;
 use tracing::debug;
 use codex::combat::{Entity, REGISTRY};
 
-use kokoro::common::formats::SpriteSheet as CoreSpriteSheet;
-use kokoro::systems::combat::NameBook;
-use kokoro::domains::cat::files as cat_files;
-use kokoro::domains::cat::game::stats as cat_stats;
-use kokoro::domains::cat::game::talents as talent_logic;
-use kokoro::domains::cat::scanner::{self as cat_scanner, CatEntry};
-use kokoro::domains::enemy::scanner::{self as enemy_scanner, EnemyEntry};
-use kokoro::domains::stage::{GlobalMapId, GlobalStageId, StageRegistry};
+use foundry::common::formats::SpriteSheet as CoreSpriteSheet;
+use foundry::systems::combat::NameBook;
+use foundry::domains::cat::files as cat_files;
+use foundry::domains::cat::game::stats as cat_stats;
+use foundry::domains::cat::game::talents as talent_logic;
+use foundry::domains::cat::scanner::{self as cat_scanner, CatEntry};
+use foundry::domains::enemy::scanner::{self as enemy_scanner, EnemyEntry};
+use foundry::domains::stage::{GlobalMapId, GlobalStageId, StageRegistry};
 use codex::chapter::Category;
-use kokoro::domains::import;
-use kokoro::domains::mining::{self, changes, enemies, forms, localized, stages, talents, units, Build, Diff, Status};
+use foundry::domains::import;
+use foundry::domains::mining::{self, changes, enemies, forms, localized, stages, talents, units, Build, Diff, Status};
 
-use kokoro::domains::settings::{ScannerConfig, Settings};
-use kokoro::systems::combat::registry::{get_display_def, is_trait, AbilityIcon, STAT_RARITY};
-use kokoro::systems::treasure::Bonus;
-use kokoro::common::context::GlobalContext;
-use kokoro::{Source, Vault, Vfs};
+use foundry::domains::settings::{ScannerConfig, Settings};
+use foundry::systems::combat::registry::{get_display_def, is_trait, AbilityIcon, STAT_RARITY};
+use foundry::systems::treasure::Bonus;
+use foundry::common::context::GlobalContext;
+use foundry::{Source, Vault, Vfs};
 
 use crate::app::theme;
 

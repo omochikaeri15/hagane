@@ -7,11 +7,11 @@ use iced::widget::image::Handle;
 use iced::widget::{column, container, image as iced_image, pick_list, row, text, Space};
 use iced::{Element, Length, Task};
 
-use kokoro::common::formats::SpriteSheet as CoreSpriteSheet;
-use kokoro::systems::combat::NameBook;
+use foundry::common::formats::SpriteSheet as CoreSpriteSheet;
+use foundry::systems::combat::NameBook;
 use codex::combat::Identity;
-use kokoro::domains::sandbox::orb::{self, Allowance, Kind, GRADES};
-use kokoro::{Vault, Vfs};
+use foundry::domains::sandbox::orb::{self, Allowance, Kind, GRADES};
+use foundry::{Vault, Vfs};
 use image::{imageops, RgbaImage};
 use codex::cat::unit::Equipment;
 

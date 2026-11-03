@@ -11,11 +11,11 @@ use iced::{Element, Font, Length, Theme};
 use codex::combat::{get_ability, get_talent, targets_traits, Faction, Identity};
 use rustc_hash::FxHashMap;
 
-use kokoro::common::gfx::autocrop;
-use kokoro::systems::combat::NameBook;
-use kokoro::domains::settings::EditorMode;
-use kokoro::systems::combat::registry::get_display_def;
-use kokoro::{Vault, Vfs};
+use foundry::common::gfx::autocrop;
+use foundry::systems::combat::NameBook;
+use foundry::domains::settings::EditorMode;
+use foundry::systems::combat::registry::get_display_def;
+use foundry::{Vault, Vfs};
 
 use crate::app::theme;
 use crate::common::glyphs::Ruler;

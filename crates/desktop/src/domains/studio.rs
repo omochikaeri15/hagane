@@ -14,12 +14,12 @@ use iced::border::Border;
 use iced::{widget, Color, Element, Font, Length, Padding, Point, Size, Task, Theme};
 use tracing::{error, info, warn};
 
-use kokoro::common::architecture;
-use kokoro::common::preview::{self, Stamp};
-use kokoro::domains::settings::{Faults, FrameCount, Scope, Settings, Shown, StudioSettings, Switch, Tier};
-use kokoro::domains::studio as sets;
-use kokoro::systems::animation::posing::{self, Gizmo, Probe};
-use kokoro::systems::animation::authoring::{self as authoring, bound, Beat, Cadence, Imgcut, CUT_FIELDS, CUT_NAME_FIELD, ease_label, ease_takes_power, ease_value, key_label, kind_label, loop_label, nameable, Maanim, Mamodel, EASES, FIELDS, NAME_FIELD};
+use foundry::common::architecture;
+use foundry::common::preview::{self, Stamp};
+use foundry::domains::settings::{Faults, FrameCount, Scope, Settings, Shown, StudioSettings, Switch, Tier};
+use foundry::domains::studio as sets;
+use foundry::systems::animation::posing::{self, Gizmo, Probe};
+use foundry::systems::animation::authoring::{self as authoring, bound, Beat, Cadence, Imgcut, CUT_FIELDS, CUT_NAME_FIELD, ease_label, ease_takes_power, ease_value, key_label, kind_label, loop_label, nameable, Maanim, Mamodel, EASES, FIELDS, NAME_FIELD};
 use image::RgbaImage;
 use codex::graphics::rig::{Keyframe, Model, ModelPart, Opaque, Rig, SpriteCut, SpriteSheet};
 use codex::graphics::tools::crash::{self, Side, Sited};

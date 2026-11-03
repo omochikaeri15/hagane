@@ -15,12 +15,12 @@ use iced::widget::shader::Pipeline as _;
 use iced::{wgpu, Rectangle};
 use tracing::{error, info, trace, warn};
 
-use kokoro::Vfs;
-use kokoro::common::architecture::Workspace;
-use kokoro::common::job::JobOutcome;
-use kokoro::domains::sandbox::replay as tape;
-use kokoro::domains::settings::ReplaySource;
-use kokoro::systems::addons::ffmpeg::video::{self, Quality, VideoFormat, VideoWriter};
+use foundry::Vfs;
+use foundry::common::architecture::Workspace;
+use foundry::common::job::JobOutcome;
+use foundry::domains::sandbox::replay as tape;
+use foundry::domains::settings::ReplaySource;
+use foundry::systems::addons::ffmpeg::video::{self, Quality, VideoFormat, VideoWriter};
 
 use super::assets::{DiskAssets, FileIndex};
 use super::driver::Driver;

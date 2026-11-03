@@ -13,7 +13,7 @@ use wasm_bindgen::{JsCast, JsValue};
 use wasm_bindgen_futures::JsFuture;
 use web_sys::{AudioBuffer, AudioBufferSourceNode, GainNode, OfflineAudioContext};
 
-use omote::platform::battle::{AudioCommand, BattleCommand, BattleEvent, Filmed, Filming, Rolled};
+use crate::platform::battle::{AudioCommand, BattleCommand, BattleEvent, Filmed, Filming, Rolled};
 
 use crate::battle::Darkroom;
 

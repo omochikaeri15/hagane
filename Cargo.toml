@@ -3,9 +3,8 @@ resolver = "2"
 members = [
     "crates/codex",
     "crates/emulator",
-    "crates/kokoro",
+    "crates/foundry",
     "crates/desktop",
-    "crates/omote",
     "crates/website",
     "crates/mobile",
     "xtask",

@@ -5,13 +5,13 @@ use std::sync::Arc;
 use iced::Size;
 use codex::files::{Localizable, Param};
 
-use kokoro::common::context::GlobalContext;
-use kokoro::systems::combat::NameBook;
-use kokoro::common::formats::{fitting_cut, imgcut};
-use kokoro::domains::sandbox::replay::{self as tape, Save, Summary};
-use kokoro::domains::settings::{ScannerConfig, Settings};
-use kokoro::systems::treasure::Bonus;
-use kokoro::{Source, Vault};
+use foundry::common::context::GlobalContext;
+use foundry::systems::combat::NameBook;
+use foundry::common::formats::{fitting_cut, imgcut};
+use foundry::domains::sandbox::replay::{self as tape, Save, Summary};
+use foundry::domains::settings::{ScannerConfig, Settings};
+use foundry::systems::treasure::Bonus;
+use foundry::{Source, Vault};
 
 use crate::app::state::AppState;
 use crate::common::sheet_layers;

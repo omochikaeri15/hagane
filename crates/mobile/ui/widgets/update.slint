@@ -1,0 +1,73 @@
+import { Btn, Tone, Label, Dialog, Progress } from "basics.slint";
+
+export global Updater {
+    in-out property <bool> open;
+    in property <int> kind;
+    in property <string> version;
+    in property <string> current;
+    in property <float> fraction;
+    in property <string> failure;
+    in property <string> never-label: "Never";
+    in property <bool> installable;
+    in property <string> label: "Check for Updates";
+    in property <Tone> tone: Tone.primary;
+    in property <bool> enabled: true;
+    in property <int> mode;
+
+    callback check();
+    callback accept();
+    callback decline();
+    callback never();
+    callback install();
+    callback mode-set(int);
+}
+
+export component UpdateDialog inherits Dialog {
+    open <=> Updater.open;
+    title: Updater.kind == 0 ? "Update Available" : Updater.kind == 1 ? "Downloading Update" : Updater.kind == 2 ? "Update Ready" : "Update Failed";
+    panel-width: 360px;
+    closed => { if Updater.kind != 1 { Updater.decline(); } }
+    VerticalLayout {
+        padding: 20px;
+        spacing: 14px;
+        alignment: center;
+        if Updater.kind == 0: VerticalLayout {
+            spacing: 14px;
+            Label { text: "Battle Cats Complete v" + Updater.version; font-size: 18px; bold: true; horizontal-alignment: center; wrap: word-wrap; }
+            Label { text: "You are running v" + Updater.current; font-size: 14px; weak: true; horizontal-alignment: center; }
+            Label { text: Updater.installable ? "Would you like to download the update now?" : "Would you like to open the release page?"; font-size: 14px; horizontal-alignment: center; wrap: word-wrap; }
+            HorizontalLayout {
+                spacing: 12px;
+                alignment: center;
+                Btn { tone: Tone.success; label: "Yes"; width: 90px; height: 30px; text-size: 13px; clicked => { Updater.accept(); } }
+                Btn { tone: Tone.neutral; label: "No"; width: 90px; height: 30px; text-size: 13px; clicked => { Updater.decline(); } }
+                Btn { tone: Tone.danger; label: Updater.never-label; width: 90px; height: 30px; text-size: 13px; clicked => { Updater.never(); } }
+            }
+            Label { text: "\"Never\" stops all future update checks"; font-size: 13px; weak: true; horizontal-alignment: center; wrap: word-wrap; }
+        }
+        if Updater.kind == 1: VerticalLayout {
+            spacing: 14px;
+            Label { text: "Downloading v" + Updater.version; font-size: 18px; bold: true; horizontal-alignment: center; }
+            Progress { fraction: Updater.fraction; height: 12px; }
+            Label { text: "You will be prompted once it is ready to install"; font-size: 14px; weak: true; horizontal-alignment: center; wrap: word-wrap; }
+        }
+        if Updater.kind == 2: VerticalLayout {
+            spacing: 14px;
+            Label { text: "v" + Updater.version + " is downloaded"; font-size: 18px; bold: true; horizontal-alignment: center; wrap: word-wrap; }
+            Label { text: "Would you like to install it now?"; font-size: 14px; horizontal-alignment: center; wrap: word-wrap; }
+            HorizontalLayout {
+                spacing: 12px;
+                alignment: center;
+                Btn { tone: Tone.success; label: "Install"; width: 110px; height: 30px; text-size: 13px; clicked => { Updater.install(); } }
+                Btn { tone: Tone.neutral; label: "Later"; width: 110px; height: 30px; text-size: 13px; clicked => { Updater.decline(); } }
+            }
+            Label { text: "The system installer takes over, the package is also kept in Downloads"; font-size: 13px; weak: true; horizontal-alignment: center; wrap: word-wrap; }
+        }
+        if Updater.kind == 3: VerticalLayout {
+            spacing: 14px;
+            Label { text: "The update did not go through"; font-size: 18px; bold: true; horizontal-alignment: center; wrap: word-wrap; }
+            Label { text: Updater.failure; font-size: 14px; horizontal-alignment: center; wrap: word-wrap; }
+            HorizontalLayout { alignment: center; Btn { tone: Tone.danger; label: "Close"; width: 110px; height: 30px; text-size: 13px; clicked => { Updater.decline(); } } }
+        }
+    }
+}

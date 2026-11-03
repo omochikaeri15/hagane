@@ -1,0 +1,299 @@
+import { ListView } from "std-widgets.slint";
+import { Theme } from "../theme.slint";
+import { Btn, Tone, Input, Combo, Label, Status, Dialog, Panel, Rule, VRule } from "../widgets/basics.slint";
+import { Drawer, EdgeGrab } from "../widgets/drawer.slint";
+import { Line, AbilityIcon, AbilityLine, StatCell, HeaderBtn, RosterRow, Lines, IconRow, AbilityRows, StatGrid, HeaderToggle } from "../widgets/detail.slint";
+import { FilterIcon, FilterLabeled, RangeField, FilterIconsWrap, FilterLabeledList, RangeRows } from "../widgets/filter.slint";
+import { AnimViewer, Viewer, DebugToggles } from "../widgets/viewer.slint";
+import { Shell } from "../shell.slint";
+
+export global Enemies {
+    in property <[RosterRow]> roster;
+    in property <int> roster-count;
+    in-out property <string> search;
+    in property <bool> filter-active;
+    in property <int> selected: -1;
+    in property <bool> ready;
+    in property <string> status-title: "Loading Enemies...";
+    in property <string> status-detail;
+    in-out property <bool> roster-open;
+
+    in property <string> name;
+    in property <length> name-size: 22px;
+    in property <string> id-text;
+    in property <image> icon;
+    in property <bool> has-icon;
+    in property <length> icon-width: 110px;
+    in property <length> icon-height: 96px;
+    in property <[HeaderBtn]> tabs;
+    in property <int> tab;
+    in-out property <string> mag-input;
+
+    in property <[StatCell]> stat-headers-1;
+    in property <[StatCell]> stat-values-1;
+    in property <[StatCell]> stat-headers-2;
+    in property <[StatCell]> stat-values-2;
+    in property <[AbilityIcon]> traits;
+    in property <[AbilityIcon]> headline-1;
+    in property <[AbilityIcon]> headline-2;
+    in property <[AbilityLine]> body-1;
+    in property <[AbilityLine]> body-2;
+    in property <[AbilityIcon]> footer;
+    in property <string> export-label: "Export Image";
+    in property <Tone> export-tone: Tone.primary;
+    in property <[Line]> description;
+
+    in-out property <bool> filter-open;
+    in property <int> filter-mode;
+    in property <string> filter-mag;
+    in property <[RangeField]> filter-stats;
+    in property <[FilterIcon]> filter-traits;
+    in property <[FilterIcon]> filter-attack-types;
+    in property <[FilterIcon]> filter-headline-1;
+    in property <[FilterIcon]> filter-headline-2;
+    in property <[FilterLabeled]> filter-body-1;
+    in property <[FilterLabeled]> filter-body-2;
+    in property <[FilterIcon]> filter-footer;
+
+    callback select(int);
+    callback search-changed(string);
+    callback open-filter();
+    callback set-tab(int);
+    callback mag-edited(string);
+    callback export-image();
+    callback appearances();
+    callback filter-mode-set(int);
+    callback filter-mag-edited(string);
+    callback filter-stat-min(int, string);
+    callback filter-stat-max(int, string);
+    callback filter-icon(int);
+    callback filter-range-min(int, int, string);
+    callback filter-range-max(int, int, string);
+    callback filter-clear();
+}
+
+component FilterDialog inherits Dialog {
+    title: "Advanced Enemy Filter";
+    open <=> Enemies.filter-open;
+    body-height: 9999px;
+    Flickable {
+        mouse-drag-pan-enabled: true;
+        width: 100%;
+        height: 100%;
+        content-height: content.preferred-height;
+        content := VerticalLayout {
+            padding: 16px;
+            spacing: 16px;
+            VerticalLayout {
+                spacing: 8px;
+                Label { text: "Attributes"; font-size: 18px; }
+                HorizontalLayout {
+                    spacing: 8px; alignment: start;
+                    Label { text: "Mode:"; vertical-alignment: center; }
+                    Combo { options: ["And", "Or"]; current: Enemies.filter-mode; selected(index) => { Enemies.filter-mode-set(index); } }
+                }
+            }
+            VerticalLayout {
+                spacing: 8px;
+                Label { text: "Stats"; font-size: 18px; }
+                HorizontalLayout {
+                    spacing: 8px; alignment: start;
+                    Label { text: "Target Magnification:"; vertical-alignment: center; }
+                    Input { width: 70px; text: Enemies.filter-mag; placeholder: "100"; edited(value) => { Enemies.filter-mag-edited(value); } }
+                    Label { text: "%"; vertical-alignment: center; }
+                }
+                RangeRows { fields: Enemies.filter-stats; min-edited(index, value) => { Enemies.filter-stat-min(index, value); } max-edited(index, value) => { Enemies.filter-stat-max(index, value); } }
+            }
+            VerticalLayout { spacing: 8px; Label { text: "Trait Type"; font-size: 18px; } FilterIconsWrap { items: Enemies.filter-traits; toggled(id) => { Enemies.filter-icon(id); } } }
+            VerticalLayout { spacing: 8px; Label { text: "Attack Type"; font-size: 18px; } FilterIconsWrap { items: Enemies.filter-attack-types; toggled(id) => { Enemies.filter-icon(id); } } }
+            VerticalLayout {
+                spacing: 8px;
+                Label { text: "Abilities"; font-size: 18px; }
+                if Enemies.filter-headline-1.length > 0: FilterIconsWrap { items: Enemies.filter-headline-1; toggled(id) => { Enemies.filter-icon(id); } }
+                if Enemies.filter-headline-2.length > 0: FilterIconsWrap { items: Enemies.filter-headline-2; toggled(id) => { Enemies.filter-icon(id); } }
+                if Enemies.filter-body-1.length > 0: FilterLabeledList { items: Enemies.filter-body-1; toggled(id) => { Enemies.filter-icon(id); } range-min(owner, index, value) => { Enemies.filter-range-min(owner, index, value); } range-max(owner, index, value) => { Enemies.filter-range-max(owner, index, value); } }
+                if Enemies.filter-body-2.length > 0: FilterLabeledList { items: Enemies.filter-body-2; toggled(id) => { Enemies.filter-icon(id); } range-min(owner, index, value) => { Enemies.filter-range-min(owner, index, value); } range-max(owner, index, value) => { Enemies.filter-range-max(owner, index, value); } }
+                if Enemies.filter-footer.length > 0: FilterIconsWrap { items: Enemies.filter-footer; toggled(id) => { Enemies.filter-icon(id); } }
+            }
+            HorizontalLayout {
+                alignment: center;
+                padding: 8px;
+                Btn { tone: Tone.danger; label: "Clear Filter"; clicked => { Enemies.filter-clear(); } }
+            }
+        }
+    }
+}
+
+component Roster inherits Panel {
+    VerticalLayout {
+        padding: 8px;
+        spacing: 4px;
+        Btn { tone: Tone.toggle; active: Enemies.filter-active; label: "Filter"; text-size: 13px; height: 32px; clicked => { Enemies.open-filter(); } }
+        Input { text <=> Enemies.search; placeholder: "Search Enemy..."; text-size: 13px; height: 32px; edited(value) => { Enemies.search-changed(value); } }
+        Rectangle { height: 4px; }
+        if Enemies.roster-count == 0: Label { text: "No Enemies Found!"; color: Theme.danger; horizontal-alignment: center; vertical-stretch: 1; vertical-alignment: center; }
+        if Enemies.roster-count > 0: ListView {
+            mouse-drag-pan-enabled: true;
+            vertical-stretch: 1;
+            for row in Enemies.roster: Rectangle {
+                height: 54px;
+                width: parent.width;
+                Rectangle {
+                    y: 0;
+                    height: 50px;
+                    width: parent.width;
+                    border-radius: Theme.radius-sm;
+                    background: row.id == Enemies.selected ? Theme.primary : (press.pressed ? Theme.list-hover : transparent);
+                    if row.has-banner: Image {
+                        x: 0;
+                        y: 0;
+                        height: 50px;
+                        width: self.source.width * 50px / max(self.source.height, 1);
+                        source: row.banner;
+                        image-fit: fill;
+                    }
+                    press := TouchArea {
+                        clicked => { Enemies.select(row.id); Enemies.roster-open = false; }
+                    }
+                }
+            }
+        }
+    }
+}
+
+component Header inherits VerticalLayout {
+    spacing: 8px;
+    padding-top: 5px;
+    HorizontalLayout {
+        spacing: 4px;
+        for tab[index] in Enemies.tabs: HeaderToggle { label: tab.label; available: tab.available; selected: Enemies.tab == index; horizontal-stretch: 1; clicked => { Enemies.set-tab(index); } }
+    }
+    Rule { }
+    HorizontalLayout {
+        spacing: 0px;
+        alignment: start;
+        Rectangle {
+            width: 110px;
+            height: 96px;
+            if Enemies.has-icon: Image {
+                source: Enemies.icon;
+                width: Enemies.icon-width;
+                height: Enemies.icon-height;
+                x: (parent.width - self.width) / 2;
+                y: parent.height - self.height;
+                image-fit: fill;
+            }
+        }
+        Rectangle { width: 12px; }
+        VerticalLayout {
+            alignment: start;
+            spacing: 2px;
+            Rectangle {
+                width: 113px;
+                height: 56px;
+                Text {
+                    x: 0;
+                    text: Enemies.name;
+                    color: Theme.text;
+                    font-size: Enemies.name-size;
+                    wrap: word-wrap;
+                    overflow: elide;
+                    width: 120px;
+                    height: parent.height;
+                    vertical-alignment: center;
+                }
+            }
+            Label { text: Enemies.id-text; weak: true; font-size: 11px; }
+            HorizontalLayout {
+                spacing: 6px;
+                alignment: start;
+                Label { text: "Magnify:"; font-size: 11px; vertical-alignment: center; }
+                Input { width: 60px; height: 22px; text-size: 11px; text <=> Enemies.mag-input; placeholder: "100"; edited(value) => { Enemies.mag-edited(value); } }
+                Label { text: "%"; font-size: 11px; vertical-alignment: center; }
+            }
+        }
+        Rectangle { width: 16px; }
+        VRule { height: 96px; }
+        Rectangle { width: 10px; }
+        if Enemies.tab == 0: VerticalLayout {
+            alignment: center;
+            Btn { width: 100px; height: 24px; text-size: 12px; tone: Enemies.export-tone; label: Enemies.export-label; pad-y: 0px; clicked => { Enemies.export-image(); } }
+        }
+        if Enemies.tab == 1: VerticalLayout {
+            alignment: center;
+            Btn { width: 100px; height: 24px; text-size: 12px; label: "Appearances"; pad-y: 0px; clicked => { Enemies.appearances(); } }
+        }
+        if Enemies.tab == 2: VerticalLayout {
+            alignment: center;
+            DebugToggles { }
+        }
+    }
+    Rule { }
+}
+
+component Abilities inherits VerticalLayout {
+    spacing: 8px;
+    StatGrid { headers-1: Enemies.stat-headers-1; values-1: Enemies.stat-values-1; headers-2: Enemies.stat-headers-2; values-2: Enemies.stat-values-2; }
+    VerticalLayout {
+        spacing: 7px;
+        if Enemies.traits.length > 0: IconRow { items: Enemies.traits; }
+        if Enemies.headline-1.length > 0: IconRow { items: Enemies.headline-1; }
+        if Enemies.headline-2.length > 0: IconRow { items: Enemies.headline-2; }
+        if Enemies.body-1.length > 0: AbilityRows { items: Enemies.body-1; }
+        if Enemies.body-2.length > 0: AbilityRows { items: Enemies.body-2; }
+        if Enemies.footer.length > 0: IconRow { items: Enemies.footer; }
+    }
+}
+
+component Details inherits VerticalLayout {
+    spacing: 8px;
+    Label { text: "Description"; font-size: 20px; }
+    Lines { lines: Enemies.description; size: 16px; }
+}
+
+export component EnemiesPage inherits Rectangle {
+    EdgeGrab { armed: Enemies.ready && !Enemies.roster-open && !Shell.nav-open; pulled => { Enemies.roster-open = true; Shell.left-open = true; }
+        if !Enemies.ready: Status { title: Enemies.status-title; detail: Enemies.status-detail; x: (parent.width - self.width) / 2; y: (parent.height - self.height) / 2; width: min(parent.width - 32px, 360px); }
+        if Enemies.ready: VerticalLayout {
+            padding-left: 10px;
+            padding-right: 10px;
+            padding-top: 4px;
+            padding-bottom: 12px;
+            if Enemies.selected < 0: Label { text: "Select a Unit"; font-size: 24px; horizontal-alignment: center; vertical-alignment: center; vertical-stretch: 1; }
+            if Enemies.selected >= 0: Header { }
+            if Enemies.selected >= 0 && Enemies.tab != 2: Flickable {
+                mouse-drag-pan-enabled: true;
+                vertical-stretch: 1;
+                content-width: self.width;
+                content-height: body.preferred-height + 16px > self.height ? body.preferred-height + 16px : self.height;
+                body := VerticalLayout {
+                    x: 0;
+                    y: 0;
+                    width: parent.width;
+                    height: self.preferred-height;
+                    padding-top: 8px;
+                    if Enemies.tab == 0: Abilities { }
+                    if Enemies.tab == 1: Details { }
+                }
+            }
+            if Enemies.selected >= 0 && Enemies.tab == 2 && !Viewer.expanded: Rectangle {
+                vertical-stretch: 1;
+                AnimViewer { y: 8px; height: parent.height - 8px; width: parent.width; }
+            }
+            if Enemies.selected >= 0 && Enemies.tab == 2 && Viewer.expanded: VerticalLayout {
+                vertical-stretch: 1;
+                alignment: center;
+                spacing: 12px;
+                Label { text: "Animation Expanded"; font-size: 20px; bold: true; horizontal-alignment: center; }
+                HorizontalLayout { alignment: center; Btn { label: "Restore View"; clicked => { Viewer.expanded = false; } } }
+            }
+        }
+    }
+    Drawer {
+        open <=> Enemies.roster-open;
+        panel-width: 152px;
+        closed => { Shell.left-open = false; }
+        Roster { width: 100%; height: 100%; }
+    }
+    FilterDialog { }
+}

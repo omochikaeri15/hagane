@@ -21,14 +21,14 @@ use iced::widget::image::Handle;
 use iced::Task;
 use tracing::{debug, error, info, trace, warn};
 
-use kokoro::common::assets::{
+use foundry::common::assets::{
     BOSS_WAVE, BURROW, DEATH_TIMER, DOJO, GOD, KAMIKAZE, MULTIHIT, REVIVE, STARRED_ALIEN, STOP,
     UNKNOWN,
 };
-use kokoro::common::formats::{imgcut, SpriteSheet as CoreSpriteSheet};
-use kokoro::Source;
-use kokoro::systems::combat::CustomIcon;
-use kokoro::Vfs;
+use foundry::common::formats::{imgcut, SpriteSheet as CoreSpriteSheet};
+use foundry::Source;
+use foundry::systems::combat::CustomIcon;
+use foundry::Vfs;
 
 #[derive(Clone)]
 pub struct CustomAssets {

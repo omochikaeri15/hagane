@@ -1,8 +1,8 @@
 use iced::widget::image::Handle;
 use image::imageops;
 
-use kokoro::common::gfx::{autocrop, open_image};
-use kokoro::Source;
+use foundry::common::gfx::{autocrop, open_image};
+use foundry::Source;
 
 pub fn load_scaled(source: &Source, max_size: u32) -> Option<Handle> {
     let raw = open_image(source)?;

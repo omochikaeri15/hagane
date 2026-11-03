@@ -1,9 +1,9 @@
-use kokoro::common::context::GlobalContext;
-use kokoro::systems::combat::registry::Magnification;
-use kokoro::domains::enemy::scanner::EnemyEntry;
-use kokoro::domains::enemy::statblock::{self, Subject};
-use kokoro::domains::settings::Settings;
-use kokoro::Vault;
+use foundry::common::context::GlobalContext;
+use foundry::systems::combat::registry::Magnification;
+use foundry::domains::enemy::scanner::EnemyEntry;
+use foundry::domains::enemy::statblock::{self, Subject};
+use foundry::domains::settings::Settings;
+use foundry::Vault;
 
 use crate::common::SpriteSheet;
 use crate::widget::statblock_export::Request;

@@ -5,13 +5,13 @@ use iced::widget::{button, column, container, image as iced_image, operation, pi
 use iced::{Element, Length, Size, Task, Theme};
 use codex::combat::{AttrUnit, Identity, REGISTRY};
 
-use kokoro::domains::cat::combo::{self, ComboEffects};
-use kokoro::systems::combat::NameBook;
-use kokoro::domains::cat::filter::{icons, ATTACK_TYPE_ICONS, CatFilterState, MatchMode, TalentFilterMode};
-use kokoro::domains::cat::scanner::CatEntry;
-use kokoro::Vault;
-use kokoro::systems::combat::registry::{get_display_def, AbilityIcon, DisplayGroup};
-use kokoro::systems::combat::{present_identities, talent_identities, CustomIcon, TalentIdentities};
+use foundry::domains::cat::combo::{self, ComboEffects};
+use foundry::systems::combat::NameBook;
+use foundry::domains::cat::filter::{icons, ATTACK_TYPE_ICONS, CatFilterState, MatchMode, TalentFilterMode};
+use foundry::domains::cat::scanner::CatEntry;
+use foundry::Vault;
+use foundry::systems::combat::registry::{get_display_def, AbilityIcon, DisplayGroup};
+use foundry::systems::combat::{present_identities, talent_identities, CustomIcon, TalentIdentities};
 
 use crate::app::theme;
 use crate::common::ability_icon;

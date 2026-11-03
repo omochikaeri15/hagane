@@ -10,10 +10,10 @@ use wasm_bindgen::closure::Closure;
 use wasm_bindgen::JsCast;
 use wasm_bindgen_futures::spawn_local;
 
-use kokoro::domains::sandbox::replay::{self as tape, Footage, Opened};
-use kokoro::domains::settings::ReplaySource;
-use omote::host::{Backend, Clip, Clock, Equipment, Files, Label, Phase, Playing, Session, VERSION};
-use omote::platform::battle::{AudioCommand, BattleCommand, BattleEvent, Launch, Recorded, ReelWire, SheetWire, Standing};
+use foundry::domains::sandbox::replay::{self as tape, Footage, Opened};
+use foundry::domains::settings::ReplaySource;
+use crate::systems::host::{Backend, Clip, Clock, Equipment, Files, Label, Phase, Playing, Session, VERSION};
+use crate::platform::battle::{AudioCommand, BattleCommand, BattleEvent, Launch, Recorded, ReelWire, SheetWire, Standing};
 
 use crate::protocol::{Answer, HELLO, Reply};
 use crate::worker::{self, ChunkLoader, Engine};
@@ -150,7 +150,7 @@ impl Files for WorkerFiles {
 
         match pinned {
             Some(stored) => self.loader.vanilla(&stored),
-            None => kokoro::Loader::load(self.loader.as_ref(), name),
+            None => foundry::Loader::load(self.loader.as_ref(), name),
         }
         .map(|bytes| bytes.to_vec())
     }
