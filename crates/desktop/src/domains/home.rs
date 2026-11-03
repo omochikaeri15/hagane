@@ -11,6 +11,7 @@ use crate::widget::{nightly_label, popup, smooth_scroll};
 
 const REPO_OWNER: &str = "omochikaeri15";
 const REPO_NAME: &str = "hagane";
+const DISCLAIMER: &str = "Not affiliated with PONOS Corp.";
 const SPACE_TOP: f32 = 20.0;
 const SPACE_TITLE_SUBTITLE: f32 = 2.0;
 const SPACE_SUBTITLE_SECTION: f32 = 50.0;
@@ -154,25 +155,38 @@ impl State {
         let version_tag = format!("v{}", env!("CARGO_PKG_VERSION"));
         let release_url = format!("https://github.com/{}/{}/releases/tag/{}", REPO_OWNER, REPO_NAME, version_tag);
         let footer = row![
-            button(text(version_tag).size(13.0))
-                .style(button::text)
-                .padding(0.0)
-                .on_press(Message::OpenUrl(release_url)),
-            text(" | ").size(13.0),
-            button(text("Changelogs").size(13.0))
-                .style(button::text)
-                .padding(0.0)
-                .on_press(Message::OpenChangelog),
-            Space::new().width(Length::Fill),
-            button(text("Discord").size(13.0))
-                .style(button::text)
-                .padding(0.0)
-                .on_press(Message::OpenUrl("https://discord.com/invite/SNSE8HNhmP".to_string())),
-            text(" | ").size(13.0),
-            button(text("GitHub").size(13.0))
-                .style(button::text)
-                .padding(0.0)
-                .on_press(Message::OpenUrl("https://github.com/omochikaeri15/hagane".to_string())),
+            row![
+                button(text(version_tag).size(13.0))
+                    .style(button::text)
+                    .padding(0.0)
+                    .on_press(Message::OpenUrl(release_url)),
+                text(" | ").size(13.0),
+                button(text("Changelogs").size(13.0))
+                    .style(button::text)
+                    .padding(0.0)
+                    .on_press(Message::OpenChangelog),
+            ]
+                .width(Length::Fill)
+                .align_y(Alignment::Center),
+            text(DISCLAIMER)
+                .size(13.0)
+                .style(|theme: &Theme| iced::widget::text::Style {
+                    color: Some(Color { a: 0.4, ..theme.palette().text }),
+                }),
+            row![
+                Space::new().width(Length::Fill),
+                button(text("Discord").size(13.0))
+                    .style(button::text)
+                    .padding(0.0)
+                    .on_press(Message::OpenUrl("https://discord.com/invite/SNSE8HNhmP".to_string())),
+                text(" | ").size(13.0),
+                button(text("GitHub").size(13.0))
+                    .style(button::text)
+                    .padding(0.0)
+                    .on_press(Message::OpenUrl("https://github.com/omochikaeri15/hagane".to_string())),
+            ]
+                .width(Length::Fill)
+                .align_y(Alignment::Center),
         ]
             .width(Length::Fill)
             .padding(10.0)
