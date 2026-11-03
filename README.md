@@ -5,7 +5,7 @@ Suite built for a tower-defense cat game.
 All features, often faster speeds, and highest capabilities, requires the most set-up.
 
 ## Usage
-To use Hagane, you must provide files for it to read. These files are not included in the app or repository; they must be obtained through your own personal and legal means.
+You must provide files for Hagane to read. These files are not included in the app or repository; they must be obtained through your own personal and legal means.
 
 ### Setup
 Hagane requires two additional third-party resources to unlock full functionality. Without these, the apps capabilities are limited:
@@ -27,6 +27,17 @@ Because Hagane is not signed with a paid certificate, your OS may flag it on the
 > You may see an error saying **"App is damaged and can't be opened"** or **"Unidentified Developer"** (Gatekeeper).
 >
 > To fix this, type the following command in Terminal: `xattr -cr`, then drag the app binary into the terminal window to auto-fill the path.
+
+# Mobile
+Some features, same platform, but requires some set-up.
+
+## Usage
+You must provide files for Hagane to read. These files are not included in the app or repository; they must be obtained through your own personal and legal means.
+
+### Setup
+Hagane requires two additional resources to unlock full functionality. Without these, the apps capabilities are limited:
+- Device that Hagane is installed on is rooted with `su` permissions.
+- Legally obtained Decryption Keys and Initialization Vectors for every region.
 
 # Website
 Least features, but better compatibility, and most accesssible while requiring no set-up.

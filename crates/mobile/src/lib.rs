@@ -46,16 +46,16 @@ pub fn run(home: DataHome) -> Result<(), PlatformError> {
 
     #[cfg(target_os = "android")]
     {
-        window.window().set_fullscreen(true);
-        platform::immersive();
         android::watch_window(&window);
     }
 
+    platform::set_fullscreen(state.fullscreen());
     platform::set_orientation(state.orientation());
     let memory = Rc::new(memory::Memory::load());
 
     window.global::<Shell>().set_game_empty(!architecture::game_present());
     window.global::<Shell>().on_measured(|width, height, top, bottom| debug!(width, height, top, bottom, "Window geometry"));
+    window.global::<Shell>().on_fullscreen_changed(platform::set_fullscreen);
 
     let engine = engine::Engine::start(&window, &state, &memory);
     let context = pages::Context::new(&window, state, memory, engine);

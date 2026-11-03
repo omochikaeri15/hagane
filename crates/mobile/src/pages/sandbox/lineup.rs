@@ -10,7 +10,7 @@ use foundry::domains::cat::filter::evaluation::entity_passes_filter;
 use foundry::domains::cat::game::stats::{get_final_stats, seeded_level};
 use foundry::domains::cat::scanner::{self, CatEntry};
 use foundry::domains::sandbox::orb::{self, Allowance, Kind};
-use foundry::domains::sandbox::{BENCH_SLOTS, Cell, Edge, LINEUP_SLOTS, Lineup, Member, Roster, mount_of};
+use foundry::domains::sandbox::{BENCH_SLOTS, Cell, Edge, LINEUP_SLOTS, Lineup, Member, Placed, Roster, mount_of};
 use foundry::systems::treasure::Bonus;
 
 use crate::images::Images;
@@ -187,6 +187,34 @@ fn cell_at(index: i32, bench: bool) -> Cell {
     if bench { Cell::Bench(index) } else { Cell::Slot(index) }
 }
 
+fn edge_of(after: bool) -> Edge {
+    if after { Edge::After } else { Edge::Before }
+}
+
+fn show_deck(ui: &AppWindow, state: &Shared) {
+    let sandbox = ui.global::<Sandbox>();
+    let held = state.borrow();
+    let resting = |cell: Cell| {
+        match cell {
+            Cell::Slot(index) => held.resting.0.get(index),
+            Cell::Bench(index) => held.resting.1.get(index),
+        }
+        .cloned()
+        .unwrap_or_default()
+    };
+    let shown = |cell: Cell| match held.plan.as_ref().map(|plan| plan.get(cell)) {
+        None => resting(cell),
+        Some(Some(Placed::Kept(source))) => resting(source),
+        Some(Some(Placed::Carried)) => DeckCell { aimed: true, ..DeckCell::default() },
+        Some(None) => DeckCell::default(),
+    };
+    let slots: Vec<DeckCell> = (0..LINEUP_SLOTS).map(|index| shown(Cell::Slot(index))).collect();
+    let bench: Vec<DeckCell> = (0..BENCH_SLOTS).map(|index| shown(Cell::Bench(index))).collect();
+
+    sandbox.set_slots(ModelRc::new(VecModel::from(slots)));
+    sandbox.set_bench(ModelRc::new(VecModel::from(bench)));
+}
+
 fn open_unit(ui: &AppWindow, state: &Shared, context: &Rc<Context>, cell: Cell, member: &Member) {
     let Some(cat) = state.borrow().cat(member.id) else {
         return;
@@ -309,6 +337,21 @@ pub fn wire(window: &AppWindow, state: &Shared, context: &Rc<Context>) {
         }
     });
 
+    let (held, _, weak) = on(state, context, window);
+    sandbox.on_cell_hovered(move |from, from_bench, to, to_bench, after| {
+        let Some(ui) = weak.upgrade() else {
+            return;
+        };
+        let plan = if from >= 0 && to >= 0 {
+            held.borrow().saved().roster.current().and_then(|lineup| lineup.arrange(Some(cell_at(from, from_bench)), cell_at(to, to_bench), edge_of(after)))
+        } else {
+            None
+        };
+
+        held.borrow_mut().plan = plan;
+        show_deck(&ui, &held);
+    });
+
     let last_drop = Rc::new(cell::Cell::new(None::<Instant>));
     let (held, ctx, weak) = on(state, context, window);
     let dropped_at = Rc::clone(&last_drop);
@@ -330,16 +373,17 @@ pub fn wire(window: &AppWindow, state: &Shared, context: &Rc<Context>) {
 
     let (held, ctx, weak) = on(state, context, window);
     let dropped_at = Rc::clone(&last_drop);
-    sandbox.on_cell_dropped(move |from, from_bench, to, to_bench| {
+    sandbox.on_cell_dropped(move |from, from_bench, to, to_bench, after| {
         let (from, to) = (cell_at(from, from_bench), cell_at(to, to_bench));
 
         dropped_at.set(Some(Instant::now()));
+        held.borrow_mut().plan = None;
 
         if from != to {
             edit(&held, &ctx, |roster| {
                 let lineup = roster.current_mut();
 
-                if let Some(plan) = lineup.arrange(Some(from), to, Edge::Before) {
+                if let Some(plan) = lineup.arrange(Some(from), to, edge_of(after)) {
                     lineup.commit(&plan, None);
                 }
             });
@@ -354,6 +398,7 @@ pub fn wire(window: &AppWindow, state: &Shared, context: &Rc<Context>) {
     let dropped_at = Rc::clone(&last_drop);
     sandbox.on_cell_discarded(move |index, bench| {
         dropped_at.set(Some(Instant::now()));
+        held.borrow_mut().plan = None;
         edit(&held, &ctx, |roster| {
             roster.current_mut().take(cell_at(index, bench));
         });
@@ -648,6 +693,7 @@ fn cell_of(painter: &Painter<'_>, member: Option<&Member>, priced: Priced) -> De
 
     DeckCell {
         filled: true,
+        aimed: false,
         has_icon: icon.is_some(),
         icon: icon.unwrap_or_default(),
         fallback: format!("{:03}-{}", member.id, member.form + 1).into(),
@@ -845,8 +891,8 @@ pub fn sync(ui: &AppWindow, state: &Shared, context: &Rc<Context>, staging: Opti
         .map(|index| cell_of(&painter, lineup.bench.get(index).and_then(Option::as_ref), priced.get(&Cell::Bench(index)).copied().unwrap_or_default()))
         .collect();
 
-    sandbox.set_slots(ModelRc::new(VecModel::from(slots)));
-    sandbox.set_bench(ModelRc::new(VecModel::from(bench)));
+    state.borrow_mut().resting = (slots, bench);
+    show_deck(ui, state);
     sandbox.set_lineup_name(lineup.name.as_str().into());
     sandbox.set_search(state.borrow().saved().search.as_str().into());
     sandbox.set_filter_active(context.pages().is_some_and(|pages| pages.cats.borrow().filter.is_active()));

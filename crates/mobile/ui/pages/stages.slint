@@ -1,5 +1,6 @@
 import { ListView } from "std-widgets.slint";
 import { Theme } from "../theme.slint";
+import { SwipeGuard } from "../shell.slint";
 import { Btn, Tone, Input, Combo, Label, Status, Dialog, Panel, Rule, VRule, Card, OutlinedCard, TapTip } from "../widgets/basics.slint";
 import { Drawer, EdgeGrab } from "../widgets/drawer.slint";
 import { Line, StatCell, HeaderBtn, Lines, StatGrid, HeaderToggle, Zebra } from "../widgets/detail.slint";
@@ -393,6 +394,7 @@ component Battleground inherits Section {
         property <length> offset;
         property <length> grab-x;
         property <length> grab-offset;
+        SwipeGuard { }
         TouchArea {
             pointer-event(event) => {
                 if event.kind == PointerEventKind.down {

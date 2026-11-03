@@ -35,6 +35,7 @@ pub struct Saved {
     pub settings: Settings,
     pub orientation: Orientation,
     pub exports: Exports,
+    pub fullscreen: bool,
 }
 
 impl Saved {
@@ -52,11 +53,12 @@ pub struct State {
     settings: RefCell<Settings>,
     orientation: Cell<Orientation>,
     exports: Cell<Exports>,
+    fullscreen: Cell<bool>,
 }
 
 impl State {
     pub fn new(saved: Saved) -> Self {
-        Self { settings: RefCell::new(saved.settings), orientation: Cell::new(saved.orientation), exports: Cell::new(saved.exports) }
+        Self { settings: RefCell::new(saved.settings), orientation: Cell::new(saved.orientation), exports: Cell::new(saved.exports), fullscreen: Cell::new(saved.fullscreen) }
     }
 
     pub fn settings(&self) -> std::cell::Ref<'_, Settings> {
@@ -76,6 +78,15 @@ impl State {
         self.save();
     }
 
+    pub fn fullscreen(&self) -> bool {
+        self.fullscreen.get()
+    }
+
+    pub fn set_fullscreen(&self, fullscreen: bool) {
+        self.fullscreen.set(fullscreen);
+        self.save();
+    }
+
     pub fn exports(&self) -> Exports {
         self.exports.get()
     }
@@ -91,7 +102,7 @@ impl State {
     }
 
     fn save(&self) {
-        let saved = Saved { settings: self.settings.borrow().clone(), orientation: self.orientation.get(), exports: self.exports.get() };
+        let saved = Saved { settings: self.settings.borrow().clone(), orientation: self.orientation.get(), exports: self.exports.get(), fullscreen: self.fullscreen.get() };
 
         if let Err(err) = json::persist(json::config_file(SETTINGS_FILE), &saved) {
             warn!("The settings could not be saved: {err}");

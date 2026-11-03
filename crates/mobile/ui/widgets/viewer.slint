@@ -1,4 +1,5 @@
 import { Theme } from "../theme.slint";
+import { SwipeGuard } from "../shell.slint";
 import { Btn, Tone, Input, Combo, Toggle } from "basics.slint";
 
 export struct MotionTile { label: string, present: bool, active: bool, size: length }
@@ -220,6 +221,7 @@ export component AnimViewer inherits Rectangle {
         }
     }
 
+    SwipeGuard { }
     gesture := ScaleRotateGestureHandler {
         started => { root.pinch-scale = 1.0; }
         updated => {

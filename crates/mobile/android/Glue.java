@@ -5,8 +5,11 @@ import android.app.Fragment;
 import android.app.FragmentManager;
 import android.content.ClipData;
 import android.content.ContentResolver;
+import android.content.Context;
 import android.content.Intent;
 import android.database.Cursor;
+import android.graphics.Color;
+import android.media.AudioManager;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Environment;
@@ -16,6 +19,7 @@ import android.view.View;
 import android.view.Window;
 import android.view.WindowInsets;
 import android.view.WindowInsetsController;
+import android.view.WindowManager;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
@@ -28,14 +32,18 @@ public class Glue extends Fragment {
 
     private static final Uri DOWNLOADS_ROOT = DocumentsContract.buildRootUri("com.android.providers.downloads.documents", "downloads");
 
+    private static boolean fullscreen;
+
     private static native void picked(int request, String[] uris);
+
+    private static native void shown(boolean visible);
 
     private static Glue attach(Activity activity) {
         FragmentManager manager = activity.getFragmentManager();
         Glue glue = (Glue) manager.findFragmentByTag(TAG);
         if (glue == null) {
             glue = new Glue();
-            manager.beginTransaction().add(glue, TAG).commitNow();
+            manager.beginTransaction().add(glue, TAG).commitNowAllowingStateLoss();
         }
         return glue;
     }
@@ -70,29 +78,75 @@ public class Glue extends Fragment {
         });
     }
 
-    public static void immersive(final Activity activity) {
+    public static void bars(final Activity activity, final boolean hidden) {
         activity.runOnUiThread(new Runnable() {
             @Override
             public void run() {
-                Window window = activity.getWindow();
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-                    window.setDecorFitsSystemWindows(false);
-                    WindowInsetsController controller = window.getInsetsController();
-                    if (controller != null) {
-                        controller.setSystemBarsBehavior(WindowInsetsController.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE);
-                        controller.hide(WindowInsets.Type.systemBars());
-                    }
-                } else {
-                    window.getDecorView().setSystemUiVisibility(
-                        View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
-                            | View.SYSTEM_UI_FLAG_LAYOUT_STABLE
-                            | View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION
-                            | View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN
-                            | View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
-                            | View.SYSTEM_UI_FLAG_FULLSCREEN);
-                }
+                fullscreen = hidden;
+                attach(activity);
+                applyBars(activity);
             }
         });
+    }
+
+    private static void applyBars(Activity activity) {
+        Window window = activity.getWindow();
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            WindowManager.LayoutParams params = window.getAttributes();
+            params.layoutInDisplayCutoutMode = Build.VERSION.SDK_INT >= Build.VERSION_CODES.R
+                ? WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS
+                : WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES;
+            window.setAttributes(params);
+        }
+        window.setStatusBarColor(Color.TRANSPARENT);
+        window.setNavigationBarColor(Color.TRANSPARENT);
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            window.setDecorFitsSystemWindows(false);
+            WindowInsetsController controller = window.getInsetsController();
+            if (controller != null) {
+                controller.setSystemBarsBehavior(WindowInsetsController.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE);
+                controller.setSystemBarsAppearance(0, WindowInsetsController.APPEARANCE_LIGHT_STATUS_BARS | WindowInsetsController.APPEARANCE_LIGHT_NAVIGATION_BARS);
+                if (fullscreen) {
+                    controller.hide(WindowInsets.Type.systemBars());
+                } else {
+                    controller.show(WindowInsets.Type.systemBars());
+                }
+            }
+        } else {
+            int edge = View.SYSTEM_UI_FLAG_LAYOUT_STABLE
+                | View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION
+                | View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN;
+            int hide = View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
+                | View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
+                | View.SYSTEM_UI_FLAG_FULLSCREEN;
+            window.getDecorView().setSystemUiVisibility(fullscreen ? edge | hide : edge);
+        }
+    }
+
+    public static int outputRate(Activity activity) {
+        AudioManager manager = (AudioManager) activity.getSystemService(Context.AUDIO_SERVICE);
+        String rate = manager == null ? null : manager.getProperty(AudioManager.PROPERTY_OUTPUT_SAMPLE_RATE);
+        if (rate == null) {
+            return 0;
+        }
+        try {
+            return Integer.parseInt(rate);
+        } catch (NumberFormatException unreadable) {
+            return 0;
+        }
+    }
+
+    @Override
+    public void onResume() {
+        super.onResume();
+        applyBars(getActivity());
+        shown(true);
+    }
+
+    @Override
+    public void onPause() {
+        super.onPause();
+        shown(false);
     }
 
     @Override

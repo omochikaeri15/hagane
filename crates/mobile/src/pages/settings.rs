@@ -228,6 +228,8 @@ pub fn wire(window: &AppWindow, context: &Rc<Context>) -> Shared {
     let state: Shared = Rc::new(RefCell::new(State::new(context)));
     let settings = window.global::<Settings>();
 
+    settings.set_fullscreen(context.state.fullscreen());
+
     settings.set_licenses(LICENSES.into());
     settings.set_forms(ModelRc::new(VecModel::from((0..cat_files::FORM_COUNT).map(|form| SharedString::from(cat_files::form_name(form))).collect::<Vec<_>>())));
     settings.set_data_path(std::env::current_dir().map_or_else(|_| "unknown".into(), |path| path.display().to_string().into()));
@@ -251,6 +253,15 @@ pub fn wire(window: &AppWindow, context: &Rc<Context>) -> Shared {
     let (held, ctx, weak) = on(&state, context, window);
     settings.on_source_mode_set(move |index| {
         ctx.state.apply(|settings| settings.files.source_mode = if index == 0 { UpdateMode::Prompt } else { UpdateMode::Ignore });
+
+        if let Some(ui) = weak.upgrade() {
+            refresh(&ui, &held, &ctx);
+        }
+    });
+
+    let (held, ctx, weak) = on(&state, context, window);
+    settings.on_toggle_fullscreen(move |value| {
+        ctx.state.set_fullscreen(value);
 
         if let Some(ui) = weak.upgrade() {
             refresh(&ui, &held, &ctx);
@@ -983,6 +994,7 @@ fn refresh(ui: &AppWindow, state: &Shared, context: &Rc<Context>) {
 
     settings.set_tab(held.tab as i32);
     settings.set_logging(core.general.enable_logging);
+    settings.set_fullscreen(context.state.fullscreen());
 
     let none_index = core.general.language_priority.iter().position(|code| code == "--");
     let languages: Vec<LangRow> = core

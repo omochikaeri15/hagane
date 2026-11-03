@@ -80,7 +80,7 @@ pub fn pick(ui: &AppWindow, multiple: bool, request: i32) -> Result<(), String> 
     let mtm = MainThreadMarker::new().ok_or("the document picker must open on the main thread")?;
     let any = UTType::typeWithIdentifier(&NSString::from_str(ANY_ITEM)).ok_or("the generic document type is unknown")?;
     let types = NSArray::from_retained_slice(&[any]);
-    let picker = unsafe { UIDocumentPickerViewController::initForOpeningContentTypes_asCopy(mtm.alloc(), &types, true) };
+    let picker = UIDocumentPickerViewController::initForOpeningContentTypes_asCopy(mtm.alloc(), &types, true);
     let delegate = PickerDelegate::new(mtm, request);
 
     picker.setAllowsMultipleSelection(multiple);

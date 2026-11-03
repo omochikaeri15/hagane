@@ -76,6 +76,7 @@ export global Settings {
     in property <string> data-path;
 
     in property <int> orientation;
+    in property <bool> fullscreen;
     in property <int> exports;
     in property <int> replay-source;
     in property <int> sandbox-banner-form;
@@ -132,6 +133,7 @@ export global Settings {
     callback delete-game();
     callback clear-cache();
     callback orientation-set(int);
+    callback toggle-fullscreen(bool);
     callback exports-set(int);
     callback replay-source-set(int);
     callback sandbox-banner-form-set(int);
@@ -222,6 +224,7 @@ component General inherits VerticalLayout {
         Btn { label: Updater.label; tone: Updater.tone; enabled: Updater.enabled; width: 210px; height: 32px; text-size: 14px; clicked => { Updater.check(); } }
         Row { label: "Orientation"; Combo { width: 130px; height: 30px; text-size: 13px; options: ["Automatic", "Portrait", "Landscape"]; current: Settings.orientation; selected(index) => { Settings.orientation-set(index); } } }
         Row { label: "Exports"; Combo { width: 130px; height: 30px; text-size: 13px; options: ["App Folder", "Ask Where"]; current: Settings.exports; selected(index) => { Settings.exports-set(index); } } }
+        Toggle { value: Settings.fullscreen; label: "Fullscreen"; changed(value) => { Settings.toggle-fullscreen(value); } }
     }
     Section {
         title: "Behavior";

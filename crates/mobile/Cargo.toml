@@ -69,7 +69,7 @@ icon = "@mipmap/ic_launcher"
 theme = "@android:style/Theme.DeviceDefault.NoActionBar"
 
 [package.metadata.android.application.activity]
-config_changes = "orientation|keyboardHidden|screenSize|screenLayout|uiMode|density"
+config_changes = "orientation|keyboard|keyboardHidden|navigation|touchscreen|screenSize|smallestScreenSize|screenLayout|uiMode|density|fontScale|locale|layoutDirection"
 launch_mode = "singleTask"
 exported = true
 

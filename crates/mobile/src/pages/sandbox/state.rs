@@ -108,6 +108,7 @@ pub struct Saved {
     pub scaling: Option<Scaling>,
     pub lag: Lag,
     pub battle_orientation: Orientation,
+    pub fullscreen: bool,
 }
 
 impl Default for Saved {
@@ -128,6 +129,7 @@ impl Default for Saved {
             scaling: None,
             lag: Lag::default(),
             battle_orientation: Orientation::Landscape,
+            fullscreen: true,
         }
     }
 }

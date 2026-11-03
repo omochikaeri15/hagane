@@ -38,5 +38,23 @@ export global Shell {
     callback navigate(Page);
     callback engine-landed();
     callback back();
+    in-out property <length> press-x;
+    in-out property <length> press-y;
+    in-out property <int> press-seq;
+    in-out property <int> guard-claim: -1;
     callback measured(length, length, length, length);
+    callback fullscreen-changed(bool);
+}
+
+export component SwipeGuard {
+    property <length> left: self.absolute-position.x;
+    property <length> top: self.absolute-position.y;
+    property <int> claim: Shell.press-x >= self.left && Shell.press-x < self.left + self.width && Shell.press-y >= self.top && Shell.press-y < self.top + self.height ? Shell.press-seq : -1;
+    width: 100%;
+    height: 100%;
+    changed claim => {
+        if self.claim >= 0 {
+            Shell.guard-claim = self.claim;
+        }
+    }
 }

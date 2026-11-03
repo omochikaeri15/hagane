@@ -1,5 +1,5 @@
 import { Theme } from "../theme.slint";
-import { Shell } from "../shell.slint";
+import { Shell, SwipeGuard } from "../shell.slint";
 
 export enum Tone { primary, danger, success, warning, neutral, toggle, inert, text, status-success, status-warning, status-danger }
 
@@ -529,6 +529,7 @@ export component Dialog inherits Rectangle {
         drop-shadow-blur: 30px;
         drop-shadow-offset-y: 8px;
         drop-shadow-color: #00000059;
+        if root.open: SwipeGuard { }
         TouchArea { pointer-event(event) => { if event.kind == PointerEventKind.down { Shell.taps += 1; } } }
         frame := VerticalLayout {
             Rectangle {
@@ -633,6 +634,7 @@ export component Slider inherits Rectangle {
     in property <int> maximum: 10;
     in property <int> value;
     in property <bool> enabled: true;
+    in property <bool> guarded: true;
     callback changed(int);
     height: 24px;
     width: 160px;
@@ -668,6 +670,7 @@ export component Slider inherits Rectangle {
         border-width: 2px;
         border-color: Theme.white;
     }
+    if root.guarded: SwipeGuard { }
     ta := TouchArea {
         enabled: root.enabled;
         pointer-event(event) => {

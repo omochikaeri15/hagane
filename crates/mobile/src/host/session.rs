@@ -109,6 +109,7 @@ pub(super) struct Session {
     frozen: usize,
     discard: bool,
     due: Option<Instant>,
+    held_since: Option<Instant>,
     lag: Lag,
     failure: Option<String>,
     stale: bool,
@@ -135,6 +136,7 @@ impl Session {
             frozen: 0,
             discard: false,
             due: None,
+            held_since: None,
             lag: Lag::default(),
             failure: None,
             reel: None,
@@ -260,6 +262,21 @@ impl Session {
         self.entered = true;
         self.phase = Phase::Running;
         self.due = None;
+    }
+
+    pub(super) fn hold(&mut self, held: bool) {
+        self.driver.hold_sound(held);
+
+        if held {
+            self.held_since.get_or_insert_with(Instant::now);
+        } else if let Some(since) = self.held_since.take() {
+            self.started += since.elapsed();
+            self.due = None;
+        }
+    }
+
+    pub(super) fn hush(&self) {
+        self.driver.hush();
     }
 
     pub(super) fn terminate(&mut self) {

@@ -87,6 +87,13 @@ pub fn wire(window: &AppWindow, state: &Shared, context: &Rc<Context>) {
     let on = |state: &Shared, context: &Rc<Context>, window: &AppWindow| (Rc::clone(state), Rc::clone(context), window.as_weak());
 
     let (held, _, _) = on(state, context, window);
+    platform::on_shown(move |shown| {
+        if let Some(arena) = &held.borrow().arena {
+            arena.send(Command::Hold(!shown));
+        }
+    });
+
+    let (held, _, _) = on(state, context, window);
     sandbox.on_touch(move |kind, x, y| {
         let held_state = held.borrow();
         let battle = &held_state.battle;
@@ -166,7 +173,7 @@ pub fn wire(window: &AppWindow, state: &Shared, context: &Rc<Context>) {
         }
     });
 
-    let (held, _, _) = on(state, context, window);
+    let (held, _, weak) = on(state, context, window);
     sandbox.on_resized(move |width, height| {
         let mut state = held.borrow_mut();
 
@@ -177,6 +184,10 @@ pub fn wire(window: &AppWindow, state: &Shared, context: &Rc<Context>) {
         state.battle.bounds = (width, height);
 
         if let Some(arena) = &state.arena {
+            if let Some(ui) = weak.upgrade() {
+                arena.send(Command::Density(ui.window().scale_factor()));
+            }
+
             arena.send(Command::Resize(width, height));
         }
     });

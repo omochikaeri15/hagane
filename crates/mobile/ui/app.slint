@@ -42,10 +42,13 @@ export component AppWindow inherits Window {
     property <int> landed: Shell.engine-generation;
     changed landed => { Shell.engine-landed(); }
 
-    property <length> inset-top: root.safe-area-insets.top;
-    property <length> inset-bottom: root.safe-area-insets.bottom;
-    property <length> inset-left: root.safe-area-insets.left;
-    property <length> inset-right: root.safe-area-insets.right;
+    property <bool> fullscreen: Sandbox.active ? Sandbox.fullscreen : Settings.fullscreen;
+    changed fullscreen => { Shell.fullscreen-changed(self.fullscreen); }
+
+    property <length> inset-top: root.fullscreen ? 0px : root.safe-area-insets.top;
+    property <length> inset-bottom: root.fullscreen ? 0px : root.safe-area-insets.bottom;
+    property <length> inset-left: root.fullscreen ? 0px : root.safe-area-insets.left;
+    property <length> inset-right: root.fullscreen ? 0px : root.safe-area-insets.right;
 
     app := Rectangle {
         x: root.inset-left;

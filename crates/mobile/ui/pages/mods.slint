@@ -203,7 +203,7 @@ component ExportDialog inherits Dialog {
             spacing: 8px;
             Label { text: "Package mod into a standalone .bcm archive"; font-size: 14px; wrap: word-wrap; }
             Field { label: "Title"; Input { width: 160px; height: 30px; text-size: 14px; text <=> Mods.export-title; enabled: !Mods.export-running; edited(value) => { Mods.export-title-changed(value); } } }
-            Field { label: "Compression"; Slider { minimum: Mods.compression-min; maximum: Mods.compression-max; value: Mods.compression; enabled: !Mods.export-running; changed(value) => { Mods.compression-changed(value); } } Label { text: Mods.compression; font-size: 13px; vertical-alignment: center; } }
+            Field { label: "Compression"; Slider { guarded: false; minimum: Mods.compression-min; maximum: Mods.compression-max; value: Mods.compression; enabled: !Mods.export-running; changed(value) => { Mods.compression-changed(value); } } Label { text: Mods.compression; font-size: 13px; vertical-alignment: center; } }
             Btn { width: 170px; height: 30px; text-size: 13px; label: "Create BCM Package"; enabled: Mods.selected && !Mods.export-running; clicked => { Mods.start-export(); } }
         }
         if Mods.export-tab == 1: VerticalLayout {

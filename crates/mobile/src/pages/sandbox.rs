@@ -21,7 +21,7 @@ use foundry::domains::sandbox::base::Parts;
 use foundry::domains::sandbox::config::{self as sandbox_config, CatGod};
 use foundry::domains::sandbox::replay::VANILLA_APP;
 use foundry::domains::sandbox::rules::Rules;
-use foundry::domains::sandbox::{Cell, TECHS, scored};
+use foundry::domains::sandbox::{Arrangement, Cell, TECHS, scored};
 use foundry::domains::stage::lottery::Lottery;
 use foundry::domains::stage::scanner::StageBundle;
 use foundry::domains::stage::{GlobalMapId, GlobalStageId, StageRegistry, navigate};
@@ -31,7 +31,7 @@ use crate::host::{Arena, Command, Label, Launch, Standing};
 use crate::images::Images;
 use crate::pages::Context;
 use crate::roster::Roster;
-use crate::{AppWindow, Page, Sandbox, Shell, bridge};
+use crate::{AppWindow, DeckCell, Page, Sandbox, Shell, bridge};
 
 use self::orbs::Book;
 use self::state::{Device, Saved, Store, Tab, Volume};
@@ -59,6 +59,8 @@ pub struct State {
     pub parts: Option<Rc<Parts>>,
     pub roster: Rc<Roster>,
     pub editing: Option<(Cell, u32)>,
+    pub resting: (Vec<DeckCell>, Vec<DeckCell>),
+    pub plan: Option<Arrangement>,
     pub combos: lineup::ComboFilters,
     pub orb_slot: Option<usize>,
     pub deleting: bool,
@@ -88,6 +90,8 @@ impl State {
             parts: None,
             roster,
             editing: None,
+            resting: (Vec::new(), Vec::new()),
+            plan: None,
             combos: lineup::ComboFilters::default(),
             orb_slot: None,
             deleting: false,
@@ -284,6 +288,7 @@ pub fn wire(window: &AppWindow, context: &Rc<Context>) -> Shared {
     let sandbox = window.global::<Sandbox>();
 
     sandbox.set_terms(ACKNOWLEDGMENT.into());
+    sandbox.set_fullscreen(state.borrow().saved().fullscreen);
     sandbox.set_roster(slint::ModelRc::from(Rc::clone(&state.borrow().roster) as Rc<dyn slint::Model<Data = crate::RosterRow>>));
 
     {

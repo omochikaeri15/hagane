@@ -44,6 +44,8 @@ pub enum Command {
     Volumes(i32, i32),
     Lag(Lag),
     Display { scale: f32, padded: bool },
+    Density(f32),
+    Hold(bool),
     Diagnose(bool),
     Vault(Arc<Vault>),
     Quit,
@@ -92,6 +94,8 @@ struct Stage {
     bounds: (f32, f32),
     scale: f32,
     padded: bool,
+    density: f32,
+    held: bool,
     diagnosing: bool,
     standing: Standing,
     failure: Option<String>,
@@ -178,6 +182,14 @@ impl Stage {
                 self.scale = scale;
                 self.padded = padded;
             }
+            Command::Density(density) => self.density = density.max(1.0),
+            Command::Hold(held) => {
+                self.held = held;
+
+                if let Some(session) = self.session.as_mut() {
+                    session.hold(held);
+                }
+            }
             Command::Diagnose(on) => self.diagnosing = on,
             Command::Vault(vault) => {
                 self.vault = vault;
@@ -236,6 +248,10 @@ impl Stage {
         }
 
         if self.was_running && !running {
+            if let Some(session) = self.session.as_ref() {
+                session.hush();
+            }
+
             self.post(Event::Ended);
         }
 
@@ -254,8 +270,8 @@ impl Stage {
 
         let surfaced = session.surfaced();
         let canvas = Canvas { surfaced, scale: if surfaced { self.scale } else { 1.0 }, padded: surfaced && self.padded, aspect: session.aspect() };
-        let pixel_width = ((width * canvas.scale).round() as u32).max(LEAST_SIDE);
-        let pixel_height = ((height * canvas.scale).round() as u32).max(LEAST_SIDE);
+        let pixel_width = ((width * canvas.scale * self.density).round() as u32).max(LEAST_SIDE);
+        let pixel_height = ((height * canvas.scale * self.density).round() as u32).max(LEAST_SIDE);
         let frame = session.frame().borrow();
 
         if frame.quads.is_empty() {
@@ -274,12 +290,12 @@ impl Arena {
     pub fn spawn(weak: Weak<AppWindow>, ticket: bridge::Ticket, vault: Arc<Vault>) -> Option<Self> {
         let (sender, receiver) = mpsc::channel::<Command>();
         let spawned = thread::Builder::new().name("battle".to_owned()).spawn(move || {
-            let mut stage = Stage { session: None, vault, weak, ticket, bounds: (0.0, 0.0), scale: 1.0, padded: false, diagnosing: false, standing: Standing::default(), failure: None, was_running: false };
+            let mut stage = Stage { session: None, vault, weak, ticket, bounds: (0.0, 0.0), scale: 1.0, padded: false, density: 1.0, held: false, diagnosing: false, standing: Standing::default(), failure: None, was_running: false };
 
             info!("emu: the battle thread is up");
 
             loop {
-                let command = if stage.running() { receiver.recv_timeout(TICK) } else { receiver.recv().map_err(|_| RecvTimeoutError::Disconnected) };
+                let command = if stage.running() && !stage.held { receiver.recv_timeout(TICK) } else { receiver.recv().map_err(|_| RecvTimeoutError::Disconnected) };
 
                 match command {
                     Ok(command) => {
@@ -297,7 +313,9 @@ impl Arena {
                     Err(RecvTimeoutError::Disconnected) => break,
                 }
 
-                stage.tick();
+                if !stage.held {
+                    stage.tick();
+                }
             }
 
             info!("emu: the battle thread is down");

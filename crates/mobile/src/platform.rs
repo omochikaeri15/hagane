@@ -126,8 +126,31 @@ pub fn write_document(uri: &str, _path: &Path) -> Result<(), String> {
 }
 
 #[cfg(target_os = "android")]
-pub fn immersive() {
-    if let Err(err) = crate::android::immersive() {
-        warn!("The system bars could not be hidden: {err}");
+pub fn set_fullscreen(fullscreen: bool) {
+    if let Err(err) = crate::android::set_bars(fullscreen) {
+        warn!("The system bars could not be changed: {err}");
     }
+}
+
+#[cfg(not(target_os = "android"))]
+pub fn set_fullscreen(fullscreen: bool) {
+    debug!(fullscreen, "The system bars are only controlled on Android");
+}
+
+#[cfg(target_os = "android")]
+pub fn on_shown(handler: impl Fn(bool) + 'static) {
+    crate::android::on_shown(handler);
+}
+
+#[cfg(not(target_os = "android"))]
+pub fn on_shown(_handler: impl Fn(bool) + 'static) {}
+
+#[cfg(target_os = "android")]
+pub fn output_rate() -> Option<u32> {
+    crate::android::output_rate().inspect_err(|err| warn!("The output sample rate could not be read: {err}")).ok().filter(|rate| *rate > 0)
+}
+
+#[cfg(not(target_os = "android"))]
+pub fn output_rate() -> Option<u32> {
+    None
 }

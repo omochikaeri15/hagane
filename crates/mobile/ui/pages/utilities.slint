@@ -1,4 +1,5 @@
 import { Theme } from "../theme.slint";
+import { SwipeGuard } from "../shell.slint";
 import { Btn, Tone, Input, Combo, Label, Rule, Workspace, Card, Dialog } from "../widgets/basics.slint";
 import { Console } from "../widgets/console.slint";
 import { HeaderToggle } from "../widgets/detail.slint";
@@ -126,6 +127,7 @@ component BackdropViewer inherits Rectangle {
     changed height => { Backdrop.resized(self.width, self.height); }
     if Backdrop.loaded: Image { source: Backdrop.frame; width: parent.width; height: parent.height; image-fit: fill; image-rendering: smooth; }
     if !Backdrop.loaded: Label { text: "Enter a Background ID to load a background"; horizontal-alignment: center; vertical-alignment: center; width: parent.width - 32px; x: 16px; height: parent.height; wrap: word-wrap; }
+    SwipeGuard { }
     gesture := ScaleRotateGestureHandler {
         started => { root.pinch-scale = 1.0; }
         updated => {

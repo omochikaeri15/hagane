@@ -1036,6 +1036,14 @@ impl Driver {
         }
     }
 
+    pub(super) fn hold_sound(&self, held: bool) {
+        self.speaker.hold(held);
+    }
+
+    pub(super) fn hush(&self) {
+        self.speaker.hush();
+    }
+
     pub(super) fn silence(&mut self) {
         if let Err(fault) = sound_manager(&mut self.ctx).and_then(sound_pause_all) {
             warn!("emu: sound could not be paused: {fault}");

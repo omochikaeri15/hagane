@@ -7,11 +7,12 @@ use std::fs::File;
 use std::io;
 use std::os::fd::FromRawFd;
 use std::path::{Path, PathBuf};
+use std::process;
 use std::sync::OnceLock;
 use std::time::Duration;
 
 use jni::objects::{GlobalRef, JClass, JObject, JObjectArray, JString, JValue};
-use jni::sys::jint;
+use jni::sys::{jboolean, jint};
 use jni::{JNIEnv, JavaVM, NativeMethod};
 use slint::android::AndroidApp;
 use slint::{ComponentHandle, PhysicalSize, Timer, TimerMode};
@@ -30,8 +31,11 @@ static GLUE: OnceLock<GlobalRef> = OnceLock::new();
 const GLUE_DEX: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/classes.dex"));
 const GLUE_CLASS: &str = "app.omochikaeri.hagane.Glue";
 
+type ShownHandler = Box<dyn Fn(bool)>;
+
 thread_local! {
     static WATCH: RefCell<Option<Timer>> = const { RefCell::new(None) };
+    static SHOWN: RefCell<Option<ShownHandler>> = const { RefCell::new(None) };
 }
 
 const WATCH_INTERVAL: Duration = Duration::from_millis(250);
@@ -93,12 +97,14 @@ fn android_main(app: AndroidApp) {
 
     if let Err(err) = slint::android::init(app) {
         error!("The Android backend could not start: {err}");
-        return;
+        process::exit(1);
     }
 
     if let Err(err) = crate::run(home) {
         error!("The app stopped: {err}");
     }
+
+    process::exit(0);
 }
 
 const ORIENTATION_UNSPECIFIED: i32 = -1;
@@ -355,7 +361,10 @@ fn glue_class<'local>(env: &mut JNIEnv<'local>, activity: &JObject) -> Result<JC
         let name = jni(env, "the glue class name could not be created", |env| env.new_string(GLUE_CLASS))?;
         let class = jni(env, "the glue class could not be found", |env| env.call_method(&loader, "loadClass", "(Ljava/lang/String;)Ljava/lang/Class;", &[JValue::Object(&name)]).and_then(|value| value.l()))?;
         let class = JClass::from(class);
-        let methods = [NativeMethod { name: "picked".into(), sig: "(I[Ljava/lang/String;)V".into(), fn_ptr: picked as *const () as *mut c_void }];
+        let methods = [
+            NativeMethod { name: "picked".into(), sig: "(I[Ljava/lang/String;)V".into(), fn_ptr: picked as *const () as *mut c_void },
+            NativeMethod { name: "shown".into(), sig: "(Z)V".into(), fn_ptr: shown as *const () as *mut c_void },
+        ];
 
         jni(env, "the picker callback could not be bound", |env| env.register_native_methods(&class, &methods))?;
 
@@ -366,6 +375,25 @@ fn glue_class<'local>(env: &mut JNIEnv<'local>, activity: &JObject) -> Result<JC
     let held = GLUE.get().ok_or("the glue class is not loaded")?;
 
     jni(env, "the glue class could not be referenced", |env| env.new_local_ref(held.as_obj())).map(JClass::from)
+}
+
+extern "system" fn shown(_env: JNIEnv, _class: JClass, visible: jboolean) {
+    let visible = visible != 0;
+    let delivered = slint::invoke_from_event_loop(move || {
+        SHOWN.with(|handler| {
+            if let Some(handler) = handler.borrow().as_ref() {
+                handler(visible);
+            }
+        });
+    });
+
+    if let Err(err) = delivered {
+        error!("The app could not be told it was shown or hidden: {err}");
+    }
+}
+
+pub fn on_shown(handler: impl Fn(bool) + 'static) {
+    SHOWN.with(|held| *held.borrow_mut() = Some(Box::new(handler)));
 }
 
 extern "system" fn picked(mut env: JNIEnv, _class: JClass, request: jint, uris: JObjectArray) {
@@ -417,8 +445,18 @@ pub fn save(name: &str, mime: &str, request: i32) -> Result<(), String> {
     })
 }
 
-pub fn immersive() -> Result<(), String> {
-    with_glue("the system bars could not be hidden", |env, activity, class| env.call_static_method(class, "immersive", "(Landroid/app/Activity;)V", &[JValue::Object(activity)]).map(|_| ()))
+pub fn set_bars(fullscreen: bool) -> Result<(), String> {
+    with_glue("the system bars could not be changed", |env, activity, class| {
+        env.call_static_method(class, "bars", "(Landroid/app/Activity;Z)V", &[JValue::Object(activity), JValue::Bool(u8::from(fullscreen))]).map(drop)
+    })
+}
+
+pub fn output_rate() -> Result<u32, String> {
+    let rate = with_glue("the output sample rate could not be read", |env, activity, class| {
+        env.call_static_method(class, "outputRate", "(Landroid/app/Activity;)I", &[JValue::Object(activity)]).and_then(|value| value.i())
+    })?;
+
+    Ok(u32::try_from(rate).unwrap_or_default())
 }
 
 pub fn copy_document(uri: &str, folder: &Path) -> Result<PathBuf, String> {

@@ -1,5 +1,6 @@
 import { ListView } from "std-widgets.slint";
 import { Theme } from "../theme.slint";
+import { SwipeGuard } from "../shell.slint";
 import { Btn, Tone, Input, TextBox, Combo, Label, Panel, Rule, Workspace, Toast } from "../widgets/basics.slint";
 import { Drawer, EdgeGrab } from "../widgets/drawer.slint";
 import { Shell } from "../shell.slint";
@@ -114,6 +115,7 @@ export component FilesPage inherits Rectangle {
                         image-fit: contain;
                         image-rendering: pixelated;
                     }
+                    SwipeGuard { }
                     gesture := ScaleRotateGestureHandler {
                         started => { pic.pinch-scale = 1.0; }
                         updated => {

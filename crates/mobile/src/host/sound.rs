@@ -6,10 +6,13 @@ use std::rc::{Rc, Weak};
 use std::sync::Arc;
 
 use rodio::buffer::SamplesBuffer;
-use rodio::{Decoder, DeviceSinkBuilder, MixerDeviceSink, Player, Source};
-use tracing::{debug, warn};
+use rodio::cpal::BufferSize;
+use rodio::{Decoder, DeviceSinkBuilder, DeviceSinkError, MixerDeviceSink, Player, Source};
+use tracing::{debug, info, warn};
 
 use emulator::engine::{AudioHost, AudioSource, SoundData};
+
+use crate::platform;
 
 use super::assets::{FileIndex, SharedLedger};
 
@@ -25,6 +28,8 @@ const DESCRIPTION: &[u8; 4] = b"desc";
 const SAMPLES: &[u8; 4] = b"data";
 const LITTLE_ENDIAN: u32 = 2;
 const EDIT_COUNT: usize = 4;
+const STEREO: NonZero<u16> = NonZero::<u16>::MIN.saturating_add(1);
+const BUFFERS_PER_SECOND: u32 = 20;
 
 #[derive(Clone)]
 struct Effect {
@@ -54,17 +59,54 @@ trait Playing {
     fn set_level(&self, level: f32);
     fn stop(&self);
     fn busy(&self) -> bool;
+    fn hold(&self, held: bool);
+}
+
+fn open_output() -> Result<MixerDeviceSink, DeviceSinkError> {
+    let Some(rate) = platform::output_rate().and_then(NonZero::new) else {
+        return DeviceSinkBuilder::open_default_sink();
+    };
+
+    DeviceSinkBuilder::from_default_device()?
+        .with_sample_rate(rate)
+        .with_channels(STEREO)
+        .with_buffer_size(BufferSize::Fixed(rate.get() / BUFFERS_PER_SECOND))
+        .open_sink_or_fallback()
+        .or_else(|error| {
+            warn!("emu: the audio output refused {rate} Hz: {error}");
+
+            DeviceSinkBuilder::open_default_sink()
+        })
 }
 
 pub(super) struct Speaker {
     output: Option<MixerDeviceSink>,
+    voices: RefCell<Vec<Weak<Voice>>>,
 }
 
 impl Speaker {
     pub(super) fn open() -> Rc<Self> {
-        let output = DeviceSinkBuilder::open_default_sink().inspect_err(|error| warn!("emu: no audio output: {error}")).ok();
+        let output = open_output().inspect_err(|error| warn!("emu: no audio output: {error}")).ok();
 
-        Rc::new(Self { output })
+        if let Some(output) = &output {
+            info!(config = ?output.config(), "emu: audio output opened");
+        }
+
+        Rc::new(Self { output, voices: RefCell::new(Vec::new()) })
+    }
+
+    pub(super) fn hold(&self, held: bool) {
+        for voice in self.voices.borrow().iter().filter_map(Weak::upgrade) {
+            if let Some(playing) = voice.playing.borrow().as_ref() {
+                playing.hold(held);
+            }
+        }
+    }
+
+    pub(super) fn hush(&self) {
+        for voice in self.voices.borrow().iter().filter_map(Weak::upgrade) {
+            voice.stop();
+        }
     }
 
     fn start(&self, clip: &Clip, looped: bool, level: f32) -> Option<Box<dyn Playing>> {
@@ -115,6 +157,14 @@ impl Playing for Player {
 
     fn busy(&self) -> bool {
         !self.empty()
+    }
+
+    fn hold(&self, held: bool) {
+        if held {
+            self.pause();
+        } else {
+            self.play();
+        }
     }
 }
 
@@ -184,12 +234,11 @@ pub(super) struct Pool {
     speaker: Rc<Speaker>,
     buffers: Rc<Cell<i32>>,
     streams: Rc<Cell<i32>>,
-    voices: Vec<Weak<Voice>>,
 }
 
 impl Pool {
     pub(super) fn new(files: Rc<RefCell<FileIndex>>, ledger: SharedLedger, speaker: Rc<Speaker>) -> Self {
-        Self { files, ledger, speaker, buffers: Rc::new(Cell::new(0)), streams: Rc::new(Cell::new(0)), voices: Vec::new() }
+        Self { files, ledger, speaker, buffers: Rc::new(Cell::new(0)), streams: Rc::new(Cell::new(0)) }
     }
 
     fn name(path: &[u8]) -> String {
@@ -230,8 +279,11 @@ impl Pool {
             claims: Rc::clone(claims),
         });
 
-        self.voices.retain(|held| held.strong_count() > 0);
-        self.voices.push(Rc::downgrade(&voice));
+        let mut voices = self.speaker.voices.borrow_mut();
+
+        voices.retain(|held| held.strong_count() > 0);
+        voices.push(Rc::downgrade(&voice));
+        drop(voices);
 
         Some(voice)
     }
@@ -239,7 +291,7 @@ impl Pool {
 
 impl AudioHost for Pool {
     fn active_sources(&mut self) -> i32 {
-        self.voices.iter().filter_map(Weak::upgrade).filter(|voice| voice.is_playing()).count() as i32
+        self.speaker.voices.borrow().iter().filter_map(Weak::upgrade).filter(|voice| voice.is_playing()).count() as i32
     }
 
     fn source_capacity(&mut self) -> i32 {

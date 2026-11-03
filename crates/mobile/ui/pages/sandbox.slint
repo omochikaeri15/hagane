@@ -1,5 +1,6 @@
 import { ListView } from "std-widgets.slint";
 import { Theme } from "../theme.slint";
+import { SwipeGuard } from "../shell.slint";
 import { Btn, Tone, Input, Combo, Toggle, Label, Dialog, Rule, Progress, OutlinedCard, Card, Panel, Status, Slider } from "../widgets/basics.slint";
 import { HeaderToggle, RosterRow, OrbSlot, OrbPicture, Line, Lines } from "../widgets/detail.slint";
 import { Drawer, EdgeGrab } from "../widgets/drawer.slint";
@@ -8,7 +9,7 @@ import { StagesPage } from "stages.slint";
 import { Cats, FilterDialog, CatDetail } from "cats.slint";
 import { TreasureEditor, ArcRow, ChapterFold } from "settings.slint";
 
-export struct DeckCell { filled: bool, icon: image, has-icon: bool, fallback: string, level: string, cost: string, has-cost: bool, barred: bool, talented: bool, np: image, has-np: bool, orbs: [image] }
+export struct DeckCell { filled: bool, aimed: bool, icon: image, has-icon: bool, fallback: string, level: string, cost: string, has-cost: bool, barred: bool, talented: bool, np: image, has-np: bool, orbs: [image] }
 export struct ComboRow { line: int, name: string, effect: string, note: string, name-size: length, effect-size: length, note-size: length, active: bool, banned: bool, icons: [image], has: [bool] }
 export struct SavedRow { index: int, name: string, count: string, selected: bool }
 export struct ConfigEntry { label: string, hint: string, value: string }
@@ -77,6 +78,7 @@ export global Sandbox {
     in property <bool> scaling-enabled;
     in property <int> lag;
     in property <int> quality: 100;
+    in property <bool> fullscreen: true;
     in property <[ArcRow]> arcs;
     in property <[ChapterFold]> chapters;
     in property <[string]> grades;
@@ -148,7 +150,8 @@ export global Sandbox {
     in-out property <bool> dragging;
     in property <int> battle-orientation;
     callback cell-tapped(int, bool);
-    callback cell-dropped(int, bool, int, bool);
+    callback cell-dropped(int, bool, int, bool, bool);
+    callback cell-hovered(int, bool, int, bool, bool);
     callback cell-discarded(int, bool);
     callback battle-orientation-set(int);
     callback adopt-combo(int);
@@ -176,6 +179,7 @@ export global Sandbox {
     callback scaling-set(int);
     callback lag-set(int);
     callback quality-set(int);
+    callback fullscreen-set(bool);
     callback arc-edited(int, string);
     callback fold(int);
     callback grade(int, int, int);
@@ -226,8 +230,8 @@ component DeckSlot inherits Rectangle {
     property <bool> spent;
     property <bool> armed;
     border-radius: Theme.radius-sm;
-    border-width: root.cell.filled ? 0px : 1px;
-    border-color: Theme.bg-strong;
+    border-width: root.cell.aimed ? 2px : (root.cell.filled ? 0px : 1px);
+    border-color: root.cell.aimed ? Theme.primary : Theme.bg-strong;
     background: root.cell.filled ? Theme.bg-weak : Theme.bg-weakest;
     opacity: root.lifted ? 0.35 : 1.0;
     clip: true;
@@ -275,6 +279,7 @@ component DeckSlot inherits Rectangle {
         background: Theme.warning;
         Text { text: "NP"; color: Theme.white; font-size: 7px; horizontal-alignment: center; vertical-alignment: center; width: parent.width; height: parent.height; }
     }
+    SwipeGuard { }
     TouchArea {
         pointer-event(event) => {
             if event.kind == PointerEventKind.down {
@@ -284,7 +289,7 @@ component DeckSlot inherits Rectangle {
                 root.spent = false;
                 root.armed = true;
             } else if event.kind == PointerEventKind.move {
-                if self.pressed && root.cell.filled {
+                if self.pressed && (root.cell.filled || root.dragging) {
                     if !root.dragging && !root.spent && (abs(self.mouse-x - root.press-x) > 6px || abs(self.mouse-y - root.press-y) > 6px) {
                         root.dragging = true;
                         root.spent = true;
@@ -329,7 +334,21 @@ component Deck inherits OutlinedCard {
     property <length> drag-y;
     property <image> drag-icon;
     property <bool> drag-has-icon;
+    property <int> aim-col: root.drag-from >= 0 ? root.col-at(root.drag-x) : -1;
+    property <int> aim-row: root.row-at(root.drag-y);
+    property <bool> aim-bench: root.on-bench(root.drag-y);
+    property <bool> aimed: root.aim-col >= 0 && (root.aim-bench || root.aim-row >= 0);
+    property <int> aim-cell: root.aim-bench ? root.aim-col : root.aim-row * 5 + root.aim-col;
+    property <int> aim-key: root.aimed ? (root.aim-bench ? 100 : 0) + root.aim-cell * 2 + (root.after-at(root.drag-x) ? 1 : 0) : -1;
     height: self.bench-top + self.cell-height + 12px;
+
+    changed aim-key => {
+        Sandbox.cell-hovered(root.drag-from, root.drag-bench, root.aimed ? root.aim-cell : -1, root.aim-bench, root.after-at(root.drag-x));
+    }
+
+    pure function after-at(x: length) -> bool {
+        return x - root.left - root.col-at(x) * (root.cell-width + root.gap) > root.cell-width / 2;
+    }
 
     pure function col-at(x: length) -> int {
         return x < root.left || x >= root.left + root.grid-width ? -1 : floor((x - root.left) / (root.cell-width + root.gap));
@@ -345,9 +364,9 @@ component Deck inherits OutlinedCard {
 
     function drop(x: length, y: length) {
         if root.col-at(x) >= 0 && root.row-at(y) >= 0 && root.row-at(y) < 2 {
-            Sandbox.cell-dropped(root.drag-from, root.drag-bench, root.row-at(y) * 5 + root.col-at(x), false);
+            Sandbox.cell-dropped(root.drag-from, root.drag-bench, root.row-at(y) * 5 + root.col-at(x), false, root.after-at(x));
         } else if root.col-at(x) >= 0 && root.on-bench(y) {
-            Sandbox.cell-dropped(root.drag-from, root.drag-bench, root.col-at(x), true);
+            Sandbox.cell-dropped(root.drag-from, root.drag-bench, root.col-at(x), true, root.after-at(x));
         } else {
             Sandbox.cell-discarded(root.drag-from, root.drag-bench);
         }
@@ -365,7 +384,7 @@ component Deck inherits OutlinedCard {
         height: root.cell-height;
         cell: Sandbox.slots[index];
         index: index;
-        lifted: root.drag-from == index && !root.drag-bench;
+        lifted: root.drag-from == index && !root.drag-bench && !root.aimed;
         tapped => { if Sandbox.slots[index].filled { Sandbox.cell-tapped(index, false); } else { Sandbox.roster-open = true; Shell.left-open = true; } }
         drag-started(icon, has) => { root.drag-from = index; root.drag-bench = false; root.drag-icon = icon; root.drag-has-icon = has; root.drag-x = self.x + self.width / 2; root.drag-y = self.y + self.height / 2; Sandbox.dragging = true; }
         dragged(x, y) => { root.drag-x = self.x + x; root.drag-y = self.y + y; }
@@ -379,7 +398,7 @@ component Deck inherits OutlinedCard {
         cell: Sandbox.bench[index];
         index: index;
         bench: true;
-        lifted: root.drag-from == index && root.drag-bench;
+        lifted: root.drag-from == index && root.drag-bench && !root.aimed;
         tapped => { if Sandbox.bench[index].filled { Sandbox.cell-tapped(index, true); } else { Sandbox.roster-open = true; Shell.left-open = true; } }
         drag-started(icon, has) => { root.drag-from = index; root.drag-bench = true; root.drag-icon = icon; root.drag-has-icon = has; root.drag-x = self.x + self.width / 2; root.drag-y = self.y + self.height / 2; Sandbox.dragging = true; }
         dragged(x, y) => { root.drag-x = self.x + x; root.drag-y = self.y + y; }
@@ -597,6 +616,7 @@ component ConfigTab inherits VerticalLayout {
                 Row { label: "Lag"; Combo { width: 110px; height: 30px; text-size: 13px; options: ["Catch-up", "Slowdown"]; current: Sandbox.lag; selected(index) => { Sandbox.lag-set(index); } } }
                 Row { label: "Orientation"; Combo { width: 130px; height: 30px; text-size: 13px; options: ["Automatic", "Portrait", "Landscape"]; current: Sandbox.battle-orientation; selected(index) => { Sandbox.battle-orientation-set(index); } } }
                 Row { label: "Quality"; Slider { width: 160px; minimum: 15; maximum: 100; value: Sandbox.quality; changed(value) => { Sandbox.quality-set(value); } } Label { text: Sandbox.quality + "%"; vertical-alignment: center; } }
+                Toggle { value: Sandbox.fullscreen; label: "Fullscreen"; changed(value) => { Sandbox.fullscreen-set(value); } }
             }
             if Sandbox.panel == 1: Section {
                 title: "Treasures";
