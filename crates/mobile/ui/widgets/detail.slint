@@ -17,6 +17,7 @@ export component Lines inherits VerticalLayout {
     in property <bool> bold;
     in property <TextHorizontalAlignment> align: left;
     spacing: 0px;
+    alignment: center;
     for line in root.lines: HorizontalLayout {
         alignment: root.align == TextHorizontalAlignment.center ? center : start;
         for seg in line.segs: Text {

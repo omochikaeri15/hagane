@@ -35,10 +35,10 @@ tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
 jni = "0.21"
 
 [target.'cfg(target_os = "ios")'.dependencies]
-slint = { version = "1.18", default-features = false, features = ["renderer-skia"] }
+slint = { version = "1.18", default-features = false, features = ["renderer-skia", "raw-window-handle-06"] }
 objc2 = "0.6"
 objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSArray", "NSEnumerator", "NSObject", "NSString", "NSURL"] }
-objc2-ui-kit = { version = "0.3", default-features = false, features = ["std", "UIDocumentPickerViewController", "UIResponder", "UIView", "UIViewController"] }
+objc2-ui-kit = { version = "0.3", default-features = false, features = ["std", "UIDocumentPickerViewController", "UIResponder", "UIView", "UIViewController", "objc2-uniform-type-identifiers"] }
 objc2-uniform-type-identifiers = { version = "0.3", default-features = false, features = ["std", "UTType"] }
 raw-window-handle = "0.6"
 
