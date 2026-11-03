@@ -12,7 +12,6 @@ concurrency:
 env:
   CARGO_TERM_COLOR: always
   BIN_NAME: "Hagane"
-  LEGACY_NAME: "Battle Cats Complete"
 
 jobs:
   check-version:
@@ -95,16 +94,12 @@ jobs:
         run: |
           move target\release\desktop.exe "${{ env.BIN_NAME }}.exe"
           Compress-Archive -Path "${{ env.BIN_NAME }}.exe" -DestinationPath hagane-windows-${{ matrix.flavor }}.zip
-          Copy-Item "${{ env.BIN_NAME }}.exe" "${{ env.LEGACY_NAME }}.exe"
-          Compress-Archive -Path "${{ env.LEGACY_NAME }}.exe" -DestinationPath bcc_windows_${{ matrix.flavor }}.zip
 
       - name: Upload Windows Artifact
         uses: actions/upload-artifact@v4
         with:
           name: windows-${{ matrix.flavor }}-build
-          path: |
-            hagane-windows-${{ matrix.flavor }}.zip
-            bcc_windows_${{ matrix.flavor }}.zip
+          path: hagane-windows-${{ matrix.flavor }}.zip
           retention-days: 1
 
   build-linux:
@@ -118,11 +113,9 @@ jobs:
           - flavor: x64
             runner: ubuntu-22.04
             asset: hagane-linux-x64.zip
-            legacy: bcc_linux_x64.zip
           - flavor: arm
             runner: ubuntu-22.04-arm
             asset: hagane-linux-arm.zip
-            legacy: bcc_linux_arm.zip
     steps:
       - uses: actions/checkout@v5
 
@@ -150,16 +143,12 @@ jobs:
           mv target/release/desktop "${{ env.BIN_NAME }}"
           chmod +x "${{ env.BIN_NAME }}"
           zip "${{ matrix.asset }}" "${{ env.BIN_NAME }}"
-          cp "${{ env.BIN_NAME }}" "${{ env.LEGACY_NAME }}"
-          zip "${{ matrix.legacy }}" "${{ env.LEGACY_NAME }}"
 
       - name: Upload Linux Artifact
         uses: actions/upload-artifact@v4
         with:
           name: linux-${{ matrix.flavor }}-build
-          path: |
-            ${{ matrix.asset }}
-            ${{ matrix.legacy }}
+          path: ${{ matrix.asset }}
           retention-days: 1
 
   build-macos:
@@ -199,16 +188,12 @@ jobs:
           mv "target/${{ matrix.target }}/release/desktop" "${{ env.BIN_NAME }}"
           chmod +x "${{ env.BIN_NAME }}"
           zip "hagane-mac-${{ matrix.flavor }}.zip" "${{ env.BIN_NAME }}"
-          cp "${{ env.BIN_NAME }}" "${{ env.LEGACY_NAME }}"
-          zip "bcc_mac_${{ matrix.flavor }}.zip" "${{ env.LEGACY_NAME }}"
 
       - name: Upload Mac Artifact
         uses: actions/upload-artifact@v4
         with:
           name: mac-${{ matrix.flavor }}-build
-          path: |
-            hagane-mac-${{ matrix.flavor }}.zip
-            bcc_mac_${{ matrix.flavor }}.zip
+          path: hagane-mac-${{ matrix.flavor }}.zip
           retention-days: 1
 
   build-website:
@@ -397,11 +382,6 @@ jobs:
               linux-arm-build/hagane-linux-arm.zip
               mac-arm-build/hagane-mac-arm.zip
               mac-x64-build/hagane-mac-x64.zip
-              windows-x64-build/bcc_windows_x64.zip
-              linux-x64-build/bcc_linux_x64.zip
-              linux-arm-build/bcc_linux_arm.zip
-              mac-arm-build/bcc_mac_arm.zip
-              mac-x64-build/bcc_mac_x64.zip
             )
           fi
           if [ "${{ needs.check-version.outputs.website }}" = true ]; then

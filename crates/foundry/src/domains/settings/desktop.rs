@@ -5,12 +5,10 @@ use std::fs;
 use std::path::PathBuf;
 
 use image::ImageFormat;
-use tracing::{debug, info, warn};
+use tracing::{debug, info};
 
 use crate::common::assets;
 use crate::common::dirs::APP_DIR;
-
-const LEGACY_NAMES: [&str; 2] = ["battle_cats_complete", "battle-cats-complete"];
 
 fn desktop_file_name() -> String {
     format!("{}.desktop", APP_DIR)
@@ -30,40 +28,6 @@ fn get_base_directory(sub_path: &str) -> Option<PathBuf> {
 
 pub fn is_desktop_data_present() -> bool {
     get_base_directory(".local/share/applications").is_some_and(|dir| dir.join(desktop_file_name()).exists())
-}
-
-fn remove_legacy_desktop_data() -> bool {
-    let mut had_legacy_entry = false;
-
-    for name in LEGACY_NAMES {
-        if let Some(applications_directory) = get_base_directory(".local/share/applications") {
-            let legacy_desktop_path = applications_directory.join(format!("{name}.desktop"));
-
-            if legacy_desktop_path.exists() {
-                had_legacy_entry = true;
-
-                if let Err(error) = fs::remove_file(&legacy_desktop_path) {
-                    warn!("Failed to remove legacy .desktop entry: {}", error);
-                } else {
-                    debug!("Removed legacy .desktop entry file.");
-                }
-            }
-        }
-
-        if let Some(icons_directory) = get_base_directory(".local/share/icons") {
-            let legacy_icon_path = icons_directory.join(format!("{name}.png"));
-
-            if legacy_icon_path.exists() {
-                if let Err(error) = fs::remove_file(&legacy_icon_path) {
-                    warn!("Failed to remove legacy application icon: {}", error);
-                } else {
-                    debug!("Removed legacy desktop application icon.");
-                }
-            }
-        }
-    }
-
-    had_legacy_entry
 }
 
 pub fn create_desktop_data() -> Result<(), String> {
@@ -126,8 +90,6 @@ pub fn create_desktop_data() -> Result<(), String> {
 }
 
 pub fn delete_desktop_data() -> Result<(), String> {
-    remove_legacy_desktop_data();
-
     if let Some(applications_directory) = get_base_directory(".local/share/applications") {
         let desktop_file_path = applications_directory.join(desktop_file_name());
         if desktop_file_path.exists() {
@@ -148,11 +110,6 @@ pub fn delete_desktop_data() -> Result<(), String> {
 }
 
 pub fn sync_desktop_data() -> Result<(), String> {
-    if remove_legacy_desktop_data() {
-        info!("Legacy desktop entry found. Regenerating under the new application name.");
-        return create_desktop_data();
-    }
-
     if !is_desktop_data_present() {
         return Ok(());
     }

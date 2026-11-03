@@ -12,9 +12,6 @@ const SCROLLBAR_GAP: f32 = 8.0;
 // If "NOTICE_CONTENT" is empty, no notice appears
 pub(super) const NOTICE_TITLE: &str = "NOTICE";
 pub(super) const NOTICE_CONTENT: &str = r#"
-Due to a recent rebrand of the App, the name of the apps executable file may have been changed to "Hagane".
-
-If you had a pinned shortcut pointing to this executable, that shortcut will no longer work and you will have to create a new one.
 "#;
 
 pub(super) fn parse_content() -> Vec<markdown::Item> {

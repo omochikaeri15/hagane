@@ -99,7 +99,7 @@ pub fn latest_release(owner: &str, repo: &str) -> Result<Option<Release>, Error>
         .map_err(|err| Error::new(ErrorKind::Malformed, format!("could not parse the latest release: {}", err)))
 }
 
-pub fn latest_tag(owner: &str, repo: &str) -> Result<Option<String>, Error> {
+pub fn latest_tag(owner: &str, repo: &str) -> Result<String, Error> {
     let url = format!("{}/{}/{}/releases/latest", WEB_ROOT, owner, repo);
     let response = probe(&url)?;
     let status = response.status();
@@ -112,7 +112,12 @@ pub fn latest_tag(owner: &str, repo: &str) -> Result<Option<String>, Error> {
         return Err(Error::new(ErrorKind::Malformed, format!("{} answered {} instead of pointing at a release", url, status)));
     }
 
-    Ok(response.headers().get(LOCATION).and_then(|location| location.to_str().ok()).and_then(tag_of))
+    response
+        .headers()
+        .get(LOCATION)
+        .and_then(|location| location.to_str().ok())
+        .and_then(tag_of)
+        .ok_or_else(|| Error::new(ErrorKind::Malformed, format!("{} redirected somewhere that names no release", url)))
 }
 
 pub fn has_download(owner: &str, repo: &str, tag: &str, asset: &str) -> Result<bool, Error> {
@@ -335,10 +340,11 @@ mod tests {
         assert_eq!(tag_of("https://github.com/owner/repo/releases/tag/v4.1.2/"), Some("v4.1.2".to_owned()));
     }
 
-    // A repo with no releases bounces back to the listing, which names no tag at all.
+    // An empty repo bounces to its listing and a renamed one to its new name, so the updater asks the API.
     #[test]
-    fn a_redirect_without_a_tag_means_no_release() {
+    fn a_redirect_without_a_tag_names_nothing() {
         assert_eq!(tag_of("https://github.com/owner/repo/releases"), None);
         assert_eq!(tag_of("https://github.com/owner/repo/releases/tag/"), None);
+        assert_eq!(tag_of("https://github.com/owner/renamed/releases/latest"), None);
     }
 }

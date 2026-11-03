@@ -28,7 +28,7 @@ use crate::domains::{home, settings::{self as gui_settings, source}};
 use crate::widget::popup;
 
 use super::theme::AppTheme;
-use super::{graphics, logging, migrate, notice, updater, ActivePopup, HaganeApp, Message};
+use super::{graphics, logging, notice, updater, ActivePopup, HaganeApp, Message};
 
 #[derive(Serialize, Deserialize, Default)]
 #[serde(default)]
@@ -91,7 +91,6 @@ impl HaganeApp {
 
         logging::init_logging(app.settings.general.enable_logging);
         graphics::log_launch();
-        migrate::report();
 
         if app.settings.general.graphics == GraphicsBackend::Auto {
             app.settings.general.graphics_auto = graphics::launch().auto;

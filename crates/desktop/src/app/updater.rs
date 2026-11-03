@@ -384,8 +384,7 @@ fn check_remote() -> Result<Option<UpdateTarget>, CheckError> {
     let current_version = cargo_crate_version!();
 
     let tag = match github::latest_tag(REPO_OWNER, REPO_NAME) {
-        Ok(Some(tag)) => tag,
-        Ok(None) => return Ok(None),
+        Ok(tag) => tag,
         Err(err) => {
             warn!("The latest release page could not be read, asking the GitHub API instead: {}", err);
             return check_api(current_version);

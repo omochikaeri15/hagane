@@ -20,7 +20,6 @@ use foundry::common::dirs::APP_DIR;
 
 pub fn main() -> iced::Result {
     architecture::anchor();
-    app::migrate::run();
 
     let (backend, auto) = app::startup::saved_graphics();
 
