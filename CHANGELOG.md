@@ -1,5 +1,5 @@
 Changes:
-- Changed the app icon.
+- Changed the app brand.
 - Released mobile version: Android APK.
 - You can no longer jump to units using combo banners under replay read-only lineups.
 - Screen size display under replays are now rounded. The real value is kept internally.
