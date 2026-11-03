@@ -28,7 +28,7 @@ use crate::domains::{home, settings::{self as gui_settings, source}};
 use crate::widget::popup;
 
 use super::theme::AppTheme;
-use super::{graphics, logging, notice, updater, ActivePopup, BattleCatsApp, Message};
+use super::{graphics, logging, migrate, notice, updater, ActivePopup, HaganeApp, Message};
 
 #[derive(Serialize, Deserialize, Default)]
 #[serde(default)]
@@ -42,7 +42,7 @@ impl<'a> Saved<'a> {
         json::salvage(json::config_file("settings.json"))
     }
 
-    pub(super) fn of(app: &'a BattleCatsApp) -> Self {
+    pub(super) fn of(app: &'a HaganeApp) -> Self {
         Self { settings: Cow::Borrowed(&app.settings), app_theme: app.app_theme }
     }
 }
@@ -73,7 +73,7 @@ fn split(phase: &mut Instant) -> u128 {
     elapsed
 }
 
-impl BattleCatsApp {
+impl HaganeApp {
     pub fn new() -> (Self, Task<Message>) {
         let boot = Instant::now();
         let mut phase = boot;
@@ -91,6 +91,7 @@ impl BattleCatsApp {
 
         logging::init_logging(app.settings.general.enable_logging);
         graphics::log_launch();
+        migrate::report();
 
         if app.settings.general.graphics == GraphicsBackend::Auto {
             app.settings.general.graphics_auto = graphics::launch().auto;

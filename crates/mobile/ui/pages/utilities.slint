@@ -93,6 +93,7 @@ export global Backdrop {
     callback pinch(float, length, length);
     callback zoom-wheel(float, length, length);
     callback toggle-play();
+    callback orient();
     callback hold(int);
     callback release();
     callback set-frame(string);
@@ -156,10 +157,13 @@ component BackdropViewer inherits Rectangle {
         }
     }
     controls := Rectangle {
+        property <bool> expanded: Backdrop.controls-expanded;
+        property <length> lift: self.expanded ? self.height : 32px;
         x: 7px;
-        y: parent.height - self.height;
-        width: min(body.preferred-width + 16px, parent.width - 14px);
-        height: body.preferred-height + 16px;
+        y: parent.height - self.lift;
+        animate y { duration: Theme.slide; easing: ease-out; }
+        width: min(body.preferred-width, parent.width - 14px);
+        height: body.preferred-height + 2px;
         background: Theme.controls-bg;
         border-width: 1px;
         border-color: Theme.bg-strong;
@@ -170,18 +174,22 @@ component BackdropViewer inherits Rectangle {
         body := VerticalLayout {
             padding: 8px;
             padding-bottom: 0px;
-            spacing: 4px;
+            spacing: 3px;
             Rectangle {
                 height: 18px;
                 Text { text: Backdrop.controls-expanded ? "\u{25bc}" : "\u{25b2}"; color: Theme.text; font-size: 14px; font-weight: 700; font-family: "Miscellaneous-Symbols"; horizontal-alignment: center; vertical-alignment: center; width: parent.width; height: parent.height; }
                 TouchArea { clicked => { Backdrop.controls-expanded = !Backdrop.controls-expanded; } }
             }
-            if Backdrop.controls-expanded: Rectangle { height: 1phx; background: Theme.bg-strong; }
-            if Backdrop.controls-expanded: HorizontalLayout {
+            Rectangle { height: 1phx; background: Theme.bg-strong; }
+            HorizontalLayout {
                 spacing: 4px;
                 padding-top: 2px;
-                padding-bottom: 8px;
-                Btn { width: 60px; height: 28px; tone: Tone.toggle; symbols: true; text-size: 16px; label: Backdrop.playing ? "\u{25ae}\u{25ae}" : "\u{25b6}"; enabled: Backdrop.loaded && Backdrop.animated; pad-y: 0px; pad-x: 0px; clicked => { Backdrop.toggle-play(); } }
+                padding-bottom: 4px;
+                VerticalLayout {
+                    spacing: 4px;
+                    Btn { width: 60px; height: 28px; tone: Tone.toggle; symbols: true; text-size: 16px; label: Backdrop.playing ? "\u{25ae}\u{25ae}" : "\u{25b6}"; enabled: Backdrop.loaded && Backdrop.animated; pad-y: 0px; pad-x: 0px; clicked => { Backdrop.toggle-play(); } }
+                    Btn { width: 60px; height: 28px; tone: Tone.toggle; label: "Orient"; text-size: 14px; enabled: Backdrop.loaded; pad-y: 0px; pad-x: 0px; clicked => { Backdrop.orient(); } }
+                }
                 Rectangle { width: 10px; Rectangle { width: 1phx; height: 100%; x: 4.5px; background: Theme.bg-strong; } }
                 VerticalLayout {
                     spacing: 4px;

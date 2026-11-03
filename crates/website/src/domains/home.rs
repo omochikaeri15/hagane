@@ -54,7 +54,7 @@ pub(crate) fn Home() -> Element {
         div { class: "home",
             div { class: "home-main",
                 div { class: "home-title", "Hagane" }
-                div { class: "home-subtitle weak", "All-In-One Battle Cats Toolkit" }
+                div { class: "home-subtitle weak", "Cat Game Suite" }
                 div { class: "home-group", "Game" }
                 div { class: "home-row",
                     Link { to: Route::Sandbox {}, class: "btn btn-primary home-nav", "Sandbox" }

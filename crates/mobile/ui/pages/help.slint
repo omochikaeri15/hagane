@@ -21,7 +21,9 @@ export component HelpPage inherits Rectangle {
         Flickable {
             mouse-drag-pan-enabled: true;
             vertical-stretch: 1;
+            max-height: 100000px;
             content-height: body.preferred-height + 32px > self.height ? body.preferred-height + 32px : self.height;
+            interactive: body.preferred-height + 32px > self.height;
             body := StyledText {
                 x: (parent.width - self.width) / 2;
                 y: 16px;

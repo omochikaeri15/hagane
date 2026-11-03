@@ -1,0 +1,120 @@
+import { Btn, Tone, Input, Label, Dialog, Progress } from "basics.slint";
+
+export global Source {
+    in-out property <string> link;
+    in property <bool> link-enabled: true;
+    in property <string> label: "No Source Link";
+    in property <Tone> tone: Tone.neutral;
+    in property <bool> enabled;
+    in-out property <bool> open;
+    in property <int> kind;
+    in property <string> title;
+    in property <string> summary;
+    in property <string> heading;
+    in property <float> fraction;
+    in property <string> detail;
+    in property <bool> sealed;
+    in property <string> ignore-label: "Ignore";
+    in property <bool> resumable;
+    in property <string> failure;
+    in-out property <bool> terms-open;
+    in property <string> terms;
+
+    callback link-changed(string);
+    callback check();
+    callback accept();
+    callback decline();
+    callback ignore();
+    callback cancel();
+    callback resume();
+    callback dismiss();
+    callback terms-agree();
+    callback terms-disagree();
+}
+
+export component SourcePanel inherits VerticalLayout {
+    spacing: 10px;
+    link := Input { text <=> Source.link; placeholder: "Source link"; width: 200px; height: 32px; text-size: 13px; enabled: Source.link-enabled; edited(value) => { Source.link-changed(value); } }
+    Btn { label: Source.label; tone: Source.tone; enabled: Source.enabled || link.has-focus; width: 200px; height: 32px; text-size: 14px; clicked => { Source.check(); } }
+}
+
+component SourceDialog inherits Dialog {
+    open <=> Source.open;
+    title: Source.title;
+    panel-width: 360px;
+    VerticalLayout {
+        padding: 20px;
+        spacing: 14px;
+        alignment: center;
+        if Source.kind == 0: VerticalLayout {
+            spacing: 14px;
+            Label { text: "New game files are available"; font-size: 18px; bold: true; horizontal-alignment: center; wrap: word-wrap; }
+            Label { text: Source.summary; font-size: 14px; weak: true; horizontal-alignment: center; }
+            Label { text: "Would you like to download them now?"; font-size: 14px; horizontal-alignment: center; }
+            HorizontalLayout {
+                spacing: 12px;
+                alignment: center;
+                Btn { tone: Tone.success; label: "Yes"; width: 90px; height: 30px; text-size: 13px; clicked => { Source.accept(); } }
+                Btn { tone: Tone.neutral; label: "No"; width: 90px; height: 30px; text-size: 13px; clicked => { Source.decline(); } }
+                Btn { tone: Tone.danger; label: Source.ignore-label; width: 90px; height: 30px; text-size: 13px; clicked => { Source.ignore(); } }
+            }
+            Label { text: "Downloading replaces your \"game\" folder"; font-size: 13px; weak: true; horizontal-alignment: center; wrap: word-wrap; }
+            Label { text: "\"Ignore\" stops all future file checks on launch"; font-size: 13px; weak: true; horizontal-alignment: center; wrap: word-wrap; }
+        }
+        if Source.kind == 1: VerticalLayout {
+            spacing: 14px;
+            Label { text: Source.heading; font-size: 18px; bold: true; horizontal-alignment: center; }
+            Progress { fraction: Source.fraction; height: 12px; }
+            Label { text: Source.detail; font-size: 14px; weak: true; horizontal-alignment: center; wrap: word-wrap; }
+            HorizontalLayout { alignment: center; Btn { tone: Tone.danger; label: "Cancel"; width: 110px; height: 30px; text-size: 13px; enabled: !Source.sealed; clicked => { Source.cancel(); } } }
+        }
+        if Source.kind == 2: VerticalLayout {
+            spacing: 14px;
+            Label { text: "The new game files are installed"; font-size: 18px; bold: true; horizontal-alignment: center; wrap: word-wrap; }
+            Label { text: "Everything is being reloaded from them now"; font-size: 14px; weak: true; horizontal-alignment: center; }
+            HorizontalLayout { alignment: center; Btn { tone: Tone.success; label: "Okay"; width: 110px; height: 30px; text-size: 13px; clicked => { Source.dismiss(); } } }
+        }
+        if Source.kind == 3: VerticalLayout {
+            spacing: 14px;
+            Label { text: Source.resumable ? "The new game files were not installed" : "The download cannot continue"; font-size: 18px; bold: true; horizontal-alignment: center; wrap: word-wrap; }
+            Label { text: Source.failure; font-size: 14px; horizontal-alignment: center; wrap: word-wrap; }
+            if Source.resumable: HorizontalLayout {
+                spacing: 12px;
+                alignment: center;
+                Btn { tone: Tone.success; label: "Resume"; width: 110px; height: 30px; text-size: 13px; clicked => { Source.resume(); } }
+                Btn { tone: Tone.danger; label: "Abort"; width: 110px; height: 30px; text-size: 13px; clicked => { Source.decline(); } }
+            }
+            if !Source.resumable: HorizontalLayout { alignment: center; Btn { tone: Tone.danger; label: "Close"; width: 110px; height: 30px; text-size: 13px; clicked => { Source.dismiss(); } } }
+        }
+    }
+}
+
+component TermsDialog inherits Dialog {
+    open <=> Source.terms-open;
+    title: "Acknowledgment";
+    panel-width: 420px;
+    body-height: 460px;
+    closed => { Source.terms-disagree(); }
+    VerticalLayout {
+        padding: 20px;
+        spacing: 18px;
+        Flickable {
+            mouse-drag-pan-enabled: true;
+            vertical-stretch: 1;
+            max-height: 100000px;
+            content-height: terms.preferred-height;
+            terms := Label { x: 0; y: 0; text: Source.terms; font-size: 14px; wrap: word-wrap; width: parent.width; }
+        }
+        HorizontalLayout {
+            spacing: 12px;
+            alignment: center;
+            Btn { tone: Tone.success; label: "Agree"; width: 110px; height: 30px; text-size: 13px; clicked => { Source.terms-agree(); } }
+            Btn { tone: Tone.danger; label: "Disagree"; width: 110px; height: 30px; text-size: 13px; clicked => { Source.terms-disagree(); } }
+        }
+    }
+}
+
+export component SourceDialogs {
+    SourceDialog { }
+    TermsDialog { }
+}

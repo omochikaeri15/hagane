@@ -18,6 +18,7 @@ export struct FilterCard { kind: int, index: int, exclude: bool, name: string, f
 
 export global Stages {
     in property <bool> ready;
+    in-out property <bool> ground-dragging;
     in property <string> status-title: "Loading Stages...";
     in property <string> status-detail;
     in property <bool> empty;
@@ -158,7 +159,7 @@ component Column inherits VerticalLayout {
 
 component Browser inherits Panel {
     background: Theme.sidebar-solid;
-    border-color: Theme.sidebar-border;
+    border-width: 0px;
     VerticalLayout {
         padding: 8px;
         spacing: 6px;
@@ -384,11 +385,31 @@ component Battleground inherits Section {
         Label { text: Stages.bonus; font-size: 14px; wrap: word-wrap; }
     }
     if Stages.no-enemies: Label { text: "No enemies defined for this stage."; }
-    if !Stages.no-enemies: Flickable {
-        mouse-drag-pan-enabled: true;
+    if !Stages.no-enemies: Rectangle {
+        clip: true;
         height: table.preferred-height;
-        content-width: max(self.width, 90px + Stages.ground-headers.length * 84px);
+        property <length> span: 90px + Stages.ground-headers.length * 84px;
+        property <length> reach: max(0px, self.span - self.width);
+        property <length> offset;
+        property <length> grab-x;
+        property <length> grab-offset;
+        TouchArea {
+            pointer-event(event) => {
+                if event.kind == PointerEventKind.down {
+                    parent.grab-x = self.mouse-x;
+                    parent.grab-offset = parent.offset;
+                    Stages.ground-dragging = true;
+                } else if event.kind == PointerEventKind.move && Stages.ground-dragging {
+                    parent.offset = clamp(parent.grab-offset + parent.grab-x - self.mouse-x, 0px, parent.reach);
+                } else if event.kind == PointerEventKind.up || event.kind == PointerEventKind.cancel {
+                    Stages.ground-dragging = false;
+                }
+            }
+        }
         table := VerticalLayout {
+            x: -parent.offset;
+            y: 0;
+            width: max(parent.width, parent.span);
             spacing: 0px;
             Rectangle {
                 height: 40px;
@@ -501,55 +522,61 @@ component FilterCards inherits VerticalLayout {
 component FilterDialog inherits Dialog {
     title: "Advanced Stage Filter";
     open <=> Stages.filter-open;
-    body-height: 9999px;
-    Flickable {
-        mouse-drag-pan-enabled: true;
-        width: 100%;
-        height: 100%;
-        content-height: content.preferred-height;
-        content := VerticalLayout {
-            padding: 16px;
-            spacing: 16px;
-            Section {
-                title: "Name";
-                for pair[index] in [{ label: "Category:", id: 0 }, { label: "Map:", id: 1 }, { label: "Stage:", id: 2 }]: HorizontalLayout {
-                    spacing: 8px;
-                    alignment: start;
-                    Label { text: pair.label; width: 80px; font-size: 13px; vertical-alignment: center; }
-                    Input { width: 170px; height: 28px; text-size: 13px; placeholder: "Any"; text: pair.id == 0 ? Stages.filter-category : (pair.id == 1 ? Stages.filter-map : Stages.filter-stage); edited(value) => { Stages.filter-name(pair.id, value); } }
+    body-height: Shell.app-height / 2;
+    VerticalLayout {
+        host := Rectangle {
+            Flickable {
+                mouse-drag-pan-enabled: true;
+                width: parent.width;
+                height: parent.height;
+                content-width: self.width;
+                content-height: content.preferred-height;
+                content := VerticalLayout {
+                    padding: 16px;
+                    padding-bottom: 60px;
+                    spacing: 16px;
+                    Section {
+                        title: "Name";
+                        for pair[index] in [{ label: "Category:", id: 0 }, { label: "Map:", id: 1 }, { label: "Stage:", id: 2 }]: HorizontalLayout {
+                            spacing: 8px;
+                            alignment: start;
+                            Label { text: pair.label; width: 80px; font-size: 13px; vertical-alignment: center; }
+                            Input { width: 170px; height: 28px; text-size: 13px; placeholder: "Any"; text: pair.id == 0 ? Stages.filter-category : (pair.id == 1 ? Stages.filter-map : Stages.filter-stage); edited(value) => { Stages.filter-name(pair.id, value); } }
+                        }
+                    }
+                    Section { title: "General Rules"; Flags { items: Stages.general-flags; } }
+                    Section { title: "Special Map Rules"; Flags { items: Stages.rule-flags; } }
+                    Section { title: "Score Bonuses"; Flags { items: Stages.bonus-flags; } }
+                    Section {
+                        title: "Entry Cost";
+                        HorizontalLayout {
+                            spacing: 8px;
+                            alignment: start;
+                            Label { text: "Type:"; font-size: 13px; vertical-alignment: center; }
+                            Combo { width: 120px; height: 28px; text-size: 13px; options: ["Any", "Energy", "Item", "Catamin"]; current: Stages.cost-type; selected(index) => { Stages.filter-cost-type(index); } }
+                        }
+                        if Stages.cost-fields.length > 0: Ranges { fields: Stages.cost-fields; group: 0; }
+                        if Stages.cost-type == 3: HorizontalLayout {
+                            spacing: 8px;
+                            alignment: start;
+                            Label { text: "Grade:"; font-size: 13px; vertical-alignment: center; }
+                            Combo { width: 100px; height: 28px; text-size: 13px; options: ["Any", "A", "B", "C"]; current: Stages.cost-grade; selected(index) => { Stages.filter-cost-grade(index); } }
+                        }
+                    }
+                    Section { title: "Stats"; Ranges { fields: Stages.stat-fields; group: 1; } }
+                    Section { title: "Restrictions"; Ranges { fields: Stages.restriction-fields; group: 2; } }
+                    Section { title: "IDs & Audio"; Ranges { fields: Stages.id-fields; group: 3; } }
+                    Section { title: "Battleground"; FilterCards { cards: Stages.enemy-cards; kind: 0; add-label: "+ Add New Enemy"; } }
+                    Section { title: "Fixed Lineup Cats"; FilterCards { cards: Stages.lineup-cards; kind: 1; add-label: "+ Add Lineup Cat"; } }
+                    Section { title: "Treasures"; FilterCards { cards: Stages.treasure-cards; kind: 2; add-label: "+ Add New Treasure"; } }
+                    Section { title: "Materials"; FilterCards { cards: Stages.material-cards; kind: 3; add-label: "+ Add New Material"; } }
+                    HorizontalLayout {
+                        alignment: center;
+                        padding: 8px;
+                    }
                 }
             }
-            Section { title: "General Rules"; Flags { items: Stages.general-flags; } }
-            Section { title: "Special Map Rules"; Flags { items: Stages.rule-flags; } }
-            Section { title: "Score Bonuses"; Flags { items: Stages.bonus-flags; } }
-            Section {
-                title: "Entry Cost";
-                HorizontalLayout {
-                    spacing: 8px;
-                    alignment: start;
-                    Label { text: "Type:"; font-size: 13px; vertical-alignment: center; }
-                    Combo { width: 120px; height: 28px; text-size: 13px; options: ["Any", "Energy", "Item", "Catamin"]; current: Stages.cost-type; selected(index) => { Stages.filter-cost-type(index); } }
-                }
-                if Stages.cost-fields.length > 0: Ranges { fields: Stages.cost-fields; group: 0; }
-                if Stages.cost-type == 3: HorizontalLayout {
-                    spacing: 8px;
-                    alignment: start;
-                    Label { text: "Grade:"; font-size: 13px; vertical-alignment: center; }
-                    Combo { width: 100px; height: 28px; text-size: 13px; options: ["Any", "A", "B", "C"]; current: Stages.cost-grade; selected(index) => { Stages.filter-cost-grade(index); } }
-                }
-            }
-            Section { title: "Stats"; Ranges { fields: Stages.stat-fields; group: 1; } }
-            Section { title: "Restrictions"; Ranges { fields: Stages.restriction-fields; group: 2; } }
-            Section { title: "IDs & Audio"; Ranges { fields: Stages.id-fields; group: 3; } }
-            Section { title: "Battleground"; FilterCards { cards: Stages.enemy-cards; kind: 0; add-label: "+ Add New Enemy"; } }
-            Section { title: "Fixed Lineup Cats"; FilterCards { cards: Stages.lineup-cards; kind: 1; add-label: "+ Add Lineup Cat"; } }
-            Section { title: "Treasures"; FilterCards { cards: Stages.treasure-cards; kind: 2; add-label: "+ Add New Treasure"; } }
-            Section { title: "Materials"; FilterCards { cards: Stages.material-cards; kind: 3; add-label: "+ Add New Material"; } }
-            HorizontalLayout {
-                alignment: center;
-                padding: 8px;
-                Btn { tone: Tone.danger; label: "Clear Filter"; clicked => { Stages.filter-clear(); } }
-            }
+            Btn { tone: Tone.danger; label: "Clear Filter"; width: 150px; height: 34px; text-size: 13px; x: (parent.width - self.width) / 2; y: parent.height - self.height - 12px; clicked => { Stages.filter-clear(); } }
         }
     }
 }
@@ -607,7 +634,7 @@ component AttributesDialog inherits Dialog {
 }
 
 export component StagesPage inherits Rectangle {
-    EdgeGrab { armed: Stages.ready && !Stages.browser-open && !Shell.nav-open; pulled => { Stages.browser-open = true; Shell.left-open = true; }
+    EdgeGrab { armed: Stages.ready && !Stages.browser-open && !Shell.nav-open; reach: drawer.panel-width; dragged(fraction) => { drawer.drag(fraction); } dropped => { drawer.release(); }
         if !Stages.ready: Status { title: Stages.status-title; detail: Stages.status-detail; x: (parent.width - self.width) / 2; y: (parent.height - self.height) / 2; width: min(parent.width - 32px, 360px); }
         if Stages.ready && !Stages.selected: Label { text: Stages.empty ? "No Stage Data" : "Select a stage to view details"; font-size: 20px; horizontal-alignment: center; vertical-alignment: center; width: parent.width - 32px; x: 16px; height: parent.height; wrap: word-wrap; }
         if Stages.ready && Stages.selected: Flickable {
@@ -616,6 +643,7 @@ export component StagesPage inherits Rectangle {
             height: parent.height;
             content-width: self.width;
             content-height: body.preferred-height + 24px > self.height ? body.preferred-height + 24px : self.height;
+            interactive: body.preferred-height + 24px > self.height && !Stages.ground-dragging;
             body := VerticalLayout {
                 x: 0;
                 y: 0;
@@ -633,10 +661,11 @@ export component StagesPage inherits Rectangle {
             }
         }
     }
-    Drawer {
+    drawer := Drawer {
         open <=> Stages.browser-open;
         panel-width: min(260px, root.width * 0.7);
         closed => { Shell.left-open = false; }
+        opened => { Shell.left-open = true; }
         Browser { width: 100%; height: 100%; }
     }
     FilterDialog { }

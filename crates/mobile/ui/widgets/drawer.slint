@@ -13,14 +13,63 @@ export component Drawer inherits Rectangle {
     width: 100%;
     height: 100%;
     background: transparent;
-    visible: root.open || root.progress > 0.0;
+    visible: root.open || root.shown > 0.001 || root.dragging;
 
     property <length> resting: root.right ? root.width : -root.panel-width;
-    property <length> shown: root.right ? root.width - root.panel-width : 0px;
-    property <float> progress: root.open ? 1.0 : 0.0;
-    animate progress { duration: Theme.slide; easing: ease-out; }
+    property <length> revealed: root.right ? root.width - root.panel-width : 0px;
+    property <float> shown;
+    property <float> target: root.open ? 1.0 : 0.0;
+    property <float> origin;
+    property <float> began;
+    property <bool> dragging;
+    property <bool> settling;
+
+    changed open => {
+        if !root.right {
+            Shell.left-open = root.open;
+        }
+        if !root.dragging {
+            root.settling = true;
+        }
+    }
 
     public function toggle() { root.open = !root.open; }
+
+    public function drag(fraction: float) {
+        if !root.dragging {
+            root.dragging = true;
+            root.settling = false;
+            root.origin = root.open ? 1.0 : 0.0;
+            root.began = animation-tick() / 1ms;
+        }
+        root.shown = clamp(root.origin + fraction, 0.0, 1.0);
+    }
+
+    public function release() {
+        if !root.dragging {
+            return;
+        }
+        root.dragging = false;
+        root.open = animation-tick() / 1ms - root.began < 300 && abs(root.shown - root.origin) > 0.1 ? root.shown > root.origin : root.shown > 0.5;
+        root.settling = true;
+        if root.open {
+            root.opened();
+        } else {
+            root.closed();
+        }
+    }
+
+    Timer {
+        interval: 16ms;
+        running: root.settling;
+        triggered => {
+            root.shown = root.shown + (root.target - root.shown) * 0.3;
+            if abs(root.target - root.shown) < 0.01 {
+                root.shown = root.target;
+                root.settling = false;
+            }
+        }
+    }
 
     if root.open && root.scrimmed: SwipeGestureHandler {
         x: root.right ? 0px : root.panel-width;
@@ -28,24 +77,21 @@ export component Drawer inherits Rectangle {
         height: 100%;
         handle-swipe-left: !root.right;
         handle-swipe-right: root.right;
-        swiped => {
-            if (root.right && self.current-position.x > self.pressed-position.x + 40px) || (!root.right && self.current-position.x < self.pressed-position.x - 40px) {
-                root.open = false;
-                root.closed();
-            }
-        }
+        moved => { if self.swiping { root.drag(-(root.right ? self.current-position.x - self.pressed-position.x : self.pressed-position.x - self.current-position.x) / root.panel-width); } }
+        swiped => { root.release(); }
+        cancelled => { root.release(); }
         TouchArea {
             clicked => { root.open = false; root.closed(); }
         }
     }
 
     slide := Rectangle {
-        x: root.resting + (root.shown - root.resting) * root.progress;
+        x: root.resting + (root.revealed - root.resting) * root.shown;
         width: root.panel-width;
         height: 100%;
         background: root.glass ? Theme.sidebar-bg : Theme.bg-weakest;
-        border-width: 1px;
-        border-color: root.glass ? Theme.sidebar-border : Theme.bg-weak;
+        border-width: root.glass ? 1px : 0px;
+        border-color: Theme.sidebar-border;
         border-top-left-radius: root.right ? Theme.sidebar-radius : 0px;
         border-bottom-left-radius: root.right ? Theme.sidebar-radius : 0px;
         border-top-right-radius: root.right ? 0px : Theme.radius-md;
@@ -59,16 +105,20 @@ export component Drawer inherits Rectangle {
 export component EdgeGrab inherits SwipeGestureHandler {
     in property <bool> right;
     in property <bool> armed: true;
-    callback pulled;
+    in property <length> reach: 240px;
+    callback dragged(float);
+    callback dropped;
     width: 100%;
     height: 100%;
     handle-swipe-left: root.right && root.armed && root.pressed-position.x > root.width - Theme.edge;
     handle-swipe-right: !root.right && root.armed && root.pressed-position.x < Theme.edge;
-    changed pressed-position => { Shell.taps += 1; }
-    swiped => {
-        if (root.right && root.current-position.x < root.pressed-position.x - 24px) || (!root.right && root.current-position.x > root.pressed-position.x + 24px) {
-            root.pulled();
+    changed pressed-position => {
+        if root.right {
+            Shell.taps += 1;
         }
     }
+    moved => { if root.swiping { root.dragged((root.right ? root.pressed-position.x - root.current-position.x : root.current-position.x - root.pressed-position.x) / root.reach); } }
+    swiped => { root.dropped(); }
+    cancelled => { root.dropped(); }
     @children
 }

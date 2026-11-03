@@ -1,5 +1,6 @@
 import { ListView } from "std-widgets.slint";
 import { Updater } from "../widgets/update.slint";
+import { SourcePanel } from "../widgets/source.slint";
 import { Theme } from "../theme.slint";
 import { Btn, Tone, Input, Combo, Toggle, Label, Dialog, Panel, Rule, OutlinedCard, Card } from "../widgets/basics.slint";
 import { Drawer, EdgeGrab } from "../widgets/drawer.slint";
@@ -405,7 +406,7 @@ component Tabs inherits Panel {
 }
 
 export component SettingsPage inherits Rectangle {
-    EdgeGrab { armed: !Settings.tabs-open && !Shell.nav-open; pulled => { Settings.tabs-open = true; Shell.left-open = true; }
+    EdgeGrab { armed: !Settings.tabs-open && !Shell.nav-open; reach: drawer.panel-width; dragged(fraction) => { drawer.drag(fraction); } dropped => { drawer.release(); }
         flick := Flickable {
             mouse-drag-pan-enabled: true;
             width: parent.width;
@@ -467,6 +468,7 @@ export component SettingsPage inherits Rectangle {
                     }
                     Section {
                         title: "Source";
+                        SourcePanel { }
                         Row { label: "File Handling"; Combo { width: 120px; height: 30px; text-size: 13px; options: ["Prompt", "Ignore"]; current: Settings.source-mode; selected(index) => { Settings.source-mode-set(index); } } }
                     }
                     Section {
@@ -481,7 +483,7 @@ export component SettingsPage inherits Rectangle {
                 if Settings.tab == 6: Section {
                     title: "Management";
                     Btn { label: "Manage Exceptions"; width: 180px; height: 32px; text-size: 14px; clicked => { Settings.open-exceptions(); } }
-                    Row { label: "Import Structure"; Combo { width: 100px; height: 30px; text-size: 13px; options: ["Bcc", "Flat"]; current: Settings.import-structure; selected(index) => { Settings.structure-set(index); } } }
+                    Row { label: "Import Structure"; Combo { width: 100px; height: 30px; text-size: 13px; options: ["Hagane", "Flat"]; current: Settings.import-structure; selected(index) => { Settings.structure-set(index); } } }
                     Toggle { value: Settings.ignore-modified; label: "Ignore Modified App"; changed(value) => { Settings.toggle-ignore-modified(value); } }
                 }
                 if Settings.tab == 7: Section {
@@ -505,7 +507,7 @@ export component SettingsPage inherits Rectangle {
                 if Settings.tab == 9: VerticalLayout {
                     spacing: 15px;
                     Label { text: "About Hagane"; font-size: 32px; wrap: word-wrap; }
-                    Label { text: "A high-performance Battle Cats toolkit built by Omochi"; wrap: word-wrap; }
+                    Label { text: "A high-performance cat game toolkit built by Omochi"; wrap: word-wrap; }
                     Label { text: "Open Source & Legal Info"; font-size: 20px; }
                     Rule { }
                     Label { text: "This app is built with Slint, used under the Slint Royalty-free License. Slint is a trademark of SixtyFPS GmbH. https://slint.dev"; font-size: 13px; wrap: word-wrap; }
@@ -514,10 +516,11 @@ export component SettingsPage inherits Rectangle {
             }
         }
     }
-    Drawer {
+    drawer := Drawer {
         open <=> Settings.tabs-open;
         panel-width: min(160px, root.width * 0.5);
         closed => { Shell.left-open = false; }
+        opened => { Shell.left-open = true; }
         Tabs { width: 100%; height: 100%; }
     }
     KeysDialog { visible: Settings.keys-open && Settings.tab == 0; }

@@ -45,6 +45,7 @@ use state::AppState;
 mod errors;
 pub(crate) mod graphics;
 pub(crate) mod logging;
+pub(crate) mod migrate;
 mod notice;
 pub(crate) mod startup;
 pub mod state;
@@ -404,7 +405,7 @@ pub enum Message {
     Editor(editor::Message),
 }
 
-pub struct BattleCatsApp {
+pub struct HaganeApp {
     pub current_page: Page,
     pub sidebar_open: bool,
     pub window_size: Size,
@@ -471,7 +472,7 @@ pub struct BattleCatsApp {
     pub app_theme: AppTheme,
 }
 
-impl Default for BattleCatsApp {
+impl Default for HaganeApp {
     fn default() -> Self {
         Self {
             current_page: Page::Home,
@@ -535,7 +536,7 @@ impl Default for BattleCatsApp {
     }
 }
 
-impl BattleCatsApp {
+impl HaganeApp {
     pub fn theme(&self) -> Theme {
         self.app_theme.to_iced_theme()
     }

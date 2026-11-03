@@ -37,7 +37,7 @@ use codex::common;
 use codex::graphics::tools::crash::Side;
 
 use crate::app::state::SandboxTab;
-use crate::app::{theme, BattleCatsApp, Page};
+use crate::app::{theme, HaganeApp, Page};
 use crate::domains::cat::DetailTab;
 use crate::domains::studio;
 use foundry::domains::studio as foundry_studio;
@@ -189,7 +189,7 @@ struct AssetFile {
     mod_copy: Option<PathBuf>,
 }
 
-fn scene(app: &BattleCatsApp) -> Page {
+fn scene(app: &HaganeApp) -> Page {
     if app.current_page != Page::Sandbox {
         return app.current_page;
     }
@@ -201,33 +201,33 @@ fn scene(app: &BattleCatsApp) -> Page {
     }
 }
 
-fn inspecting(app: &BattleCatsApp) -> Option<&crate::domains::cat::State> {
+fn inspecting(app: &HaganeApp) -> Option<&crate::domains::cat::State> {
     let on_lineup = app.current_page == Page::Sandbox && app.app_state.sandbox.tab == SandboxTab::Lineup;
 
     on_lineup.then(|| app.sandbox_state.inspector()).flatten()
 }
 
-fn seat(app: &BattleCatsApp) -> Seat {
+fn seat(app: &HaganeApp) -> Seat {
     inspecting(app).map_or(Seat::Main, |_| Seat::Sandbox)
 }
 
-fn held_view(app: &BattleCatsApp) -> &crate::domains::cat::State {
+fn held_view(app: &HaganeApp) -> &crate::domains::cat::State {
     inspecting(app).unwrap_or(&app.cat_state)
 }
 
-fn held_cat(app: &BattleCatsApp) -> Option<u32> {
+fn held_cat(app: &HaganeApp) -> Option<u32> {
     inspecting(app).map_or(app.app_state.cat.selected_cat, |inspector| inspector.selected_cat)
 }
 
-fn held_form(app: &BattleCatsApp) -> usize {
+fn held_form(app: &HaganeApp) -> usize {
     inspecting(app).map_or(app.app_state.cat.selected_form, |inspector| inspector.selected_form)
 }
 
-fn asset_files(app: &BattleCatsApp, base: &str) -> Vec<AssetFile> {
+fn asset_files(app: &HaganeApp, base: &str) -> Vec<AssetFile> {
     variant_sets(app, slice::from_ref(&base)).pop().unwrap_or_default()
 }
 
-fn variant_sets(app: &BattleCatsApp, bases: &[&str]) -> Vec<Vec<AssetFile>> {
+fn variant_sets(app: &HaganeApp, bases: &[&str]) -> Vec<Vec<AssetFile>> {
     let groups: Vec<Vec<String>> = bases.iter().map(|base| app.vault.vfs.variants(base)).collect();
 
     let located: FxHashMap<String, PathBuf> = {
@@ -252,7 +252,7 @@ fn variant_sets(app: &BattleCatsApp, bases: &[&str]) -> Vec<Vec<AssetFile>> {
 }
 
 fn mod_copies<'a>(
-    app: &BattleCatsApp,
+    app: &HaganeApp,
     names: impl IntoIterator<Item = &'a str>,
 ) -> FxHashMap<&'a str, PathBuf> {
     app.mods_state
@@ -274,11 +274,11 @@ struct Scope<'a> {
     title: Option<&'a str>,
 }
 
-fn exception(app: &BattleCatsApp, wanted: String) -> Option<Exception> {
+fn exception(app: &HaganeApp, wanted: String) -> Option<Exception> {
     exceptions(app, vec![wanted]).pop()
 }
 
-fn exceptions(app: &BattleCatsApp, wanted: Vec<String>) -> Vec<Exception> {
+fn exceptions(app: &HaganeApp, wanted: Vec<String>) -> Vec<Exception> {
     let visible: Vec<String> = wanted.iter().map(|name| visible_name(app, name)).collect();
 
     let internal: Vec<String> = visible
@@ -319,7 +319,7 @@ fn exceptions(app: &BattleCatsApp, wanted: Vec<String>) -> Vec<Exception> {
         .collect()
 }
 
-fn visible_name(app: &BattleCatsApp, wanted: &str) -> String {
+fn visible_name(app: &HaganeApp, wanted: &str) -> String {
     app.vault
         .vfs
         .find(wanted)
@@ -923,7 +923,7 @@ impl State {
 
     pub(crate) fn popup_view<'a>(
         &'a self,
-        app: &'a BattleCatsApp,
+        app: &'a HaganeApp,
         window: Size,
     ) -> Vec<(u64, popup::Kind, Element<'a, Message>)> {
         let mut views: Vec<(u64, popup::Kind, Element<'_, Message>)> = Vec::new();
@@ -981,7 +981,7 @@ impl State {
             .collect()
     }
 
-    pub(crate) fn restore_scroll<M: Send + 'static>(&self, app: &BattleCatsApp) -> Task<M> {
+    pub(crate) fn restore_scroll<M: Send + 'static>(&self, app: &HaganeApp) -> Task<M> {
         let bank = &self.banks[seat(app).slot()];
         let tasks: Vec<Task<M>> =
             figures::SUBJECTS.iter().filter_map(|subject| bank.figures[subject.slot()].restore_scroll()).collect();
@@ -1278,7 +1278,7 @@ impl State {
     }
 }
 
-fn channel_target(app: &BattleCatsApp, target: Option<Target>) -> Option<ChannelTarget> {
+fn channel_target(app: &HaganeApp, target: Option<Target>) -> Option<ChannelTarget> {
     let part = match target {
         Some(Target::AnimPart(part)) => Some(part),
         Some(Target::AnimCurve(track)) => app.studio_state.holder(track),
@@ -1288,7 +1288,7 @@ fn channel_target(app: &BattleCatsApp, target: Option<Target>) -> Option<Channel
     Some(ChannelTarget { channels: app.studio_state.channels(part)? })
 }
 
-fn expanded(app: &BattleCatsApp) -> bool {
+fn expanded(app: &HaganeApp) -> bool {
     match scene(app) {
         Page::Cats => app.cat_state.animation_expanded(),
         Page::Enemies => app.enemy_state.animation_expanded(),
@@ -1298,7 +1298,7 @@ fn expanded(app: &BattleCatsApp) -> bool {
     }
 }
 
-pub(crate) fn context(app: &BattleCatsApp, target: Option<Target>) -> Context {
+pub(crate) fn context(app: &HaganeApp, target: Option<Target>) -> Context {
     let broad = app.settings.files.context_scope == ContextScope::Broad;
     let reached = |wanted: Target| target == Some(wanted) || broad;
 
@@ -1360,7 +1360,7 @@ pub(crate) fn context(app: &BattleCatsApp, target: Option<Target>) -> Context {
     }
 }
 
-fn stage_images(app: &BattleCatsApp, map: bool, stage: bool) -> Vec<ImageTarget> {
+fn stage_images(app: &HaganeApp, map: bool, stage: bool) -> Vec<ImageTarget> {
     if (!map && !stage) || scene(app) != Page::Stages {
         return Vec::new();
     }
@@ -1419,7 +1419,7 @@ fn padded(mut files: Vec<AssetFile>, candidates: Vec<String>) -> Vec<AssetFile> 
     files
 }
 
-fn stage_data_payloads(app: &BattleCatsApp, reached: bool) -> Vec<LevelTarget> {
+fn stage_data_payloads(app: &HaganeApp, reached: bool) -> Vec<LevelTarget> {
     if !reached {
         return Vec::new();
     }
@@ -1427,7 +1427,7 @@ fn stage_data_payloads(app: &BattleCatsApp, reached: bool) -> Vec<LevelTarget> {
     stage_data_targets(app)
 }
 
-fn stage_data_targets(app: &BattleCatsApp) -> Vec<LevelTarget> {
+fn stage_data_targets(app: &HaganeApp) -> Vec<LevelTarget> {
     if scene(app) != Page::Stages {
         return Vec::new();
     }
@@ -1477,7 +1477,7 @@ fn stage_data_targets(app: &BattleCatsApp) -> Vec<LevelTarget> {
     }]
 }
 
-fn drop_chara_payloads(app: &BattleCatsApp, reached: bool) -> Vec<LevelTarget> {
+fn drop_chara_payloads(app: &HaganeApp, reached: bool) -> Vec<LevelTarget> {
     if !reached {
         return Vec::new();
     }
@@ -1485,7 +1485,7 @@ fn drop_chara_payloads(app: &BattleCatsApp, reached: bool) -> Vec<LevelTarget> {
     drop_chara_targets(app)
 }
 
-fn map_drop_payloads(app: &BattleCatsApp, reached: bool) -> Vec<LevelTarget> {
+fn map_drop_payloads(app: &HaganeApp, reached: bool) -> Vec<LevelTarget> {
     if !reached {
         return Vec::new();
     }
@@ -1496,7 +1496,7 @@ fn map_drop_payloads(app: &BattleCatsApp, reached: bool) -> Vec<LevelTarget> {
 // DropItem.csv holds one row per map, addressed by the routed global id in its leading cell.
 // The eight material slots are named by the items `MAT_IDS` points them at, read from the
 // game's own item table rather than translated here.
-fn map_drop_targets(app: &BattleCatsApp) -> Vec<LevelTarget> {
+fn map_drop_targets(app: &HaganeApp) -> Vec<LevelTarget> {
     if scene(app) != Page::Stages {
         return Vec::new();
     }
@@ -1544,14 +1544,14 @@ fn map_drop_targets(app: &BattleCatsApp) -> Vec<LevelTarget> {
 }
 
 // What a broad right-click aims the item editors at when no treasure row was hit.
-fn first_drop(app: &BattleCatsApp) -> Option<u32> {
+fn first_drop(app: &HaganeApp) -> Option<u32> {
     let chosen = app.stage_state.data.selected_stage.as_ref()?;
     let stage = app.stage_state.data.registry.stages.get(chosen)?;
 
     drop_ids(stage).next()
 }
 
-fn item_buy_payloads(app: &BattleCatsApp, target: Option<Target>, broad: bool) -> Vec<LevelTarget> {
+fn item_buy_payloads(app: &HaganeApp, target: Option<Target>, broad: bool) -> Vec<LevelTarget> {
     let item = match target {
         Some(Target::TreasureDrop(item)) => Some(item),
         _ if broad || target == Some(Target::StageDrops) => first_drop(app),
@@ -1563,7 +1563,7 @@ fn item_buy_payloads(app: &BattleCatsApp, target: Option<Target>, broad: bool) -
 
 // Gatyaitembuy.csv names the item in its fourth column, so the row is found by that rather
 // than by counting past a header the file need not carry.
-fn item_buy_targets(app: &BattleCatsApp, item: Option<u32>) -> Vec<LevelTarget> {
+fn item_buy_targets(app: &HaganeApp, item: Option<u32>) -> Vec<LevelTarget> {
     if scene(app) != Page::Stages {
         return Vec::new();
     }
@@ -1596,7 +1596,7 @@ fn item_buy_targets(app: &BattleCatsApp, item: Option<u32>) -> Vec<LevelTarget> 
 
 // The name file has no header, so an item's catalog line is its line here outright --
 // codex's `icon_index` states that pairing.
-fn item_name_target(app: &BattleCatsApp, item: Option<u32>) -> Option<ProseTarget> {
+fn item_name_target(app: &HaganeApp, item: Option<u32>) -> Option<ProseTarget> {
     if scene(app) != Page::Stages {
         return None;
     }
@@ -1618,7 +1618,7 @@ fn item_name_target(app: &BattleCatsApp, item: Option<u32>) -> Option<ProseTarge
     })
 }
 
-fn glossary_target(app: &BattleCatsApp, identity: Identity, faction: Faction) -> Option<ProseTarget> {
+fn glossary_target(app: &HaganeApp, identity: Identity, faction: Faction) -> Option<ProseTarget> {
     let (subject, file, page) = match faction {
         Faction::Cat => (prose::Subject::CatGlossary, "nyankoPictureBook2.csv", Page::Cats),
         Faction::Enemy => (prose::Subject::EnemyGlossary, "EnemyPictureBook2.csv", Page::Enemies),
@@ -1644,7 +1644,7 @@ fn glossary_target(app: &BattleCatsApp, identity: Identity, faction: Faction) ->
     })
 }
 
-fn item_label(app: &BattleCatsApp, item: u32) -> String {
+fn item_label(app: &HaganeApp, item: u32) -> String {
     app.vault
         .vds
         .items
@@ -1656,7 +1656,7 @@ fn item_label(app: &BattleCatsApp, item: u32) -> String {
 // A stage unlocks a unit when one of its reward ids has a row in drop_chara.csv. Measured on
 // the shipped corpus, 327 stages reference exactly one and none reference two, so the row is
 // addressed outright; a stage that drops no unit offers nothing.
-fn drop_chara_targets(app: &BattleCatsApp) -> Vec<LevelTarget> {
+fn drop_chara_targets(app: &HaganeApp) -> Vec<LevelTarget> {
     if scene(app) != Page::Stages {
         return Vec::new();
     }
@@ -1710,7 +1710,7 @@ fn drop_ids(stage: &foundry::domains::stage::Stage) -> impl Iterator<Item = u32>
     stage.rewards.drops().iter().map(|drop| drop.item_id).chain(timed.into_iter().flatten())
 }
 
-fn material_names(app: &BattleCatsApp) -> Vec<String> {
+fn material_names(app: &HaganeApp) -> Vec<String> {
     let items = &app.vault.vds.items;
     let vfs = &app.vault.vfs;
 
@@ -1728,7 +1728,7 @@ fn material_names(app: &BattleCatsApp) -> Vec<String> {
 
 // Creating a stage or a map only makes sense into a mod: the files are new, so there is no
 // vanilla original to place and nothing to fall back on under `game`.
-fn make_target(app: &BattleCatsApp, reached: bool) -> Option<MakeTarget> {
+fn make_target(app: &HaganeApp, reached: bool) -> Option<MakeTarget> {
     if !reached || scene(app) != Page::Stages {
         return None;
     }
@@ -1781,7 +1781,7 @@ fn make_target(app: &BattleCatsApp, reached: bool) -> Option<MakeTarget> {
 }
 
 fn making(
-    app: &BattleCatsApp,
+    app: &HaganeApp,
     map: &GlobalMapId,
     held: &foundry::domains::stage::MapAddress,
     target_mod: Option<String>,
@@ -1842,7 +1842,7 @@ fn making(
     })
 }
 
-fn ground_target(app: &BattleCatsApp, reached: bool) -> Option<GroundTarget> {
+fn ground_target(app: &HaganeApp, reached: bool) -> Option<GroundTarget> {
     if !reached || scene(app) != Page::Stages {
         return None;
     }
@@ -1850,7 +1850,7 @@ fn ground_target(app: &BattleCatsApp, reached: bool) -> Option<GroundTarget> {
     ground_source(app)
 }
 
-fn ground_source(app: &BattleCatsApp) -> Option<GroundTarget> {
+fn ground_source(app: &HaganeApp) -> Option<GroundTarget> {
     let chosen = app.stage_state.data.selected_stage.as_ref()?;
     let file = app.stage_state.data.registry.grounds.get(chosen)?.to_string();
     let game = app.vault.vfs.rooted(architecture::GAME, &file)?;
@@ -1886,7 +1886,7 @@ fn ground_source(app: &BattleCatsApp) -> Option<GroundTarget> {
     })
 }
 
-fn named_files(app: &BattleCatsApp, names: Vec<String>) -> Vec<AssetFile> {
+fn named_files(app: &HaganeApp, names: Vec<String>) -> Vec<AssetFile> {
     let copies: Vec<Option<PathBuf>> = {
         let located = mod_copies(app, names.iter().map(String::as_str));
 
@@ -1904,7 +1904,7 @@ fn named_files(app: &BattleCatsApp, names: Vec<String>) -> Vec<AssetFile> {
         .collect()
 }
 
-fn anim_target(app: &BattleCatsApp, cats: bool, enemies: bool) -> Option<AnimTarget> {
+fn anim_target(app: &HaganeApp, cats: bool, enemies: bool) -> Option<AnimTarget> {
     let vfs = &app.vault.vfs;
 
     let (files, motion, naming): (_, _, fn(&str) -> Option<&'static str>) = match scene(app) {
@@ -2039,7 +2039,7 @@ fn stage_into(vfs: &Vfs, name: &str, file: &str) -> Option<PathBuf> {
     Some(staged)
 }
 
-fn figures_tab(app: &BattleCatsApp, subject: figures::Subject) -> bool {
+fn figures_tab(app: &HaganeApp, subject: figures::Subject) -> bool {
     match subject {
         figures::Subject::Cat => held_view(app).selected_tab == DetailTab::Abilities,
         figures::Subject::Enemy => app.enemy_state.selected_tab == EnemyTab::Abilities,
@@ -2060,7 +2060,7 @@ enum IconSubject {
     Enemy(u32),
 }
 
-fn icon_subject(app: &BattleCatsApp, target: Option<Target>, broad: bool) -> Option<IconSubject> {
+fn icon_subject(app: &HaganeApp, target: Option<Target>, broad: bool) -> Option<IconSubject> {
     match target {
         Some(Target::EnemyRow(id)) => Some(IconSubject::Enemy(id)),
         Some(Target::CatIcon) => held_cat(app).map(IconSubject::Cat),
@@ -2074,7 +2074,7 @@ fn icon_subject(app: &BattleCatsApp, target: Option<Target>, broad: bool) -> Opt
     }
 }
 
-fn prose_payloads(app: &BattleCatsApp, target: Option<Target>, broad: bool) -> Vec<ProseTarget> {
+fn prose_payloads(app: &HaganeApp, target: Option<Target>, broad: bool) -> Vec<ProseTarget> {
     if let Some(Target::CatCombo(line)) = target {
         return combo_name_target(app, Some(line)).into_iter().collect();
     }
@@ -2113,7 +2113,7 @@ fn prose_payloads(app: &BattleCatsApp, target: Option<Target>, broad: bool) -> V
         .collect()
 }
 
-fn level_payloads(app: &BattleCatsApp, levels: bool, forms: bool) -> Vec<LevelTarget> {
+fn level_payloads(app: &HaganeApp, levels: bool, forms: bool) -> Vec<LevelTarget> {
     let files: &[(figures::Subject, &str)] = match (levels, forms) {
         (true, _) => &LEVEL_FILES,
         (false, true) => &FORM_FILES,
@@ -2123,7 +2123,7 @@ fn level_payloads(app: &BattleCatsApp, levels: bool, forms: bool) -> Vec<LevelTa
     roster_payloads(app, files)
 }
 
-fn combo_payloads(app: &BattleCatsApp, target: Option<Target>, broad: bool) -> Vec<LevelTarget> {
+fn combo_payloads(app: &HaganeApp, target: Option<Target>, broad: bool) -> Vec<LevelTarget> {
     if !figures_tab(app, figures::Subject::Combo) {
         return Vec::new();
     }
@@ -2137,11 +2137,11 @@ fn combo_payloads(app: &BattleCatsApp, target: Option<Target>, broad: bool) -> V
     combo_target(app, line).into_iter().collect()
 }
 
-fn combo_joined(app: &BattleCatsApp) -> bool {
+fn combo_joined(app: &HaganeApp) -> bool {
     held_cat(app).is_some_and(|id| combo_line(app, id).is_some())
 }
 
-fn combo_target(app: &BattleCatsApp, line: Option<usize>) -> Option<LevelTarget> {
+fn combo_target(app: &HaganeApp, line: Option<usize>) -> Option<LevelTarget> {
     if scene(app) != Page::Cats {
         return None;
     }
@@ -2167,17 +2167,17 @@ fn combo_target(app: &BattleCatsApp, line: Option<usize>) -> Option<LevelTarget>
     })
 }
 
-fn combo_anchor(app: &BattleCatsApp, id: u32) -> Option<(i32, i32)> {
+fn combo_anchor(app: &HaganeApp, id: u32) -> Option<(i32, i32)> {
     let form = i32::try_from(held_form(app)).ok()?;
 
     Some((i32::try_from(id).ok()?, form))
 }
 
-fn combo_line(app: &BattleCatsApp, id: u32) -> Option<usize> {
+fn combo_line(app: &HaganeApp, id: u32) -> Option<usize> {
     cat_combo::combo_lines(&app.vault, id, held_form(app)).first().copied()
 }
 
-fn talent_payloads(app: &BattleCatsApp, reached: bool) -> Vec<LevelTarget> {
+fn talent_payloads(app: &HaganeApp, reached: bool) -> Vec<LevelTarget> {
     if !reached || !talented(app) {
         return Vec::new();
     }
@@ -2188,15 +2188,15 @@ fn talent_payloads(app: &BattleCatsApp, reached: bool) -> Vec<LevelTarget> {
     roster_payloads(app, files)
 }
 
-fn talents_tab(app: &BattleCatsApp) -> bool {
+fn talents_tab(app: &HaganeApp) -> bool {
     held_view(app).selected_tab == DetailTab::Talents
 }
 
-fn talented(app: &BattleCatsApp) -> bool {
+fn talented(app: &HaganeApp) -> bool {
     held_cat(app).is_some()
 }
 
-fn address(app: &BattleCatsApp, subject: figures::Subject, id: u32) -> figures::Address {
+fn address(app: &HaganeApp, subject: figures::Subject, id: u32) -> figures::Address {
     match subject {
         figures::Subject::Talents => figures::Address::Keyed(id),
         figures::Subject::Costs => {
@@ -2206,7 +2206,7 @@ fn address(app: &BattleCatsApp, subject: figures::Subject, id: u32) -> figures::
     }
 }
 
-fn talent_costs(app: &BattleCatsApp) -> figures::Marks {
+fn talent_costs(app: &HaganeApp) -> figures::Marks {
     let mut used = figures::Marks::default();
 
     let Some(id) = held_cat(app) else {
@@ -2236,7 +2236,7 @@ fn talent_costs(app: &BattleCatsApp) -> figures::Marks {
     used
 }
 
-fn roster_payloads(app: &BattleCatsApp, files: &[(figures::Subject, &str)]) -> Vec<LevelTarget> {
+fn roster_payloads(app: &HaganeApp, files: &[(figures::Subject, &str)]) -> Vec<LevelTarget> {
     if scene(app) != Page::Cats {
         return Vec::new();
     }
@@ -2271,7 +2271,7 @@ fn roster_payloads(app: &BattleCatsApp, files: &[(figures::Subject, &str)]) -> V
         .collect()
 }
 
-fn talent_text_target(app: &BattleCatsApp) -> Option<ProseTarget> {
+fn talent_text_target(app: &HaganeApp) -> Option<ProseTarget> {
     if scene(app) != Page::Cats {
         return None;
     }
@@ -2293,7 +2293,7 @@ fn talent_text_target(app: &BattleCatsApp) -> Option<ProseTarget> {
     })
 }
 
-fn talent_texts(app: &BattleCatsApp) -> Vec<usize> {
+fn talent_texts(app: &HaganeApp) -> Vec<usize> {
     let Some(talents) = app
         .app_state
         .cat
@@ -2317,14 +2317,14 @@ fn talent_texts(app: &BattleCatsApp) -> Vec<usize> {
     held
 }
 
-fn level_cap(app: &BattleCatsApp) -> Option<i32> {
+fn level_cap(app: &HaganeApp) -> Option<i32> {
     let id = held_cat(app)?;
     let cat = app.cat_state.data.cats.iter().find(|cat| cat.id == id)?;
 
     Some(cat.unitbuy.level_cap_catseye + cat.unitbuy.level_cap_plus)
 }
 
-fn cat_label(app: &BattleCatsApp, id: u32) -> String {
+fn cat_label(app: &HaganeApp, id: u32) -> String {
     let form = held_form(app);
 
     app.cat_state
@@ -2337,7 +2337,7 @@ fn cat_label(app: &BattleCatsApp, id: u32) -> String {
         .unwrap_or_else(|| format!("{id:03}-C"))
 }
 
-fn cat_payloads(app: &BattleCatsApp, reached: bool) -> Vec<CatTarget> {
+fn cat_payloads(app: &HaganeApp, reached: bool) -> Vec<CatTarget> {
     if !reached || !figures_tab(app, figures::Subject::Cat) {
         return Vec::new();
     }
@@ -2345,7 +2345,7 @@ fn cat_payloads(app: &BattleCatsApp, reached: bool) -> Vec<CatTarget> {
     cat_subject(app).into_iter().collect()
 }
 
-fn enemy_payloads(app: &BattleCatsApp, reached: bool) -> Vec<EnemyTarget> {
+fn enemy_payloads(app: &HaganeApp, reached: bool) -> Vec<EnemyTarget> {
     if !reached || !figures_tab(app, figures::Subject::Enemy) {
         return Vec::new();
     }
@@ -2353,11 +2353,11 @@ fn enemy_payloads(app: &BattleCatsApp, reached: bool) -> Vec<EnemyTarget> {
     enemy_subject(app).into_iter().collect()
 }
 
-fn prose_targets(app: &BattleCatsApp, subject: prose::Subject) -> Vec<ProseTarget> {
+fn prose_targets(app: &HaganeApp, subject: prose::Subject) -> Vec<ProseTarget> {
     prose_target(app, subject).into_iter().collect()
 }
 
-fn prose_tab(app: &BattleCatsApp, subject: prose::Subject) -> bool {
+fn prose_tab(app: &HaganeApp, subject: prose::Subject) -> bool {
     match subject {
         prose::Subject::EnemyDescription => app.enemy_state.selected_tab == EnemyTab::Details,
         prose::Subject::ComboName => held_view(app).selected_tab == DetailTab::Details,
@@ -2377,7 +2377,7 @@ fn prose_tab(app: &BattleCatsApp, subject: prose::Subject) -> bool {
 // sidebar must not hide one. A stage's name is on screen either because its plate is missing
 // and the panel drew the name instead, or because the sidebar list is open and its rows are
 // names either way. With a plate up and the list closed there is no name anywhere to aim at.
-fn prose_offered(app: &BattleCatsApp, subject: prose::Subject) -> bool {
+fn prose_offered(app: &HaganeApp, subject: prose::Subject) -> bool {
     match subject {
         prose::Subject::MapName => named(app, Target::MapBanner),
         prose::Subject::StageName => named(app, Target::StageBanner),
@@ -2385,11 +2385,11 @@ fn prose_offered(app: &BattleCatsApp, subject: prose::Subject) -> bool {
     }
 }
 
-fn named(app: &BattleCatsApp, plate: Target) -> bool {
+fn named(app: &HaganeApp, plate: Target) -> bool {
     app.stage_state.sidebar_open() || !plated(app, plate)
 }
 
-fn plated(app: &BattleCatsApp, plate: Target) -> bool {
+fn plated(app: &HaganeApp, plate: Target) -> bool {
     let Some(chosen) = app.stage_state.data.selected_stage.as_ref() else {
         return false;
     };
@@ -2424,7 +2424,7 @@ fn prose_subject(target: Option<Target>) -> Option<prose::Subject> {
     }
 }
 
-fn prose_target(app: &BattleCatsApp, subject: prose::Subject) -> Option<ProseTarget> {
+fn prose_target(app: &HaganeApp, subject: prose::Subject) -> Option<ProseTarget> {
     match subject {
         prose::Subject::Explanation => explanation_target(app, held_cat(app)?),
         prose::Subject::EnemyName => enemy_name_target(app),
@@ -2438,7 +2438,7 @@ fn prose_target(app: &BattleCatsApp, subject: prose::Subject) -> Option<ProseTar
     }
 }
 
-fn map_key(app: &BattleCatsApp, map: Option<u32>) -> Option<GlobalMapId> {
+fn map_key(app: &HaganeApp, map: Option<u32>) -> Option<GlobalMapId> {
     let Some(map) = map else {
         return app.stage_state.data.selected_map.clone();
     };
@@ -2446,7 +2446,7 @@ fn map_key(app: &BattleCatsApp, map: Option<u32>) -> Option<GlobalMapId> {
     Some(GlobalMapId { category: app.stage_state.data.selected_category.clone()?, map })
 }
 
-fn stage_key(app: &BattleCatsApp, stage: Option<u32>) -> Option<GlobalStageId> {
+fn stage_key(app: &HaganeApp, stage: Option<u32>) -> Option<GlobalStageId> {
     let Some(stage) = stage else {
         return app.stage_state.data.selected_stage.clone();
     };
@@ -2456,7 +2456,7 @@ fn stage_key(app: &BattleCatsApp, stage: Option<u32>) -> Option<GlobalStageId> {
     Some(GlobalStageId { category: map.category.clone(), map: map.map, stage })
 }
 
-fn map_name_target(app: &BattleCatsApp, map: Option<u32>) -> Option<ProseTarget> {
+fn map_name_target(app: &HaganeApp, map: Option<u32>) -> Option<ProseTarget> {
     if scene(app) != Page::Stages {
         return None;
     }
@@ -2489,7 +2489,7 @@ fn map_name_target(app: &BattleCatsApp, map: Option<u32>) -> Option<ProseTarget>
 
 // The story chapters put one stage per line and read the first cell; every other chapter
 // puts a whole map on one line and reads the cell at the stage index.
-fn stage_name_target(app: &BattleCatsApp, stage: Option<u32>) -> Option<ProseTarget> {
+fn stage_name_target(app: &HaganeApp, stage: Option<u32>) -> Option<ProseTarget> {
     if scene(app) != Page::Stages {
         return None;
     }
@@ -2529,7 +2529,7 @@ fn stage_name_target(app: &BattleCatsApp, stage: Option<u32>) -> Option<ProseTar
     .map(|target| target.keyed(prose::Keyed::Stage(keyed)).celled(cell))
 }
 
-fn combo_name_target(app: &BattleCatsApp, line: Option<usize>) -> Option<ProseTarget> {
+fn combo_name_target(app: &HaganeApp, line: Option<usize>) -> Option<ProseTarget> {
     if scene(app) != Page::Cats {
         return None;
     }
@@ -2556,11 +2556,11 @@ fn combo_name_target(app: &BattleCatsApp, line: Option<usize>) -> Option<ProseTa
     })
 }
 
-fn mod_copy(app: &BattleCatsApp, file: &str) -> Option<PathBuf> {
+fn mod_copy(app: &HaganeApp, file: &str) -> Option<PathBuf> {
     mods::find(&app.vault.vfs, app.mods_state.active_mod().as_deref()?, Path::new(file))
 }
 
-fn enemy_name_target(app: &BattleCatsApp) -> Option<ProseTarget> {
+fn enemy_name_target(app: &HaganeApp) -> Option<ProseTarget> {
     let id = app.app_state.enemy.selected_enemy?;
 
     Some(ProseTarget {
@@ -2577,7 +2577,7 @@ fn enemy_name_target(app: &BattleCatsApp) -> Option<ProseTarget> {
     })
 }
 
-fn enemy_description_target(app: &BattleCatsApp) -> Option<ProseTarget> {
+fn enemy_description_target(app: &HaganeApp) -> Option<ProseTarget> {
     let id = app.app_state.enemy.selected_enemy?;
     let files = asset_files(app, enemy_files::PICTURE_BOOK);
 
@@ -2599,7 +2599,7 @@ fn enemy_description_target(app: &BattleCatsApp) -> Option<ProseTarget> {
     })
 }
 
-fn enemy_label(app: &BattleCatsApp, id: u32) -> String {
+fn enemy_label(app: &HaganeApp, id: u32) -> String {
     app.enemy_state
         .data
         .enemies
@@ -2608,7 +2608,7 @@ fn enemy_label(app: &BattleCatsApp, id: u32) -> String {
         .map_or_else(|| format!("{id:03}-E"), EnemyEntry::display_name)
 }
 
-fn explanation_target(app: &BattleCatsApp, id: u32) -> Option<ProseTarget> {
+fn explanation_target(app: &HaganeApp, id: u32) -> Option<ProseTarget> {
     let form = held_form(app);
 
     cat_waiter::unitexplanation_source(&app.vault.vfs, id, form)?;
@@ -2649,7 +2649,7 @@ fn explanation_target(app: &BattleCatsApp, id: u32) -> Option<ProseTarget> {
     })
 }
 
-fn icon_target(app: &BattleCatsApp, subject: Option<IconSubject>) -> Option<IconTarget> {
+fn icon_target(app: &HaganeApp, subject: Option<IconSubject>) -> Option<IconTarget> {
     let (resolved, title) = match subject? {
         IconSubject::Cat(id) => {
             let cat = app.cat_state.data.cats.iter().find(|cat| cat.id == id)?;
@@ -2673,7 +2673,7 @@ fn icon_target(app: &BattleCatsApp, subject: Option<IconSubject>) -> Option<Icon
     })
 }
 
-fn banner_subject(app: &BattleCatsApp, target: Option<Target>, broad: bool) -> Option<u32> {
+fn banner_subject(app: &HaganeApp, target: Option<Target>, broad: bool) -> Option<u32> {
     match target {
         Some(Target::CatRow(id)) => Some(id),
         _ if !broad => None,
@@ -2681,7 +2681,7 @@ fn banner_subject(app: &BattleCatsApp, target: Option<Target>, broad: bool) -> O
     }
 }
 
-fn banner_target(app: &BattleCatsApp, id: u32) -> Option<BannerTarget> {
+fn banner_target(app: &HaganeApp, id: u32) -> Option<BannerTarget> {
     if scene(app) != Page::Cats {
         return None;
     }
@@ -2920,11 +2920,11 @@ fn place_image(file: &str, target_mod: Option<&str>, game: Option<&Path>, source
         .is_ok()
 }
 
-fn cat_subject(app: &BattleCatsApp) -> Option<CatTarget> {
+fn cat_subject(app: &HaganeApp) -> Option<CatTarget> {
     cat_target(app, held_cat(app)?)
 }
 
-fn cat_target(app: &BattleCatsApp, id: u32) -> Option<CatTarget> {
+fn cat_target(app: &HaganeApp, id: u32) -> Option<CatTarget> {
     if scene(app) != Page::Cats {
         return None;
     }
@@ -2954,7 +2954,7 @@ fn cat_target(app: &BattleCatsApp, id: u32) -> Option<CatTarget> {
     })
 }
 
-fn enemy_subject(app: &BattleCatsApp) -> Option<EnemyTarget> {
+fn enemy_subject(app: &HaganeApp) -> Option<EnemyTarget> {
     if scene(app) != Page::Enemies {
         return None;
     }
@@ -2984,7 +2984,7 @@ fn enemy_subject(app: &BattleCatsApp) -> Option<EnemyTarget> {
     })
 }
 
-pub(crate) fn refresh(app: &BattleCatsApp, editor: &State, force: bool) -> Option<Update> {
+pub(crate) fn refresh(app: &HaganeApp, editor: &State, force: bool) -> Option<Update> {
     if !editor.drafting() {
         return None;
     }
@@ -2998,7 +2998,7 @@ pub(crate) fn refresh(app: &BattleCatsApp, editor: &State, force: bool) -> Optio
     Some(Update { snapshot: snapshot(app, editor), key })
 }
 
-fn key(app: &BattleCatsApp) -> Key {
+fn key(app: &HaganeApp) -> Key {
     Key {
         page: scene(app),
         seat: seat(app),
@@ -3013,7 +3013,7 @@ fn key(app: &BattleCatsApp) -> Key {
     }
 }
 
-fn snapshot(app: &BattleCatsApp, editor: &State) -> Snapshot {
+fn snapshot(app: &HaganeApp, editor: &State) -> Snapshot {
     let seat = seat(app);
 
     Snapshot {
@@ -3042,7 +3042,7 @@ fn snapshot(app: &BattleCatsApp, editor: &State) -> Snapshot {
     }
 }
 
-fn current_ground(app: &BattleCatsApp) -> Option<ground::Plan> {
+fn current_ground(app: &HaganeApp) -> Option<ground::Plan> {
     let target = ground_source(app)?;
 
     Some(ground::plan(
@@ -3053,7 +3053,7 @@ fn current_ground(app: &BattleCatsApp) -> Option<ground::Plan> {
     ))
 }
 
-fn current_plan(app: &BattleCatsApp, subject: figures::Subject) -> Option<figures::Plan> {
+fn current_plan(app: &HaganeApp, subject: figures::Subject) -> Option<figures::Plan> {
     let values = app.settings.files.editor_mode;
 
     match subject {
@@ -3100,7 +3100,7 @@ fn current_plan(app: &BattleCatsApp, subject: figures::Subject) -> Option<figure
     }
 }
 
-fn file_target(app: &BattleCatsApp, target: Option<Target>) -> Option<FileTarget> {
+fn file_target(app: &HaganeApp, target: Option<Target>) -> Option<FileTarget> {
     let Some(Target::FileRow(index)) = target else {
         return None;
     };

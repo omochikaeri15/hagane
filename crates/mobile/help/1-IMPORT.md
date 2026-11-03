@@ -1,11 +1,11 @@
 # Import
-You import game files through the `Import` page. This page can download the vanilla files, read the game installed on this device, decrypt pack files you provide and sort existing files on disk.
+You import game files through the `Import` page. This page can read the game installed on this device, decrypt pack files you provide and sort existing files on disk.
 
 ## Obtaining Files
-There are four methods for obtaining game files: `Download`, `Device`, `Pack`, and `Raw`.
+The `Import` page has three methods for obtaining game files: `Device`, `Pack`, and `Raw`. `Settings > Files > Source` offers a fourth.
 
-### Download
-Fetch the vanilla game files from a file host. This method requires the following:
+### Source
+Fetch the vanilla game files from a file host through `Settings > Files > Source`. This method requires the following:
 - **A source link** to an asset payload served from a public bucket. Paste it into the link field and tap "Check for Files Now".
 - **Accepting the acknowledgment** that appears the first time a link is entered. A provider always overwrites every game file and clears the import manifest.
 
@@ -13,7 +13,7 @@ With `File Handling` set to `Prompt` the app checks the link on launch and offer
 
 ### Device
 Read the game installed on this same device. This method requires the following:
-- **The Battle Cats installed** for the region you pick, or any of them with `All Regions`.
+- **The cat game installed** for the region you pick, or any of them with `All Regions`.
 - **Keys & IV** added through `Settings > General > Manage Keys` so the app can decrypt the game's `.pack` file format.
 
 `Update Only` reads the installed update data, which every device can do without root. `All Content` also copies the game's own data folder, which holds the files the game downloaded after install, and that needs a rooted device that grants this app root access when asked.

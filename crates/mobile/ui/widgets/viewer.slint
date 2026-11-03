@@ -59,7 +59,8 @@ component Controls inherits Rectangle {
     in property <length> room: 400px;
     property <bool> expanded: Viewer.controls-expanded;
     out property <length> lift: root.expanded ? root.height : 32px;
-    width: min(body.preferred-width + 16px, root.room - 7px);
+    property <float> rows: ceil(Viewer.tiles.length / 4);
+    width: min(body.preferred-width, root.room - 7px);
     height: body.preferred-height + 2px;
     background: Theme.controls-bg;
     border-width: 1px;
@@ -87,11 +88,11 @@ component Controls inherits Rectangle {
             }
             TouchArea { clicked => { Viewer.controls-expanded = !Viewer.controls-expanded; } }
         }
-        Rectangle { height: 1px; background: Theme.bg-strong; }
+        Rectangle { height: 1phx; background: Theme.bg-strong; }
         Flickable {
             mouse-drag-pan-enabled: true;
-            height: Viewer.tiles-scroll ? 55px : grid.preferred-height;
-            content-height: grid.preferred-height;
+            height: Viewer.tiles-scroll ? 55px : max(root.rows, 1) * 29px - 4px;
+            content-height: max(root.rows, 1) * 29px - 4px;
             grid := VerticalLayout {
                 padding-top: 0px;
                 padding-bottom: 0px;
@@ -126,7 +127,7 @@ component Controls inherits Rectangle {
                 }
             }
         }
-        Rectangle { height: 1px; background: Theme.bg-strong; }
+        Rectangle { height: 1phx; background: Theme.bg-strong; }
         HorizontalLayout {
             spacing: 4px;
             padding-top: 2px;
@@ -136,7 +137,7 @@ component Controls inherits Rectangle {
                 Btn { width: 60px; height: 28px; tone: Tone.toggle; symbols: true; text-size: 16px; label: Viewer.playing ? "\u{25ae}\u{25ae}" : "\u{25b6}"; enabled: Viewer.has-anim; pad-y: 0px; pad-x: 0px; clicked => { Viewer.toggle-play(); } }
                 Btn { width: 60px; height: 28px; tone: Tone.toggle; label: "Orient"; text-size: 14px; enabled: Viewer.has-rig; pad-y: 0px; pad-x: 0px; clicked => { Viewer.orient(); } }
             }
-            Rectangle { width: 10px; Rectangle { width: 1px; height: 100%; x: 4.5px; background: Theme.bg-strong; } }
+            Rectangle { width: 10px; Rectangle { width: 1phx; height: 100%; x: 4.5px; background: Theme.bg-strong; } }
             VerticalLayout {
                 spacing: 4px;
                 if Viewer.playing: HorizontalLayout {
@@ -166,7 +167,7 @@ component Controls inherits Rectangle {
                     Rectangle { width: 60px; height: 28px; background: Theme.bg-weak; border-width: 1px; border-color: Theme.bg-strong; border-radius: Theme.radius-sm; Text { text: Viewer.effective-max; color: Theme.text; font-size: 14px; horizontal-alignment: center; vertical-alignment: center; width: parent.width; height: parent.height; } }
                 }
             }
-            Rectangle { width: 10px; Rectangle { width: 1px; height: 100%; x: 4.5px; background: Theme.bg-strong; } }
+            Rectangle { width: 10px; Rectangle { width: 1phx; height: 100%; x: 4.5px; background: Theme.bg-strong; } }
             VerticalLayout {
                 spacing: 4px;
                 Btn { width: 100px; height: 28px; tone: Viewer.export-tone; label: Viewer.export-label; text-size: 14px; enabled: Viewer.has-rig && !Viewer.exporting; pad-y: 0px; pad-x: 0px; clicked => { Viewer.export-pressed(); } }

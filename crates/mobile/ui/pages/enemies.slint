@@ -75,51 +75,57 @@ export global Enemies {
 component FilterDialog inherits Dialog {
     title: "Advanced Enemy Filter";
     open <=> Enemies.filter-open;
-    body-height: 9999px;
-    Flickable {
-        mouse-drag-pan-enabled: true;
-        width: 100%;
-        height: 100%;
-        content-height: content.preferred-height;
-        content := VerticalLayout {
-            padding: 16px;
-            spacing: 16px;
-            VerticalLayout {
-                spacing: 8px;
-                Label { text: "Attributes"; font-size: 18px; }
-                HorizontalLayout {
-                    spacing: 8px; alignment: start;
-                    Label { text: "Mode:"; vertical-alignment: center; }
-                    Combo { options: ["And", "Or"]; current: Enemies.filter-mode; selected(index) => { Enemies.filter-mode-set(index); } }
+    body-height: Shell.app-height / 2;
+    VerticalLayout {
+        host := Rectangle {
+            Flickable {
+                mouse-drag-pan-enabled: true;
+                width: parent.width;
+                height: parent.height;
+                content-width: self.width;
+                content-height: content.preferred-height;
+                content := VerticalLayout {
+                    padding: 16px;
+                    padding-bottom: 60px;
+                    spacing: 16px;
+                    VerticalLayout {
+                        spacing: 8px;
+                        Label { text: "Attributes"; font-size: 18px; }
+                        HorizontalLayout {
+                            spacing: 8px; alignment: start;
+                            Label { text: "Mode:"; vertical-alignment: center; }
+                            Combo { options: ["And", "Or"]; current: Enemies.filter-mode; selected(index) => { Enemies.filter-mode-set(index); } }
+                        }
+                    }
+                    VerticalLayout {
+                        spacing: 8px;
+                        Label { text: "Stats"; font-size: 18px; }
+                        HorizontalLayout {
+                            spacing: 8px; alignment: start;
+                            Label { text: "Target Magnification:"; vertical-alignment: center; }
+                            Input { width: 70px; text: Enemies.filter-mag; placeholder: "100"; edited(value) => { Enemies.filter-mag-edited(value); } }
+                            Label { text: "%"; vertical-alignment: center; }
+                        }
+                        RangeRows { fields: Enemies.filter-stats; min-edited(index, value) => { Enemies.filter-stat-min(index, value); } max-edited(index, value) => { Enemies.filter-stat-max(index, value); } }
+                    }
+                    VerticalLayout { spacing: 8px; Label { text: "Trait Type"; font-size: 18px; } FilterIconsWrap { items: Enemies.filter-traits; toggled(id) => { Enemies.filter-icon(id); } } }
+                    VerticalLayout { spacing: 8px; Label { text: "Attack Type"; font-size: 18px; } FilterIconsWrap { items: Enemies.filter-attack-types; toggled(id) => { Enemies.filter-icon(id); } } }
+                    VerticalLayout {
+                        spacing: 8px;
+                        Label { text: "Abilities"; font-size: 18px; }
+                        if Enemies.filter-headline-1.length > 0: FilterIconsWrap { items: Enemies.filter-headline-1; toggled(id) => { Enemies.filter-icon(id); } }
+                        if Enemies.filter-headline-2.length > 0: FilterIconsWrap { items: Enemies.filter-headline-2; toggled(id) => { Enemies.filter-icon(id); } }
+                        if Enemies.filter-body-1.length > 0: FilterLabeledList { items: Enemies.filter-body-1; toggled(id) => { Enemies.filter-icon(id); } range-min(owner, index, value) => { Enemies.filter-range-min(owner, index, value); } range-max(owner, index, value) => { Enemies.filter-range-max(owner, index, value); } }
+                        if Enemies.filter-body-2.length > 0: FilterLabeledList { items: Enemies.filter-body-2; toggled(id) => { Enemies.filter-icon(id); } range-min(owner, index, value) => { Enemies.filter-range-min(owner, index, value); } range-max(owner, index, value) => { Enemies.filter-range-max(owner, index, value); } }
+                        if Enemies.filter-footer.length > 0: FilterIconsWrap { items: Enemies.filter-footer; toggled(id) => { Enemies.filter-icon(id); } }
+                    }
+                    HorizontalLayout {
+                        alignment: center;
+                        padding: 8px;
+                    }
                 }
             }
-            VerticalLayout {
-                spacing: 8px;
-                Label { text: "Stats"; font-size: 18px; }
-                HorizontalLayout {
-                    spacing: 8px; alignment: start;
-                    Label { text: "Target Magnification:"; vertical-alignment: center; }
-                    Input { width: 70px; text: Enemies.filter-mag; placeholder: "100"; edited(value) => { Enemies.filter-mag-edited(value); } }
-                    Label { text: "%"; vertical-alignment: center; }
-                }
-                RangeRows { fields: Enemies.filter-stats; min-edited(index, value) => { Enemies.filter-stat-min(index, value); } max-edited(index, value) => { Enemies.filter-stat-max(index, value); } }
-            }
-            VerticalLayout { spacing: 8px; Label { text: "Trait Type"; font-size: 18px; } FilterIconsWrap { items: Enemies.filter-traits; toggled(id) => { Enemies.filter-icon(id); } } }
-            VerticalLayout { spacing: 8px; Label { text: "Attack Type"; font-size: 18px; } FilterIconsWrap { items: Enemies.filter-attack-types; toggled(id) => { Enemies.filter-icon(id); } } }
-            VerticalLayout {
-                spacing: 8px;
-                Label { text: "Abilities"; font-size: 18px; }
-                if Enemies.filter-headline-1.length > 0: FilterIconsWrap { items: Enemies.filter-headline-1; toggled(id) => { Enemies.filter-icon(id); } }
-                if Enemies.filter-headline-2.length > 0: FilterIconsWrap { items: Enemies.filter-headline-2; toggled(id) => { Enemies.filter-icon(id); } }
-                if Enemies.filter-body-1.length > 0: FilterLabeledList { items: Enemies.filter-body-1; toggled(id) => { Enemies.filter-icon(id); } range-min(owner, index, value) => { Enemies.filter-range-min(owner, index, value); } range-max(owner, index, value) => { Enemies.filter-range-max(owner, index, value); } }
-                if Enemies.filter-body-2.length > 0: FilterLabeledList { items: Enemies.filter-body-2; toggled(id) => { Enemies.filter-icon(id); } range-min(owner, index, value) => { Enemies.filter-range-min(owner, index, value); } range-max(owner, index, value) => { Enemies.filter-range-max(owner, index, value); } }
-                if Enemies.filter-footer.length > 0: FilterIconsWrap { items: Enemies.filter-footer; toggled(id) => { Enemies.filter-icon(id); } }
-            }
-            HorizontalLayout {
-                alignment: center;
-                padding: 8px;
-                Btn { tone: Tone.danger; label: "Clear Filter"; clicked => { Enemies.filter-clear(); } }
-            }
+            Btn { tone: Tone.danger; label: "Clear Filter"; width: 150px; height: 34px; text-size: 13px; x: (parent.width - self.width) / 2; y: parent.height - self.height - 12px; clicked => { Enemies.filter-clear(); } }
         }
     }
 }
@@ -191,11 +197,14 @@ component Header inherits VerticalLayout {
             Rectangle {
                 width: 113px;
                 height: 56px;
+                first := Text { x: 0; y: 0; text: Enemies.name; font-size: Enemies.name-size; wrap: word-wrap; width: 120px; visible: false; }
+                second := Text { x: 0; y: 0; text: Enemies.name; font-size: Enemies.name-size * 0.85; wrap: word-wrap; width: 120px; visible: false; }
+                third := Text { x: 0; y: 0; text: Enemies.name; font-size: Enemies.name-size * 0.72; wrap: word-wrap; width: 120px; visible: false; }
                 Text {
                     x: 0;
                     text: Enemies.name;
                     color: Theme.text;
-                    font-size: Enemies.name-size;
+                    font-size: first.preferred-height <= 56px ? Enemies.name-size : (second.preferred-height <= 56px ? Enemies.name-size * 0.85 : (third.preferred-height <= 56px ? Enemies.name-size * 0.72 : Enemies.name-size * 0.6));
                     wrap: word-wrap;
                     overflow: elide;
                     width: 120px;
@@ -252,20 +261,24 @@ component Details inherits VerticalLayout {
 }
 
 export component EnemiesPage inherits Rectangle {
-    EdgeGrab { armed: Enemies.ready && !Enemies.roster-open && !Shell.nav-open; pulled => { Enemies.roster-open = true; Shell.left-open = true; }
+    EdgeGrab { armed: Enemies.ready && !Enemies.roster-open && !Shell.nav-open; reach: drawer.panel-width; dragged(fraction) => { drawer.drag(fraction); } dropped => { drawer.release(); }
         if !Enemies.ready: Status { title: Enemies.status-title; detail: Enemies.status-detail; x: (parent.width - self.width) / 2; y: (parent.height - self.height) / 2; width: min(parent.width - 32px, 360px); }
         if Enemies.ready: VerticalLayout {
+            width: 100%;
+            height: 100%;
             padding-left: 10px;
             padding-right: 10px;
             padding-top: 4px;
             padding-bottom: 12px;
             if Enemies.selected < 0: Label { text: "Select a Unit"; font-size: 24px; horizontal-alignment: center; vertical-alignment: center; vertical-stretch: 1; }
-            if Enemies.selected >= 0: Header { }
+            if Enemies.selected >= 0: Header { vertical-stretch: 0; }
             if Enemies.selected >= 0 && Enemies.tab != 2: Flickable {
                 mouse-drag-pan-enabled: true;
                 vertical-stretch: 1;
+                max-height: 100000px;
                 content-width: self.width;
                 content-height: body.preferred-height + 16px > self.height ? body.preferred-height + 16px : self.height;
+                interactive: body.preferred-height + 16px > self.height;
                 body := VerticalLayout {
                     x: 0;
                     y: 0;
@@ -289,10 +302,11 @@ export component EnemiesPage inherits Rectangle {
             }
         }
     }
-    Drawer {
+    drawer := Drawer {
         open <=> Enemies.roster-open;
         panel-width: 152px;
         closed => { Shell.left-open = false; }
+        opened => { Shell.left-open = true; }
         Roster { width: 100%; height: 100%; }
     }
     FilterDialog { }

@@ -377,6 +377,7 @@ fn gainable(filter: &CatFilterState, available: &Available, identity: Identity) 
 const NAME_FONT: &[u8] = include_bytes!("../../../website/assets/fonts/FiraSans-Regular.ttf");
 const NAME_MAX: f32 = 22.0;
 const NAME_WRAP: f32 = 120.0;
+const NAME_MARGIN: f32 = 0.94;
 const NAME_MIN: f32 = 8.0;
 const NAME_STEP: f32 = 0.5;
 
@@ -436,12 +437,13 @@ pub fn name_size(name: &str, wrap_width: f32) -> f32 {
         return NAME_MAX;
     };
     let allowed = if name.split_whitespace().nth(1).is_some() { 2 } else { 1 };
+    let room = wrap_width * NAME_MARGIN;
     let mut size = NAME_MAX;
 
     while size > NAME_MIN {
-        let (lines, widest) = wrapped(font, size, name, wrap_width);
+        let (lines, widest) = wrapped(font, size, name, room);
 
-        if lines <= allowed && widest <= wrap_width {
+        if lines <= allowed && widest <= room {
             break;
         }
 

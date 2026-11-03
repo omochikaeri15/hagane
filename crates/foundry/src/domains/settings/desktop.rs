@@ -10,8 +10,7 @@ use tracing::{debug, info, warn};
 use crate::common::assets;
 use crate::common::dirs::APP_DIR;
 
-const LEGACY_DESKTOP_FILE: &str = "battle_cats_complete.desktop";
-const LEGACY_ICON_FILE: &str = "battle_cats_complete.png";
+const LEGACY_NAMES: [&str; 2] = ["battle_cats_complete", "battle-cats-complete"];
 
 fn desktop_file_name() -> String {
     format!("{}.desktop", APP_DIR)
@@ -36,25 +35,30 @@ pub fn is_desktop_data_present() -> bool {
 fn remove_legacy_desktop_data() -> bool {
     let mut had_legacy_entry = false;
 
-    if let Some(applications_directory) = get_base_directory(".local/share/applications") {
-        let legacy_desktop_path = applications_directory.join(LEGACY_DESKTOP_FILE);
-        if legacy_desktop_path.exists() {
-            had_legacy_entry = true;
-            if let Err(error) = fs::remove_file(&legacy_desktop_path) {
-                warn!("Failed to remove legacy .desktop entry: {}", error);
-            } else {
-                debug!("Removed legacy .desktop entry file.");
+    for name in LEGACY_NAMES {
+        if let Some(applications_directory) = get_base_directory(".local/share/applications") {
+            let legacy_desktop_path = applications_directory.join(format!("{name}.desktop"));
+
+            if legacy_desktop_path.exists() {
+                had_legacy_entry = true;
+
+                if let Err(error) = fs::remove_file(&legacy_desktop_path) {
+                    warn!("Failed to remove legacy .desktop entry: {}", error);
+                } else {
+                    debug!("Removed legacy .desktop entry file.");
+                }
             }
         }
-    }
 
-    if let Some(icons_directory) = get_base_directory(".local/share/icons") {
-        let legacy_icon_path = icons_directory.join(LEGACY_ICON_FILE);
-        if legacy_icon_path.exists() {
-            if let Err(error) = fs::remove_file(&legacy_icon_path) {
-                warn!("Failed to remove legacy application icon: {}", error);
-            } else {
-                debug!("Removed legacy desktop application icon.");
+        if let Some(icons_directory) = get_base_directory(".local/share/icons") {
+            let legacy_icon_path = icons_directory.join(format!("{name}.png"));
+
+            if legacy_icon_path.exists() {
+                if let Err(error) = fs::remove_file(&legacy_icon_path) {
+                    warn!("Failed to remove legacy application icon: {}", error);
+                } else {
+                    debug!("Removed legacy desktop application icon.");
+                }
             }
         }
     }
@@ -98,7 +102,7 @@ pub fn create_desktop_data() -> Result<(), String> {
         Version=1.0\n\
         Type=Application\n\
         Name=Hagane\n\
-        Comment=Toolkit for The Battle Cats\n\
+        Comment=Cat Game Suite\n\
         Exec=\"{}\"\n\
         Path={}\n\
         Icon={}\n\

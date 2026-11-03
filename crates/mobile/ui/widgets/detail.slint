@@ -173,9 +173,10 @@ export component StatGrid inherits VerticalLayout {
                         lines: cell.value;
                         size: 13px;
                         align: center;
-                        y: (parent.height - self.preferred-height) / 2;
                         x: 0;
+                        y: (parent.height - self.height) / 2;
                         width: parent.width;
+                        height: self.preferred-height;
                     }
                 }
             }

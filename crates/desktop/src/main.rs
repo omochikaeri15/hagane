@@ -20,6 +20,7 @@ use foundry::common::dirs::APP_DIR;
 
 pub fn main() -> iced::Result {
     architecture::anchor();
+    app::migrate::run();
 
     let (backend, auto) = app::startup::saved_graphics();
 
@@ -33,12 +34,12 @@ pub fn main() -> iced::Result {
     let (size, fullscreen) = app::startup::saved_window();
 
     iced::application(
-        app::BattleCatsApp::new,
-        app::BattleCatsApp::update,
-        app::BattleCatsApp::view,
+        app::HaganeApp::new,
+        app::HaganeApp::update,
+        app::HaganeApp::view,
     )
         .title("Hagane")
-        .theme(app::BattleCatsApp::theme)
+        .theme(app::HaganeApp::theme)
         .font(assets::FONT_JP)
         .font(assets::FONT_KR)
         .font(assets::FONT_TC)
@@ -54,7 +55,7 @@ pub fn main() -> iced::Result {
             ..Default::default()
         })
         .exit_on_close_request(false)
-        .subscription(app::BattleCatsApp::subscription)
+        .subscription(app::HaganeApp::subscription)
         .run()
 }
 

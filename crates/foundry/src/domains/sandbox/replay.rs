@@ -16,7 +16,7 @@ pub use save::{God, Level, Options, Parts, Save, Screen, Seeds, Setup, Stage, Tu
 pub use tape::{Cue, Key, format_frame, parse};
 
 pub const EXTENSION: &str = "bcv";
-pub const VANILLA_APP: &str = "The Battle Cats";
+pub const VANILLA_APP: &str = "Vanilla";
 
 const SAVE: &str = "save";
 const INPUT: &str = "input";

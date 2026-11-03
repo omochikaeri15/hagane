@@ -15,7 +15,8 @@ import { CatsPage, Cats } from "pages/cats.slint";
 import { EnemiesPage, Enemies } from "pages/enemies.slint";
 import { ModsPage, Mods, ModRow } from "pages/mods.slint";
 import { FilesPage, Files, FileRow } from "pages/files.slint";
-import { ImportPage, ImportDialogs, Import } from "pages/import.slint";
+import { ImportPage, Import } from "pages/import.slint";
+import { Source, SourceDialogs } from "widgets/source.slint";
 import { UtilitiesPage, Utilities, Backdrop } from "pages/utilities.slint";
 import { HelpPage, Help } from "pages/help.slint";
 import { SettingsPage, Settings, LangRow, ArcRow, TreasureItem, TreasureSet, ChapterFold, KeyRow, RuleRow, LangToggle } from "pages/settings.slint";
@@ -28,7 +29,7 @@ import { Export, ExportDialog } from "widgets/export.slint";
 import { Updater, UpdateDialog } from "widgets/update.slint";
 import { Line, Seg, AbilityIcon, AbilityLine, StatCell, HeaderBtn, RosterRow, OrbSlot } from "widgets/detail.slint";
 
-export { Theme, Shell, Page, Updater, Sandbox, DeckCell, ComboRow, SavedRow, OrbSlot, ConfigEntry, ItemRow, VitalRow, Field, ReplayRow, Home, Cats, Enemies, Mods, ModRow, Picker, Files, FileRow, Import, Utilities, Backdrop, Help, Settings, LangRow, ArcRow, TreasureItem, TreasureSet, ChapterFold, KeyRow, RuleRow, LangToggle, Stages, PickRow, Crown, DropRow, MaterialCell, LineupSlot, Pair, GroundRow, FlagRow, FilterCard, Viewer, Export, Tone, FilterIcon, FilterLabeled, RangeField, MotionTile, Line, Seg, AbilityIcon, AbilityLine, StatCell, HeaderBtn, RosterRow }
+export { Theme, Shell, Page, Updater, Sandbox, DeckCell, ComboRow, SavedRow, OrbSlot, ConfigEntry, ItemRow, VitalRow, Field, ReplayRow, Home, Cats, Enemies, Mods, ModRow, Picker, Files, FileRow, Import, Source, Utilities, Backdrop, Help, Settings, LangRow, ArcRow, TreasureItem, TreasureSet, ChapterFold, KeyRow, RuleRow, LangToggle, Stages, PickRow, Crown, DropRow, MaterialCell, LineupSlot, Pair, GroundRow, FlagRow, FilterCard, Viewer, Export, Tone, FilterIcon, FilterLabeled, RangeField, MotionTile, Line, Seg, AbilityIcon, AbilityLine, StatCell, HeaderBtn, RosterRow }
 
 export component AppWindow inherits Window {
     title: "Hagane";
@@ -59,7 +60,9 @@ export component AppWindow inherits Window {
         EdgeGrab {
             right: true;
             armed: !Shell.nav-open && !Shell.left-open && !Sandbox.active;
-            pulled => { Shell.nav-open = true; }
+            reach: Theme.sidebar-width;
+            dragged(fraction) => { nav.drag(fraction); }
+            dropped => { nav.release(); }
             if Shell.page == Page.home: HomePage { width: 100%; height: 100%; }
             if Shell.page == Page.cats: CatsPage { width: 100%; height: 100%; }
             if Shell.page == Page.enemies: EnemiesPage { width: 100%; height: 100%; }
@@ -117,9 +120,9 @@ export component AppWindow inherits Window {
 
         ExportDialog { }
         PickerDialog { }
-        ImportDialogs { }
+        SourceDialogs { width: 100%; height: 100%; }
         UpdateDialog { }
-        SandboxDialogs { }
+        SandboxDialogs { width: 100%; height: 100%; }
 
         Toast {
             shown: Shell.toast-shown;

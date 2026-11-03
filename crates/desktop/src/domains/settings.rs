@@ -693,7 +693,7 @@ impl State {
             theme::sized_button("Manage Keys", theme::MANAGE_BUTTON_WIDTH, theme::primary_button).on_press(Message::Keys(keys::Message::Open)),
             hover_hint(
                 toggle_row(core_settings.game_data.enforce_key_validation, text("Enforce Key Validation"), Some(Message::ToggleKeyValidation)),
-                "Prevents decryption/encryption if the cryptographic keys don't match the known official file hashes\nTurn this off only if the game keys have changed and you haven't updated BCC yet",
+                "Prevents decryption/encryption if the cryptographic keys don't match the known official file hashes\nTurn this off only if the game keys have changed and you haven't updated Hagane yet",
             ),
         ].spacing(10).into()
     }
@@ -844,7 +844,7 @@ impl State {
 
         let header = column![
             text("About Hagane").size(32),
-            text("A high-performance Battle Cats toolkit built by Omochi"),
+            text("A high-performance cat game toolkit built by Omochi"),
             text("Open Source & Legal Info").size(20),
         ].spacing(10);
 

@@ -129,81 +129,93 @@ export global Cats {
     callback filter-clear();
 }
 
+component ToggleGrid inherits Rectangle {
+    in property <[string]> labels;
+    in property <[bool]> active;
+    in property <int> columns: 3;
+    callback toggled(int);
+    property <length> gap: 4px;
+    property <length> cell: (self.width - self.gap * (self.columns - 1)) / self.columns;
+    height: ceil(root.labels.length / root.columns) * 36px - 4px;
+    for label[index] in root.labels: Btn { tone: Tone.toggle; active: root.active[index]; label: label; text-size: 12px; pad-x: 4px; width: root.cell; height: 32px; x: mod(index, root.columns) * (root.cell + root.gap); y: floor(index / root.columns) * 36px; clicked => { root.toggled(index); } }
+}
+
 export component FilterDialog inherits Dialog {
     title: "Advanced Cat Filter";
     open <=> Cats.filter-open;
-    body-height: 9999px;
-    Flickable {
-        mouse-drag-pan-enabled: true;
-        width: 100%;
-        height: 100%;
-        content-height: content.preferred-height;
-        content := VerticalLayout {
-            padding: 16px;
-            spacing: 16px;
-            VerticalLayout {
-                spacing: 8px;
-                Label { text: "Attributes"; font-size: 18px; }
-                HorizontalLayout {
-                    spacing: 4px; alignment: start;
-                    for label[index] in ["Normal", "Special", "Rare", "Super Rare", "Uber Rare", "Legend Rare"]: Btn { tone: Tone.toggle; active: Cats.filter-rarities[index]; label: label; text-size: 12px; pad-x: 6px; clicked => { Cats.filter-rarity(index); } }
-                }
-                HorizontalLayout {
-                    spacing: 4px; alignment: start;
-                    for label[index] in ["Normal Form", "Evolved Form", "True Form", "Ultra Form"]: Btn { tone: Tone.toggle; active: Cats.filter-forms[index]; label: label; text-size: 12px; pad-x: 6px; clicked => { Cats.filter-form(index); } }
-                }
-                HorizontalLayout {
-                    spacing: 8px; alignment: start;
-                    Label { text: "Mode:"; vertical-alignment: center; }
-                    Combo { options: ["And", "Or"]; current: Cats.filter-mode; selected(index) => { Cats.filter-mode-set(index); } }
-                }
-                HorizontalLayout {
-                    spacing: 8px; alignment: start;
-                    Label { text: "Talents:"; vertical-alignment: center; }
-                    Combo { options: ["Ignore", "Consider", "Only"]; current: Cats.filter-talents; selected(index) => { Cats.filter-talents-set(index); } }
-                }
-                HorizontalLayout {
-                    spacing: 8px; alignment: start;
-                    Label { text: "Ultra Talents:"; vertical-alignment: center; }
-                    Combo { options: ["Ignore", "Consider", "Only"]; current: Cats.filter-ultra; selected(index) => { Cats.filter-ultra-set(index); } }
+    body-height: Shell.app-height / 2;
+    VerticalLayout {
+        host := Rectangle {
+            Flickable {
+                mouse-drag-pan-enabled: true;
+                width: parent.width;
+                height: parent.height;
+                content-width: self.width;
+                content-height: content.preferred-height;
+                content := VerticalLayout {
+                    padding: 16px;
+                    padding-bottom: 60px;
+                    spacing: 16px;
+                    VerticalLayout {
+                        spacing: 8px;
+                        Label { text: "Attributes"; font-size: 18px; }
+                        ToggleGrid { labels: ["Normal", "Special", "Rare", "Super Rare", "Uber Rare", "Legend Rare"]; active: Cats.filter-rarities; toggled(index) => { Cats.filter-rarity(index); } }
+                        ToggleGrid { labels: ["Normal Form", "Evolved Form", "True Form", "Ultra Form"]; active: Cats.filter-forms; toggled(index) => { Cats.filter-form(index); } }
+                        HorizontalLayout {
+                            spacing: 8px; alignment: start;
+                            Label { text: "Mode:"; vertical-alignment: center; }
+                            Combo { options: ["And", "Or"]; current: Cats.filter-mode; selected(index) => { Cats.filter-mode-set(index); } }
+                        }
+                        HorizontalLayout {
+                            spacing: 8px; alignment: start;
+                            Label { text: "Talents:"; vertical-alignment: center; }
+                            Combo { options: ["Ignore", "Consider", "Only"]; current: Cats.filter-talents; selected(index) => { Cats.filter-talents-set(index); } }
+                        }
+                        HorizontalLayout {
+                            spacing: 8px; alignment: start;
+                            Label { text: "Ultra Talents:"; vertical-alignment: center; }
+                            Combo { options: ["Ignore", "Consider", "Only"]; current: Cats.filter-ultra; selected(index) => { Cats.filter-ultra-set(index); } }
+                        }
+                    }
+                    VerticalLayout {
+                        spacing: 8px;
+                        Label { text: "Stats"; font-size: 18px; }
+                        HorizontalLayout {
+                            spacing: 8px; alignment: start;
+                            Label { text: "Target Level:"; vertical-alignment: center; }
+                            Input { width: 60px; text: Cats.filter-level; placeholder: "Any"; input-type: InputType.number; edited(value) => { Cats.filter-level-edited(value); } }
+                        }
+                        RangeRows { fields: Cats.filter-stats; min-edited(index, value) => { Cats.filter-stat-min(index, value); } max-edited(index, value) => { Cats.filter-stat-max(index, value); } }
+                    }
+                    VerticalLayout { spacing: 8px; Label { text: "Target Traits"; font-size: 18px; } FilterIconsWrap { items: Cats.filter-traits; toggled(id) => { Cats.filter-icon(id); } } }
+                    VerticalLayout { spacing: 8px; Label { text: "Attack Type"; font-size: 18px; } FilterIconsWrap { items: Cats.filter-attack-types; toggled(id) => { Cats.filter-icon(id); } } }
+                    VerticalLayout {
+                        spacing: 8px;
+                        Label { text: "Abilities"; font-size: 18px; }
+                        if Cats.filter-headline-1.length > 0: FilterIconsWrap { items: Cats.filter-headline-1; toggled(id) => { Cats.filter-icon(id); } }
+                        if Cats.filter-headline-2.length > 0: FilterIconsWrap { items: Cats.filter-headline-2; toggled(id) => { Cats.filter-icon(id); } }
+                        if Cats.filter-body-1.length > 0: FilterLabeledList { items: Cats.filter-body-1; toggled(id) => { Cats.filter-icon(id); } range-min(owner, index, value) => { Cats.filter-range-min(owner, index, value); } range-max(owner, index, value) => { Cats.filter-range-max(owner, index, value); } }
+                        if Cats.filter-body-2.length > 0: FilterLabeledList { items: Cats.filter-body-2; toggled(id) => { Cats.filter-icon(id); } range-min(owner, index, value) => { Cats.filter-range-min(owner, index, value); } range-max(owner, index, value) => { Cats.filter-range-max(owner, index, value); } }
+                        if Cats.filter-footer.length > 0: FilterIconsWrap { items: Cats.filter-footer; toggled(id) => { Cats.filter-icon(id); } }
+                        if Cats.filter-talent-icons.length > 0: Label { text: "Talents"; font-size: 18px; }
+                        if Cats.filter-talent-icons.length > 0: FilterIconsWrap { items: Cats.filter-talent-icons; toggled(id) => { Cats.filter-icon(id); } }
+                    }
+                    if Cats.filter-combos.length > 0: VerticalLayout {
+                        spacing: 8px;
+                        Label { text: "Combo"; font-size: 18px; }
+                        for group in Cats.filter-combos: Rectangle {
+                            property <length> cell: (self.width - 8px) / 3;
+                            height: ceil(group.length / 3) * 36px - 4px;
+                            for effect[index] in group: Btn { tone: Tone.toggle; active: effect.active; label: effect.label; text-size: 12px; pad-x: 4px; width: parent.cell; height: 32px; x: mod(index, 3) * (parent.cell + 4px); y: floor(index / 3) * 36px; clicked => { Cats.filter-combo(effect.id); } }
+                        }
+                    }
+                    HorizontalLayout {
+                        alignment: center;
+                        padding: 8px;
+                    }
                 }
             }
-            VerticalLayout {
-                spacing: 8px;
-                Label { text: "Stats"; font-size: 18px; }
-                HorizontalLayout {
-                    spacing: 8px; alignment: start;
-                    Label { text: "Target Level:"; vertical-alignment: center; }
-                    Input { width: 60px; text: Cats.filter-level; placeholder: "Any"; input-type: InputType.number; edited(value) => { Cats.filter-level-edited(value); } }
-                }
-                RangeRows { fields: Cats.filter-stats; min-edited(index, value) => { Cats.filter-stat-min(index, value); } max-edited(index, value) => { Cats.filter-stat-max(index, value); } }
-            }
-            VerticalLayout { spacing: 8px; Label { text: "Target Traits"; font-size: 18px; } FilterIconsWrap { items: Cats.filter-traits; toggled(id) => { Cats.filter-icon(id); } } }
-            VerticalLayout { spacing: 8px; Label { text: "Attack Type"; font-size: 18px; } FilterIconsWrap { items: Cats.filter-attack-types; toggled(id) => { Cats.filter-icon(id); } } }
-            VerticalLayout {
-                spacing: 8px;
-                Label { text: "Abilities"; font-size: 18px; }
-                if Cats.filter-headline-1.length > 0: FilterIconsWrap { items: Cats.filter-headline-1; toggled(id) => { Cats.filter-icon(id); } }
-                if Cats.filter-headline-2.length > 0: FilterIconsWrap { items: Cats.filter-headline-2; toggled(id) => { Cats.filter-icon(id); } }
-                if Cats.filter-body-1.length > 0: FilterLabeledList { items: Cats.filter-body-1; toggled(id) => { Cats.filter-icon(id); } range-min(owner, index, value) => { Cats.filter-range-min(owner, index, value); } range-max(owner, index, value) => { Cats.filter-range-max(owner, index, value); } }
-                if Cats.filter-body-2.length > 0: FilterLabeledList { items: Cats.filter-body-2; toggled(id) => { Cats.filter-icon(id); } range-min(owner, index, value) => { Cats.filter-range-min(owner, index, value); } range-max(owner, index, value) => { Cats.filter-range-max(owner, index, value); } }
-                if Cats.filter-footer.length > 0: FilterIconsWrap { items: Cats.filter-footer; toggled(id) => { Cats.filter-icon(id); } }
-                if Cats.filter-talent-icons.length > 0: Label { text: "Talents"; font-size: 18px; }
-                if Cats.filter-talent-icons.length > 0: FilterIconsWrap { items: Cats.filter-talent-icons; toggled(id) => { Cats.filter-icon(id); } }
-            }
-            if Cats.filter-combos.length > 0: VerticalLayout {
-                spacing: 8px;
-                Label { text: "Combo"; font-size: 18px; }
-                for group in Cats.filter-combos: HorizontalLayout {
-                    spacing: 4px; alignment: start;
-                    for effect in group: Btn { tone: Tone.toggle; active: effect.active; label: effect.label; text-size: 12px; pad-x: 6px; clicked => { Cats.filter-combo(effect.id); } }
-                }
-            }
-            HorizontalLayout {
-                alignment: center;
-                padding: 8px;
-                Btn { tone: Tone.danger; label: "Clear Filter"; clicked => { Cats.filter-clear(); } }
-            }
+            Btn { tone: Tone.danger; label: "Clear Filter"; width: 150px; height: 34px; text-size: 13px; x: (parent.width - self.width) / 2; y: parent.height - self.height - 12px; clicked => { Cats.filter-clear(); } }
         }
     }
 }
@@ -282,11 +294,14 @@ component Header inherits VerticalLayout {
             Rectangle {
                 width: 113px;
                 height: 56px;
+                first := Text { x: 0; y: 0; text: Cats.name; font-size: Cats.name-size; wrap: word-wrap; width: 120px; visible: false; }
+                second := Text { x: 0; y: 0; text: Cats.name; font-size: Cats.name-size * 0.85; wrap: word-wrap; width: 120px; visible: false; }
+                third := Text { x: 0; y: 0; text: Cats.name; font-size: Cats.name-size * 0.72; wrap: word-wrap; width: 120px; visible: false; }
                 Text {
                     x: 0;
                     text: Cats.name;
                     color: Theme.text;
-                    font-size: Cats.name-size;
+                    font-size: first.preferred-height <= 56px ? Cats.name-size : (second.preferred-height <= 56px ? Cats.name-size * 0.85 : (third.preferred-height <= 56px ? Cats.name-size * 0.72 : Cats.name-size * 0.6));
                     wrap: word-wrap;
                     overflow: elide;
                     width: 120px;
@@ -502,12 +517,14 @@ component Details inherits VerticalLayout {
 }
 
 export component CatDetail inherits VerticalLayout {
-    Header { }
-    if Cats.tab != 3: Flickable {
+    Header { vertical-stretch: 0; }
+    if Cats.tab != 3: view := Flickable {
         mouse-drag-pan-enabled: true;
         vertical-stretch: 1;
+        max-height: 100000px;
         content-width: self.width;
         content-height: body.preferred-height + 16px > self.height ? body.preferred-height + 16px : self.height;
+        interactive: body.preferred-height + 16px > self.height;
         body := VerticalLayout {
             x: 0;
             y: 0;
@@ -533,9 +550,11 @@ export component CatDetail inherits VerticalLayout {
 }
 
 export component CatsPage inherits Rectangle {
-    EdgeGrab { armed: Cats.ready && !Cats.roster-open && !Shell.nav-open; pulled => { Cats.roster-open = true; Shell.left-open = true; }
+    EdgeGrab { armed: Cats.ready && !Cats.roster-open && !Shell.nav-open; reach: drawer.panel-width; dragged(fraction) => { drawer.drag(fraction); } dropped => { drawer.release(); }
         if !Cats.ready: Status { title: Cats.status-title; detail: Cats.status-detail; x: (parent.width - self.width) / 2; y: (parent.height - self.height) / 2; width: min(parent.width - 32px, 360px); }
         if Cats.ready: VerticalLayout {
+            width: 100%;
+            height: 100%;
             padding-left: 10px;
             padding-right: 10px;
             padding-top: 4px;
@@ -544,10 +563,11 @@ export component CatsPage inherits Rectangle {
             if Cats.selected >= 0: CatDetail { vertical-stretch: 1; }
         }
     }
-    Drawer {
+    drawer := Drawer {
         open <=> Cats.roster-open;
         panel-width: 152px;
         closed => { Shell.left-open = false; }
+        opened => { Shell.left-open = true; }
         Roster { width: 100%; height: 100%; }
     }
     FilterDialog { }

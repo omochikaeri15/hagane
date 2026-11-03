@@ -78,7 +78,7 @@ pub type Shared = Rc<RefCell<State>>;
 
 impl State {
     fn new(images: &Images) -> Self {
-        let roster = Roster::new(images, Rc::new(|images: &Images, vault, path| ("".to_owned(), images.cat_banner(vault, path))));
+        let roster = Roster::new(images, Rc::new(|images: &Images, vault, path| (format!("cat-banner:{}", path.display()), images.cat_banner(vault, path))));
 
         Self {
             store: Store::load(),

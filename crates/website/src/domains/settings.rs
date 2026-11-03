@@ -228,7 +228,7 @@ fn About() -> Element {
         div { class: "about",
             div { class: "about-header",
                 div { class: "about-title", "About Hagane" }
-                div { "A high-performance Battle Cats toolkit built by Omochi" }
+                div { "A high-performance cat game toolkit built by Omochi" }
                 div { class: "about-subtitle", "Open Source & Legal Info" }
             }
             div { class: "rule" }

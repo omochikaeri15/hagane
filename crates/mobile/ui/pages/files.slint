@@ -68,7 +68,7 @@ component Browser inherits Panel {
 }
 
 export component FilesPage inherits Rectangle {
-    EdgeGrab { armed: !Files.list-open && !Shell.nav-open; pulled => { Files.list-open = true; Shell.left-open = true; }
+    EdgeGrab { armed: !Files.list-open && !Shell.nav-open; reach: drawer.panel-width; dragged(fraction) => { drawer.drag(fraction); } dropped => { drawer.release(); }
         VerticalLayout {
             padding: 5px;
             padding-top: 3px;
@@ -151,10 +151,11 @@ export component FilesPage inherits Rectangle {
             }
         }
     }
-    Drawer {
+    drawer := Drawer {
         open <=> Files.list-open;
         panel-width: min(300px, root.width * 0.8);
         closed => { Shell.left-open = false; }
+        opened => { Shell.left-open = true; }
         Browser { width: 100%; height: 100%; }
     }
     Toast { shown: Files.toast-shown; text: Files.toast; tone: Tone.danger; }

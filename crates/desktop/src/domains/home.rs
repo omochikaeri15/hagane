@@ -136,7 +136,7 @@ impl State {
                     color: Some(theme.palette().text),
                 }),
             Space::new().height(SPACE_TITLE_SUBTITLE),
-            text("All-In-One Battle Cats Toolkit")
+            text("Cat Game Suite")
                 .size(16.0)
                 .style(|theme: &Theme| iced::widget::text::Style {
                     color: Some(Color { a: 0.4, ..theme.palette().text }),

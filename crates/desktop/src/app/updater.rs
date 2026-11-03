@@ -21,7 +21,7 @@ use foundry::common::{github, platform, process};
 use crate::common::feedback::CONFIRM_SHORT_LABEL;
 use crate::widget::popup;
 
-use super::{theme, BattleCatsApp, CheckFailure, Message, UpdateStatus, UpdateTarget, UpdaterAction, UpdaterMsg};
+use super::{theme, HaganeApp, CheckFailure, Message, UpdateStatus, UpdateTarget, UpdaterAction, UpdaterMsg};
 
 const REPO_OWNER: &str = "omochikaeri15";
 const REPO_NAME: &str = "hagane";
@@ -40,7 +40,7 @@ const TITLE_SIZE: f32 = 18.0;
 const BODY_SIZE: f32 = 14.0;
 const SUBTLE_ALPHA: f32 = 0.6;
 
-impl BattleCatsApp {
+impl HaganeApp {
     pub(crate) fn schedule_updater_status_expiry(&mut self) -> Task<Message> {
         if let Some(handle) = self.updater_status_handle.take() {
             handle.abort();

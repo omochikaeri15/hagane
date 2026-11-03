@@ -219,14 +219,15 @@ component ExportDialog inherits Dialog {
 }
 
 export component ModsPage inherits Rectangle {
-    EdgeGrab { armed: !Mods.list-open && !Shell.nav-open; pulled => { Mods.list-open = true; Shell.left-open = true; }
+    EdgeGrab { armed: !Mods.list-open && !Shell.nav-open; reach: drawer.panel-width; dragged(fraction) => { drawer.drag(fraction); } dropped => { drawer.release(); }
         if !Mods.selected: Label { text: "Please select or import a Mod"; font-size: 18px; horizontal-alignment: center; vertical-alignment: center; width: parent.width - 32px; x: 16px; height: parent.height; wrap: word-wrap; }
         if Mods.selected: Details { width: parent.width; height: parent.height; }
     }
-    Drawer {
+    drawer := Drawer {
         open <=> Mods.list-open;
         panel-width: min(220px, root.width * 0.6);
         closed => { Shell.left-open = false; }
+        opened => { Shell.left-open = true; }
         List { width: 100%; height: 100%; }
     }
     AddDialog { }

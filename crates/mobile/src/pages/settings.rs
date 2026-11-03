@@ -1,9 +1,12 @@
+mod source;
+
 use std::cell::RefCell;
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::time::Duration;
 
+use slint::platform::WindowEvent;
 use slint::{ComponentHandle, ModelRc, SharedString, Timer, TimerMode, VecModel};
 use tracing::{debug, error, info};
 
@@ -270,6 +273,7 @@ pub fn wire(window: &AppWindow, context: &Rc<Context>) -> Shared {
         Timer::single_shot(Duration::ZERO, move || {
             if let Some(ui) = weak.upgrade() {
                 ui.global::<Settings>().set_lang_drag(-1);
+                ui.window().dispatch_event(WindowEvent::PointerExited);
                 reorder(&ui, &held, &ctx, from.max(0) as usize, to.max(0) as usize);
             }
         });
@@ -821,6 +825,8 @@ pub fn wire(window: &AppWindow, context: &Rc<Context>) -> Shared {
     });
 
     refresh(window, &state, context);
+
+    source::wire(window, context);
 
     state
 }

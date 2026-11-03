@@ -1,30 +1,11 @@
 import { Theme } from "../theme.slint";
-import { Btn, Tone, Input, Combo, Label, Dialog, Rule, Progress, Card } from "../widgets/basics.slint";
+import { Btn, Tone, Combo, Label, Rule, Progress } from "../widgets/basics.slint";
 import { Console } from "../widgets/console.slint";
 import { HeaderToggle } from "../widgets/detail.slint";
 
 export global Import {
     in-out property <int> tab;
     in property <bool> running;
-
-    in-out property <string> link;
-    in property <bool> link-enabled: true;
-    in property <string> source-label: "No Source Link";
-    in property <Tone> source-tone: Tone.neutral;
-    in property <bool> source-enabled;
-    in-out property <bool> source-open;
-    in property <int> source-kind;
-    in property <string> source-title;
-    in property <string> source-summary;
-    in property <string> source-heading;
-    in property <float> source-fraction;
-    in property <string> source-detail;
-    in property <bool> source-sealed;
-    in property <string> ignore-label: "Ignore";
-    in property <bool> source-resumable;
-    in property <string> source-failure;
-    in-out property <bool> terms-open;
-    in property <string> terms;
 
     in property <bool> device-available;
     in property <int> device-type;
@@ -45,16 +26,6 @@ export global Import {
     in property <string> log;
 
     callback tab-set(int);
-    callback link-changed(string);
-    callback source-check();
-    callback source-accept();
-    callback source-decline();
-    callback source-ignore();
-    callback source-cancel();
-    callback source-resume();
-    callback source-dismiss();
-    callback terms-agree();
-    callback terms-disagree();
     callback device-type-set(int);
     callback device-region-set(int);
     callback pack-region-set(int);
@@ -72,97 +43,16 @@ component Field inherits HorizontalLayout {
     @children
 }
 
-component SourceDialog inherits Dialog {
-    open <=> Import.source-open;
-    title: Import.source-title;
-    panel-width: 360px;
-    VerticalLayout {
-        padding: 20px;
-        spacing: 14px;
-        alignment: center;
-        if Import.source-kind == 0: VerticalLayout {
-            spacing: 14px;
-            Label { text: "New game files are available"; font-size: 18px; bold: true; horizontal-alignment: center; wrap: word-wrap; }
-            Label { text: Import.source-summary; font-size: 14px; weak: true; horizontal-alignment: center; }
-            Label { text: "Would you like to download them now?"; font-size: 14px; horizontal-alignment: center; }
-            HorizontalLayout {
-                spacing: 12px;
-                alignment: center;
-                Btn { tone: Tone.success; label: "Yes"; width: 90px; height: 30px; text-size: 13px; clicked => { Import.source-accept(); } }
-                Btn { tone: Tone.neutral; label: "No"; width: 90px; height: 30px; text-size: 13px; clicked => { Import.source-decline(); } }
-                Btn { tone: Tone.danger; label: Import.ignore-label; width: 90px; height: 30px; text-size: 13px; clicked => { Import.source-ignore(); } }
-            }
-            Label { text: "Downloading replaces your \"game\" folder"; font-size: 13px; weak: true; horizontal-alignment: center; wrap: word-wrap; }
-            Label { text: "\"Ignore\" stops all future file checks on launch"; font-size: 13px; weak: true; horizontal-alignment: center; wrap: word-wrap; }
-        }
-        if Import.source-kind == 1: VerticalLayout {
-            spacing: 14px;
-            Label { text: Import.source-heading; font-size: 18px; bold: true; horizontal-alignment: center; }
-            Progress { fraction: Import.source-fraction; height: 12px; }
-            Label { text: Import.source-detail; font-size: 14px; weak: true; horizontal-alignment: center; wrap: word-wrap; }
-            HorizontalLayout { alignment: center; Btn { tone: Tone.danger; label: "Cancel"; width: 110px; height: 30px; text-size: 13px; enabled: !Import.source-sealed; clicked => { Import.source-cancel(); } } }
-        }
-        if Import.source-kind == 2: VerticalLayout {
-            spacing: 14px;
-            Label { text: "The new game files are installed"; font-size: 18px; bold: true; horizontal-alignment: center; wrap: word-wrap; }
-            Label { text: "Everything is being reloaded from them now"; font-size: 14px; weak: true; horizontal-alignment: center; }
-            HorizontalLayout { alignment: center; Btn { tone: Tone.success; label: "Okay"; width: 110px; height: 30px; text-size: 13px; clicked => { Import.source-dismiss(); } } }
-        }
-        if Import.source-kind == 3: VerticalLayout {
-            spacing: 14px;
-            Label { text: Import.source-resumable ? "The new game files were not installed" : "The download cannot continue"; font-size: 18px; bold: true; horizontal-alignment: center; wrap: word-wrap; }
-            Label { text: Import.source-failure; font-size: 14px; horizontal-alignment: center; wrap: word-wrap; }
-            if Import.source-resumable: HorizontalLayout {
-                spacing: 12px;
-                alignment: center;
-                Btn { tone: Tone.success; label: "Resume"; width: 110px; height: 30px; text-size: 13px; clicked => { Import.source-resume(); } }
-                Btn { tone: Tone.danger; label: "Abort"; width: 110px; height: 30px; text-size: 13px; clicked => { Import.source-decline(); } }
-            }
-            if !Import.source-resumable: HorizontalLayout { alignment: center; Btn { tone: Tone.danger; label: "Close"; width: 110px; height: 30px; text-size: 13px; clicked => { Import.source-dismiss(); } } }
-        }
-    }
-}
-
-component TermsDialog inherits Dialog {
-    open <=> Import.terms-open;
-    title: "Acknowledgment";
-    panel-width: 420px;
-    body-height: 460px;
-    closed => { Import.terms-disagree(); }
-    VerticalLayout {
-        padding: 20px;
-        spacing: 18px;
-        Flickable {
-            mouse-drag-pan-enabled: true;
-            vertical-stretch: 1;
-            content-height: terms.preferred-height;
-            terms := Label { text: Import.terms; font-size: 14px; wrap: word-wrap; width: parent.width; }
-        }
-        HorizontalLayout {
-            spacing: 12px;
-            alignment: center;
-            Btn { tone: Tone.success; label: "Agree"; width: 110px; height: 30px; text-size: 13px; clicked => { Import.terms-agree(); } }
-            Btn { tone: Tone.danger; label: "Disagree"; width: 110px; height: 30px; text-size: 13px; clicked => { Import.terms-disagree(); } }
-        }
-    }
-}
-
 export component ImportPage inherits Rectangle {
     VerticalLayout {
         padding: 16px;
         spacing: 10px;
         HorizontalLayout {
             spacing: 4px;
-            for label[index] in ["Download", "Device", "Pack", "Raw"]: HeaderToggle { label: label; selected: Import.tab == index; available: !Import.running; horizontal-stretch: 1; clicked => { Import.tab-set(index); } }
+            for label[index] in ["Device", "Pack", "Raw"]: HeaderToggle { label: label; selected: Import.tab == index; available: !Import.running; horizontal-stretch: 1; clicked => { Import.tab-set(index); } }
         }
         Rule { }
         if Import.tab == 0: VerticalLayout {
-            spacing: 10px;
-            Label { text: "Download the vanilla game files from a file host"; font-size: 14px; wrap: word-wrap; horizontal-alignment: center; }
-            Input { text <=> Import.link; placeholder: "Source link"; text-size: 13px; height: 32px; enabled: Import.link-enabled; edited(value) => { Import.link-changed(value); } }
-            Btn { label: Import.source-label; tone: Import.source-tone; enabled: Import.source-enabled; height: 32px; text-size: 13px; clicked => { Import.source-check(); } }
-        }
-        if Import.tab == 1: VerticalLayout {
             spacing: 10px;
             Label { text: "Read the game installed on this device"; font-size: 14px; wrap: word-wrap; horizontal-alignment: center; }
             Field { label: "Type"; Combo { width: 140px; height: 30px; text-size: 13px; options: ["Update Only", "All Content"]; current: Import.device-type; enabled: !Import.running; selected(index) => { Import.device-type-set(index); } } }
@@ -170,27 +60,21 @@ export component ImportPage inherits Rectangle {
             Label { text: Import.device-type == 1 ? "All Content also copies the game's data folder, which needs a rooted device" : "Update Only reads the installed update data and needs no root"; font-size: 12px; weak: true; wrap: word-wrap; }
             if !Import.device-available: Label { text: "Installed apps can only be read on Android"; font-size: 12px; weak: true; wrap: word-wrap; }
         }
-        if Import.tab == 2: VerticalLayout {
+        if Import.tab == 1: VerticalLayout {
             spacing: 10px;
             Label { text: "Decrypt .pack files picked from this device"; font-size: 14px; wrap: word-wrap; horizontal-alignment: center; }
             Field { label: "Region"; Combo { width: 140px; height: 30px; text-size: 13px; options: ["Global", "Japan", "Taiwan", "Korea", "All Regions"]; current: Import.pack-region; selected(index) => { Import.pack-region-set(index); } } }
             Btn { label: Import.pack-label; tone: Import.pack-tone; enabled: !Import.running; height: 32px; text-size: 13px; clicked => { Import.pick-pack(); } }
         }
-        if Import.tab == 3: VerticalLayout {
+        if Import.tab == 2: VerticalLayout {
             spacing: 10px;
             Label { text: "Sort raw game files, an archive of them, or the game folder itself"; font-size: 14px; wrap: word-wrap; horizontal-alignment: center; }
             Field { label: "Source"; Combo { width: 120px; height: 30px; text-size: 13px; options: ["Files", "Archive", "Game Folder"]; current: Import.raw-mode; selected(index) => { Import.raw-mode-set(index); } } }
             Btn { label: Import.raw-label; tone: Import.raw-tone; enabled: !Import.running && Import.raw-mode != 2; height: 32px; text-size: 13px; clicked => { Import.pick-raw(); } }
         }
-        if Import.tab != 0: Rule { }
-        if Import.tab != 0: Btn { label: Import.action-label; tone: Import.action-tone; enabled: Import.action-enabled; height: 38px; text-size: 16px; clicked => { Import.action(); } }
-        if Import.tab != 0: Progress { fraction: Import.progress; }
-        if Import.tab != 0: Console { vertical-stretch: 1; log: Import.log; }
-        if Import.tab == 0: Rectangle { vertical-stretch: 1; }
+        Rule { }
+        Btn { label: Import.action-label; tone: Import.action-tone; enabled: Import.action-enabled; height: 38px; text-size: 16px; clicked => { Import.action(); } }
+        Progress { fraction: Import.progress; }
+        Console { vertical-stretch: 1; log: Import.log; }
     }
-}
-
-export component ImportDialogs {
-    SourceDialog { }
-    TermsDialog { }
 }

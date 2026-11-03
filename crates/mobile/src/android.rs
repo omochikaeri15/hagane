@@ -83,7 +83,7 @@ fn hide_optional_gl_extensions() {
 
 #[unsafe(no_mangle)]
 fn android_main(app: AndroidApp) {
-    let data = app.external_data_path().or_else(|| app.internal_data_path()).unwrap_or_else(|| PathBuf::from("/data/local/tmp/bcc"));
+    let data = app.external_data_path().or_else(|| app.internal_data_path()).unwrap_or_else(|| PathBuf::from("/data/local/tmp/hagane"));
     let private = app.internal_data_path().unwrap_or_else(|| data.join("private"));
     let home = Home { data, private: Some(private) };
 

@@ -123,6 +123,14 @@ export component Input inherits Rectangle {
     out property <bool> has-focus: field.has-focus;
     property <int> taps: Shell.taps;
     changed taps => { if field.has-focus { field.clear-focus(); } }
+    property <string> told;
+    init => { root.told = root.text; }
+    function tell() {
+        if root.told != field.text {
+            root.told = field.text;
+            root.edited(field.text);
+        }
+    }
 
     min-height: 32px;
     border-radius: Theme.radius-sm;
@@ -161,8 +169,15 @@ export component Input inherits Rectangle {
                 selection-foreground-color: Theme.text;
                 width: parent.width;
                 height: parent.height;
-                edited => { root.edited(self.text); }
+                edited => { root.tell(); }
                 accepted => { root.accepted(self.text); }
+                changed text => {
+                    if self.has-focus {
+                        root.tell();
+                    } else {
+                        root.told = self.text;
+                    }
+                }
             }
         }
     }
@@ -174,6 +189,14 @@ export component TextBox inherits Rectangle {
     in property <bool> read-only;
     in property <length> text-size: 14px;
     callback edited(string);
+    property <string> told;
+    init => { root.told = root.text; }
+    function tell() {
+        if root.told != field.text {
+            root.told = field.text;
+            root.edited(field.text);
+        }
+    }
 
     border-radius: Theme.radius-sm;
     background: Theme.input-bg;
@@ -206,7 +229,14 @@ export component TextBox inherits Rectangle {
             single-line: false;
             selection-background-color: Theme.primary-weak;
             selection-foreground-color: Theme.text;
-            edited => { root.edited(self.text); }
+            edited => { root.tell(); }
+            changed text => {
+                if self.has-focus {
+                    root.tell();
+                } else {
+                    root.told = self.text;
+                }
+            }
         }
     }
 }
@@ -254,6 +284,7 @@ export component Combo inherits Rectangle {
         clicked => { menu.show(); }
     }
     menu := PopupWindow {
+        close-policy: close-on-click-outside;
         x: 0;
         y: root.opens-upward ? -root.list-height - 2px : root.height + 2px;
         width: max(root.width, 160px);

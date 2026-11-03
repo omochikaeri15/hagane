@@ -159,6 +159,12 @@ impl State {
         Camera { x: self.center, y: self.lift, zoom: self.zoom, width: self.viewport.0, height: self.viewport.1 }
     }
 
+    fn orient(&mut self) {
+        self.center = self.viewport.0 / 2.0;
+        self.lift = 0.0;
+        self.zoom = 1.0;
+    }
+
     fn pan(&mut self, dx: f32, dy: f32) {
         self.center -= dx / self.zoom.max(f32::EPSILON);
         self.lift += dy;
@@ -412,6 +418,9 @@ pub fn wire(window: &AppWindow, state: &Shared, context: &Rc<Context>) {
 
     let (held, _, _) = on(state, context, window);
     backdrop.on_pan(move |dx, dy| held.borrow_mut().backdrop.pan(dx, dy));
+
+    let (held, _, _) = on(state, context, window);
+    backdrop.on_orient(move || held.borrow_mut().backdrop.orient());
 
     let (held, _, _) = on(state, context, window);
     backdrop.on_pinch(move |factor, x, y| {

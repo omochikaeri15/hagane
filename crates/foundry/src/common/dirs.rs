@@ -4,7 +4,16 @@ use std::path::PathBuf;
 use directories::BaseDirs;
 use tracing::error;
 
-pub const APP_DIR: &str = "battle-cats-complete";
+pub const APP_DIR: &str = "hagane";
+
+pub fn relocations(previous: &str) -> Vec<(PathBuf, PathBuf)> {
+    let Some(base_dirs) = base() else {
+        return Vec::new();
+    };
+    let roots = [Some(base_dirs.config_dir()), base_dirs.state_dir(), Some(base_dirs.cache_dir()), Some(base_dirs.data_local_dir())];
+
+    roots.into_iter().flatten().map(|root| (root.join(previous), root.join(APP_DIR))).collect()
+}
 
 pub fn config() -> Option<PathBuf> {
     ensure(base()?.config_dir().join(APP_DIR))

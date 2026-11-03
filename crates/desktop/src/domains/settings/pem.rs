@@ -90,7 +90,7 @@ impl State {
             Message::Export => {
                 let export_dir = Path::new("exports");
                 let _ = fs::create_dir_all(export_dir);
-                let filename = if self.is_custom { "identity.pem" } else { "bcc.pem" };
+                let filename = if self.is_custom { "identity.pem" } else { "hagane.pem" };
                 let success = fs::write(export_dir.join(filename), &self.active_pem).is_ok();
                 self.export_feedback.set(success, Message::ExportExpired)
             }
