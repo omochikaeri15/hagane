@@ -35,6 +35,8 @@ jobs:
 
       - name: Build the iOS binary
         run: cargo build --release --target aarch64-apple-ios -p mobile --bin mobile
+        env:
+          IPHONEOS_DEPLOYMENT_TARGET: "15.0"
 
       - name: Bundle the unsigned IPA
         run: |
