@@ -1,18 +1,18 @@
-# Battle Cats Complete
+# Hagane
 An all-in-one toolkit for The Battle Cats. This app is a passion project and hobby.
 
 # Desktop
 Has the most features, fastest speeds, and highest capabilities, but requires the most set-up.
 
 ## Usage
-To use BCC, you must provide game files for it to read. These files are not included in the app or repository; they must be obtained through your own personal and legal means.
+To use Hagane, you must provide game files for it to read. These files are not included in the app or repository; they must be obtained through your own personal and legal means.
 
 ### Setup
-BCC requires two additional third-party resources to unlock full functionality. Without these, the apps capabilities are limited:
+Hagane requires two additional third-party resources to unlock full functionality. Without these, the apps capabilities are limited:
 - Rooted Android device/emulator that is not Bluestacks and can run The Battle Cats.
 - Legally obtained Decryption Keys and Initialization Vectors for every region.
 
-Because BCC is not signed with a paid certificate, your OS may flag it on the first run:
+Because Hagane is not signed with a paid certificate, your OS may flag it on the first run:
 
 > #### Windows
 >
@@ -32,7 +32,7 @@ Because BCC is not signed with a paid certificate, your OS may flag it on the fi
 Least features, least powerful, but most accesssible and requires no set-up.
 
 ## Usage
-Simply visit [omochikaeri.app](https://omochikaeri.app).
+Simply visit [hagane.app](https://hagane.app).
 
 ### Legal
 > This tool is not affiliated with, endorsed by, or sponsored by PONOS Corp. This project is for educational purposes only. Assets are copyright PONOS Corp. Please support the official release.

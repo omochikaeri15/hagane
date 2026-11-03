@@ -1,4 +1,4 @@
-package app.omochikaeri.battlecatscomplete;
+package app.omochikaeri.hagane;
 
 import android.app.Activity;
 import android.app.Fragment;
@@ -24,7 +24,7 @@ import java.io.InputStream;
 import java.io.OutputStream;
 
 public class Glue extends Fragment {
-    private static final String TAG = "app.omochikaeri.battlecatscomplete.glue";
+    private static final String TAG = "app.omochikaeri.hagane.glue";
 
     private static final Uri DOWNLOADS_ROOT = DocumentsContract.buildRootUri("com.android.providers.downloads.documents", "downloads");
 

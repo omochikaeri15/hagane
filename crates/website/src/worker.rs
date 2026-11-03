@@ -31,7 +31,7 @@ use foundry::{Lazy, Loader, Vault};
 
 use crate::protocol::{self, Answer, Call, HELLO, PictureKind, Prepared, Reply, Request, RigWire};
 
-const HOST: &str = "https://omochikaeri.cloud";
+const HOST: &str = "https://hagane.cloud";
 const GAME: &str = "game";
 const DECODED_CAP: usize = 256 * 1024 * 1024;
 const PARALLEL: usize = 8;

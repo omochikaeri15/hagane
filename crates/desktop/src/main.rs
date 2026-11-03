@@ -26,7 +26,7 @@ pub fn main() -> iced::Result {
     app::graphics::configure(backend, auto);
 
     panic::set_hook(Box::new(|panic_info| {
-        let msg = format!("Battle Cats Complete crashed!\n{}\n", panic_info);
+        let msg = format!("Hagane crashed!\n{}\n", panic_info);
         let _ = fs::write("crash.txt", msg);
     }));
 
@@ -37,7 +37,7 @@ pub fn main() -> iced::Result {
         app::BattleCatsApp::update,
         app::BattleCatsApp::view,
     )
-        .title("Battle Cats Complete")
+        .title("Hagane")
         .theme(app::BattleCatsApp::theme)
         .font(assets::FONT_JP)
         .font(assets::FONT_KR)

@@ -37,7 +37,7 @@ pub fn run(home: DataHome) -> Result<(), PlatformError> {
     let saved = settings::Saved::load();
 
     logging::init(saved.settings.general.enable_logging);
-    info!(version = env!("CARGO_PKG_VERSION"), "Battle Cats Complete mobile is starting");
+    info!(version = env!("CARGO_PKG_VERSION"), "Hagane mobile is starting");
     architecture::work_cleanup();
     picker::sweep();
 

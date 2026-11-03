@@ -11,7 +11,7 @@ use crate::platform;
 pub const IMPORT: &str = "import";
 pub const EXPORTS: &str = "exports";
 const FOLDERS: [&str; 5] = [architecture::GAME, architecture::MODS, architecture::SANDBOX, IMPORT, EXPORTS];
-const HOME_OVERRIDE: &str = "BCC_MOBILE_HOME";
+const HOME_OVERRIDE: &str = "HAGANE_HOME";
 const MOBILE_DIR: &str = "mobile";
 
 pub struct Home {

@@ -227,7 +227,7 @@ fn About() -> Element {
     rsx! {
         div { class: "about",
             div { class: "about-header",
-                div { class: "about-title", "About Battle Cats Complete" }
+                div { class: "about-title", "About Hagane" }
                 div { "A high-performance Battle Cats toolkit built by Omochi" }
                 div { class: "about-subtitle", "Open Source & Legal Info" }
             }

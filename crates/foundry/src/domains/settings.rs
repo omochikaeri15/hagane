@@ -410,7 +410,7 @@ impl ImportStructure {
 impl std::fmt::Display for ImportStructure {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let label = match self {
-            Self::Bcc => "BCC",
+            Self::Bcc => "Hagane",
             Self::Flat => "Flat",
         };
         write!(f, "{}", label)

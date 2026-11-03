@@ -32,12 +32,12 @@ until the clash is resolved.";
 const WATCHER_CROWDED: &str = "Failed to start the File Watcher because this system has no free watch \
 slots left. Live reload has been disabled for this session.";
 
-const WATCHER_CROWDED_CAUSE: &str = "Close other watching applications or Battle Cats Complete instances and restart, or raise the system's watch limit.";
+const WATCHER_CROWDED_CAUSE: &str = "Close other watching applications or Hagane instances and restart, or raise the system's watch limit.";
 
 const WATCHER_BROKEN: &str = "Failed to start the File Watcher. Live reload has been disabled for this \
 session, so edits made to game/ or mods/ outside the app will not be picked up until you restart it.";
 
-const VOLATILE_INTRO: &str = "Battle Cats Complete is running from a temporary folder. This usually means \
+const VOLATILE_INTRO: &str = "Hagane is running from a temporary folder. This usually means \
 the program was opened from inside its .zip instead of being extracted first.";
 
 const VOLATILE_WARNING: &str = "Anything you import or edit will be stored here, and Windows deletes this \

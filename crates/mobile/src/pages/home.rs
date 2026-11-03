@@ -10,7 +10,7 @@ use crate::pages::Context;
 use crate::{AppWindow, Home, bridge, platform};
 
 const REPO_OWNER: &str = "omochikaeri15";
-const REPO_NAME: &str = "battle-cats-complete";
+const REPO_NAME: &str = "hagane";
 const UNKNOWN: &str = "Unknown";
 const NO_RELEASES: &str = "No releases found.";
 const NO_NOTES: &str = "No notes available.";

@@ -13,7 +13,7 @@ use super::AddonStatus;
 
 const RELEASE_TAG: &str = "tools";
 const REPO_OWNER: &str = "omochikaeri15";
-const REPO_NAME: &str = "battle-cats-complete";
+const REPO_NAME: &str = "hagane";
 
 pub fn download(config: DownloadConfig, emit: impl Fn(AddonStatus)) -> Result<(), String> {
     let url = format!(
@@ -25,7 +25,7 @@ pub fn download(config: DownloadConfig, emit: impl Fn(AddonStatus)) -> Result<()
     emit(AddonStatus::Downloading(0.1, "Connecting...".to_string()));
 
     let client = http::builder()
-        .user_agent("BattleCatsComplete/0.8.0")
+        .user_agent("Hagane/0.8.0")
         .build()
         .map_err(|e| format!("Client error: {}", e))?;
 

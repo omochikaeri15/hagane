@@ -28,7 +28,7 @@ export component HomePage inherits Rectangle {
     property <length> avail: root.width - 32px;
     property <float> title-fit: min(1.0, root.avail / max(probe.preferred-width, 1px));
     property <length> cell: min(120px, (root.avail - 30px) / 4);
-    probe := Text { text: "Battle Cats Complete"; font-size: 32px; wrap: no-wrap; visible: false; x: 0; y: 0; }
+    probe := Text { text: "Hagane"; font-size: 32px; wrap: no-wrap; visible: false; x: 0; y: 0; }
     Flickable {
         mouse-drag-pan-enabled: true;
         width: 100%;
@@ -43,7 +43,7 @@ export component HomePage inherits Rectangle {
                 alignment: start;
                 spacing: 0px;
                 Text {
-                    text: "Battle Cats Complete";
+                    text: "Hagane";
                     color: Theme.text;
                     font-size: 32px * root.title-fit;
                     horizontal-alignment: center;
@@ -120,7 +120,7 @@ export component HomePage inherits Rectangle {
                     alignment: space-between;
                     HorizontalLayout {
                         spacing: 6px;
-                        Btn { label: "v" + Home.version; tone: Tone.text; text-size: 13px; pad-x: 0px; pad-y: 0px; clicked => { Home.open-url("https://github.com/omochikaeri15/battle-cats-complete/releases/tag/v" + Home.version); } }
+                        Btn { label: "v" + Home.version; tone: Tone.text; text-size: 13px; pad-x: 0px; pad-y: 0px; clicked => { Home.open-url("https://github.com/omochikaeri15/hagane/releases/tag/v" + Home.version); } }
                         Label { text: "|"; font-size: 13px; vertical-alignment: center; }
                         Btn { label: "Changelogs"; tone: Tone.text; text-size: 13px; pad-x: 0px; pad-y: 0px; clicked => { Home.changelog-open = true; Home.open-changelog(); } }
                     }
@@ -128,7 +128,7 @@ export component HomePage inherits Rectangle {
                         spacing: 6px;
                         Btn { label: "Discord"; tone: Tone.text; text-size: 13px; pad-x: 0px; pad-y: 0px; clicked => { Home.open-url("https://discord.com/invite/SNSE8HNhmP"); } }
                         Label { text: "|"; font-size: 13px; vertical-alignment: center; }
-                        Btn { label: "GitHub"; tone: Tone.text; text-size: 13px; pad-x: 0px; pad-y: 0px; clicked => { Home.open-url("https://github.com/omochikaeri15/battle-cats-complete"); } }
+                        Btn { label: "GitHub"; tone: Tone.text; text-size: 13px; pad-x: 0px; pad-y: 0px; clicked => { Home.open-url("https://github.com/omochikaeri15/hagane"); } }
                     }
                 }
             }

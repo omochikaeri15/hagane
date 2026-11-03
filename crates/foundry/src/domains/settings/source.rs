@@ -22,7 +22,7 @@ use crate::common::payload::{self, Chunk, Fault, MANIFEST, Manifest};
 
 use ledger::{Held, Ledger};
 
-const AGENT: &str = concat!("BattleCatsComplete/", env!("CARGO_PKG_VERSION"));
+const AGENT: &str = concat!("Hagane/", env!("CARGO_PKG_VERSION"));
 const SCHEME: &str = "https://";
 const TIMEOUT: Duration = Duration::from_secs(8);
 const STALL_FLOOR: Duration = Duration::from_secs(30);

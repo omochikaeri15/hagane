@@ -52,12 +52,12 @@ jobs:
           done
 
           PLATFORMS=()
-          if echo "$ASSETS" | grep -q '^bcc_windows_'; then PLATFORMS+=("Windows"); fi
-          if echo "$ASSETS" | grep -q '^bcc_linux_'; then PLATFORMS+=("Linux"); fi
-          if echo "$ASSETS" | grep -q '^bcc_mac_'; then PLATFORMS+=("macOS"); fi
-          if echo "$ASSETS" | grep -q '^bcc_website_'; then PLATFORMS+=("Web"); fi
-          if echo "$ASSETS" | grep -q '^bcc_mobile_apk'; then PLATFORMS+=("Android"); fi
-          if echo "$ASSETS" | grep -q '^bcc_mobile_ipa'; then PLATFORMS+=("iOS"); fi
+          if echo "$ASSETS" | grep -q '^hagane-windows-'; then PLATFORMS+=("Windows"); fi
+          if echo "$ASSETS" | grep -q '^hagane-linux-'; then PLATFORMS+=("Linux"); fi
+          if echo "$ASSETS" | grep -q '^hagane-mac-'; then PLATFORMS+=("macOS"); fi
+          if echo "$ASSETS" | grep -q '^hagane-website-'; then PLATFORMS+=("Web"); fi
+          if echo "$ASSETS" | grep -q '^hagane-android-apk'; then PLATFORMS+=("Android"); fi
+          if echo "$ASSETS" | grep -q '^hagane-ios-ipa'; then PLATFORMS+=("iOS"); fi
 
           if [ ${#MESSAGE_BODY} -gt 2000 ]; then
             MESSAGE_BODY=$(printf "%s ...\n\n**[Read full release notes](%s)**" "${MESSAGE_BODY:0:2000}" "$REL_URL")

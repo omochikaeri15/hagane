@@ -10,7 +10,7 @@ use crate::app::{theme, Page};
 use crate::widget::{nightly_label, popup, smooth_scroll};
 
 const REPO_OWNER: &str = "omochikaeri15";
-const REPO_NAME: &str = "battle-cats-complete";
+const REPO_NAME: &str = "hagane";
 const SPACE_TOP: f32 = 20.0;
 const SPACE_TITLE_SUBTITLE: f32 = 2.0;
 const SPACE_SUBTITLE_SECTION: f32 = 50.0;
@@ -130,7 +130,7 @@ impl State {
 
         let main_content = column![
             Space::new().height(SPACE_TOP),
-            text("Battle Cats Complete")
+            text("Hagane")
                 .size(40.0)
                 .style(|theme: &Theme| iced::widget::text::Style {
                     color: Some(theme.palette().text),
@@ -172,7 +172,7 @@ impl State {
             button(text("GitHub").size(13.0))
                 .style(button::text)
                 .padding(0.0)
-                .on_press(Message::OpenUrl("https://github.com/omochikaeri15/battle-cats-complete".to_string())),
+                .on_press(Message::OpenUrl("https://github.com/omochikaeri15/hagane".to_string())),
         ]
             .width(Length::Fill)
             .padding(10.0)

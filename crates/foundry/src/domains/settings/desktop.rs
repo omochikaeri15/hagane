@@ -97,7 +97,7 @@ pub fn create_desktop_data() -> Result<(), String> {
         "[Desktop Entry]\n\
         Version=1.0\n\
         Type=Application\n\
-        Name=Battle Cats Complete\n\
+        Name=Hagane\n\
         Comment=Toolkit for The Battle Cats\n\
         Exec=\"{}\"\n\
         Path={}\n\

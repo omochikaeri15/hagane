@@ -308,7 +308,7 @@ const PAGE_HIDE: &str = "pagehide";
 const FULLSCREEN_CHANGE: &str = "fullscreenchange";
 const PERSISTED: &str = "persisted";
 const SERVICE_WORKER: Asset = asset!("/assets/sw.js", AssetOptions::builder().with_hash_suffix(false));
-const IMAGE_CACHE: &str = "bcc-images";
+const IMAGE_CACHE: &str = "hagane-images";
 
 fn describe(err: JsValue) -> Fault {
     Fault(err.as_string().unwrap_or_else(|| format!("{err:?}")))

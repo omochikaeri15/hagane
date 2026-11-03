@@ -213,7 +213,7 @@ fn settle_builds(version: &str, everything: bool) -> Vec<&'static str> {
 }
 
 fn ship(everything: bool) {
-    println!("Starting BCC Release...");
+    println!("Starting Hagane Release...");
 
     println!("> Reading the releases on {APP_REMOTE}...");
     let released = released_versions();

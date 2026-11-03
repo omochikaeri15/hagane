@@ -49,10 +49,10 @@ open = "5.4.1"
 slint-build = "1.18"
 
 [package.metadata.android]
-package = "app.omochikaeri.battlecatscomplete"
+package = "app.omochikaeri.hagane"
 build_targets = ["aarch64-linux-android", "x86_64-linux-android"]
 resources = "res"
-apk_name = "bcc_mobile"
+apk_name = "hagane"
 strip = "strip"
 
 [package.metadata.android.signing.release]
@@ -64,7 +64,7 @@ min_sdk_version = 26
 target_sdk_version = 35
 
 [package.metadata.android.application]
-label = "Battle Cats Complete"
+label = "Hagane"
 icon = "@mipmap/ic_launcher"
 theme = "@android:style/Theme.DeviceDefault.NoActionBar"
 

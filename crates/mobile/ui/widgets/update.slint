@@ -33,7 +33,7 @@ export component UpdateDialog inherits Dialog {
         alignment: center;
         if Updater.kind == 0: VerticalLayout {
             spacing: 14px;
-            Label { text: "Battle Cats Complete v" + Updater.version; font-size: 18px; bold: true; horizontal-alignment: center; wrap: word-wrap; }
+            Label { text: "Hagane v" + Updater.version; font-size: 18px; bold: true; horizontal-alignment: center; wrap: word-wrap; }
             Label { text: "You are running v" + Updater.current; font-size: 14px; weak: true; horizontal-alignment: center; }
             Label { text: Updater.installable ? "Would you like to download the update now?" : "Would you like to open the release page?"; font-size: 14px; horizontal-alignment: center; wrap: word-wrap; }
             HorizontalLayout {

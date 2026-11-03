@@ -5,15 +5,15 @@
     <key>CFBundleDevelopmentRegion</key>
     <string>en</string>
     <key>CFBundleDisplayName</key>
-    <string>Battle Cats Complete</string>
+    <string>Hagane</string>
     <key>CFBundleExecutable</key>
-    <string>BattleCatsComplete</string>
+    <string>Hagane</string>
     <key>CFBundleIdentifier</key>
-    <string>app.omochikaeri.battlecatscomplete</string>
+    <string>app.omochikaeri.hagane</string>
     <key>CFBundleInfoDictionaryVersion</key>
     <string>6.0</string>
     <key>CFBundleName</key>
-    <string>Battle Cats Complete</string>
+    <string>Hagane</string>
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>CFBundleShortVersionString</key>

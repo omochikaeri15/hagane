@@ -1,8 +1,8 @@
 [application]
-name = "bcc"
+name = "hagane"
 
 [web.app]
-title = "Battle Cats Complete"
+title = "Hagane"
 
 [web.wasm_opt]
 level = "4"

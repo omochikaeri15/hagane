@@ -57,7 +57,7 @@ pub fn placement(name: &str) -> Option<(String, bool)> {
 }
 
 fn default_source() -> String {
-    "Battle Cats Complete".to_string()
+    "Hagane".to_string()
 }
 
 fn default_package() -> String {

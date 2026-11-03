@@ -15,8 +15,8 @@ use crate::pages::Context;
 use crate::{AppWindow, Tone, Updater, bridge, platform};
 
 const OWNER: &str = "omochikaeri15";
-const REPO: &str = "battle-cats-complete";
-const ASSET: &str = "bcc_mobile_apk.zip";
+const REPO: &str = "hagane";
+const ASSET: &str = "hagane-android-apk.zip";
 const APK: &str = "apk";
 const APK_MIME: &str = "application/vnd.android.package-archive";
 const CURRENT: &str = env!("CARGO_PKG_VERSION");

@@ -11,7 +11,8 @@ concurrency:
 
 env:
   CARGO_TERM_COLOR: always
-  BIN_NAME: "Battle Cats Complete"
+  BIN_NAME: "Hagane"
+  LEGACY_NAME: "Battle Cats Complete"
 
 jobs:
   check-version:
@@ -93,13 +94,17 @@ jobs:
       - name: Rename and Zip (Windows)
         run: |
           move target\release\desktop.exe "${{ env.BIN_NAME }}.exe"
-          Compress-Archive -Path "${{ env.BIN_NAME }}.exe" -DestinationPath bcc_windows_${{ matrix.flavor }}.zip
+          Compress-Archive -Path "${{ env.BIN_NAME }}.exe" -DestinationPath hagane-windows-${{ matrix.flavor }}.zip
+          Copy-Item "${{ env.BIN_NAME }}.exe" "${{ env.LEGACY_NAME }}.exe"
+          Compress-Archive -Path "${{ env.LEGACY_NAME }}.exe" -DestinationPath bcc_windows_${{ matrix.flavor }}.zip
 
       - name: Upload Windows Artifact
         uses: actions/upload-artifact@v4
         with:
           name: windows-${{ matrix.flavor }}-build
-          path: bcc_windows_${{ matrix.flavor }}.zip
+          path: |
+            hagane-windows-${{ matrix.flavor }}.zip
+            bcc_windows_${{ matrix.flavor }}.zip
           retention-days: 1
 
   build-linux:
@@ -112,10 +117,12 @@ jobs:
         include:
           - flavor: x64
             runner: ubuntu-22.04
-            asset: bcc_linux_x64.zip
+            asset: hagane-linux-x64.zip
+            legacy: bcc_linux_x64.zip
           - flavor: arm
             runner: ubuntu-22.04-arm
-            asset: bcc_linux_arm.zip
+            asset: hagane-linux-arm.zip
+            legacy: bcc_linux_arm.zip
     steps:
       - uses: actions/checkout@v5
 
@@ -143,12 +150,16 @@ jobs:
           mv target/release/desktop "${{ env.BIN_NAME }}"
           chmod +x "${{ env.BIN_NAME }}"
           zip "${{ matrix.asset }}" "${{ env.BIN_NAME }}"
+          cp "${{ env.BIN_NAME }}" "${{ env.LEGACY_NAME }}"
+          zip "${{ matrix.legacy }}" "${{ env.LEGACY_NAME }}"
 
       - name: Upload Linux Artifact
         uses: actions/upload-artifact@v4
         with:
           name: linux-${{ matrix.flavor }}-build
-          path: ${{ matrix.asset }}
+          path: |
+            ${{ matrix.asset }}
+            ${{ matrix.legacy }}
           retention-days: 1
 
   build-macos:
@@ -187,13 +198,17 @@ jobs:
         run: |
           mv "target/${{ matrix.target }}/release/desktop" "${{ env.BIN_NAME }}"
           chmod +x "${{ env.BIN_NAME }}"
-          zip "bcc_mac_${{ matrix.flavor }}.zip" "${{ env.BIN_NAME }}"
+          zip "hagane-mac-${{ matrix.flavor }}.zip" "${{ env.BIN_NAME }}"
+          cp "${{ env.BIN_NAME }}" "${{ env.LEGACY_NAME }}"
+          zip "bcc_mac_${{ matrix.flavor }}.zip" "${{ env.LEGACY_NAME }}"
 
       - name: Upload Mac Artifact
         uses: actions/upload-artifact@v4
         with:
           name: mac-${{ matrix.flavor }}-build
-          path: bcc_mac_${{ matrix.flavor }}.zip
+          path: |
+            hagane-mac-${{ matrix.flavor }}.zip
+            bcc_mac_${{ matrix.flavor }}.zip
           retention-days: 1
 
   build-website:
@@ -245,13 +260,13 @@ jobs:
           fi
           mkdir -p wasm-bundle
           cp "$WASM" "wasm-bundle/${{ env.BIN_NAME }}.wasm"
-          (cd wasm-bundle && zip ../bcc_website_wasm.zip "${{ env.BIN_NAME }}.wasm")
+          (cd wasm-bundle && zip ../hagane-website-wasm.zip "${{ env.BIN_NAME }}.wasm")
 
       - name: Upload Website Artifact
         uses: actions/upload-artifact@v4
         with:
           name: website-wasm-build
-          path: bcc_website_wasm.zip
+          path: hagane-website-wasm.zip
           retention-days: 1
 
       - name: Add the Pages headers file
@@ -338,14 +353,14 @@ jobs:
         if: matrix.flavor == 'apk'
         run: |
           mkdir -p apk-bundle
-          cp target/release/apk/bcc_mobile.apk "apk-bundle/${{ env.BIN_NAME }}.apk"
-          (cd apk-bundle && zip ../bcc_mobile_apk.zip "${{ env.BIN_NAME }}.apk")
+          cp target/release/apk/hagane.apk "apk-bundle/${{ env.BIN_NAME }}.apk"
+          (cd apk-bundle && zip ../hagane-android-apk.zip "${{ env.BIN_NAME }}.apk")
 
       - name: Upload Mobile Artifact
         uses: actions/upload-artifact@v4
         with:
           name: mobile-${{ matrix.flavor }}-build
-          path: bcc_mobile_${{ matrix.flavor }}.zip
+          path: hagane-android-apk.zip
           retention-days: 1
 
   create-release:
@@ -368,7 +383,7 @@ jobs:
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          command: pages deploy website-site --project-name=battle-cats-complete --branch=main --commit-dirty=true
+          command: pages deploy website-site --project-name=hagane --branch=main --commit-dirty=true
 
       - name: Publish Release
         env:
@@ -377,6 +392,11 @@ jobs:
           ASSETS=()
           if [ "${{ needs.check-version.outputs.desktop }}" = true ]; then
             ASSETS+=(
+              windows-x64-build/hagane-windows-x64.zip
+              linux-x64-build/hagane-linux-x64.zip
+              linux-arm-build/hagane-linux-arm.zip
+              mac-arm-build/hagane-mac-arm.zip
+              mac-x64-build/hagane-mac-x64.zip
               windows-x64-build/bcc_windows_x64.zip
               linux-x64-build/bcc_linux_x64.zip
               linux-arm-build/bcc_linux_arm.zip
@@ -385,11 +405,11 @@ jobs:
             )
           fi
           if [ "${{ needs.check-version.outputs.website }}" = true ]; then
-            ASSETS+=(website-wasm-build/bcc_website_wasm.zip)
+            ASSETS+=(website-wasm-build/hagane-website-wasm.zip)
           fi
           if [ "${{ needs.check-version.outputs.mobile }}" = true ]; then
             ASSETS+=(
-              mobile-apk-build/bcc_mobile_apk.zip
+              mobile-apk-build/hagane-android-apk.zip
             )
           fi
           gh release create "v${{ needs.check-version.outputs.app_version }}" \

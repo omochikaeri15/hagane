@@ -24,8 +24,8 @@ use crate::widget::popup;
 use super::{theme, BattleCatsApp, CheckFailure, Message, UpdateStatus, UpdateTarget, UpdaterAction, UpdaterMsg};
 
 const REPO_OWNER: &str = "omochikaeri15";
-const REPO_NAME: &str = "battle-cats-complete";
-const BIN_NAME: &str = "Battle Cats Complete";
+const REPO_NAME: &str = "hagane";
+const BIN_NAME: &str = "Hagane";
 const STATUS_EXPIRY: Duration = Duration::from_secs(2);
 #[cfg(unix)]
 const RESTART_DELAY_SECS: u8 = 1;
@@ -202,7 +202,7 @@ fn view_update_found<'a>(target: &UpdateTarget, confirming_never: bool) -> Eleme
     });
 
     column![
-        theme::bold_text(format!("Battle Cats Complete {}", display_version(&target.version))).size(TITLE_SIZE),
+        theme::bold_text(format!("Hagane {}", display_version(&target.version))).size(TITLE_SIZE),
         subtle_text(format!("You are running v{}", cargo_crate_version!())),
     ]
     .extend(stepping)
@@ -352,11 +352,8 @@ pub(crate) fn restart_app() {
     std::process::exit(0);
 }
 
-fn asset_candidates() -> [String; 2] {
-    [
-        format!("bcc_{}.zip", platform::suffix()),
-        format!("bcc_gui_{}={}_{}.zip", cargo_crate_version!(), foundry::VERSION, platform::suffix()),
-    ]
+fn asset_candidates() -> [String; 1] {
+    [format!("hagane-{}.zip", platform::suffix().replace('_', "-"))]
 }
 
 fn matching_asset(release: &github::Release) -> Option<String> {
@@ -500,7 +497,7 @@ mod tests {
     }
 
     fn known_asset() -> String {
-        format!("bcc_{}.zip", platform::suffix())
+        format!("hagane-{}.zip", platform::suffix().replace('_', "-"))
     }
 
     #[test]

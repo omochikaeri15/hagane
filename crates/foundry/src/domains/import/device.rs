@@ -15,7 +15,7 @@ use super::engine::keys;
 pub const UPDATE_APK: &str = "split_InstallPack.apk";
 const BASE_APK: &str = "base.apk";
 const FILES: &str = "files";
-const STAGING: &str = "/data/local/tmp/bcc_files";
+const STAGING: &str = "/data/local/tmp/hagane-files";
 const MODIFIED_APP: &str = "File modification suspected, do a clean install on device.";
 const ABORTED: &str = "Job Aborted";
 

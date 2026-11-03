@@ -16,7 +16,7 @@ use super::http;
 const API_ROOT: &str = "https://api.github.com";
 const WEB_ROOT: &str = "https://github.com";
 const TAG_PATH: &str = "/releases/tag/";
-const AGENT: &str = concat!("BattleCatsComplete/", env!("CARGO_PKG_VERSION"));
+const AGENT: &str = concat!("Hagane/", env!("CARGO_PKG_VERSION"));
 const PER_PAGE: usize = 100;
 const MAX_PAGES: usize = 200;
 const TIMEOUT: Duration = Duration::from_secs(20);

@@ -72,8 +72,8 @@ impl AppTheme {
 
     pub fn to_iced_theme(self) -> Theme {
         let name = match self {
-            Self::Light => "BCC Light",
-            Self::Dark => "BCC Dark",
+            Self::Light => "Hagane Light",
+            Self::Dark => "Hagane Dark",
         };
 
         Theme::custom(name, self.palette())

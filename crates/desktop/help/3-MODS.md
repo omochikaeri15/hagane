@@ -14,10 +14,10 @@ Under the `Mods` page there is a button on the top left labeled "Add Mod." Click
 All mods initialized through this avenue will have a simple internal structure containing the following folders: `patch`, `icons`, and `loose`.
 
 ### Manual
-Enter the `mods` folder next to the Battle Cats Complete binary (create it if it doesn't exist) and create a new folder inside of it. The folder name will be the name of your Mod in the Mods list.
+Enter the `mods` folder next to the Hagane binary (create it if it doesn't exist) and create a new folder inside of it. The folder name will be the name of your Mod in the Mods list.
 
 ## Develop
-There are multiple different avenues that you can take to develop your Mod in different ways. Detailed below is information on how modified assets are handled by BCC as well as avenues BCC can help you modify.
+There are multiple different avenues that you can take to develop your Mod in different ways. Detailed below is information on how modified assets are handled by Hagane as well as avenues Hagane can help you modify.
 
 ### Assets
 Within a mods directory, all files act as an **override** that replaces the vanilla asset, and only that one asset. This means the **only** files you need inside this directory are your **custom** modified assets, not the whole database. This behavior mimics how the game behaves when custom assets are injected.

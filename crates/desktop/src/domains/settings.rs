@@ -843,7 +843,7 @@ impl State {
         let license_text = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../foundry/assets/licenses.txt"));
 
         let header = column![
-            text("About Battle Cats Complete").size(32),
+            text("About Hagane").size(32),
             text("A high-performance Battle Cats toolkit built by Omochi"),
             text("Open Source & Legal Info").size(20),
         ].spacing(10);

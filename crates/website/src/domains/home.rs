@@ -5,8 +5,8 @@ use crate::app::Route;
 use crate::platform::Platform;
 use crate::systems::turn;
 
-const REPO: &str = "https://github.com/omochikaeri15/battle-cats-complete";
-const SITE: &str = "https://omochikaeri.app";
+const REPO: &str = "https://github.com/omochikaeri15/hagane";
+const SITE: &str = "https://hagane.app";
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 const COPIED: &str = "Link Copied!";
 const DISCLAIMER: &str = "Not affiliated with PONOS Corp.";
@@ -53,7 +53,7 @@ pub(crate) fn Home() -> Element {
     rsx! {
         div { class: "home",
             div { class: "home-main",
-                div { class: "home-title", "Battle Cats Complete" }
+                div { class: "home-title", "Hagane" }
                 div { class: "home-subtitle weak", "All-In-One Battle Cats Toolkit" }
                 div { class: "home-group", "Game" }
                 div { class: "home-row",

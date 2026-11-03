@@ -28,7 +28,7 @@ static APP: OnceLock<AndroidApp> = OnceLock::new();
 static GLUE: OnceLock<GlobalRef> = OnceLock::new();
 
 const GLUE_DEX: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/classes.dex"));
-const GLUE_CLASS: &str = "app.omochikaeri.battlecatscomplete.Glue";
+const GLUE_CLASS: &str = "app.omochikaeri.hagane.Glue";
 
 thread_local! {
     static WATCH: RefCell<Option<Timer>> = const { RefCell::new(None) };
@@ -217,7 +217,7 @@ fn text_field(env: &mut JNIEnv, object: &JObject, field: &str) -> Result<Option<
 const MEDIA_STORE_API: i32 = 29;
 const FLAG_ACTIVITY_NEW_TASK: i32 = 0x1000_0000;
 const FLAG_GRANT_READ_URI_PERMISSION: i32 = 1;
-const DOWNLOADS_ROOT: &str = "Download/BattleCatsComplete";
+const DOWNLOADS_ROOT: &str = "Download/Hagane";
 const APK_MIME: &str = "application/vnd.android.package-archive";
 
 fn jni<'local, T>(env: &mut JNIEnv<'local>, what: &str, call: impl FnOnce(&mut JNIEnv<'local>) -> jni::errors::Result<T>) -> Result<T, String> {

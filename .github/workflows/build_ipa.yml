@@ -5,7 +5,7 @@ on:
 
 env:
   CARGO_TERM_COLOR: always
-  BIN_NAME: "Battle Cats Complete"
+  BIN_NAME: "Hagane"
 
 jobs:
   build-ipa:
@@ -42,15 +42,15 @@ jobs:
         run: |
           APP="Payload/${{ env.BIN_NAME }}.app"
           mkdir -p "$APP"
-          cp target/aarch64-apple-ios/release/mobile "$APP/BattleCatsComplete"
+          cp target/aarch64-apple-ios/release/mobile "$APP/Hagane"
           sed "s/__VERSION__/${{ steps.get_version.outputs.version }}/g" crates/mobile/ios/Info.plist > "$APP/Info.plist"
           cp crates/mobile/ios/AppIcon.png "$APP/AppIcon.png"
           codesign --force --sign - "$APP" || echo "ad-hoc signing skipped"
-          zip -r bcc_mobile_ipa.zip Payload
+          zip -r hagane-ios-ipa.zip Payload
 
       - name: Upload the IPA
         uses: actions/upload-artifact@v4
         with:
-          name: bcc_mobile_ipa
-          path: bcc_mobile_ipa.zip
+          name: hagane-ios-ipa
+          path: hagane-ios-ipa.zip
           retention-days: 7

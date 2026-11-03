@@ -12,7 +12,7 @@ use tracing::warn;
 const CHANNELS: u16 = 2;
 const SAMPLE_RATE: u32 = 44_100;
 const SAMPLE_BYTES: usize = 2;
-const CLIENT_NAME: &str = "Battle Cats Complete";
+const CLIENT_NAME: &str = "Hagane";
 const FRAME_BYTES: u32 = CHANNELS as u32 * SAMPLE_BYTES as u32;
 const TARGET_BYTES: u32 = SAMPLE_RATE / 25 * FRAME_BYTES;
 const REQUEST_BYTES: u32 = SAMPLE_RATE / 100 * FRAME_BYTES;

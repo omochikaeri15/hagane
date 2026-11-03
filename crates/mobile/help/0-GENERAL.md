@@ -1,8 +1,8 @@
 # General
-Battle Cats Complete keeps everything it works on inside one folder on your device that you can reach with any file manager.
+Hagane keeps everything it works on inside one folder on your device that you can reach with any file manager.
 
 ## Files
-On Android the folder is `Android/data/app.omochikaeri.battlecatscomplete/files` on your internal storage. Inside it you will find:
+On Android the folder is `Android/data/app.omochikaeri.hagane/files` on your internal storage. Inside it you will find:
 - **game**: the game files the app reads. Fill it through the `Import` page.
 - **mods**: one folder per mod, exactly as the desktop app lays them out.
 - **exports**: statblocks, animations, backgrounds, packs and archives the app writes for you. With `Settings > General > Exports` set to `Ask Where` (the default on Android) the system's save dialog opens for every finished export so you choose where it goes; `App Folder` keeps everything here.
