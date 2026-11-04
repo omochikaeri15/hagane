@@ -1,3 +1,4 @@
+import { Shell } from "../shell.slint";
 import { Theme } from "../theme.slint";
 import { SwipeGuard } from "../shell.slint";
 import { Btn, Tone, Input, Combo, Toggle } from "basics.slint";
@@ -90,7 +91,7 @@ component Controls inherits Rectangle {
             TouchArea { clicked => { Viewer.controls-expanded = !Viewer.controls-expanded; } }
         }
         Rectangle { height: 1phx; background: Theme.bg-strong; }
-        Flickable {
+        Flickable { flicked => { Shell.guard-claim = Shell.press-seq; }
             mouse-drag-pan-enabled: true;
             height: Viewer.tiles-scroll ? 55px : max(root.rows, 1) * 29px - 4px;
             content-height: max(root.rows, 1) * 29px - 4px;
@@ -221,7 +222,7 @@ export component AnimViewer inherits Rectangle {
         }
     }
 
-    SwipeGuard { }
+    SwipeGuard { lipped: true; }
     gesture := ScaleRotateGestureHandler {
         started => { root.pinch-scale = 1.0; }
         updated => {

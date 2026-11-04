@@ -139,7 +139,7 @@ component Column inherits VerticalLayout {
     Label { text: root.title; font-size: 13px; bold: true; horizontal-alignment: center; }
     Rule { }
     if root.rows.length == 0: Label { text: root.empty-text; color: Theme.danger; font-size: 12px; horizontal-alignment: center; vertical-alignment: center; vertical-stretch: 1; }
-    if root.rows.length > 0: ListView {
+    if root.rows.length > 0: ListView { scrolled => { Shell.guard-claim = Shell.press-seq; }
         mouse-drag-pan-enabled: true;
         vertical-stretch: 1;
         for row[index] in root.rows: Rectangle {
@@ -167,7 +167,7 @@ component Browser inherits Panel {
         Btn { tone: Tone.toggle; active: Stages.filter-active; label: "Filter"; text-size: 13px; height: 32px; clicked => { Stages.open-filter(); } }
         Column { title: "Category"; rows: Stages.categories; empty-text: "No Categories Found!"; vertical-stretch: 1; picked(index) => { Stages.pick-category(index); } }
         if Stages.has-category: Column { title: "Map"; rows: Stages.maps; empty-text: "No Maps Found!"; vertical-stretch: 1; picked(index) => { Stages.pick-map(index); } }
-        if Stages.has-map: Column { title: "Stage"; rows: Stages.stages; empty-text: "No Stages Found!"; vertical-stretch: 1; picked(index) => { Stages.pick-stage(index); Stages.browser-open = false; Shell.left-open = false; } }
+        if Stages.has-map: Column { title: "Stage"; rows: Stages.stages; empty-text: "No Stages Found!"; vertical-stretch: 1; picked(index) => { Stages.pick-stage(index); Stages.browser-open = false; } }
     }
 }
 
@@ -187,7 +187,7 @@ component Banner inherits Rectangle {
     height: root.size;
     width: root.present ? root.source.width * root.size / max(root.source.height, 1) : label.preferred-width;
     if root.present: Image { source: root.source; height: root.size; width: parent.width; image-fit: fill; }
-    label := Label { text: root.fallback; bold: true; vertical-alignment: center; visible: !root.present; height: parent.height; }
+    label := Text { text: root.fallback; color: Theme.text; font-size: root.size * 0.62; font-weight: 700; wrap: no-wrap; vertical-alignment: center; visible: !root.present; height: parent.height; }
 }
 
 component Cell inherits Rectangle {
@@ -297,11 +297,13 @@ component PairTable inherits VerticalLayout {
 
 component Info inherits VerticalLayout {
     spacing: 10px;
-    property <length> map-natural: Stages.has-map-banner ? Stages.map-banner.width * 50px / max(Stages.map-banner.height, 1) : 0px;
-    property <length> stage-natural: Stages.has-stage-banner ? Stages.stage-banner.width * 35px / max(Stages.stage-banner.height, 1) : 0px;
-    property <float> fit: min(1.0, (Shell.app-width - 30px) / max(root.map-natural + root.stage-natural, 1px));
+    property <length> map-natural: Stages.has-map-banner ? Stages.map-banner.width * 50px / max(Stages.map-banner.height, 1) : map-probe.preferred-width;
+    property <length> stage-natural: Stages.has-stage-banner ? Stages.stage-banner.width * 35px / max(Stages.stage-banner.height, 1) : stage-probe.preferred-width;
+    property <float> fit: min(1.0, (Shell.app-width - 40px) / max(root.map-natural + root.stage-natural, 1px));
     Rectangle {
         height: 50px;
+        map-probe := Text { text: Stages.map-name; font-size: 50px * 0.62; font-weight: 700; wrap: no-wrap; visible: false; x: 0; y: 0; }
+        stage-probe := Text { text: Stages.stage-name; font-size: 35px * 0.62; font-weight: 700; wrap: no-wrap; visible: false; x: 0; y: 0; }
         map := Banner { x: 0; y: 50px - self.height; source: Stages.map-banner; present: Stages.has-map-banner; fallback: Stages.map-name; size: 50px * root.fit; }
         Banner { x: map.width + 10px; y: 50px - self.height; source: Stages.stage-banner; present: Stages.has-stage-banner; fallback: Stages.stage-name; size: 35px * root.fit; }
     }
@@ -527,7 +529,7 @@ component FilterDialog inherits Dialog {
     body-height: Shell.app-height / 2;
     VerticalLayout {
         host := Rectangle {
-            Flickable {
+            Flickable { flicked => { Shell.guard-claim = Shell.press-seq; }
                 mouse-drag-pan-enabled: true;
                 width: parent.width;
                 height: parent.height;
@@ -587,7 +589,7 @@ component AttributesDialog inherits Dialog {
     title: "Battleground Attributes";
     open <=> Stages.attributes-open;
     body-height: 9999px;
-    Flickable {
+    Flickable { flicked => { Shell.guard-claim = Shell.press-seq; }
         mouse-drag-pan-enabled: true;
         width: 100%;
         height: 100%;
@@ -639,7 +641,7 @@ export component StagesPage inherits Rectangle {
     EdgeGrab { armed: Stages.ready && !Stages.browser-open && !Shell.nav-open; reach: drawer.panel-width; dragged(fraction) => { drawer.drag(fraction); } dropped => { drawer.release(); }
         if !Stages.ready: Status { title: Stages.status-title; detail: Stages.status-detail; x: (parent.width - self.width) / 2; y: (parent.height - self.height) / 2; width: min(parent.width - 32px, 360px); }
         if Stages.ready && !Stages.selected: Label { text: Stages.empty ? "No Stage Data" : "Select a stage to view details"; font-size: 20px; horizontal-alignment: center; vertical-alignment: center; width: parent.width - 32px; x: 16px; height: parent.height; wrap: word-wrap; }
-        if Stages.ready && Stages.selected: Flickable {
+        if Stages.ready && Stages.selected: Flickable { flicked => { Shell.guard-claim = Shell.press-seq; }
             mouse-drag-pan-enabled: true;
             width: parent.width;
             height: parent.height;
@@ -666,8 +668,6 @@ export component StagesPage inherits Rectangle {
     drawer := Drawer {
         open <=> Stages.browser-open;
         panel-width: min(260px, root.width * 0.7);
-        closed => { Shell.left-open = false; }
-        opened => { Shell.left-open = true; }
         Browser { width: 100%; height: 100%; }
     }
     FilterDialog { }

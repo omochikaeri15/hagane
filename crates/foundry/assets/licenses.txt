@@ -167,7 +167,7 @@ CC0-1.0):
 
 ab_glyph, aes, android-activity, arboard, base64, block-padding, byteorder, bytemuck, cbc,
 cipher, console_error_panic_hook, dioxus, directories, ecb, futures-channel,
-futures-util, gif, hex, iced, iced_renderer, image, image-webp, imageproc, indexmap, jni, js-sys,
+futures-util, gif, glow, hex, iced, iced_renderer, image, image-webp, imageproc, indexmap, jni, js-sys,
 md-5, muxide, notify, open, postcard, pulseaudio, rasn, rasn-pkix, rayon, regex, reqwest,
 resand, rfd, rodio, rsa, rustc-hash, rustls, ruzstd, self_update, serde, serde_ignored,
 serde_json, sha2, smol, structured-zstd, tar, thiserror, tracing, tracing-subscriber, tracing-wasm,

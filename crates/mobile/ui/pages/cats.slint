@@ -146,7 +146,7 @@ export component FilterDialog inherits Dialog {
     body-height: Shell.app-height / 2;
     VerticalLayout {
         host := Rectangle {
-            Flickable {
+            Flickable { flicked => { Shell.guard-claim = Shell.press-seq; }
                 mouse-drag-pan-enabled: true;
                 width: parent.width;
                 height: parent.height;
@@ -228,7 +228,7 @@ component Roster inherits Panel {
         Input { text <=> Cats.search; placeholder: "Search Cat..."; text-size: 13px; height: 32px; edited(value) => { Cats.search-changed(value); } }
         Rectangle { height: 4px; }
         if Cats.roster-count == 0: Label { text: "No Cats Found!"; color: Theme.danger; horizontal-alignment: center; vertical-stretch: 1; vertical-alignment: center; }
-        if Cats.roster-count > 0: ListView {
+        if Cats.roster-count > 0: ListView { scrolled => { Shell.guard-claim = Shell.press-seq; }
             mouse-drag-pan-enabled: true;
             vertical-stretch: 1;
             for row in Cats.roster: Rectangle {
@@ -518,7 +518,7 @@ component Details inherits VerticalLayout {
 
 export component CatDetail inherits VerticalLayout {
     Header { vertical-stretch: 0; }
-    if Cats.tab != 3: view := Flickable {
+    if Cats.tab != 3: view := Flickable { flicked => { Shell.guard-claim = Shell.press-seq; }
         mouse-drag-pan-enabled: true;
         vertical-stretch: 1;
         max-height: 100000px;
@@ -566,8 +566,6 @@ export component CatsPage inherits Rectangle {
     drawer := Drawer {
         open <=> Cats.roster-open;
         panel-width: 152px;
-        closed => { Shell.left-open = false; }
-        opened => { Shell.left-open = true; }
         Roster { width: 100%; height: 100%; }
     }
     FilterDialog { }

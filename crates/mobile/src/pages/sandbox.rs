@@ -30,6 +30,7 @@ use crate::catalog::Load;
 use crate::host::{Arena, Command, Label, Launch, Standing};
 use crate::images::Images;
 use crate::pages::Context;
+use crate::platform;
 use crate::roster::Roster;
 use crate::{AppWindow, DeckCell, Page, Sandbox, Shell, bridge};
 
@@ -287,6 +288,18 @@ pub fn wire(window: &AppWindow, context: &Rc<Context>) -> Shared {
     let state: Shared = Rc::new(RefCell::new(State::new(&context.images)));
     let sandbox = window.global::<Sandbox>();
 
+    {
+        let held = state.borrow();
+        let unset = held.saved().device_type.is_none();
+
+        if unset {
+            let device = if platform::is_tablet() == Some(true) { Device::Tablet } else { Device::Phone };
+
+            info!(?device, "The sandbox device type was detected");
+            held.store.update(|saved| saved.device_type = Some(device));
+        }
+    }
+
     sandbox.set_terms(ACKNOWLEDGMENT.into());
     sandbox.set_fullscreen(state.borrow().saved().fullscreen);
     sandbox.set_roster(slint::ModelRc::from(Rc::clone(&state.borrow().roster) as Rc<dyn slint::Model<Data = crate::RosterRow>>));
@@ -529,7 +542,7 @@ fn play(ui: &AppWindow, state: &Shared, context: &Rc<Context>) {
         Launch {
             setup,
             options: options(&saved),
-            phone: saved.device == Device::Phone,
+            phone: saved.device() == Device::Phone,
             lag: saved.lag,
             width,
             height,

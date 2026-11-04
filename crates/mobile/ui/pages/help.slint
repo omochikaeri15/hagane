@@ -1,3 +1,4 @@
+import { Shell } from "../shell.slint";
 import { Theme } from "../theme.slint";
 import { Label, Rule } from "../widgets/basics.slint";
 import { HeaderToggle } from "../widgets/detail.slint";
@@ -18,7 +19,7 @@ export component HelpPage inherits Rectangle {
             for label[index] in Help.pages: HeaderToggle { label: label; selected: Help.page == index; horizontal-stretch: 1; clicked => { Help.pick(index); } }
         }
         Rule { }
-        Flickable {
+        Flickable { flicked => { Shell.guard-claim = Shell.press-seq; }
             mouse-drag-pan-enabled: true;
             vertical-stretch: 1;
             max-height: 100000px;

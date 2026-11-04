@@ -1,5 +1,5 @@
 import { Theme } from "../theme.slint";
-import { Shell } from "../shell.slint";
+import { Shell, SwipeGuard } from "../shell.slint";
 
 export component Drawer inherits Rectangle {
     in-out property <bool> open;
@@ -24,10 +24,13 @@ export component Drawer inherits Rectangle {
     property <bool> dragging;
     property <bool> settling;
 
-    changed open => {
-        if !root.right {
-            Shell.left-open = root.open;
+    init => {
+        if root.open {
+            root.settling = true;
         }
+    }
+
+    changed open => {
         if !root.dragging {
             root.settling = true;
         }
@@ -71,6 +74,8 @@ export component Drawer inherits Rectangle {
         }
     }
 
+    if root.open && !root.right: SwipeGuard { }
+
     if root.open && root.scrimmed: SwipeGestureHandler {
         x: root.right ? 0px : root.panel-width;
         width: root.width - root.panel-width;
@@ -110,11 +115,7 @@ export component EdgeGrab inherits SwipeGestureHandler {
     callback dropped;
     width: 100%;
     height: 100%;
-    property <length> travel-x: root.current-position.x - root.pressed-position.x;
-    property <length> travel-y: root.current-position.y - root.pressed-position.y;
-    property <bool> level: abs(root.travel-x) > abs(root.travel-y);
-    property <bool> steered;
-    property <bool> free: root.armed && !root.steered && root.level && Shell.guard-claim != Shell.press-seq;
+    property <bool> free: root.armed && Shell.guard-claim != Shell.press-seq;
     handle-swipe-left: root.right && root.free;
     handle-swipe-right: !root.right && root.free;
     changed pressed-position => {
@@ -122,14 +123,8 @@ export component EdgeGrab inherits SwipeGestureHandler {
             Shell.taps += 1;
             Shell.press-x = root.absolute-position.x + root.pressed-position.x;
             Shell.press-y = root.absolute-position.y + root.pressed-position.y;
+            Shell.press-edge = root.pressed-position.x < Theme.edge || root.pressed-position.x > root.width - Theme.edge;
             Shell.press-seq += 1;
-        }
-    }
-    changed current-position => {
-        if abs(root.travel-x) < 4px && abs(root.travel-y) < 4px {
-            root.steered = false;
-        } else if !root.swiping && !root.level && abs(root.travel-y) > 12px {
-            root.steered = true;
         }
     }
     moved => { if root.swiping { root.dragged((root.right ? root.pressed-position.x - root.current-position.x : root.current-position.x - root.pressed-position.x) / root.reach); } }

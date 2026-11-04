@@ -7,11 +7,12 @@ use foundry::common::io::json;
 use foundry::domains::sandbox::{Config, Roster};
 
 use crate::settings::Orientation;
-use crate::host::Lag;
+use crate::host::{self, Lag};
 
 const STATE_FILE: &str = "sandbox.json";
 pub const QUALITY_RANGE: std::ops::RangeInclusive<u8> = 15..=100;
 const DEFAULT_QUALITY: u8 = 100;
+const CPU_QUALITY: u8 = 65;
 
 #[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Eq, Debug, Default)]
 pub enum Volume {
@@ -49,8 +50,8 @@ impl Volume {
 
 #[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Eq, Debug, Default)]
 pub enum Device {
-    #[default]
     Tablet,
+    #[default]
     Phone,
 }
 
@@ -103,7 +104,7 @@ pub struct Saved {
     pub effects_volume: i32,
     pub two_rows: bool,
     pub vibrate: bool,
-    pub device: Device,
+    pub device_type: Option<Device>,
     pub image_quality: Option<u8>,
     pub scaling: Option<Scaling>,
     pub lag: Lag,
@@ -124,7 +125,7 @@ impl Default for Saved {
             effects_volume: Volume::Medium.percent(),
             two_rows: true,
             vibrate: false,
-            device: Device::default(),
+            device_type: None,
             image_quality: None,
             scaling: None,
             lag: Lag::default(),
@@ -136,7 +137,11 @@ impl Default for Saved {
 
 impl Saved {
     pub fn quality(&self) -> u8 {
-        self.image_quality.unwrap_or(DEFAULT_QUALITY).clamp(*QUALITY_RANGE.start(), *QUALITY_RANGE.end())
+        self.image_quality.unwrap_or_else(|| if host::gpu_available() { DEFAULT_QUALITY } else { CPU_QUALITY }).clamp(*QUALITY_RANGE.start(), *QUALITY_RANGE.end())
+    }
+
+    pub fn device(&self) -> Device {
+        self.device_type.unwrap_or_default()
     }
 
     pub fn scaling(&self) -> Scaling {

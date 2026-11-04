@@ -98,7 +98,7 @@ pub fn wire(window: &AppWindow, state: &Shared, context: &Rc<Context>) {
     setter!(on_effects_set, |saved, index| saved.effects_volume = Volume::at(index).percent());
     setter!(on_vibration_set, |saved, index| saved.vibrate = index == 0);
     setter!(on_formation_set, |saved, index| saved.two_rows = index == 1);
-    setter!(on_device_set, |saved, index| saved.device = if index == 1 { Device::Phone } else { Device::Tablet });
+    setter!(on_device_set, |saved, index| saved.device_type = Some(if index == 1 { Device::Phone } else { Device::Tablet }));
     setter!(on_scaling_set, |saved, index| saved.scaling = Some(if index == 1 { Scaling::Pad } else { Scaling::Stretch }));
     setter!(on_lag_set, |saved, index| saved.lag = if index == 0 { Lag::CatchUp } else { Lag::Slowdown });
     setter!(on_battle_orientation_set, |saved, index| saved.battle_orientation = match index { 1 => Orientation::Portrait, 2 => Orientation::Landscape, _ => Orientation::Automatic });
@@ -264,7 +264,7 @@ pub fn sync(ui: &AppWindow, state: &Shared, context: &Rc<Context>, staging: Opti
     sandbox.set_effects(Volume::nearest(saved.effects_volume).index());
     sandbox.set_vibration(if saved.vibrate { 0 } else { 1 });
     sandbox.set_formation(if saved.two_rows { 1 } else { 0 });
-    sandbox.set_device(if saved.device == Device::Phone { 1 } else { 0 });
+    sandbox.set_device(if saved.device() == Device::Phone { 1 } else { 0 });
     sandbox.set_scaling_enabled(!saved.native());
     sandbox.set_scaling(if saved.scaling() == Scaling::Pad { 1 } else { 0 });
     sandbox.set_lag(if saved.lag == Lag::CatchUp { 0 } else { 1 });

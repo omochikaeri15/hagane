@@ -5,7 +5,7 @@ use slint::{ComponentHandle, Image, ModelRc, Rgba8Pixel, SharedPixelBuffer, Time
 use tracing::{info, warn};
 
 use crate::platform;
-use crate::host::{Canvas, Command, Diagnostics, Event, Launch, Occupant, Phase, Standing, Touch};
+use crate::host::{self, Canvas, Command, Diagnostics, Event, Launch, Occupant, Phase, Standing, Touch};
 use crate::pages::Context;
 use crate::{AppWindow, Sandbox, Shell, VitalRow};
 
@@ -25,6 +25,7 @@ pub struct Part {
     pub standing: Standing,
     pub failure: Option<String>,
     pub frame: Option<Image>,
+    pub scene_live: bool,
     pub canvas: Canvas,
     pub bounds: (f32, f32),
     pub hint: String,
@@ -41,6 +42,7 @@ impl Default for Part {
             standing: Standing::default(),
             failure: None,
             frame: None,
+            scene_live: false,
             canvas: Canvas { surfaced: false, scale: 1.0, padded: false, aspect: 0.0 },
             bounds: (0.0, 0.0),
             hint: String::new(),
@@ -70,6 +72,7 @@ pub fn launch(ui: &AppWindow, state: &Shared, context: &Rc<Context>, launch: Lau
 
         held.battle.failure = None;
         held.battle.frame = None;
+        held.battle.scene_live = false;
         held.battle.bounds = (launch.width, launch.height);
 
         if let Some(arena) = &held.arena {
@@ -288,6 +291,8 @@ pub fn event(ui: &AppWindow, state: &Shared, context: &Rc<Context>, event: Event
                 let mut held = state.borrow_mut();
 
                 held.battle.frame = None;
+                held.battle.scene_live = false;
+                host::forget_scene();
                 held.battle.probe = None;
                 held.battle.diagnosing = false;
                 held.battle.hint.clear();
@@ -319,7 +324,20 @@ pub fn event(ui: &AppWindow, state: &Shared, context: &Rc<Context>, event: Event
             held.battle.frame = Some(image);
             held.battle.canvas = painted.canvas;
             drop(held);
-            refresh(ui, state, context);
+            sync(ui, state);
+        }
+        Event::Scene(scene) => {
+            {
+                let mut held = state.borrow_mut();
+
+                held.battle.blackout = false;
+                held.battle.scene_live = true;
+                held.battle.canvas = scene.canvas;
+            }
+
+            host::submit_scene(*scene);
+            ui.window().request_redraw();
+            sync(ui, state);
         }
         Event::Failure(failure) => {
             if let Some(text) = &failure {
@@ -361,7 +379,7 @@ pub fn retune(state: &Shared) {
 
     if let Some(arena) = &held.arena {
         arena.send(Command::Volumes(Volume::nearest(saved.music_volume).percent(), Volume::nearest(saved.effects_volume).percent()));
-        arena.send(Command::Phone(saved.device == super::state::Device::Phone));
+        arena.send(Command::Phone(saved.device() == super::state::Device::Phone));
         arena.send(Command::Lag(saved.lag));
         arena.send(Command::Display { scale: saved.render_scale(), padded: saved.padded() });
     }
@@ -389,7 +407,7 @@ pub fn sync(ui: &AppWindow, state: &Shared) {
 
     sandbox.set_active(standing.phase != Phase::Idle);
     sandbox.set_blackout(battle.blackout);
-    sandbox.set_has_frame(battle.frame.is_some());
+    sandbox.set_has_frame(battle.frame.is_some() || battle.scene_live);
 
     if let Some(frame) = &battle.frame {
         sandbox.set_frame(frame.clone());

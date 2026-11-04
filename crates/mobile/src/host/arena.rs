@@ -15,6 +15,7 @@ use crate::{AppWindow, bridge};
 
 use super::diagnostics::Diagnostics;
 use super::driver::Label;
+use super::gpu::{self, Scene};
 use super::input::Touch;
 use super::session::{Lag, Phase, Reel, Session};
 use super::viewport::{self, Canvas};
@@ -75,6 +76,7 @@ impl Default for Standing {
 pub enum Event {
     Standing(Standing),
     Painted(Painted),
+    Scene(Box<Scene>),
     Failure(Option<String>),
     Options(BattleOptions),
     Diagnostics(Diagnostics),
@@ -278,11 +280,19 @@ impl Stage {
             return;
         }
 
-        let pixels = viewport::paint(&frame, &session.sheets().borrow(), canvas, width, height, pixel_width, pixel_height);
+        let sheets = session.sheets().borrow();
+        let event = if gpu::available() {
+            Event::Scene(Box::new(viewport::scene(&frame, &sheets, canvas, width, height, pixel_width, pixel_height)))
+        } else {
+            let pixels = viewport::paint(&frame, &sheets, canvas, width, height, pixel_width, pixel_height);
+
+            Event::Painted(Painted { pixels, width: pixel_width, height: pixel_height, canvas })
+        };
 
         frame.presented.shown.store(true, Ordering::Release);
+        drop(sheets);
         drop(frame);
-        self.post(Event::Painted(Painted { pixels, width: pixel_width, height: pixel_height, canvas }));
+        self.post(event);
     }
 }
 

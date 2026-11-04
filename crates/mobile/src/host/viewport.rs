@@ -1,10 +1,12 @@
 use std::ops::Range;
+use std::sync::Arc;
 
 use tracing::debug;
 
 use foundry::systems::raster::{self, Alpha, Batch, Texture, Vertex};
 
 use super::assets::SheetCache;
+use super::gpu::{Scene, SceneRun, SceneSheet};
 use super::sink::Frame;
 use super::text::label_key;
 
@@ -59,8 +61,7 @@ struct Run {
     range: Range<usize>,
 }
 
-pub(super) fn paint(frame: &Frame, sheets: &SheetCache, canvas: Canvas, width: f32, height: f32, pixel_width: u32, pixel_height: u32) -> Vec<u8> {
-    let mut pixels = CLEARED.repeat(pixel_width as usize * pixel_height as usize);
+fn compose(frame: &Frame, sheets: &SheetCache, canvas: Canvas, width: f32, height: f32) -> (Vec<Vertex>, Vec<Run>) {
     let fit = fit(width, height, frame.design_width, canvas.aspect);
     let scale = fit.scale;
     let mut vertices: Vec<Vertex> = Vec::with_capacity(frame.quads.len() * 6 + 36);
@@ -137,6 +138,37 @@ pub(super) fn paint(frame: &Frame, sheets: &SheetCache, canvas: Canvas, width: f
     if !absent.is_empty() {
         debug!("emu: {} sheets drawn but never decoded: {absent:?}", absent.len());
     }
+
+    (vertices, runs)
+}
+
+pub(super) fn scene(frame: &Frame, sheets: &SheetCache, canvas: Canvas, width: f32, height: f32, pixel_width: u32, pixel_height: u32) -> Scene {
+    let (vertices, runs) = compose(frame, sheets, canvas, width, height);
+    let mut held: Vec<(&str, SceneSheet)> = Vec::new();
+    let runs = runs
+        .iter()
+        .map(|run| {
+            let sheet = run.sheet.as_deref().and_then(|name| {
+                held.iter().position(|(seen, _)| *seen == name).or_else(|| {
+                    let sheet = sheets.get(name)?;
+
+                    held.push((name, SceneSheet { width: sheet.width, height: sheet.height, pixels: Arc::clone(&sheet.pixels) }));
+
+                    Some(held.len() - 1)
+                })
+            });
+
+            SceneRun { sheet, blend: run.blend, range: run.range.clone() }
+        })
+        .collect();
+    let sheets = held.into_iter().map(|(_, sheet)| sheet).collect();
+
+    Scene { vertices, runs, sheets, width: pixel_width, height: pixel_height, canvas }
+}
+
+pub(super) fn paint(frame: &Frame, sheets: &SheetCache, canvas: Canvas, width: f32, height: f32, pixel_width: u32, pixel_height: u32) -> Vec<u8> {
+    let mut pixels = CLEARED.repeat(pixel_width as usize * pixel_height as usize);
+    let (vertices, runs) = compose(frame, sheets, canvas, width, height);
 
     let batches: Vec<Batch<'_>> = runs
         .iter()

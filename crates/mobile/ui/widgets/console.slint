@@ -1,3 +1,4 @@
+import { Shell } from "../shell.slint";
 import { Theme } from "../theme.slint";
 import { Dialog, Label, Btn, Tone } from "basics.slint";
 
@@ -9,7 +10,7 @@ export component Console inherits Rectangle {
     border-radius: Theme.radius-sm;
     clip: true;
     changed log => { flick.content-y = min(0px, flick.height - flick.content-height); }
-    flick := Flickable {
+    flick := Flickable { flicked => { Shell.guard-claim = Shell.press-seq; }
         mouse-drag-pan-enabled: true;
         width: 100%;
         height: 100%;
@@ -47,7 +48,7 @@ export component PickerDialog inherits Dialog {
         spacing: 8px;
         Label { text: Picker.hint; font-size: 12px; weak: true; wrap: word-wrap; }
         if Picker.files.length == 0: Label { text: "Nothing matching was found in the import folder"; color: Theme.danger; horizontal-alignment: center; vertical-alignment: center; vertical-stretch: 1; wrap: word-wrap; }
-        if Picker.files.length > 0: Flickable {
+        if Picker.files.length > 0: Flickable { flicked => { Shell.guard-claim = Shell.press-seq; }
             mouse-drag-pan-enabled: true;
             vertical-stretch: 1;
             content-height: list.preferred-height;

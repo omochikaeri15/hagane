@@ -1299,7 +1299,6 @@ fn sync(ui: &AppWindow, state: &Shared, context: &Rc<Context>) {
                     held.stage = None;
                     stages.set_filter_active(true);
                     stages.set_browser_open(true);
-                    ui.global::<Shell>().set_left_open(true);
                 }
 
                 let remembered = context.memory.get().last_stage.map(|(prefix, map, stage)| GlobalStageId { category: Category::from_prefix(&prefix), map, stage });
@@ -1311,7 +1310,6 @@ fn sync(ui: &AppWindow, state: &Shared, context: &Rc<Context>) {
                     None => {
                         if state.borrow().stage.is_none() && !bundle.registry.stages.is_empty() && context.appearances.get().is_none() {
                             stages.set_browser_open(true);
-                            ui.global::<Shell>().set_left_open(true);
                         }
 
                         refresh_browser(ui, state, context);

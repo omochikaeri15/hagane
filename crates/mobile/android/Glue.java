@@ -9,6 +9,7 @@ import android.content.Context;
 import android.content.Intent;
 import android.database.Cursor;
 import android.graphics.Color;
+import android.graphics.Rect;
 import android.media.AudioManager;
 import android.net.Uri;
 import android.os.Build;
@@ -26,13 +27,20 @@ import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.util.Arrays;
 
 public class Glue extends Fragment {
     private static final String TAG = "app.omochikaeri.hagane.glue";
 
     private static final Uri DOWNLOADS_ROOT = DocumentsContract.buildRootUri("com.android.providers.downloads.documents", "downloads");
 
+    private static final int EDGE_DP = 44;
+
+    private static final int RESERVED_DP = 200;
+
     private static boolean fullscreen;
+
+    private static boolean watchingLayout;
 
     private static native void picked(int request, String[] uris);
 
@@ -85,8 +93,33 @@ public class Glue extends Fragment {
                 fullscreen = hidden;
                 attach(activity);
                 applyBars(activity);
+                final Window window = activity.getWindow();
+                if (!watchingLayout) {
+                    watchingLayout = true;
+                    window.getDecorView().addOnLayoutChangeListener(new View.OnLayoutChangeListener() {
+                        @Override
+                        public void onLayoutChange(View view, int left, int top, int right, int bottom, int oldLeft, int oldTop, int oldRight, int oldBottom) {
+                            reserveEdges(window);
+                        }
+                    });
+                }
+                reserveEdges(window);
             }
         });
+    }
+
+    private static void reserveEdges(Window window) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
+            return;
+        }
+        View decor = window.getDecorView();
+        float density = decor.getResources().getDisplayMetrics().density;
+        int wide = Math.round(EDGE_DP * density);
+        int tall = Math.round(RESERVED_DP * density);
+        int top = Math.max(0, (decor.getHeight() - tall) / 2);
+        window.setSystemGestureExclusionRects(Arrays.asList(
+            new Rect(0, top, wide, top + tall),
+            new Rect(decor.getWidth() - wide, top, decor.getWidth(), top + tall)));
     }
 
     private static void applyBars(Activity activity) {
@@ -121,6 +154,10 @@ public class Glue extends Fragment {
                 | View.SYSTEM_UI_FLAG_FULLSCREEN;
             window.getDecorView().setSystemUiVisibility(fullscreen ? edge | hide : edge);
         }
+    }
+
+    public static int smallestWidthDp(Activity activity) {
+        return activity.getResources().getConfiguration().smallestScreenWidthDp;
     }
 
     public static int outputRate(Activity activity) {

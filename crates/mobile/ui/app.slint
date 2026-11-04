@@ -62,7 +62,7 @@ export component AppWindow inherits Window {
 
         EdgeGrab {
             right: true;
-            armed: !Shell.nav-open && !Shell.left-open && !Sandbox.active;
+            armed: !Shell.nav-open && !Sandbox.active;
             reach: Theme.sidebar-width;
             dragged(fraction) => { nav.drag(fraction); }
             dropped => { nav.release(); }

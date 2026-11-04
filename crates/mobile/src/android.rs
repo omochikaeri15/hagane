@@ -451,6 +451,12 @@ pub fn set_bars(fullscreen: bool) -> Result<(), String> {
     })
 }
 
+pub fn smallest_width_dp() -> Result<i32, String> {
+    with_glue("the screen size could not be read", |env, activity, class| {
+        env.call_static_method(class, "smallestWidthDp", "(Landroid/app/Activity;)I", &[JValue::Object(activity)]).and_then(|value| value.i())
+    })
+}
+
 pub fn output_rate() -> Result<u32, String> {
     let rate = with_glue("the output sample rate could not be read", |env, activity, class| {
         env.call_static_method(class, "outputRate", "(Landroid/app/Activity;)I", &[JValue::Object(activity)]).and_then(|value| value.i())

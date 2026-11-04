@@ -146,6 +146,23 @@ pub fn on_shown(handler: impl Fn(bool) + 'static) {
 pub fn on_shown(_handler: impl Fn(bool) + 'static) {}
 
 #[cfg(target_os = "android")]
+const TABLET_WIDTH_DP: i32 = 600;
+
+#[cfg(target_os = "android")]
+pub fn is_tablet() -> Option<bool> {
+    crate::android::smallest_width_dp()
+        .inspect_err(|err| warn!("The screen size could not be read: {err}"))
+        .ok()
+        .filter(|width| *width > 0)
+        .map(|width| width >= TABLET_WIDTH_DP)
+}
+
+#[cfg(not(target_os = "android"))]
+pub fn is_tablet() -> Option<bool> {
+    None
+}
+
+#[cfg(target_os = "android")]
 pub fn output_rate() -> Option<u32> {
     crate::android::output_rate().inspect_err(|err| warn!("The output sample rate could not be read: {err}")).ok().filter(|rate| *rate > 0)
 }
