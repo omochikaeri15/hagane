@@ -9,8 +9,8 @@ You must provide files for Hagane to read. These files are not included in the a
 
 #### Setup
 Hagane requires two additional third-party resources to unlock full functionality. Without these, the apps capabilities are limited:
-- Rooted Android device/emulator that is not Bluestacks and can run the cat game.
-- Legally obtained Decryption Keys and Initialization Vectors for every region.
+- Rooted Android device/emulator that is not Bluestacks.
+- Legally obtained Decryption Keys and Initialization Vectors.
 
 Because Hagane is not signed with a paid certificate, your OS may flag it on the first run:
 
@@ -37,7 +37,7 @@ You must provide files for Hagane to read. These files are not included in the a
 #### Setup
 Hagane requires two additional resources to unlock full functionality. Without these, the apps capabilities are limited:
 - Device that Hagane is installed on is rooted with `su` permissions.
-- Legally obtained Decryption Keys and Initialization Vectors for every region.
+- Legally obtained Decryption Keys and Initialization Vectors.
 
 Because Hagane is not distributed through an app store, your OS may flag it on the first run:
 
