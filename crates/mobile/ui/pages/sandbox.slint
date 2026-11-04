@@ -903,6 +903,7 @@ export component BattleLayer inherits Rectangle {
     changed width => { Sandbox.resized(self.width, self.height); }
     changed height => { Sandbox.resized(self.width, self.height); }
     if Sandbox.has-frame && !Sandbox.blackout: Image { source: Sandbox.frame; width: parent.width; height: parent.height; image-fit: fill; image-rendering: smooth; }
+    TouchArea { enabled: !Shell.swiping; }
     gesture := ScaleRotateGestureHandler {
         started => { root.pinch-scale = 1.0; }
         updated => {
