@@ -258,6 +258,11 @@ impl State {
         let cap = self.castle.and_then(|castle| self.altars.level_cap(castle, app_state.sandbox.config.altar()));
 
         self.lineup.set_altar(cap);
+        self.config.set_altar_gimmick(self.castle.is_some_and(|castle| self.altars.seals(castle)));
+    }
+
+    pub(crate) fn set_stage_gimmicks(&mut self, cat_god: bool, war_funds: bool, expenses: bool) {
+        self.config.set_stage_gimmicks(cat_god, war_funds, expenses);
     }
 
     pub(crate) fn set_invadable(&mut self, registry: &StageRegistry) {
@@ -394,6 +399,8 @@ impl State {
         setup.treasures = options.config.treasure.levels();
 
         setup.altar = options.config.altar();
+        setup.war_funds = options.config.war_funds();
+        setup.expenses = options.config.expenses();
         setup.cat_god = match options.config.cat_god {
             CatGod::Absent => emulator::runtime::CatGod::Absent,
             CatGod::Present => emulator::runtime::CatGod::Present,

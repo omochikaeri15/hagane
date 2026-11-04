@@ -14,11 +14,11 @@ use slint::{ComponentHandle, Timer, TimerMode};
 use tracing::info;
 
 use codex::chapter::Category;
-use emulator::runtime::{BattleOptions, CASTLE_PART, CatGod as EngineGod, Setup, SetupUnit, StageEntry, StageVariant, TechLevel, TutorialFlags, usable_items};
+use emulator::runtime::{BattleOptions, CASTLE_PART, CatGod as EngineGod, Setup, SetupUnit, StageEntry, StageVariant, TechLevel, TutorialFlags, offers_cat_god, usable_items};
 use foundry::domains::cat::scanner::CatEntry;
 use foundry::domains::sandbox::altar::Altars;
 use foundry::domains::sandbox::base::Parts;
-use foundry::domains::sandbox::config::{self as sandbox_config, CatGod};
+use foundry::domains::sandbox::config::{self as sandbox_config, CatGod, Gimmicks};
 use foundry::domains::sandbox::replay::VANILLA_APP;
 use foundry::domains::sandbox::rules::Rules;
 use foundry::domains::sandbox::{Arrangement, Cell, TECHS, scored};
@@ -48,6 +48,7 @@ pub struct Staging {
     pub usable: [bool; 6],
     pub rules: Rules,
     pub altar: Option<u32>,
+    pub gimmicks: Gimmicks,
     pub map: String,
     pub stage: String,
 }
@@ -186,10 +187,18 @@ pub fn staging(state: &State, context: &Rc<Context>) -> Option<Staging> {
     let global = registry.addresses.get(&map_key).and_then(|address| address.global).and_then(|global| i32::try_from(global).ok());
     let usable = global.map_or([true; 6], |map_id| usable_items(map_id, scored::score_stage_maps(&vault.vfs).contains(&map_id)));
     let castle = stage.and_then(|stage| i32::try_from(stage.anim_base_id).ok());
-    let altar = castle.and_then(|castle| Altars::load(&vault.vfs).level_cap(castle, saved.config.altar()));
+    let altars = Altars::load(&vault.vfs);
+    let altar = castle.and_then(|castle| altars.level_cap(castle, saved.config.altar()));
+    let special_rules = registry.maps.get(&map_key).and_then(|map| map.special_rules.as_ref());
+    let gimmicks = Gimmicks {
+        cat_god: offers_cat_god(entry),
+        altar: castle.is_some_and(|castle| altars.seals(castle)),
+        war_funds: special_rules.is_some_and(|rules| rules.draws_war_funds()),
+        expenses: special_rules.is_some_and(|rules| rules.draws_expenses()),
+    };
     let (map, stage) = label(registry, &picked, &saved);
 
-    Some(Staging { entry, usable, rules, altar, map, stage })
+    Some(Staging { entry, usable, rules, altar, gimmicks, map, stage })
 }
 
 fn build_setup(state: &State, context: &Rc<Context>, entry: StageEntry) -> Setup {
@@ -253,6 +262,8 @@ fn build_setup(state: &State, context: &Rc<Context>, entry: StageEntry) -> Setup
 
     setup.treasures = saved.config.treasure.levels();
     setup.altar = saved.config.altar();
+    setup.war_funds = saved.config.war_funds();
+    setup.expenses = saved.config.expenses();
     setup.cat_god = match saved.config.cat_god {
         CatGod::Absent => EngineGod::Absent,
         CatGod::Present => EngineGod::Present,

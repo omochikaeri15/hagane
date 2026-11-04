@@ -108,6 +108,8 @@ pub fn fill_dummy_save(ctx: &mut AppContext, setup: &Setup) -> Result<(), Fault>
     food[..4].copy_from_slice(&CAT_FOOD.to_le_bytes());
     obfuscate_value(&mut food);
     ctx.set_block_at(AppContext::ITEM_16_COUNT, food)?;
+    ctx.set_i32_at(AppContext::ITEM_CF_COUNT, setup.war_funds)?;
+    ctx.special_rules.item_f7_count = setup.expenses;
 
     ctx.set_i32_at(AppContext::SELECTED_DECK_PRESET, 0)?;
 

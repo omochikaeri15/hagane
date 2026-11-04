@@ -7,6 +7,7 @@ use crate::app::theme;
 const LABEL_SPACING: f32 = 10.0;
 const LABEL_WIDTH: f32 = 190.0;
 const INPUT_WIDTH: f32 = 80.0;
+const IDLE_WIDTH: f32 = 110.0;
 
 pub fn entry_row<'a, Message: Clone + 'a>(
     label: &'a str,
@@ -20,6 +21,16 @@ pub fn entry_row<'a, Message: Clone + 'a>(
             .on_input(on_input)
             .width(Length::Fixed(INPUT_WIDTH))
             .style(theme::rounded_input),
+    ]
+        .spacing(LABEL_SPACING)
+        .align_y(Vertical::Center)
+        .into()
+}
+
+pub fn idle_entry_row<'a, Message: Clone + 'a>(label: &'a str, note: &str) -> Element<'a, Message> {
+    row![
+        text(label).width(Length::Fixed(LABEL_WIDTH)),
+        text_input(note, "").width(Length::Fixed(IDLE_WIDTH)).style(theme::rounded_input),
     ]
         .spacing(LABEL_SPACING)
         .align_y(Vertical::Center)

@@ -1,7 +1,4 @@
 Changes:
-- Updated emu to support more features.
-- New platform supported: iOS with an IPA file. Needs to be signed by the User.
-- Home menu now states that the app is not affiliated with a specific company on every GUI.
-
-Bug Fixes:
-- Fixed a significant amount of mobile bugs.
+- Moved Cat God Miracles and Aku Altar Cap into a new "Gimmick" tab under `Sandbox > Config`.
+- Added support for the War & Expenses Trust Funds gimmicks under the Gimmick tab.
+- Gimmick input is disabled when the selected stage doesnt utilize the gimmick.

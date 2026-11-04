@@ -2040,7 +2040,25 @@ impl HaganeApp {
             emulator::runtime::usable_items(map_id, scored.contains(&map_id))
         });
         let castle = data.selected_stage.as_ref().and_then(|picked| data.registry.stages.get(picked)).and_then(|stage| i32::try_from(stage.anim_base_id).ok());
+        let cat_god = data.selected_stage.as_ref().zip(global).is_some_and(|(picked, map_id)| {
+            i32::try_from(picked.stage).is_ok_and(|stage| {
+                emulator::runtime::offers_cat_god(emulator::runtime::StageEntry {
+                    map_id,
+                    stage: map_screen_slot(map_id, stage),
+                    variant: self.staged_variant(picked),
+                    ..emulator::runtime::StageEntry::default()
+                })
+            })
+        });
+        let special_rules = data.selected_stage.as_ref().and_then(|picked| {
+            let map = foundry::domains::stage::GlobalMapId { category: picked.category.clone(), map: picked.map };
 
+            data.registry.maps.get(&map)?.special_rules.as_ref()
+        });
+        let war_funds = special_rules.is_some_and(|rules| rules.draws_war_funds());
+        let expenses = special_rules.is_some_and(|rules| rules.draws_expenses());
+
+        self.sandbox_state.set_stage_gimmicks(cat_god, war_funds, expenses);
         self.sandbox_state.set_rules(rules.unwrap_or_default(), &self.app_state);
         self.sandbox_state.set_castle(castle, &self.app_state);
     }
@@ -2083,6 +2101,19 @@ impl HaganeApp {
         })
     }
 
+    fn staged_variant(&self, picked: &GlobalStageId) -> emulator::runtime::StageVariant {
+        if invaded_stage(&self.stage_state.data.registry, picked).is_some() {
+            return emulator::runtime::StageVariant::ExInvasion;
+        }
+
+        match (picked.category == Category::ZombieOutbreaks, self.invaded_slot(picked).is_some()) {
+            (false, false) => emulator::runtime::StageVariant::Plain,
+            (true, false) => emulator::runtime::StageVariant::Outbreak,
+            (false, true) => emulator::runtime::StageVariant::Invasion,
+            (true, true) => emulator::runtime::StageVariant::ZombieInvasion,
+        }
+    }
+
     fn staged_entry(&self) -> Option<emulator::runtime::StageEntry> {
         let picked = self.stage_state.data.selected_stage.as_ref()?;
         let map = foundry::domains::stage::GlobalMapId { category: picked.category.clone(), map: picked.map };
@@ -2100,15 +2131,8 @@ impl HaganeApp {
         }
 
         let map_id = i32::try_from(global).ok()?;
-        let outbreak = picked.category == Category::ZombieOutbreaks;
-        let invaded = self.invaded_slot(picked);
-        let variant = match (outbreak, invaded.is_some()) {
-            (false, false) => emulator::runtime::StageVariant::Plain,
-            (true, false) => emulator::runtime::StageVariant::Outbreak,
-            (false, true) => emulator::runtime::StageVariant::Invasion,
-            (true, true) => emulator::runtime::StageVariant::ZombieInvasion,
-        };
-        let stage = invaded.unwrap_or(picked.stage);
+        let variant = self.staged_variant(picked);
+        let stage = self.invaded_slot(picked).unwrap_or(picked.stage);
         let layout = map_screen_slot(map_id, i32::try_from(stage).ok()?);
         let slot = Lottery::load(&self.vault.vfs).slot_for(map_id, layout);
 

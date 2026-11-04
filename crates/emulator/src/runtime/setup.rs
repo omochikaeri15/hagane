@@ -32,6 +32,8 @@ const ENEMY_SIDE: i32 = 2;
 const DUNGEON_TYPE: i32 = -11;
 const DUNGEON_GROUP: usize = 2;
 const DUNGEON_PACK: i32 = 100;
+const NO_CAT_GOD_STAGE: i32 = 0x30;
+const COSMOS_FINALE: i32 = 0x2f;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum StageVariant {
@@ -114,6 +116,8 @@ pub struct Setup {
     pub altar: Option<i32>,
     pub cat_god: CatGod,
     pub tutorial: TutorialFlags,
+    pub war_funds: i32,
+    pub expenses: i32,
 }
 
 impl Default for Setup {
@@ -132,21 +136,38 @@ impl Default for Setup {
             altar: None,
             cat_god: CatGod::default(),
             tutorial: TutorialFlags::default(),
+            war_funds: 0,
+            expenses: 0,
         }
     }
+}
+
+fn chapter_mode(map_type: i32, index: i32) -> i32 {
+    match map_type {
+        EMPIRE_TYPE => index,
+        FUTURE_TYPE => index.wrapping_add(FUTURE_MODE),
+        COSMOS_TYPE => index.wrapping_add(COSMOS_MODE),
+        EXTRA_TYPE => EXTRA_MODE,
+        _ => FREE_MAP_MODE,
+    }
+}
+
+pub fn offers_cat_god(entry: StageEntry) -> bool {
+    let map_type = map_type_of_map_id(entry.map_id);
+    let mode = chapter_mode(map_type, map_index_of_map_id(entry.map_id));
+
+    entry.variant == StageVariant::Plain
+        && mode != FREE_MAP_MODE
+        && mode != EXTRA_MODE
+        && entry.stage != NO_CAT_GOD_STAGE
+        && !(map_type == COSMOS_TYPE && entry.stage == COSMOS_FINALE)
 }
 
 pub fn select_stage(ctx: &mut AppContext, entry: StageEntry) -> Result<(), Fault> {
     let map_type = map_type_of_map_id(entry.map_id);
     let index = map_index_of_map_id(entry.map_id);
 
-    let mode = match map_type {
-        EMPIRE_TYPE => index,
-        FUTURE_TYPE => index.wrapping_add(FUTURE_MODE),
-        COSMOS_TYPE => index.wrapping_add(COSMOS_MODE),
-        EXTRA_TYPE => EXTRA_MODE,
-        _ => FREE_MAP_MODE,
-    };
+    let mode = chapter_mode(map_type, index);
 
     ctx.set_i32_at(AppContext::CHAPTER_MODE, mode)?;
     ctx.set_block_at::<1>(AppContext::SCORE_MODE_FLAG, [u8::from(SCORE_MODE_TYPES.contains(&map_type))])?;

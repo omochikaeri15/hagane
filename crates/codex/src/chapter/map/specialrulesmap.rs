@@ -5,6 +5,9 @@ use serde::{Deserialize, Serialize};
 
 use crate::common::file::scrub;
 
+const WAR_FUNDS_CONTENTS: u8 = 1;
+const EXPENSES_CONTENTS: u8 = 2;
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum SpecialRulesMapError {
@@ -42,6 +45,20 @@ pub struct SpecialRulesMapEntry {
     pub rules: Vec<RuleType>,
     pub name_label: String,
     pub explanation_label: String,
+}
+
+impl SpecialRulesMapEntry {
+    fn has_trust_fund(&self) -> bool {
+        self.rules.iter().any(|rule| matches!(rule, RuleType::TrustFund(_)))
+    }
+
+    pub fn draws_war_funds(&self) -> bool {
+        self.contents_type == WAR_FUNDS_CONTENTS && self.has_trust_fund()
+    }
+
+    pub fn draws_expenses(&self) -> bool {
+        self.contents_type == EXPENSES_CONTENTS && self.has_trust_fund()
+    }
 }
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
@@ -113,4 +130,26 @@ fn parse_inner(json_str: &str) -> Result<SpecialRulesMap, SpecialRulesMapError> 
     }
 
     Ok(SpecialRulesMap { entries })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // The contents type picks which saved balance a trust fund draws on, and a map without one draws on neither.
+    #[test]
+    fn a_saved_balance_needs_its_contents_type_and_a_trust_fund() {
+        let entry = |contents_type, rules| SpecialRulesMapEntry { contents_type, rules, ..SpecialRulesMapEntry::default() };
+        let fund = || vec![RuleType::TrustFund(vec![4500])];
+
+        assert!(entry(1, fund()).draws_war_funds());
+        assert!(!entry(0, fund()).draws_war_funds());
+        assert!(!entry(2, fund()).draws_war_funds());
+        assert!(!entry(1, vec![RuleType::CatProduction(vec![50])]).draws_war_funds());
+
+        assert!(entry(2, fund()).draws_expenses());
+        assert!(!entry(1, fund()).draws_expenses());
+        assert!(!entry(3, fund()).draws_expenses());
+        assert!(!entry(2, vec![RuleType::CatProduction(vec![50])]).draws_expenses());
+    }
 }

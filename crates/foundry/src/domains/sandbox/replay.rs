@@ -170,7 +170,7 @@ mod tests {
         assert!(parse_faults("garbage without tabs\n").is_empty());
     }
 
-    // A tape written before the tutorial flags and the Legend Quest redirect existed must still open.
+    // A tape written before the tutorial flags, the Legend Quest redirect and the saved trust fund balances existed must still open.
     #[test]
     fn an_older_save_still_parses() {
         let text = r#"{"setup":{"stage":{"map_id":24052,"stage":9,"layout":null,"crown":0,"map_name":"","stage_name":""},"lineup":[],"tech":[],"treasures":[],"cannon":0,"style":0,"foundation":0,"parts":{},"items":[],"speed_engaged":false,"altar":null,"cat_god":"Present"}}"#;
@@ -178,6 +178,8 @@ mod tests {
 
         assert!(save.setup.tutorial.battle_cleared && save.setup.tutorial.shop_seen);
         assert_eq!(save.setup.stage.dungeon_stage, None);
+        assert_eq!(save.setup.war_funds, 0, "nothing was seeded back then, so a replay has to play with none");
+        assert_eq!(save.setup.expenses, 0);
     }
 
     // Only a unit's own stats and description count as unit files; a hybrid replay falls back to nothing else.

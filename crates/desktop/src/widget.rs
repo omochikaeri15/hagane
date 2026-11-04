@@ -33,7 +33,7 @@ pub mod statblock_export;
 
 pub(crate) use ability_fallback::{fallback_icon, ICON_SIZE};
 pub(crate) use combo::combo_row;
-pub(crate) use entry::entry_row;
+pub(crate) use entry::{entry_row, idle_entry_row};
 pub(crate) use fade::fade;
 pub(crate) use scrim::scrim;
 pub(crate) use fit_text::{fit_column, shrink_by};

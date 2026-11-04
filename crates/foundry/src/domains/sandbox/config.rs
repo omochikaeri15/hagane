@@ -3,6 +3,17 @@ use serde::{Deserialize, Serialize};
 use crate::systems::treasure;
 
 pub const FILIBUSTER_MAP: u32 = 9;
+pub const UNAVAILABLE: &str = "Unavailable";
+pub const CAT_GOD_HINT: &str = "Absent: not unlocked, so his button never appears\nPresent: unlocked, miracles at full price\nDiscounted: the 70% off reward for clearing Cats of the Cosmos chapter 1";
+pub const NO_CAT_GOD_HINT: &str = "This stage has no Cat God.\nHe appears on Empire of Cats, Into the Future and Cats of the Cosmos stages, outside of outbreaks and invasions";
+pub const ALTAR_HINT: &str = "The level the Aku Altar holds this stage's lineup to.\nEmpty: the altar is already destroyed, so nothing is capped";
+pub const NO_ALTAR_HINT: &str = "This stage's base is not an Aku Altar, so there is no cap to set";
+pub const WAR_FUNDS_HINT: &str = "The War Funds saved up from earlier battles, from 0 to 999999.\nThey are added to the money this stage's trust fund starts with";
+pub const NO_WAR_FUNDS_HINT: &str = "This stage does not draw on War Funds";
+pub const EXPENSES_HINT: &str = "The Expenses saved up from earlier battles, from 0 to 999999.\nThey are added to the money this stage's trust fund starts with";
+pub const NO_EXPENSES_HINT: &str = "This stage does not draw on Expenses";
+const FUND_CAP: i32 = 999_999;
+const FUND_DIGITS: usize = 6;
 const BIG_BANG: u32 = 47;
 
 pub const ITEMS: [&str; 6] = ["Speed Up", "Treasure Radar", "Rich Cat", "Cat CPU", "Cat Jobs", "Sniper the Cat"];
@@ -138,6 +149,8 @@ pub struct Config {
     pub items_off: [bool; 6],
     pub start_speed: StartSpeed,
     pub altar_level: String,
+    pub war_funds: String,
+    pub expenses: String,
     pub cat_god: CatGod,
     pub tutorial: Tutorial,
     pub invasions: Invasions,
@@ -158,6 +171,8 @@ impl Default for Config {
             items_off: [true; 6],
             start_speed: StartSpeed::Single,
             altar_level: String::new(),
+            war_funds: String::new(),
+            expenses: String::new(),
             cat_god: CatGod::default(),
             tutorial: Tutorial::default(),
             invasions: Invasions::default(),
@@ -170,6 +185,14 @@ impl Config {
         self.altar_level.trim().parse::<i32>().ok().map(|level| level.max(1))
     }
 
+    pub fn war_funds(&self) -> i32 {
+        fund(&self.war_funds)
+    }
+
+    pub fn expenses(&self) -> i32 {
+        fund(&self.expenses)
+    }
+
     pub fn castle(&self, highest: i32) -> i32 {
         level(&self.castle_level, highest)
     }
@@ -177,6 +200,22 @@ impl Config {
     pub fn tech(&self, index: usize) -> (u32, u32) {
         TECHS.get(index).map_or((1, 0), |tech| tech.resolve(self.techs.get(index).map_or("", String::as_str)))
     }
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Gimmicks {
+    pub cat_god: bool,
+    pub altar: bool,
+    pub war_funds: bool,
+    pub expenses: bool,
+}
+
+fn fund(entry: &str) -> i32 {
+    entry.trim().parse::<i32>().map_or(0, |funds| funds.clamp(0, FUND_CAP))
+}
+
+pub fn fund_typable(entry: &str) -> bool {
+    entry.len() <= FUND_DIGITS && entry.bytes().all(|glyph| glyph.is_ascii_digit())
 }
 
 pub fn level(entry: &str, highest: i32) -> i32 {
@@ -196,6 +235,8 @@ mod tests {
         assert_eq!(config.tech(1), (10, 0), "cannon range stops at ten and has no plus levels");
         assert_eq!(level("", 30), 30);
         assert_eq!(config.altar(), None, "no entry means the altar is already destroyed");
+        assert_eq!(config.war_funds(), 0, "no entry means nothing saved up yet");
+        assert_eq!(config.expenses(), 0);
         // A fresh Sandbox starts with no battle items, so nothing is silently
         // buffing a stage the user is trying to read straight.
         assert_eq!(config.items_off, [true; 6]);
@@ -213,5 +254,14 @@ mod tests {
 
         assert_eq!(config.tech(0), (20, 10));
         assert_eq!(level("45", 30), 30);
+
+        config.war_funds = "1000000".to_owned();
+        config.expenses = "1000000".to_owned();
+
+        assert_eq!(config.war_funds(), FUND_CAP, "a hand-edited config still stops at the game's cap");
+        assert_eq!(config.expenses(), FUND_CAP);
+        assert!(fund_typable("999999"));
+        assert!(!fund_typable("1000000"), "the field never holds more digits than the cap");
+        assert!(!fund_typable("1+1"), "the tech level syntax means nothing for a sum of money");
     }
 }

@@ -67,7 +67,7 @@ export global Sandbox {
     in property <bool> orb-held;
 
     in-out property <int> panel;
-    in property <[string]> panels: ["Settings", "Treasure", "Tech", "Base", "Items", "Invasions", "Tutorial"];
+    in property <[string]> panels: ["Settings", "Treasure", "Tech", "Base", "Items", "Gimmick", "Invasions", "Tutorial"];
     in property <[string]> volumes: ["Off", "Low", "Medium", "High"];
     in-out property <int> music;
     in-out property <int> effects;
@@ -84,8 +84,14 @@ export global Sandbox {
     in property <[ChapterFold]> chapters;
     in property <[string]> grades;
     in property <[ConfigEntry]> techs;
-    in property <int> cat-god;
+    in-out property <int> cat-god;
+    in property <bool> cat-god-enabled;
     in property <string> altar;
+    in property <bool> altar-enabled;
+    in property <string> war-funds;
+    in property <bool> war-funds-enabled;
+    in property <string> expenses;
+    in property <bool> expenses-enabled;
     in property <[string]> cannons;
     in property <int> cannon;
     in property <[string]> styles;
@@ -187,6 +193,8 @@ export global Sandbox {
     callback tech-edited(int, string);
     callback cat-god-set(int);
     callback altar-edited(string);
+    callback war-funds-edited(string);
+    callback expenses-edited(string);
     callback cannon-set(int);
     callback style-set(int);
     callback foundation-set(int);
@@ -566,11 +574,13 @@ component EntryRow inherits HorizontalLayout {
     in property <string> label;
     in property <string> hint;
     in property <string> value;
+    in property <bool> enabled: true;
     callback edited(string);
     spacing: 10px;
     alignment: start;
     Label { text: root.label; vertical-alignment: center; width: 170px; wrap: word-wrap; font-size: 14px; }
-    Input { width: 80px; height: 28px; text-size: 13px; placeholder: root.hint; text: root.value; edited(value) => { root.edited(value); } }
+    if root.enabled: Input { width: 80px; height: 28px; text-size: 13px; placeholder: root.hint; text: root.value; edited(value) => { root.edited(value); } }
+    if !root.enabled: Input { width: 110px; height: 28px; text-size: 13px; enabled: false; placeholder: "Unavailable"; }
 }
 
 component ConfigTab inherits VerticalLayout {
@@ -630,14 +640,6 @@ component ConfigTab inherits VerticalLayout {
                 title: "Tech Levels";
                 for tech[index] in Sandbox.techs: EntryRow { label: tech.label; hint: tech.hint; value: tech.value; edited(value) => { Sandbox.tech-edited(index, value); } }
             }
-            if Sandbox.panel == 2: Section {
-                title: "Cat God";
-                Row { label: "Availability"; Combo { width: 130px; height: 30px; text-size: 13px; options: ["Absent", "Present", "Discounted"]; current: Sandbox.cat-god; selected(index) => { Sandbox.cat-god-set(index); } } }
-            }
-            if Sandbox.panel == 2: Section {
-                title: "Aku Altar";
-                EntryRow { label: "Level Cap"; hint: "None"; value: Sandbox.altar; edited(value) => { Sandbox.altar-edited(value); } }
-            }
             if Sandbox.panel == 3: Section {
                 title: "Cat Base";
                 Row { label: "Cannon"; Combo { width: 180px; height: 30px; text-size: 13px; options: Sandbox.cannons; current: Sandbox.cannon; selected(index) => { Sandbox.cannon-set(index); } } }
@@ -651,11 +653,19 @@ component ConfigTab inherits VerticalLayout {
                 for item[index] in Sandbox.items: Toggle { value: item.on; label: item.label; enabled: item.allowed; changed(value) => { Sandbox.item-toggled(index, value); } }
             }
             if Sandbox.panel == 5: Section {
+                title: "Gimmicks";
+                if Sandbox.cat-god-enabled: Row { label: "Cat God Miracles"; Combo { width: 130px; height: 30px; text-size: 13px; options: ["Absent", "Present", "Discounted"]; current <=> Sandbox.cat-god; selected(index) => { Sandbox.cat-god-set(index); } } }
+                if !Sandbox.cat-god-enabled: Row { label: "Cat God Miracles"; Combo { width: 130px; height: 30px; text-size: 13px; options: ["Unavailable"]; current: 0; enabled: false; } }
+                EntryRow { label: "Aku Altar Cap"; hint: "None"; value: Sandbox.altar; enabled: Sandbox.altar-enabled; edited(value) => { Sandbox.altar-edited(value); } }
+                EntryRow { label: "War Trust Fund"; hint: "0"; value: Sandbox.war-funds; enabled: Sandbox.war-funds-enabled; edited(value) => { Sandbox.war-funds-edited(value); } }
+                EntryRow { label: "Expenses Trust Fund"; hint: "0"; value: Sandbox.expenses; enabled: Sandbox.expenses-enabled; edited(value) => { Sandbox.expenses-edited(value); } }
+            }
+            if Sandbox.panel == 6: Section {
                 title: "Filibuster Invasion";
                 Row { label: "Invasion Stage"; Combo { width: 180px; height: 30px; text-size: 13px; options: Sandbox.filibusters; current: Sandbox.filibuster; selected(index) => { Sandbox.filibuster-set(index); } } }
                 Row { label: "Outbreak Stage"; Combo { width: 180px; height: 30px; text-size: 13px; options: Sandbox.outbreaks; current: Sandbox.outbreak; selected(index) => { Sandbox.outbreak-set(index); } } }
             }
-            if Sandbox.panel == 6: Section {
+            if Sandbox.panel == 7: Section {
                 title: "Cleared Tutorials";
                 for step[index] in Sandbox.tutorials: Toggle { value: step.on; label: step.label; changed(value) => { Sandbox.tutorial-toggled(index, value); } }
             }

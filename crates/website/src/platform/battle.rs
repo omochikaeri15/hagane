@@ -60,6 +60,8 @@ pub struct SetupWire {
     pub altar: Option<i32>,
     pub cat_god: CatGodWire,
     pub tutorial: [bool; 5],
+    pub war_funds: i32,
+    pub expenses: i32,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -134,6 +136,8 @@ impl From<&Setup> for SetupWire {
                 CatGod::Discounted => CatGodWire::Discounted,
             },
             tutorial: [setup.tutorial.battle_cleared, setup.tutorial.deck_seen, setup.tutorial.two_rows_seen, setup.tutorial.cat_god_seen, setup.tutorial.shop_seen],
+            war_funds: setup.war_funds,
+            expenses: setup.expenses,
         }
     }
 }
@@ -181,6 +185,8 @@ impl From<SetupWire> for Setup {
             cat_god_seen: wire.tutorial[3],
             shop_seen: wire.tutorial[4],
         };
+        setup.war_funds = wire.war_funds;
+        setup.expenses = wire.expenses;
 
         setup
     }

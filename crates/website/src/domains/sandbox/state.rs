@@ -3,6 +3,7 @@ use std::fmt;
 use dioxus::prelude::*;
 use serde::{Deserialize, Serialize};
 
+use foundry::domains::sandbox::config::Gimmicks;
 use foundry::domains::sandbox::{Config, Roster};
 
 use crate::systems::host::Lag;
@@ -108,6 +109,7 @@ pub(crate) enum Panel {
     Tech,
     Base,
     Items,
+    Gimmick,
     Invasions,
     Tutorial,
 }
@@ -183,15 +185,23 @@ impl SandboxState {
 #[derive(Clone, Copy)]
 pub(crate) struct Usable(pub(crate) Signal<[bool; 6]>);
 
+#[derive(Clone, Copy)]
+pub(crate) struct StageGimmicks(pub(crate) Signal<Gimmicks>);
+
 pub(crate) fn provide(platform: &Platform) -> Signal<SandboxState> {
     let restored = platform.host().recall(STORAGE_KEY).and_then(|json| serde_json::from_str::<SandboxState>(&json).ok()).unwrap_or_default();
 
     use_context_provider(|| Usable(Signal::new([true; 6])));
+    use_context_provider(|| StageGimmicks(Signal::new(Gimmicks::default())));
     use_context_provider(|| Signal::new(restored))
 }
 
 pub(crate) fn usable() -> Usable {
     use_context::<Usable>()
+}
+
+pub(crate) fn gimmicks() -> StageGimmicks {
+    use_context::<StageGimmicks>()
 }
 
 pub(crate) fn state() -> Signal<SandboxState> {

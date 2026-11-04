@@ -109,6 +109,10 @@ pub struct Setup {
     pub cat_god: God,
     #[serde(default)]
     pub tutorial: Tutorial,
+    #[serde(default)]
+    pub war_funds: i32,
+    #[serde(default)]
+    pub expenses: i32,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]

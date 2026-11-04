@@ -4,7 +4,7 @@ use slint::{ComponentHandle, ModelRc, SharedString, VecModel};
 
 use codex::chapter::Category;
 use foundry::domains::sandbox::base;
-use foundry::domains::sandbox::config::{CatGod, FILIBUSTER_MAP, StartSpeed, Tutorial};
+use foundry::domains::sandbox::config::{CatGod, FILIBUSTER_MAP, Gimmicks, StartSpeed, Tutorial, fund_typable};
 use foundry::domains::sandbox::{ITEMS, TECHS};
 use foundry::domains::stage::{GlobalMapId, StageRegistry, navigate};
 
@@ -93,7 +93,7 @@ pub fn wire(window: &AppWindow, state: &Shared, context: &Rc<Context>) {
         }};
     }
 
-    setter!(on_panel_set, |saved, index| saved.panel = index.clamp(0, 6) as u8);
+    setter!(on_panel_set, |saved, index| saved.panel = index.clamp(0, 7) as u8);
     setter!(on_music_set, |saved, index| saved.music_volume = Volume::at(index).percent());
     setter!(on_effects_set, |saved, index| saved.effects_volume = Volume::at(index).percent());
     setter!(on_vibration_set, |saved, index| saved.vibrate = index == 0);
@@ -113,6 +113,24 @@ pub fn wire(window: &AppWindow, state: &Shared, context: &Rc<Context>) {
             && let Some(ui) = weak.upgrade()
         {
             apply(&ui, &held, &ctx, |saved| saved.config.altar_level = entry.to_string());
+        }
+    });
+
+    let (held, ctx, weak) = on(state, context, window);
+    sandbox.on_war_funds_edited(move |entry| {
+        if fund_typable(&entry)
+            && let Some(ui) = weak.upgrade()
+        {
+            apply(&ui, &held, &ctx, |saved| saved.config.war_funds = entry.to_string());
+        }
+    });
+
+    let (held, ctx, weak) = on(state, context, window);
+    sandbox.on_expenses_edited(move |entry| {
+        if fund_typable(&entry)
+            && let Some(ui) = weak.upgrade()
+        {
+            apply(&ui, &held, &ctx, |saved| saved.config.expenses = entry.to_string());
         }
     });
 
@@ -289,6 +307,15 @@ pub fn sync(ui: &AppWindow, state: &Shared, context: &Rc<Context>, staging: Opti
     sandbox.set_techs(ModelRc::new(VecModel::from(techs)));
     sandbox.set_cat_god(CatGod::ALL.iter().position(|god| *god == saved.config.cat_god).map_or(1, |index| index as i32));
     sandbox.set_altar(saved.config.altar_level.as_str().into());
+    sandbox.set_war_funds(saved.config.war_funds.as_str().into());
+    sandbox.set_expenses(saved.config.expenses.as_str().into());
+
+    let gimmicks = staging.map_or_else(Gimmicks::default, |staging| staging.gimmicks);
+
+    sandbox.set_cat_god_enabled(gimmicks.cat_god);
+    sandbox.set_altar_enabled(gimmicks.altar);
+    sandbox.set_war_funds_enabled(gimmicks.war_funds);
+    sandbox.set_expenses_enabled(gimmicks.expenses);
 
     let config = saved.config.clone();
 

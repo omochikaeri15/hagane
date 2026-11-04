@@ -6,7 +6,7 @@ use dioxus::prelude::*;
 
 use codex::chapter::Category;
 use foundry::domains::sandbox::base::{self, Parts};
-use foundry::domains::sandbox::config::{CatGod, FILIBUSTER_MAP, StartSpeed, Tutorial};
+use foundry::domains::sandbox::config::{ALTAR_HINT, CAT_GOD_HINT, CatGod, EXPENSES_HINT, FILIBUSTER_MAP, NO_ALTAR_HINT, NO_CAT_GOD_HINT, NO_EXPENSES_HINT, NO_WAR_FUNDS_HINT, StartSpeed, Tutorial, UNAVAILABLE, WAR_FUNDS_HINT, fund_typable};
 use foundry::domains::sandbox::{ITEMS, TECHS};
 use foundry::domains::stage::{GlobalMapId, StageRegistry, navigate};
 
@@ -21,18 +21,20 @@ use super::state::{self, Device, Panel, QUALITY_RANGE, QUALITY_STEP, SandboxStat
 
 const LEVEL_DIGITS: usize = 6;
 const NO_CAP: &str = "None";
+const NO_FUNDS: &str = "0";
 const NATIVE: &str = "Native";
 const QUALITY_HINT: &str = "The resolution the battle is drawn at.\nLower draws fewer pixels, trading sharpness for speed on weaker hardware.\nThe Cycle Image Quality key steps through 15, 25, 35, 50, 70 and 100%, then back to 15%, mid-battle";
 const SCALING_HINT: &str = "How a battle drawn below 100% quality fills the window.\nStretch: scaled up to fill the window\nPad: shown at its drawn size in the middle of the window";
 const LAG_HINT: &str = "What the battle does when the hardware cannot draw it at full speed.\nCatch-up: keeps the battle at full speed and shows fewer frames\nSlowdown: shows every frame and slows the battle down, as the game does on a slow phone";
 const NATIVE_HINT: &str = "No scaling options for native game size";
 const VOLUME_HINT: &str = "The four volume steps the battle settings cycle through";
-const PANELS: [(Panel, &str); 7] = [
+const PANELS: [(Panel, &str); 8] = [
     (Panel::Settings, "Settings"),
     (Panel::Treasure, "Treasure"),
     (Panel::Tech, "Tech"),
     (Panel::Base, "Base"),
     (Panel::Items, "Items"),
+    (Panel::Gimmick, "Gimmick"),
     (Panel::Invasions, "Invasions"),
     (Panel::Tutorial, "Tutorial"),
 ];
@@ -151,6 +153,17 @@ fn EntryRow(label: String, placeholder: String, value: String, oninput: EventHan
 }
 
 #[component]
+fn GimmickEntry(label: String, hint: String, placeholder: String, value: String, enabled: bool, oninput: EventHandler<String>) -> Element {
+    rsx! {
+        label { class: "entry-row",
+            div { class: "entry-label", Tip { text: hint, hover: true, span { "{label}" } } }
+            input { class: "input entry-input", r#type: "text", inputmode: "numeric", placeholder: "{placeholder}", value: "{value}", disabled: !enabled,
+                oninput: move |event| oninput.call(event.value()) }
+        }
+    }
+}
+
+#[component]
 pub(crate) fn Config(globals: Shared, staged: Option<Staged>) -> Element {
     let platform = use_context::<Platform>();
     let sandbox = state::state();
@@ -186,6 +199,7 @@ pub(crate) fn Config(globals: Shared, staged: Option<Staged>) -> Element {
                     Panel::Tech => rsx! { TechPanel { platform: platform.clone(), sandbox } },
                     Panel::Base => rsx! { BasePanel { platform: platform.clone(), sandbox, globals: globals.clone() } },
                     Panel::Items => rsx! { ItemsPanel { platform: platform.clone(), sandbox } },
+                    Panel::Gimmick => rsx! { GimmickPanel { platform: platform.clone(), sandbox } },
                     Panel::Invasions => rsx! { InvasionsPanel { platform: platform.clone(), sandbox, staged: staged.clone() } },
                     Panel::Tutorial => rsx! { TutorialPanel { platform: platform.clone(), sandbox } },
                 }
@@ -275,13 +289,8 @@ fn TreasurePanel(platform: Platform, sandbox: Signal<SandboxState>, globals: Sha
 fn TechPanel(platform: Platform, sandbox: Signal<SandboxState>) -> Element {
     let held = sandbox.read();
     let techs = held.config.techs.clone();
-    let cat_god = held.config.cat_god.to_string();
-    let altar = held.config.altar_level.clone();
 
     drop(held);
-
-    let god_platform = platform.clone();
-    let altar_platform = platform.clone();
 
     rsx! {
         div { class: "settings-sections",
@@ -297,19 +306,64 @@ fn TechPanel(platform: Platform, sandbox: Signal<SandboxState>) -> Element {
                     }
                 }
             }
+        }
+    }
+}
+
+#[component]
+fn GimmickPanel(platform: Platform, sandbox: Signal<SandboxState>) -> Element {
+    let gimmicks = (state::gimmicks().0)();
+    let held = sandbox.read();
+    let cat_god = held.config.cat_god.to_string();
+    let altar = held.config.altar_level.clone();
+    let war_funds = held.config.war_funds.clone();
+    let expenses = held.config.expenses.clone();
+
+    drop(held);
+
+    let god_platform = platform.clone();
+    let altar_platform = platform.clone();
+    let funds_platform = platform.clone();
+
+    rsx! {
+        div { class: "settings-sections",
             div { class: "settings-section",
-                div { class: "settings-heading", "Cat God" }
-                ComboRow {
-                    label: "Availability",
-                    hint: "Absent: not unlocked, so his button never appears\nPresent: unlocked, miracles at full price\nDiscounted: the 70% off reward for clearing Cats of the Cosmos chapter 1",
-                    options: CatGod::ALL.iter().map(ToString::to_string).collect(),
-                    selected: cat_god,
-                    onchange: move |label: String| if let Some(picked) = CatGod::ALL.into_iter().find(|god| god.to_string() == label) { state::apply(&god_platform, sandbox, |next| next.config.cat_god = picked) },
+                div { class: "settings-heading", "Gimmicks" }
+                if gimmicks.cat_god {
+                    ComboRow {
+                        label: "Cat God Miracles",
+                        hint: CAT_GOD_HINT,
+                        options: CatGod::ALL.iter().map(ToString::to_string).collect(),
+                        selected: cat_god,
+                        onchange: move |label: String| if let Some(picked) = CatGod::ALL.into_iter().find(|god| god.to_string() == label) { state::apply(&god_platform, sandbox, |next| next.config.cat_god = picked) },
+                    }
+                } else {
+                    ComboRow { label: "Cat God Miracles", hint: NO_CAT_GOD_HINT, options: vec![UNAVAILABLE.to_owned()], selected: UNAVAILABLE.to_owned(), enabled: false, onchange: move |_| {} }
                 }
-            }
-            div { class: "settings-section",
-                div { class: "settings-heading", "Aku Altar" }
-                EntryRow { label: "Level Cap", placeholder: NO_CAP, value: altar, oninput: move |entry: String| state::apply(&altar_platform, sandbox, |next| next.config.altar_level = entry) }
+                GimmickEntry {
+                    label: "Aku Altar Cap",
+                    hint: if gimmicks.altar { ALTAR_HINT } else { NO_ALTAR_HINT },
+                    placeholder: if gimmicks.altar { NO_CAP } else { UNAVAILABLE },
+                    value: if gimmicks.altar { altar } else { String::new() },
+                    enabled: gimmicks.altar,
+                    oninput: move |entry: String| if typable(&entry) { state::apply(&altar_platform, sandbox, |next| next.config.altar_level = entry) },
+                }
+                GimmickEntry {
+                    label: "War Trust Fund",
+                    hint: if gimmicks.war_funds { WAR_FUNDS_HINT } else { NO_WAR_FUNDS_HINT },
+                    placeholder: if gimmicks.war_funds { NO_FUNDS } else { UNAVAILABLE },
+                    value: if gimmicks.war_funds { war_funds } else { String::new() },
+                    enabled: gimmicks.war_funds,
+                    oninput: move |entry: String| if fund_typable(&entry) { state::apply(&funds_platform, sandbox, |next| next.config.war_funds = entry) },
+                }
+                GimmickEntry {
+                    label: "Expenses Trust Fund",
+                    hint: if gimmicks.expenses { EXPENSES_HINT } else { NO_EXPENSES_HINT },
+                    placeholder: if gimmicks.expenses { NO_FUNDS } else { UNAVAILABLE },
+                    value: if gimmicks.expenses { expenses } else { String::new() },
+                    enabled: gimmicks.expenses,
+                    oninput: move |entry: String| if fund_typable(&entry) { state::apply(&platform, sandbox, |next| next.config.expenses = entry) },
+                }
             }
         }
     }

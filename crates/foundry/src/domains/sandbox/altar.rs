@@ -33,13 +33,16 @@ impl Altars {
         Self { limits, castles }
     }
 
-    pub fn level_cap(&self, castle_row: i32, level: Option<i32>) -> Option<u32> {
-        let enemy = castle_row - CASTLE_ROW_SHIFT;
+    pub fn seals(&self, castle_row: i32) -> bool {
+        self.castles.contains(&(castle_row - CASTLE_ROW_SHIFT))
+    }
 
-        if !self.castles.contains(&enemy) {
+    pub fn level_cap(&self, castle_row: i32, level: Option<i32>) -> Option<u32> {
+        if !self.seals(castle_row) {
             return None;
         }
 
+        let enemy = castle_row - CASTLE_ROW_SHIFT;
         let mut budget = level.map_or(0, |level| level.saturating_sub(1));
         let mut cap = 0i32;
         let mut unsealed = false;

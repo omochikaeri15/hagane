@@ -4,7 +4,9 @@ use iced::{Element, Length};
 
 use foundry::domains::sandbox::base::{self, Parts};
 use foundry::systems::combat::NameBook;
-use foundry::domains::sandbox::config::{CatGod, StartSpeed, Tutorial, FILIBUSTER_MAP};
+use foundry::domains::sandbox::config::{
+    fund_typable, CatGod, Gimmicks, StartSpeed, Tutorial, ALTAR_HINT, CAT_GOD_HINT, EXPENSES_HINT, FILIBUSTER_MAP, NO_ALTAR_HINT, NO_CAT_GOD_HINT, NO_EXPENSES_HINT, NO_WAR_FUNDS_HINT, UNAVAILABLE, WAR_FUNDS_HINT,
+};
 use foundry::domains::sandbox::{config, ITEMS, TECHS};
 use foundry::domains::stage::{navigate, GlobalMapId, StageRegistry};
 use foundry::systems::treasure::Catalog;
@@ -15,7 +17,7 @@ use crate::app::state::{SandboxScaling, SandboxDevice, SandboxPanel, SandboxStat
 use crate::app::theme;
 use crate::systems::host::Lag;
 use crate::systems::treasure;
-use crate::widget::{combo_row, entry_row, hover_hint, list_row, section, smooth_scroll, toggle_row};
+use crate::widget::{combo_row, entry_row, hover_hint, idle_entry_row, list_row, section, smooth_scroll, toggle_row};
 
 const SIDEBAR_WIDTH: f32 = 110.0;
 const PANEL_PADDING: f32 = 20.0;
@@ -23,6 +25,7 @@ const ROW_SPACING: f32 = 10.0;
 const TAB_SPACING: f32 = 4.0;
 const TAB_SIZE: f32 = 14.0;
 const NO_CAP: &str = "None";
+const NO_FUNDS: &str = "0";
 const LEVEL_DIGITS: usize = 6;
 const QUALITY_WIDTH: f32 = 160.0;
 const QUALITY_SPACING: f32 = 10.0;
@@ -155,6 +158,8 @@ pub enum Message {
     Castle(String),
     Item(usize, bool),
     Altar(String),
+    WarFunds(String),
+    Expenses(String),
     CatGod(CatGod),
     StartSpeed(StartSpeed),
     Tutorial(TutorialStep, bool),
@@ -172,6 +177,7 @@ pub struct State {
     treasure: treasure::State,
     filibuster: Vec<Invaded>,
     filibuster_outbreak: Vec<Invaded>,
+    gimmicks: Gimmicks,
 }
 
 fn typable(entry: &str) -> bool {
@@ -202,6 +208,16 @@ impl State {
     pub fn set_invadable(&mut self, registry: &StageRegistry) {
         self.filibuster = invadable(registry, Category::CatsOfTheCosmos);
         self.filibuster_outbreak = invadable(registry, Category::ZombieOutbreaks);
+    }
+
+    pub fn set_stage_gimmicks(&mut self, cat_god: bool, war_funds: bool, expenses: bool) {
+        self.gimmicks.cat_god = cat_god;
+        self.gimmicks.war_funds = war_funds;
+        self.gimmicks.expenses = expenses;
+    }
+
+    pub fn set_altar_gimmick(&mut self, altar: bool) {
+        self.gimmicks.altar = altar;
     }
 
     pub fn parts(&self) -> &Parts {
@@ -255,6 +271,16 @@ impl State {
                     options.config.altar_level = entry;
                 }
             }
+            Message::WarFunds(entry) => {
+                if fund_typable(&entry) {
+                    options.config.war_funds = entry;
+                }
+            }
+            Message::Expenses(entry) => {
+                if fund_typable(&entry) {
+                    options.config.expenses = entry;
+                }
+            }
             Message::Item(item, stocked) => {
                 if let Some(off) = options.config.items_off.get_mut(item) {
                     *off = !stocked;
@@ -281,6 +307,7 @@ impl State {
             (SandboxPanel::Tech, "Tech"),
             (SandboxPanel::Base, "Base"),
             (SandboxPanel::Items, "Items"),
+            (SandboxPanel::Gimmick, "Gimmick"),
             (SandboxPanel::Invasions, "Invasions"),
             (SandboxPanel::Tutorial, "Tutorial"),
         ];
@@ -305,6 +332,7 @@ impl State {
             SandboxPanel::Tech => Self::tech(options),
             SandboxPanel::Base => self.base(options),
             SandboxPanel::Items => Self::items(options),
+            SandboxPanel::Gimmick => self.gimmick(options),
             SandboxPanel::Invasions => self.invasions(options),
             SandboxPanel::Tutorial => Self::tutorial(options),
         };
@@ -393,6 +421,32 @@ impl State {
             .into()
     }
 
+    fn gimmick<'a>(&'a self, options: &'a SandboxState) -> Element<'a, Message> {
+        let config = &options.config;
+        let cat_god = if self.gimmicks.cat_god {
+            combo_row("Cat God Miracles", CAT_GOD_HINT, CatGod::ALL, Some(config.cat_god), Some(Message::CatGod))
+        } else {
+            combo_row("Cat God Miracles", NO_CAT_GOD_HINT, [UNAVAILABLE], Some(UNAVAILABLE), None::<fn(&'static str) -> Message>)
+        };
+        let altar = if self.gimmicks.altar {
+            hover_hint(entry_row("Aku Altar Cap", NO_CAP, &config.altar_level, Message::Altar), ALTAR_HINT)
+        } else {
+            hover_hint(idle_entry_row("Aku Altar Cap", UNAVAILABLE), NO_ALTAR_HINT)
+        };
+        let war_funds = if self.gimmicks.war_funds {
+            hover_hint(entry_row("War Trust Fund", NO_FUNDS, &config.war_funds, Message::WarFunds), WAR_FUNDS_HINT)
+        } else {
+            hover_hint(idle_entry_row("War Trust Fund", UNAVAILABLE), NO_WAR_FUNDS_HINT)
+        };
+        let expenses = if self.gimmicks.expenses {
+            hover_hint(entry_row("Expenses Trust Fund", NO_FUNDS, &config.expenses, Message::Expenses), EXPENSES_HINT)
+        } else {
+            hover_hint(idle_entry_row("Expenses Trust Fund", UNAVAILABLE), NO_EXPENSES_HINT)
+        };
+
+        section("Gimmicks", Length::Fill, column![cat_god, altar, war_funds, expenses].spacing(ROW_SPACING))
+    }
+
     fn invasions<'a>(&'a self, options: &'a SandboxState) -> Element<'a, Message> {
         let held = |offered: &'a [Invaded], slot: u32| offered.iter().find(|stage| stage.slot == slot);
         let invasions = &options.config.invasions;
@@ -467,27 +521,7 @@ impl State {
             }));
         }
 
-        column![
-            section("Tech Levels", Length::Fill, rows),
-            section(
-                "Cat God",
-                Length::Fill,
-                combo_row(
-                    "Availability",
-                    "Absent: not unlocked, so his button never appears\nPresent: unlocked, miracles at full price\nDiscounted: the 70% off reward for clearing Cats of the Cosmos chapter 1",
-                    CatGod::ALL,
-                    Some(options.config.cat_god),
-                    Some(Message::CatGod),
-                ),
-            ),
-            section(
-                "Aku Altar",
-                Length::Fill,
-                entry_row("Level Cap", NO_CAP, &options.config.altar_level, Message::Altar),
-            ),
-        ]
-            .spacing(PANEL_PADDING)
-            .into()
+        section("Tech Levels", Length::Fill, rows)
     }
 
     fn base<'a>(&'a self, options: &'a SandboxState) -> Element<'a, Message> {

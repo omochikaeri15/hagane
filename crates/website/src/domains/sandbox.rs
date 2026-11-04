@@ -12,11 +12,11 @@ use std::rc::Rc;
 use dioxus::prelude::*;
 
 use codex::chapter::Category;
-use emulator::runtime::{CASTLE_PART, CatGod as EngineGod, Setup, SetupUnit, StageEntry, StageVariant, TechLevel, TutorialFlags, usable_items};
+use emulator::runtime::{CASTLE_PART, CatGod as EngineGod, Setup, SetupUnit, StageEntry, StageVariant, TechLevel, TutorialFlags, offers_cat_god, usable_items};
 use foundry::domains::cat::scanner::CatEntry;
 use foundry::domains::sandbox::altar::Altars;
 use foundry::domains::sandbox::base::Parts;
-use foundry::domains::sandbox::config::{self as sandbox_config, CatGod};
+use foundry::domains::sandbox::config::{self as sandbox_config, CatGod, Gimmicks};
 use foundry::domains::sandbox::rules::Rules;
 use foundry::domains::sandbox::{TECHS, scored};
 use foundry::domains::stage::lottery::Lottery;
@@ -100,6 +100,7 @@ struct Staging {
     usable: [bool; 6],
     rules: Rc<Rules>,
     altar: Option<u32>,
+    gimmicks: Gimmicks,
 }
 
 pub(crate) struct Picked {
@@ -166,6 +167,8 @@ pub(crate) struct Ruling {
     pub(crate) rules: Rules,
     pub(crate) usable: [bool; 6],
     pub(crate) castle: Option<i32>,
+    pub(crate) war_funds: bool,
+    pub(crate) expenses: bool,
 }
 
 fn ruling(globals: &Shared, registry: &StageRegistry, picked: Option<&Picked>) -> Ruling {
@@ -179,8 +182,11 @@ fn ruling(globals: &Shared, registry: &StageRegistry, picked: Option<&Picked>) -
         usable_items(map_id, scored.contains(&map_id))
     });
     let castle = stage.and_then(|stage| i32::try_from(stage.anim_base_id).ok());
+    let special_rules = map_key.as_ref().and_then(|key| registry.maps.get(key)).and_then(|map| map.special_rules.as_ref());
+    let war_funds = special_rules.is_some_and(|rules| rules.draws_war_funds());
+    let expenses = special_rules.is_some_and(|rules| rules.draws_expenses());
 
-    Ruling { rules, usable, castle }
+    Ruling { rules, usable, castle, war_funds, expenses }
 }
 
 fn build_setup(state: &SandboxState, cats: &[CatEntry], globals: &Shared, entry: StageEntry) -> Setup {
@@ -243,6 +249,8 @@ fn build_setup(state: &SandboxState, cats: &[CatEntry], globals: &Shared, entry:
 
     setup.treasures = state.config.treasure.levels();
     setup.altar = state.config.altar();
+    setup.war_funds = state.config.war_funds();
+    setup.expenses = state.config.expenses();
     setup.cat_god = match state.config.cat_god {
         CatGod::Absent => EngineGod::Absent,
         CatGod::Present => EngineGod::Present,
@@ -343,13 +351,22 @@ pub(crate) fn Sandbox() -> Element {
         let entry = registry.zip(picked.as_ref()).and_then(|(registry, picked)| staged_entry(&shared, registry, picked, &held));
         let ruled = registry.map(|registry| ruling(&shared, registry, picked.as_ref()));
         let altar_level = held.config.altar();
-        let altar = ruled.as_ref().and_then(|ruled| ruled.castle).and_then(|castle| Altars::load(&shared.0.vault().vfs).level_cap(castle, altar_level));
+        let altars = Altars::load(&shared.0.vault().vfs);
+        let castle = ruled.as_ref().and_then(|ruled| ruled.castle);
+        let altar = castle.and_then(|castle| altars.level_cap(castle, altar_level));
+        let gimmicks = Gimmicks {
+            cat_god: entry.is_some_and(offers_cat_god),
+            altar: castle.is_some_and(|castle| altars.seals(castle)),
+            war_funds: ruled.as_ref().is_some_and(|ruled| ruled.war_funds),
+            expenses: ruled.as_ref().is_some_and(|ruled| ruled.expenses),
+        };
 
         Staging {
             entry,
             usable: ruled.as_ref().map_or([true; 6], |ruled| ruled.usable),
             rules: Rc::new(ruled.map(|ruled| ruled.rules).unwrap_or_default()),
             altar,
+            gimmicks,
         }
     }));
     let staging = staging();
@@ -360,6 +377,14 @@ pub(crate) fn Sandbox() -> Element {
         let mut usable = usable;
 
         usable.0.set(staging.usable);
+    }
+
+    let gimmicks = state::gimmicks();
+
+    if *gimmicks.0.peek() != staging.gimmicks {
+        let mut gimmicks = gimmicks;
+
+        gimmicks.0.set(staging.gimmicks);
     }
 
     let altar_cap = staging.altar;

@@ -400,6 +400,7 @@ img { user-select: none; -webkit-user-select: none; }
 .entry-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .entry-label { width: 190px; }
 .entry-input { width: 80px; }
+.entry-input:disabled { width: 110px; }
 .note { font-size: 12px; }
 .fold { display: flex; flex-direction: column; gap: 6px; }
 .fold-head { display: inline-flex; align-self: flex-start; justify-content: flex-start; align-items: flex-end; gap: 6px; line-height: 1.3; }

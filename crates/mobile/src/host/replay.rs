@@ -77,6 +77,8 @@ pub(super) fn setup_to(setup: &Setup, map_name: &str, stage_name: &str) -> tape:
             cat_god_seen: setup.tutorial.cat_god_seen,
             shop_seen: setup.tutorial.shop_seen,
         },
+        war_funds: setup.war_funds,
+        expenses: setup.expenses,
     }
 }
 
@@ -119,6 +121,8 @@ pub(super) fn setup_from(saved: &tape::Setup) -> Setup {
             cat_god_seen: saved.tutorial.cat_god_seen,
             shop_seen: saved.tutorial.shop_seen,
         },
+        war_funds: saved.war_funds,
+        expenses: saved.expenses,
         ..Setup::default()
     };
 
