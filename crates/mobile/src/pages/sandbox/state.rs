@@ -137,7 +137,7 @@ impl Default for Saved {
 
 impl Saved {
     pub fn quality(&self) -> u8 {
-        self.image_quality.unwrap_or_else(|| if host::gpu_available() { DEFAULT_QUALITY } else { CPU_QUALITY }).clamp(*QUALITY_RANGE.start(), *QUALITY_RANGE.end())
+        self.image_quality.unwrap_or_else(|| if host::hardware_drawn() { DEFAULT_QUALITY } else { CPU_QUALITY }).clamp(*QUALITY_RANGE.start(), *QUALITY_RANGE.end())
     }
 
     pub fn device(&self) -> Device {

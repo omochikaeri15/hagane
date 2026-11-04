@@ -77,7 +77,7 @@ pub fn install(uri: &str) -> Result<(), String> {
 
 pub const DOWNLOADS: bool = cfg!(target_os = "android");
 pub const SYSTEM_PICKER: bool = cfg!(any(target_os = "android", target_os = "ios"));
-pub const SAVE_DIALOG: bool = cfg!(target_os = "android");
+pub const SAVE_DIALOG: bool = cfg!(any(target_os = "android", target_os = "ios"));
 
 #[cfg(target_os = "android")]
 pub fn pick(_ui: &AppWindow, multiple: bool, request: i32) -> Result<(), String> {
@@ -90,13 +90,15 @@ pub fn pick(ui: &AppWindow, multiple: bool, request: i32) -> Result<(), String> 
 }
 
 #[cfg(target_os = "android")]
-pub fn save(name: &str, mime: &str, request: i32) -> Result<(), String> {
+pub fn save(_ui: &AppWindow, path: &Path, mime: &str, request: i32) -> Result<(), String> {
+    let name = path.file_name().and_then(|name| name.to_str()).unwrap_or("export");
+
     crate::android::save(name, mime, request)
 }
 
 #[cfg(target_os = "ios")]
-pub fn save(name: &str, _mime: &str, _request: i32) -> Result<(), String> {
-    Err(format!("{name} stays in the exports folder, iOS has no save dialog wired"))
+pub fn save(ui: &AppWindow, path: &Path, _mime: &str, request: i32) -> Result<(), String> {
+    crate::ios::save(ui, path, request)
 }
 
 #[cfg(target_os = "android")]
@@ -121,8 +123,8 @@ pub fn write_document(uri: &str, path: &Path) -> Result<(), String> {
 }
 
 #[cfg(target_os = "ios")]
-pub fn write_document(uri: &str, _path: &Path) -> Result<(), String> {
-    Err(format!("{uri} cannot be written, iOS has no save dialog wired"))
+pub fn write_document(_uri: &str, _path: &Path) -> Result<(), String> {
+    Ok(())
 }
 
 #[cfg(target_os = "android")]

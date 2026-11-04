@@ -4,11 +4,13 @@ use std::io::Cursor;
 use std::num::NonZero;
 use std::rc::{Rc, Weak};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::time::Duration;
 
 use emulator::engine::{AudioHost, AudioSource, SoundData};
 use rodio::buffer::SamplesBuffer;
 use rodio::mixer::Mixer;
-use rodio::{Decoder, DeviceSinkBuilder, MixerDeviceSink, Player, Source};
+use rodio::{ChannelCount, Decoder, DeviceSinkBuilder, MixerDeviceSink, Player, SampleRate, Source};
 use tracing::{debug, warn};
 
 use super::assets::{FileIndex, SharedLedger};
@@ -112,24 +114,66 @@ impl Output {
 
 pub struct Speaker(pub SharedOutput);
 
-impl Playing for Player {
+struct Severable<S> {
+    source: S,
+    cut: Arc<AtomicBool>,
+}
+
+impl<S: Source> Iterator for Severable<S> {
+    type Item = S::Item;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.cut.load(Ordering::Relaxed) {
+            return None;
+        }
+
+        self.source.next()
+    }
+}
+
+impl<S: Source> Source for Severable<S> {
+    fn current_span_len(&self) -> Option<usize> {
+        self.source.current_span_len()
+    }
+
+    fn channels(&self) -> ChannelCount {
+        self.source.channels()
+    }
+
+    fn sample_rate(&self) -> SampleRate {
+        self.source.sample_rate()
+    }
+
+    fn total_duration(&self) -> Option<Duration> {
+        self.source.total_duration()
+    }
+}
+
+struct Playback {
+    player: Player,
+    cut: Arc<AtomicBool>,
+}
+
+impl Playing for Playback {
     fn set_level(&self, level: f32) {
-        self.set_volume(level);
+        self.player.set_volume(level);
     }
 
     fn stop(&self) {
-        Player::stop(self);
+        self.cut.store(true, Ordering::Relaxed);
+        self.player.stop();
     }
 
     fn busy(&self) -> bool {
-        !self.empty()
+        !self.player.empty()
     }
 }
 
 impl Backend for Speaker {
     fn start(&self, clip: &Clip, looped: bool, level: f32) -> Option<Box<dyn Playing>> {
         let mixer = self.0.0.output.as_ref()?.mixer();
-        let player = Player::connect_new(mixer);
+        let (player, queue) = Player::new();
+        let cut = Arc::new(AtomicBool::new(false));
 
         player.set_volume(level);
 
@@ -143,14 +187,18 @@ impl Backend for Speaker {
                 let source = SamplesBuffer::new(channels, rate, effect.samples.to_vec());
 
                 if looped {
-                    player.append(source.repeat_infinite());
+                    player.append(Severable { source: source.repeat_infinite(), cut: Arc::clone(&cut) });
                 } else {
-                    player.append(source);
+                    player.append(Severable { source, cut: Arc::clone(&cut) });
                 }
             }
             Clip::Track { name, bytes } => {
                 let cursor = Cursor::new(Arc::clone(bytes));
-                let decoded = if looped { Decoder::new_looped(cursor).map(|source| player.append(source)) } else { Decoder::new(cursor).map(|source| player.append(source)) };
+                let decoded = if looped {
+                    Decoder::new_looped(cursor).map(|source| player.append(Severable { source, cut: Arc::clone(&cut) }))
+                } else {
+                    Decoder::new(cursor).map(|source| player.append(Severable { source, cut: Arc::clone(&cut) }))
+                };
 
                 if let Err(error) = decoded {
                     warn!("emu: {name} could not be decoded: {error}");
@@ -160,7 +208,9 @@ impl Backend for Speaker {
             }
         }
 
-        Some(Box::new(player))
+        mixer.add(queue);
+
+        Some(Box::new(Playback { player, cut }))
     }
 }
 

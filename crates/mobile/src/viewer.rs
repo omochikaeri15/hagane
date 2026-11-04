@@ -973,35 +973,59 @@ fn tick(ui: &AppWindow, context: &Rc<Context>) {
     };
 
     let sheet = drawn.and_then(|rig| rig.sheet.image_data.as_deref());
+    let drawn_rig = drawn.is_some();
 
-    if host::gpu_available() {
+    let hardware = host::hardware_drawn();
+    let scene = hardware.then(|| {
         let held = state.gpu_sheet.take().filter(|(kept, _)| rig.as_ref().is_some_and(|rig| Arc::ptr_eq(kept, rig)));
         let pixels = held.map(|(_, pixels)| pixels).or_else(|| sheet.map(|image| Arc::from(image.as_raw().as_slice())));
         let handle = sheet.zip(pixels.as_ref()).map(|(image, pixels)| (image.width(), image.height(), Arc::clone(pixels)));
 
         state.gpu_sheet = rig.clone().zip(pixels);
-        host::submit_scene(scene::gpu_scene((width, height), clear, handle, &frames, &view, &shapes).into());
-        drop(state);
-        ui.window().request_redraw();
-    } else {
+
+        scene::gpu_scene((width, height), clear, handle, &frames, &view, &shapes)
+    });
+
+    let scene = match scene {
+        Some(scene) if host::gpu_available() => {
+            host::submit_scene(scene.into());
+            drop(state);
+            ui.window().request_redraw();
+
+            if controls_dirty {
+                sync_controls(ui, context);
+            }
+
+            return;
+        }
+        other => other,
+    };
+
+    #[cfg(target_os = "ios")]
+    let drawn = scene.and_then(host::render_offscreen);
+    #[cfg(not(target_os = "ios"))]
+    let drawn: Option<Vec<u8>> = scene.and(None);
+
+    let buffer = drawn.unwrap_or_else(|| {
         let mut buffer = std::mem::take(&mut state.pixels);
 
         buffer.clear();
         buffer.resize(width as usize * height as usize * 4, 0);
         scene::clear(&mut buffer, clear);
 
-        if drawn.is_some() {
+        if drawn_rig {
             scene::paint(&mut buffer, width, height, sheet, &frames, &view, &shapes);
         } else {
             scene::paint_shapes(&mut buffer, width, height, &view, &shapes);
         }
 
-        let image = Image::from_rgba8_premultiplied(SharedPixelBuffer::<Rgba8Pixel>::clone_from_slice(&buffer, width, height));
+        buffer
+    });
+    let image = Image::from_rgba8_premultiplied(SharedPixelBuffer::<Rgba8Pixel>::clone_from_slice(&buffer, width, height));
 
-        state.pixels = buffer;
-        drop(state);
-        ui.global::<Viewer>().set_frame(image);
-    }
+    state.pixels = buffer;
+    drop(state);
+    ui.global::<Viewer>().set_frame(image);
 
     if controls_dirty {
         sync_controls(ui, context);

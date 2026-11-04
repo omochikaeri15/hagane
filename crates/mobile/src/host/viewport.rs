@@ -167,6 +167,11 @@ pub(super) fn scene(frame: &Frame, sheets: &SheetCache, canvas: Canvas, width: f
 }
 
 pub(super) fn paint(frame: &Frame, sheets: &SheetCache, canvas: Canvas, width: f32, height: f32, pixel_width: u32, pixel_height: u32) -> Vec<u8> {
+    #[cfg(target_os = "ios")]
+    if let Some(pixels) = super::offscreen::render(&scene(frame, sheets, canvas, width, height, pixel_width, pixel_height)) {
+        return pixels;
+    }
+
     let mut pixels = CLEARED.repeat(pixel_width as usize * pixel_height as usize);
     let (vertices, runs) = compose(frame, sheets, canvas, width, height);
 

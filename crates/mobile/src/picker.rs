@@ -149,11 +149,7 @@ fn request(ui: &AppWindow, context: &Rc<Context>, task: Task) {
     });
     let opened = match &task {
         Task::Open { many, .. } => platform::pick(ui, *many, id),
-        Task::Save { path, .. } => {
-            let name = path.file_name().and_then(|name| name.to_str()).unwrap_or("export");
-
-            platform::save(name, crate::delivery::mime(path), id)
-        }
+        Task::Save { path, .. } => platform::save(ui, path, crate::delivery::mime(path), id),
     };
 
     PENDING.with(|held| held.borrow_mut().insert(id, Pending { task, ctx: Rc::clone(context), weak: ui.as_weak() }));

@@ -173,6 +173,8 @@ export component Drawer inherits Rectangle {
         right: !root.right;
         outermost: false;
         guarded: false;
+        armed: root.open;
+        enabled: !Shell.hover-input && root.open;
         reach: root.panel-width;
         dragged(fraction) => { root.drag(-fraction); }
         dropped => { root.release(); }

@@ -233,6 +233,11 @@ impl Stage {
         let probe = if diagnosing { session.diagnose() } else { None };
         let running = session.running();
 
+        #[cfg(target_os = "ios")]
+        if self.was_running && !running {
+            super::offscreen::forget();
+        }
+
         if changed {
             self.paint();
         }

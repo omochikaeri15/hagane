@@ -29,7 +29,7 @@ const EARLY_STEP: Duration = Duration::from_millis(1);
 const MOST_STEPS: u32 = 4;
 const PRESENT_PATIENCE: Duration = Duration::from_secs(2);
 const TURN_PATIENCE: Duration = Duration::from_secs(2);
-const TURN_SETTLE: Duration = Duration::from_millis(400);
+const TURN_SETTLE: Duration = Duration::from_millis(150);
 const SLOW_STEP: Duration = Duration::from_millis(100);
 
 struct Opened {
@@ -442,7 +442,7 @@ impl Session {
                 if let Some(opens_at) = self.opens_at {
                     if Instant::now() < opens_at {
                         self.sweep = CLOSED_FRAME;
-                        self.driver.draw_curtain(self.sweep);
+                        self.driver.draw_exit_curtain(self.sweep);
 
                         return true;
                     }
@@ -474,7 +474,7 @@ impl Session {
                     return true;
                 }
 
-                self.driver.draw_curtain(self.sweep);
+                self.driver.draw_exit_curtain(self.sweep);
 
                 true
             }

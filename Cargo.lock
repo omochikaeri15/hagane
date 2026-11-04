@@ -5391,6 +5391,7 @@ dependencies = [
  "objc2-ui-kit 0.3.2",
  "objc2-uniform-type-identifiers 0.3.2",
  "open",
+ "pollster",
  "raw-window-handle",
  "rayon",
  "rodio",
@@ -5401,6 +5402,7 @@ dependencies = [
  "slint-build",
  "tracing",
  "tracing-subscriber",
+ "wgpu 30.0.1",
 ]
 
 [[package]]

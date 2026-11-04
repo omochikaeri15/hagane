@@ -1,6 +1,7 @@
 #![cfg(target_os = "ios")]
 
 use std::cell::RefCell;
+use std::path::Path;
 use std::ptr::NonNull;
 
 use objc2::rc::Retained;
@@ -84,6 +85,25 @@ pub fn pick(ui: &AppWindow, multiple: bool, request: i32) -> Result<(), String> 
     let delegate = PickerDelegate::new(mtm, request);
 
     picker.setAllowsMultipleSelection(multiple);
+    picker.setDelegate(Some(ProtocolObject::from_ref(&*delegate)));
+    DELEGATE.with(|held| *held.borrow_mut() = Some(delegate));
+
+    let presenter = presenter(ui)?;
+
+    presenter.presentViewController_animated_completion(&picker, true, None);
+
+    Ok(())
+}
+
+pub fn save(ui: &AppWindow, path: &Path, request: i32) -> Result<(), String> {
+    let mtm = MainThreadMarker::new().ok_or("the save dialog must open on the main thread")?;
+    let absolute = std::path::absolute(path).map_err(|err| format!("{} has no absolute path: {err}", path.display()))?;
+    let text = absolute.to_str().ok_or_else(|| format!("{} is not valid text", path.display()))?;
+    let url = NSURL::fileURLWithPath(&NSString::from_str(text));
+    let urls = NSArray::from_retained_slice(&[url]);
+    let picker = UIDocumentPickerViewController::initForExportingURLs_asCopy(mtm.alloc(), &urls, true);
+    let delegate = PickerDelegate::new(mtm, request);
+
     picker.setDelegate(Some(ProtocolObject::from_ref(&*delegate)));
     DELEGATE.with(|held| *held.borrow_mut() = Some(delegate));
 
