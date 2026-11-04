@@ -16,6 +16,7 @@ import android.os.Build;
 import android.os.Environment;
 import android.provider.DocumentsContract;
 import android.provider.OpenableColumns;
+import android.util.Log;
 import android.view.View;
 import android.view.Window;
 import android.view.WindowInsets;
@@ -93,33 +94,36 @@ public class Glue extends Fragment {
                 fullscreen = hidden;
                 attach(activity);
                 applyBars(activity);
-                final Window window = activity.getWindow();
+                View decor = activity.getWindow().getDecorView();
                 if (!watchingLayout) {
                     watchingLayout = true;
-                    window.getDecorView().addOnLayoutChangeListener(new View.OnLayoutChangeListener() {
+                    decor.addOnLayoutChangeListener(new View.OnLayoutChangeListener() {
                         @Override
                         public void onLayoutChange(View view, int left, int top, int right, int bottom, int oldLeft, int oldTop, int oldRight, int oldBottom) {
-                            reserveEdges(window);
+                            reserveEdges(view);
                         }
                     });
                 }
-                reserveEdges(window);
+                reserveEdges(decor);
             }
         });
     }
 
-    private static void reserveEdges(Window window) {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
+    private static void reserveEdges(View decor) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q || decor.getWidth() == 0) {
             return;
         }
-        View decor = window.getDecorView();
         float density = decor.getResources().getDisplayMetrics().density;
         int wide = Math.round(EDGE_DP * density);
         int tall = Math.round(RESERVED_DP * density);
         int top = Math.max(0, (decor.getHeight() - tall) / 2);
-        window.setSystemGestureExclusionRects(Arrays.asList(
-            new Rect(0, top, wide, top + tall),
-            new Rect(decor.getWidth() - wide, top, decor.getWidth(), top + tall)));
+        try {
+            decor.setSystemGestureExclusionRects(Arrays.asList(
+                new Rect(0, top, wide, top + tall),
+                new Rect(decor.getWidth() - wide, top, decor.getWidth(), top + tall)));
+        } catch (RuntimeException refused) {
+            Log.w(TAG, "the screen edges could not be reserved from the back gesture", refused);
+        }
     }
 
     private static void applyBars(Activity activity) {
