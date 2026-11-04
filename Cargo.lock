@@ -5379,6 +5379,7 @@ name = "mobile"
 version = "26.11.1"
 dependencies = [
  "ab_glyph",
+ "block2 0.6.2",
  "bytemuck",
  "codex",
  "emulator",

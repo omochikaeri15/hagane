@@ -107,6 +107,10 @@ pub(super) fn available() -> bool {
 }
 
 pub(super) fn render(scene: &Scene) -> Option<Vec<u8>> {
+    if !crate::ios::app_active() {
+        return None;
+    }
+
     with_offscreen(|offscreen| offscreen.draw(scene))?.inspect_err(|err| warn!("emu: a GPU frame could not be drawn: {err}")).ok()
 }
 

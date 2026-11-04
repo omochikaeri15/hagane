@@ -165,7 +165,7 @@ The following open-source crates are utilized under their respective
 permissive licenses (MIT, Apache-2.0, BSD-3-Clause, Zlib, Unlicense,
 CC0-1.0):
 
-ab_glyph, aes, android-activity, arboard, base64, block-padding, byteorder, bytemuck, cbc,
+ab_glyph, aes, android-activity, arboard, base64, block-padding, block2, byteorder, bytemuck, cbc,
 cipher, console_error_panic_hook, dioxus, directories, ecb, futures-channel,
 futures-util, gif, glow, hex, iced, iced_renderer, image, image-webp, imageproc, indexmap, jni, js-sys,
 md-5, muxide, notify, objc2, objc2-core-haptics, objc2-foundation, objc2-ui-kit,

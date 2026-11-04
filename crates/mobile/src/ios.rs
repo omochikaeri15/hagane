@@ -3,11 +3,14 @@
 use std::cell::RefCell;
 use std::path::Path;
 use std::ptr::NonNull;
+use std::rc::Rc;
 use std::sync::OnceLock;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::thread;
 use std::time::Duration;
 
+use block2::RcBlock;
 use objc2::rc::Retained;
 use objc2::runtime::ProtocolObject;
 use objc2::rc::autoreleasepool;
@@ -16,14 +19,14 @@ use objc2_core_haptics::{
     CHHapticDeviceCapability, CHHapticEngine, CHHapticEvent, CHHapticEventParameter, CHHapticEventParameterIDHapticIntensity, CHHapticEventParameterIDHapticSharpness, CHHapticEventTypeHapticContinuous,
     CHHapticEventTypeHapticTransient, CHHapticPattern, CHHapticPatternPlayer,
 };
-use objc2_foundation::{NSArray, NSError, NSObject, NSObjectProtocol, NSString, NSURL};
-use objc2_ui_kit::{UIDocumentPickerDelegate, UIDocumentPickerViewController, UIInterfaceOrientationMask, UIViewController, UIWindowSceneGeometryPreferencesIOS};
+use objc2_foundation::{NSArray, NSError, NSNotification, NSNotificationCenter, NSObject, NSObjectProtocol, NSOperationQueue, NSString, NSURL};
+use objc2_ui_kit::{UIApplicationDidBecomeActiveNotification, UIApplicationWillResignActiveNotification, UIDocumentPickerDelegate, UIDocumentPickerViewController, UIInterfaceOrientationMask, UIViewController, UIWindowSceneGeometryPreferencesIOS};
 use objc2_uniform_type_identifiers::UTType;
 use raw_window_handle::{HasWindowHandle, RawWindowHandle};
 use slint::winit_030::WinitWindowAccessor;
 use slint::winit_030::winit::platform::ios::{ScreenEdge, ValidOrientations, WindowExtIOS};
 use slint::{ComponentHandle, Timer, Weak};
-use tracing::{error, warn};
+use tracing::{error, info, warn};
 
 use crate::AppWindow;
 use crate::settings::Orientation;
@@ -134,6 +137,35 @@ pub fn save(ui: &AppWindow, path: &Path, request: i32) -> Result<(), String> {
 
 pub fn watch_window(window: &AppWindow) {
     WINDOW.with(|held| *held.borrow_mut() = Some(window.as_weak()));
+}
+
+static ACTIVE: AtomicBool = AtomicBool::new(true);
+
+thread_local! {
+    static OBSERVERS: RefCell<Vec<Retained<ProtocolObject<dyn NSObjectProtocol>>>> = const { RefCell::new(Vec::new()) };
+}
+
+pub fn app_active() -> bool {
+    ACTIVE.load(Ordering::Acquire)
+}
+
+pub fn on_shown(handler: impl Fn(bool) + 'static) {
+    let handler = Rc::new(handler);
+    let center = NSNotificationCenter::defaultCenter();
+    let main = NSOperationQueue::mainQueue();
+    let changes = unsafe { [(UIApplicationWillResignActiveNotification, false), (UIApplicationDidBecomeActiveNotification, true)] };
+
+    for (name, shown) in changes {
+        let handler = Rc::clone(&handler);
+        let block = RcBlock::new(move |_: NonNull<NSNotification>| {
+            ACTIVE.store(shown, Ordering::Release);
+            info!(shown, "The app was shown or hidden");
+            handler(shown);
+        });
+        let observer = unsafe { center.addObserverForName_object_queue_usingBlock(Some(name), None, Some(&main), &block) };
+
+        OBSERVERS.with(|held| held.borrow_mut().push(observer));
+    }
 }
 
 pub fn set_fullscreen(fullscreen: bool) -> Result<(), String> {

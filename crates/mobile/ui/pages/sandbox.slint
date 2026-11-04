@@ -69,10 +69,10 @@ export global Sandbox {
     in-out property <int> panel;
     in property <[string]> panels: ["Settings", "Treasure", "Tech", "Base", "Items", "Invasions", "Tutorial"];
     in property <[string]> volumes: ["Off", "Low", "Medium", "High"];
-    in property <int> music;
-    in property <int> effects;
-    in property <int> vibration;
-    in property <int> formation;
+    in-out property <int> music;
+    in-out property <int> effects;
+    in-out property <int> vibration;
+    in-out property <int> formation;
     in property <int> device;
     in property <int> scaling;
     in property <bool> scaling-enabled;
@@ -608,10 +608,10 @@ component ConfigTab inherits VerticalLayout {
             padding-right: 44px;
             if Sandbox.panel == 0: Section {
                 title: "Game";
-                Row { label: "Music Volume"; Combo { width: 110px; height: 30px; text-size: 13px; options: Sandbox.volumes; current: Sandbox.music; selected(index) => { Sandbox.music-set(index); } } }
-                Row { label: "Sound Volume"; Combo { width: 110px; height: 30px; text-size: 13px; options: Sandbox.volumes; current: Sandbox.effects; selected(index) => { Sandbox.effects-set(index); } } }
-                Row { label: "Vibration"; Combo { width: 110px; height: 30px; text-size: 13px; options: ["On", "Off"]; current: Sandbox.vibration; selected(index) => { Sandbox.vibration-set(index); } } }
-                Row { label: "Formation"; Combo { width: 110px; height: 30px; text-size: 13px; options: ["One Row", "Two Rows"]; current: Sandbox.formation; selected(index) => { Sandbox.formation-set(index); } } }
+                Row { label: "Music Volume"; Combo { width: 110px; height: 30px; text-size: 13px; options: Sandbox.volumes; current <=> Sandbox.music; selected(index) => { Sandbox.music-set(index); } } }
+                Row { label: "Sound Volume"; Combo { width: 110px; height: 30px; text-size: 13px; options: Sandbox.volumes; current <=> Sandbox.effects; selected(index) => { Sandbox.effects-set(index); } } }
+                Row { label: "Vibration"; Combo { width: 110px; height: 30px; text-size: 13px; options: ["On", "Off"]; current <=> Sandbox.vibration; selected(index) => { Sandbox.vibration-set(index); } } }
+                Row { label: "Formation"; Combo { width: 110px; height: 30px; text-size: 13px; options: ["One Row", "Two Rows"]; current <=> Sandbox.formation; selected(index) => { Sandbox.formation-set(index); } } }
             }
             if Sandbox.panel == 0: Section {
                 title: "Device";

@@ -160,7 +160,12 @@ pub fn on_shown(handler: impl Fn(bool) + 'static) {
     crate::android::on_shown(handler);
 }
 
-#[cfg(not(target_os = "android"))]
+#[cfg(target_os = "ios")]
+pub fn on_shown(handler: impl Fn(bool) + 'static) {
+    crate::ios::on_shown(handler);
+}
+
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 pub fn on_shown(_handler: impl Fn(bool) + 'static) {}
 
 #[cfg(target_os = "android")]
