@@ -4,7 +4,7 @@ import { Btn, Tone, Input, Combo, Toggle, Label, Status, Dialog, Panel, Rule, VR
 import { Drawer, EdgeGrab } from "../widgets/drawer.slint";
 import { Line, Seg, AbilityIcon, AbilityLine, StatCell, HeaderBtn, RosterRow, Lines, IconBox, IconRow, AbilityRows, StatGrid, HeaderToggle, OrbSlot, OrbPicture } from "../widgets/detail.slint";
 import { AnimViewer, Viewer, DebugToggles } from "../widgets/viewer.slint";
-import { Shell } from "../shell.slint";
+import { Shell, Tap } from "../shell.slint";
 import { FilterIcon, FilterLabeled, RangeField, FilterIconsWrap, FilterLabeledList, RangeRows } from "../widgets/filter.slint";
 
 export struct TalentRow { index: int, ultra: bool, icon: AbilityIcon, name-image: image, has-name-image: bool, name: string, expanded: bool, description: [Line], np-cost: string, max-level: int, level: int, input: string, shown: [Line], has-shown: bool }
@@ -248,8 +248,8 @@ component Roster inherits Panel {
                         source: row.banner;
                         image-fit: fill;
                     }
-                    press := TouchArea { enabled: !Shell.swiping;
-                        clicked => { Cats.select(row.id); Cats.roster-open = false; }
+                    press := Tap { enabled: !Shell.swiping;
+                        tapped => { Cats.select(row.id); Cats.roster-open = false; }
                     }
                 }
             }
@@ -347,7 +347,7 @@ component Header inherits VerticalLayout {
                     background: press.pressed ? Theme.bg-strongest : Theme.bg-strong;
                     OrbPicture { orb: orb; width: 19px; height: 19px; x: 1px; y: 1px; }
                     if !orb.has-icon: Label { text: "+"; font-size: 13px; horizontal-alignment: center; vertical-alignment: center; width: parent.width; height: parent.height; }
-                    press := TouchArea { enabled: (!Cats.locked) && !Shell.swiping; clicked => { Cats.orb-tapped(index); } }
+                    press := Tap { enabled: (!Cats.locked) && !Shell.swiping; tapped => { Cats.orb-tapped(index); } }
                 }
             }
         }
@@ -414,7 +414,7 @@ component Talents inherits VerticalLayout {
                     background: #00000066; border-radius: 3.75px; border-width: 1.5px; border-color: #000000cc;
                     Text { text: group.expanded ? "\u{25b2}" : "\u{25bc}"; color: Theme.white; font-family: "Miscellaneous-Symbols"; font-size: 16.5px; horizontal-alignment: center; vertical-alignment: center; width: parent.width; height: parent.height; }
                 }
-                TouchArea { enabled: !Shell.swiping; clicked => { Cats.group-toggled(group.index); } }
+                Tap { enabled: !Shell.swiping; tapped => { Cats.group-toggled(group.index); } }
             }
             if group.expanded: VerticalLayout {
                 spacing: 2px;
@@ -508,7 +508,7 @@ component Details inherits VerticalLayout {
                             background: #000000a1; border-radius: 4px;
                             mark := Text { text: slot.label; color: Theme.white; font-size: 10px; horizontal-alignment: center; vertical-alignment: center; width: parent.width; height: parent.height; }
                         }
-                        TouchArea { enabled: (slot.jumpable) && !Shell.swiping; clicked => { Cats.jump-cat(slot.cat-id, slot.form); } }
+                        Tap { enabled: (slot.jumpable) && !Shell.swiping; tapped => { Cats.jump-cat(slot.cat-id, slot.form); } }
                     }
                 }
             }

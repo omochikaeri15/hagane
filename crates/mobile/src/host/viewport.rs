@@ -6,7 +6,7 @@ use tracing::debug;
 use foundry::systems::raster::{self, Alpha, Batch, Texture, Vertex};
 
 use super::assets::SheetCache;
-use super::gpu::{Scene, SceneRun, SceneSheet};
+use super::gpu::{Scene, SceneRun, SceneSheet, SceneSlot};
 use super::sink::Frame;
 use super::text::label_key;
 
@@ -163,7 +163,7 @@ pub(super) fn scene(frame: &Frame, sheets: &SheetCache, canvas: Canvas, width: f
         .collect();
     let sheets = held.into_iter().map(|(_, sheet)| sheet).collect();
 
-    Scene { vertices, runs, sheets, width: pixel_width, height: pixel_height, canvas }
+    Scene { vertices, runs, sheets, width: pixel_width, height: pixel_height, slot: SceneSlot::Battle, clear: [0.0; 4], canvas }
 }
 
 pub(super) fn paint(frame: &Frame, sheets: &SheetCache, canvas: Canvas, width: f32, height: f32, pixel_width: u32, pixel_height: u32) -> Vec<u8> {

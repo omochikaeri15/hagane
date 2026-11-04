@@ -1,4 +1,5 @@
 use std::ops::Range;
+use std::sync::Arc;
 
 use image::RgbaImage;
 
@@ -8,6 +9,8 @@ use codex::graphics::tools::{joint, part};
 use foundry::domains::settings::AnimSettings;
 use foundry::systems::animation::multiply_mat3;
 use foundry::systems::raster::{self, Alpha, Batch, Texture, Vertex};
+
+use crate::host::ViewerScene;
 
 use super::Region;
 
@@ -299,6 +302,24 @@ pub fn paint(pixels: &mut [u8], width: u32, height: u32, sheet: Option<&RgbaImag
     }
 
     raster::draw(pixels, width, height, &vertices, &batches);
+}
+
+pub fn gpu_scene(size: (u32, u32), clear: [u8; 4], sheet: Option<(u32, u32, Arc<[u8]>)>, frames: &[FrameData], view: &View, shapes: &[Shape]) -> ViewerScene {
+    let parts: Vec<(FrameData, [f32; 4])> = frames.iter().map(|frame| (frame.clone(), NO_TINT)).collect();
+    let mut vertices = Vec::with_capacity(parts.len() * 6 + shapes.len() * 6);
+    let part_batches = part_vertices(&parts, &view.view_proj(), &mut vertices);
+    let overlay = shape_vertices(view, shapes, &mut vertices);
+    let mut runs: Vec<(Option<usize>, u8, Range<usize>)> = Vec::with_capacity(part_batches.len() + 1);
+
+    if sheet.is_some() {
+        runs.extend(part_batches.into_iter().map(|(blend, range)| (Some(0), blend, range)));
+    }
+
+    if !overlay.is_empty() {
+        runs.push((None, 0, overlay));
+    }
+
+    ViewerScene { vertices, runs, sheet, width: size.0, height: size.1, clear }
 }
 
 pub fn paint_shapes(pixels: &mut [u8], width: u32, height: u32, view: &View, shapes: &[Shape]) {

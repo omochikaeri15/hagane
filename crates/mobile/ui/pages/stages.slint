@@ -1,6 +1,6 @@
 import { ListView } from "std-widgets.slint";
 import { Theme } from "../theme.slint";
-import { SwipeGuard } from "../shell.slint";
+import { SwipeGuard, Tap } from "../shell.slint";
 import { Btn, Tone, Input, Combo, Label, Status, Dialog, Panel, Rule, VRule, Card, OutlinedCard, TapTip } from "../widgets/basics.slint";
 import { Drawer, EdgeGrab } from "../widgets/drawer.slint";
 import { Line, StatCell, HeaderBtn, Lines, StatGrid, HeaderToggle, Zebra } from "../widgets/detail.slint";
@@ -152,7 +152,7 @@ component Column inherits VerticalLayout {
                 border-radius: Theme.radius-sm;
                 background: row.selected ? Theme.primary : (press.pressed ? Theme.list-hover : Theme.bg-strong);
                 Text { text: row.label; color: row.selected ? Theme.white : Theme.text; font-size: 13px; horizontal-alignment: center; vertical-alignment: center; width: parent.width - 8px; x: 4px; height: parent.height; overflow: elide; }
-                press := TouchArea { enabled: !Shell.swiping; clicked => { root.picked(index); } }
+                press := Tap { enabled: !Shell.swiping; tapped => { root.picked(index); } }
             }
         }
     }
@@ -187,7 +187,7 @@ component Banner inherits Rectangle {
     height: root.size;
     width: root.present ? root.source.width * root.size / max(root.source.height, 1) : label.preferred-width;
     if root.present: Image { source: root.source; height: root.size; width: parent.width; image-fit: fill; }
-    label := Text { text: root.fallback; color: Theme.text; font-size: root.size * 0.62; font-weight: 700; wrap: no-wrap; vertical-alignment: center; visible: !root.present; height: parent.height; }
+    label := Text { text: root.fallback; color: Theme.text; font-size: root.size * 0.62; font-weight: 700; wrap: no-wrap; vertical-alignment: bottom; visible: !root.present; height: parent.height; }
 }
 
 component Cell inherits Rectangle {
@@ -354,7 +354,7 @@ component Lineup inherits Section {
                 background: #000000a1; border-radius: 4px;
                 badge := Text { text: Stages.lineup[slot.at].level; color: Theme.white; font-size: 10px; horizontal-alignment: center; vertical-alignment: center; width: parent.width; height: parent.height; }
             }
-            if self.real && Stages.lineup[self.at].jumpable: TouchArea { enabled: !Shell.swiping; clicked => { Stages.jump-cat(Stages.lineup[parent.at].cat-id, Stages.lineup[parent.at].form, Stages.lineup[parent.at].level); } }
+            if self.real && Stages.lineup[self.at].jumpable: Tap { enabled: !Shell.swiping; tapped => { Stages.jump-cat(Stages.lineup[parent.at].cat-id, Stages.lineup[parent.at].form, Stages.lineup[parent.at].level); } }
         }
     }
     OutlinedCard {
@@ -435,7 +435,7 @@ component Battleground inherits Section {
                         width: 48px;
                         if row.has-icon: Image { source: row.icon; width: 40px; height: 40px; x: 4px; y: 2px; image-fit: contain; }
                         if !row.has-icon: Text { text: row.id; color: Theme.text; font-size: 11px; horizontal-alignment: center; vertical-alignment: center; width: parent.width; height: parent.height; }
-                        TouchArea { enabled: !Shell.swiping; clicked => { Stages.jump-enemy(row.enemy-id, row.magnification); } }
+                        Tap { enabled: !Shell.swiping; tapped => { Stages.jump-enemy(row.enemy-id, row.magnification); } }
                     }
                     for cell[index] in row.cells: Text { text: cell; color: Theme.text; font-size: 12px; horizontal-alignment: center; vertical-alignment: center; width: index == 1 ? 108px : 78px; wrap: word-wrap; }
                 }

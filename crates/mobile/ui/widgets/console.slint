@@ -1,4 +1,4 @@
-import { Shell } from "../shell.slint";
+import { Shell, Tap } from "../shell.slint";
 import { Theme } from "../theme.slint";
 import { Dialog, Label, Btn, Tone } from "basics.slint";
 
@@ -59,7 +59,7 @@ export component PickerDialog inherits Dialog {
                     border-radius: Theme.radius-sm;
                     background: press.pressed ? Theme.bg-strongest : Theme.bg-strong;
                     Text { text: file; color: Theme.text; font-size: 13px; x: 8px; width: parent.width - 16px; height: parent.height; vertical-alignment: center; overflow: elide; }
-                    press := TouchArea { enabled: !Shell.swiping; clicked => { Picker.open = false; Picker.picked(index); } }
+                    press := Tap { enabled: !Shell.swiping; tapped => { Picker.open = false; Picker.picked(index); } }
                 }
             }
         }

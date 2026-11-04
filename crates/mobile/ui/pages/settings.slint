@@ -4,7 +4,7 @@ import { SourcePanel } from "../widgets/source.slint";
 import { Theme } from "../theme.slint";
 import { Btn, Tone, Input, Combo, Toggle, Label, Dialog, Panel, Rule, OutlinedCard, Card } from "../widgets/basics.slint";
 import { Drawer, EdgeGrab } from "../widgets/drawer.slint";
-import { Shell } from "../shell.slint";
+import { Shell, Tap } from "../shell.slint";
 
 export struct LangRow { label: string, weak: bool, none: bool }
 export struct ArcRow { name: string, value: string, tuned: bool }
@@ -191,7 +191,7 @@ export component TreasureEditor inherits VerticalLayout {
                     Label { text: chapter.title; font-size: 15px; bold: true; vertical-alignment: center; }
                     if !chapter.open: Note { text: "(collapsed)"; vertical-alignment: center; }
                 }
-                TouchArea { enabled: !Shell.swiping; clicked => { root.fold(chapter.slot); } }
+                Tap { enabled: !Shell.swiping; tapped => { root.fold(chapter.slot); } }
             }
             Rule { }
             if chapter.open && chapter.empty: Note { text: "No treasure data was found for this chapter"; }
@@ -403,7 +403,7 @@ component Tabs inherits Panel {
             border-radius: Theme.radius-sm;
             background: Settings.tab == index ? Theme.primary : (press.pressed ? Theme.bg-strongest : Theme.bg-strong);
             Text { text: tab; color: Settings.tab == index ? Theme.white : Theme.text; font-size: 14px; horizontal-alignment: center; vertical-alignment: center; width: parent.width; height: parent.height; }
-            press := TouchArea { enabled: !Shell.swiping; clicked => { Settings.tab-set(index); Settings.tabs-open = false; } }
+            press := Tap { enabled: !Shell.swiping; tapped => { Settings.tab-set(index); Settings.tabs-open = false; } }
         }
     }
 }

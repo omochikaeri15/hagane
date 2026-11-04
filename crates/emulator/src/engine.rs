@@ -2968,7 +2968,7 @@ pub use load_treasure_data_csv::load_treasure_data_csv;
 pub use load_unit_icon::load_unit_icon;
 pub use load_unit_rig::load_unit_rig;
 pub use load_unlock_popup_tsv::load_unlock_popup_tsv;
-pub use load_vibration_csv::{VibrationStep, VibrationStore, load_vibration_csv};
+pub use load_vibration_csv::load_vibration_csv;
 pub use load_zombie_lottery_csv::load_zombie_lottery_csv;
 pub use localizable_get::localizable_get;
 pub use log_analytics_event::{MetaHost, log_analytics_event};

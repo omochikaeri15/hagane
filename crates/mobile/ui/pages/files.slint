@@ -1,6 +1,6 @@
 import { ListView } from "std-widgets.slint";
 import { Theme } from "../theme.slint";
-import { SwipeGuard } from "../shell.slint";
+import { SwipeGuard, Tap } from "../shell.slint";
 import { Btn, Tone, Input, TextBox, Combo, Label, Panel, Rule, Workspace, Toast } from "../widgets/basics.slint";
 import { Drawer, EdgeGrab } from "../widgets/drawer.slint";
 import { Shell } from "../shell.slint";
@@ -62,7 +62,7 @@ component Browser inherits Panel {
                     if row.folder: Text { text: row.expanded ? "\u{25be}" : "\u{25b8}"; color: row.selected ? Theme.white : Theme.text; font-family: "Miscellaneous-Symbols"; font-size: 12px; width: 14px; vertical-alignment: center; }
                     Text { text: row.name; color: row.selected ? Theme.white : Theme.text; font-size: 13px; vertical-alignment: center; horizontal-stretch: 1; overflow: elide; }
                 }
-                press := TouchArea { enabled: !Shell.swiping; clicked => { Files.activate(index); if !row.folder { Files.list-open = false; } } }
+                press := Tap { enabled: !Shell.swiping; tapped => { Files.activate(index); if !row.folder { Files.list-open = false; } } }
             }
         }
     }
@@ -131,7 +131,7 @@ export component FilesPage inherits Rectangle {
                                     pic.last-y = self.mouse-y;
                                     pic.dragging = true;
                                 } else if event.kind == PointerEventKind.move {
-                                    if pic.dragging && !gesture.active {
+                                    if pic.dragging && !gesture.active && (Shell.hover-input || !Shell.press-edge) {
                                         pic.pan-x += self.mouse-x - pic.last-x;
                                         pic.pan-y += self.mouse-y - pic.last-y;
                                         pic.last-x = self.mouse-x;

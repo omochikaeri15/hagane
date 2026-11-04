@@ -3,6 +3,7 @@ use std::collections::HashMap;
 use std::ops::Range;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::time::{Duration, Instant};
 
 use glow::HasContext;
 use slint::{BorrowedOpenGLTextureBuilder, BorrowedOpenGLTextureOrigin, ComponentHandle, GraphicsAPI, Image, RenderingState};
@@ -10,7 +11,7 @@ use tracing::{info, warn};
 
 use foundry::systems::raster::Vertex;
 
-use crate::{AppWindow, Sandbox};
+use crate::{AppWindow, Sandbox, Shell, Viewer};
 
 use super::viewport::Canvas;
 
@@ -65,6 +66,9 @@ const COLOR_OFFSET: i32 = 4 * size_of::<f32>() as i32;
 const RESOLVE_TRIANGLE: [f32; 6] = [0.0, 0.0, 2.0, 0.0, 0.0, 2.0];
 const RESOLVE_CORNERS: i32 = 3;
 
+const PACE_WINDOW: Duration = Duration::from_secs(2);
+const PACE_GAP: Duration = Duration::from_secs(4);
+
 static AVAILABLE: AtomicBool = AtomicBool::new(false);
 
 thread_local! {
@@ -84,13 +88,45 @@ pub struct SceneRun {
     pub(super) range: Range<usize>,
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(super) enum SceneSlot {
+    Battle,
+    Viewer,
+}
+
 pub struct Scene {
     pub(super) vertices: Vec<Vertex>,
     pub(super) runs: Vec<SceneRun>,
     pub(super) sheets: Vec<SceneSheet>,
     pub(super) width: u32,
     pub(super) height: u32,
+    pub(super) slot: SceneSlot,
+    pub(super) clear: [f32; 4],
     pub canvas: Canvas,
+}
+
+pub struct ViewerScene {
+    pub vertices: Vec<Vertex>,
+    pub runs: Vec<(Option<usize>, u8, Range<usize>)>,
+    pub sheet: Option<(u32, u32, Arc<[u8]>)>,
+    pub width: u32,
+    pub height: u32,
+    pub clear: [u8; 4],
+}
+
+impl From<ViewerScene> for Scene {
+    fn from(scene: ViewerScene) -> Self {
+        Self {
+            vertices: scene.vertices,
+            runs: scene.runs.into_iter().map(|(sheet, blend, range)| SceneRun { sheet, blend, range }).collect(),
+            sheets: scene.sheet.into_iter().map(|(width, height, pixels)| SceneSheet { width, height, pixels }).collect(),
+            width: scene.width,
+            height: scene.height,
+            slot: SceneSlot::Viewer,
+            clear: scene.clear.map(|channel| f32::from(channel) / 255.0),
+            canvas: Canvas { surfaced: false, scale: 1.0, padded: false, aspect: 0.0 },
+        }
+    }
 }
 
 pub fn available() -> bool {
@@ -444,6 +480,19 @@ impl Renderer {
 
         self.sized(scene.width, scene.height)?;
 
+        if scene.slot == SceneSlot::Viewer {
+            let kept: Vec<usize> = scene.sheets.iter().map(|sheet| Arc::as_ptr(&sheet.pixels).cast::<u8>() as usize).collect();
+            let dropped: Vec<usize> = self.sheets.keys().copied().filter(|key| !kept.contains(key)).collect();
+
+            for key in dropped {
+                if let Some((_, texture)) = self.sheets.remove(&key) {
+                    unsafe {
+                        self.gl.delete_texture(texture);
+                    }
+                }
+            }
+        }
+
         let drawn = self.drawn.as_ref().map(|held| held.framebuffer);
         let shown = self.shown.as_ref().map(|held| held.framebuffer);
         let source = self.drawn.as_ref().map(|held| held.texture);
@@ -464,7 +513,7 @@ impl Renderer {
             gl.blend_equation_separate(glow::FUNC_ADD, glow::FUNC_ADD);
             gl.viewport(0, 0, width, height);
             gl.bind_framebuffer(glow::FRAMEBUFFER, drawn);
-            gl.clear_color(0.0, 0.0, 0.0, 0.0);
+            gl.clear_color(scene.clear[0], scene.clear[1], scene.clear[2], scene.clear[3]);
             gl.clear(glow::COLOR_BUFFER_BIT);
             gl.enable(glow::BLEND);
             gl.use_program(Some(self.objects.program));
@@ -497,7 +546,7 @@ impl Renderer {
         saved.restore(&self.gl);
 
         if let Err(err) = drawn {
-            warn!("emu: the battle frame could not be drawn: {err}");
+            warn!("emu: a frame could not be drawn: {err}");
 
             return None;
         }
@@ -525,7 +574,7 @@ struct Presenter {
     renderer: Option<Renderer>,
     latest: Option<Scene>,
     fresh: bool,
-    bound: Option<(glow::Texture, u32, u32)>,
+    bound: Option<(SceneSlot, glow::Texture, u32, u32)>,
 }
 
 impl Presenter {
@@ -573,6 +622,7 @@ impl Presenter {
 
             renderer.forget();
             saved.restore(&renderer.gl);
+            ui.global::<Viewer>().set_frame(Image::default());
         }
 
         if let Some(scene) = PENDING.with(|pending| pending.borrow_mut().take()) {
@@ -584,18 +634,71 @@ impl Presenter {
             return;
         }
 
-        let Some(rendered) = self.latest.as_ref().and_then(|scene| renderer.render(scene)) else {
+        let Some((slot, (texture, width, height))) = self.latest.as_ref().and_then(|scene| Some((scene.slot, renderer.render(scene)?))) else {
             return;
         };
+        let rendered = (slot, texture, width, height);
 
         if self.bound != Some(rendered) {
-            let (texture, width, height) = rendered;
             let image: Image = unsafe {
                 BorrowedOpenGLTextureBuilder::new_gl_2d_rgba_texture(texture.0, (width, height).into()).origin(BorrowedOpenGLTextureOrigin::BottomLeft).build()
             };
 
-            ui.global::<Sandbox>().set_frame(image);
+            match slot {
+                SceneSlot::Battle => ui.global::<Sandbox>().set_frame(image),
+                SceneSlot::Viewer => ui.global::<Viewer>().set_frame(image),
+            }
+
             self.bound = Some(rendered);
+        }
+    }
+}
+
+#[derive(Default)]
+struct Pace {
+    since: Option<Instant>,
+    began: Option<Instant>,
+    frames: u32,
+    busy: Duration,
+    worst: Duration,
+}
+
+impl Pace {
+    fn begin(&mut self) {
+        let now = Instant::now();
+
+        self.began = Some(now);
+
+        if self.since.is_none_or(|since| now.duration_since(since) > PACE_GAP) {
+            self.since = Some(now);
+            self.frames = 0;
+            self.busy = Duration::ZERO;
+            self.worst = Duration::ZERO;
+        }
+    }
+
+    fn end(&mut self, ui: &AppWindow) {
+        let (Some(since), Some(began)) = (self.since, self.began.take()) else {
+            return;
+        };
+        let spent = began.elapsed();
+
+        self.frames += 1;
+        self.busy += spent;
+        self.worst = self.worst.max(spent);
+
+        let window = since.elapsed();
+
+        if window >= PACE_WINDOW {
+            let page = ui.global::<Shell>().get_page();
+            let fps = f64::from(self.frames) / window.as_secs_f64();
+            let drawing = self.busy.as_secs_f64() * 1000.0 / f64::from(self.frames);
+
+            info!("ui: {page:?} {fps:.0} fps, {drawing:.1} ms per frame drawing, worst {:.1} ms", self.worst.as_secs_f64() * 1000.0);
+            self.since = Some(Instant::now());
+            self.frames = 0;
+            self.busy = Duration::ZERO;
+            self.worst = Duration::ZERO;
         }
     }
 }
@@ -603,11 +706,19 @@ impl Presenter {
 pub fn install(window: &AppWindow) {
     let weak = window.as_weak();
     let mut presenter = Presenter::default();
+    let mut pace = Pace::default();
     let outcome = window.window().set_rendering_notifier(move |state, api| match state {
         RenderingState::RenderingSetup => presenter.setup(api),
         RenderingState::BeforeRendering => {
+            pace.begin();
+
             if let Some(ui) = weak.upgrade() {
                 presenter.present(&ui);
+            }
+        }
+        RenderingState::AfterRendering => {
+            if let Some(ui) = weak.upgrade() {
+                pace.end(&ui);
             }
         }
         RenderingState::RenderingTeardown => presenter.teardown(),

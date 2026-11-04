@@ -1,4 +1,4 @@
-import { Shell } from "../shell.slint";
+import { Shell, Tap } from "../shell.slint";
 import { Theme } from "../theme.slint";
 import { SwipeGuard } from "../shell.slint";
 import { Btn, Tone, Input, Combo, Toggle } from "basics.slint";
@@ -88,7 +88,7 @@ component Controls inherits Rectangle {
                 width: parent.width;
                 height: parent.height;
             }
-            TouchArea { enabled: !Shell.swiping; clicked => { Viewer.controls-expanded = !Viewer.controls-expanded; } }
+            Tap { enabled: !Shell.swiping; tapped => { Viewer.controls-expanded = !Viewer.controls-expanded; } }
         }
         Rectangle { height: 1phx; background: Theme.bg-strong; }
         Flickable { interactive: !Shell.swiping;
@@ -122,8 +122,8 @@ component Controls inherits Rectangle {
                             height: parent.height;
                             x: 2px;
                         }
-                        if self.real && Viewer.tiles[self.at].present: TouchArea { enabled: !Shell.swiping;
-                            clicked => { Viewer.pick-tile(parent.at); }
+                        if self.real && Viewer.tiles[self.at].present: Tap { enabled: !Shell.swiping;
+                            tapped => { Viewer.pick-tile(parent.at); }
                         }
                     }
                 }
@@ -249,7 +249,7 @@ export component AnimViewer inherits Rectangle {
                     if root.select-started {
                         root.select-w = self.mouse-x - root.select-x;
                         root.select-h = self.mouse-y - root.select-y;
-                    } else if root.dragging && !gesture.active {
+                    } else if root.dragging && !gesture.active && (Shell.hover-input || !Shell.press-edge) {
                         Viewer.pan(self.mouse-x - root.last-x, self.mouse-y - root.last-y);
                         root.last-x = self.mouse-x;
                         root.last-y = self.mouse-y;
@@ -322,7 +322,7 @@ export component AnimViewer inherits Rectangle {
             height: mark.h;
             background: Viewer.expanded ? Theme.white : Theme.text;
         }
-        TouchArea { enabled: !Shell.swiping; clicked => { Viewer.expanded = !Viewer.expanded; } }
+        Tap { enabled: !Shell.swiping; tapped => { Viewer.expanded = !Viewer.expanded; } }
     }
 
     Controls {

@@ -1,6 +1,6 @@
 import { ListView } from "std-widgets.slint";
 import { Theme } from "../theme.slint";
-import { SwipeGuard } from "../shell.slint";
+import { SwipeGuard, Tap } from "../shell.slint";
 import { Btn, Tone, Input, Combo, Toggle, Label, Dialog, Rule, Progress, OutlinedCard, Card, Panel, Status, Slider } from "../widgets/basics.slint";
 import { HeaderToggle, RosterRow, OrbSlot, OrbPicture, Line, Lines } from "../widgets/detail.slint";
 import { Drawer, EdgeGrab } from "../widgets/drawer.slint";
@@ -453,7 +453,7 @@ component ComboCard inherits Rectangle {
             }
         }
     }
-    TouchArea { enabled: !Shell.swiping; clicked => { Sandbox.combo-tapped(root.combo.line); } }
+    Tap { enabled: !Shell.swiping; tapped => { Sandbox.combo-tapped(root.combo.line); } }
 }
 
 component ComboList inherits OutlinedCard {
@@ -510,7 +510,7 @@ component RosterPanel inherits Panel {
                         source: row.banner;
                         image-fit: fill;
                     }
-                    press := TouchArea { enabled: !Shell.swiping; clicked => { Sandbox.recruit(row.id); } }
+                    press := Tap { enabled: !Shell.swiping; tapped => { Sandbox.recruit(row.id); } }
                 }
             }
         }
@@ -581,7 +581,7 @@ component ConfigTab inherits VerticalLayout {
     Rectangle {
         height: 32px;
         SwipeGuard { lipped: true; }
-        Flickable { interactive: !Shell.swiping;
+        Flickable { interactive: !Shell.swiping && (Shell.hover-input || !Shell.press-edge);
             mouse-drag-pan-enabled: true;
             width: 100%;
             height: 100%;
@@ -754,7 +754,7 @@ component ReplayTab inherits Rectangle {
                         background: row.selected ? Theme.primary : (press.pressed ? Theme.bg-strongest : Theme.bg-strong);
                         border-radius: Theme.radius-sm;
                         Text { text: row.label; color: row.selected ? Theme.white : Theme.text; font-size: 12px; vertical-alignment: center; width: parent.width - 12px; x: 6px; height: parent.height; overflow: elide; }
-                        press := TouchArea { enabled: !Shell.swiping; clicked => { Sandbox.replay-pick(index); Sandbox.replays-open = false; } }
+                        press := Tap { enabled: !Shell.swiping; tapped => { Sandbox.replay-pick(index); Sandbox.replays-open = false; } }
                     }
                 }
             }
@@ -790,7 +790,7 @@ component LineupsDialog inherits Dialog {
                     Text { text: row.name; color: row.selected ? Theme.white : Theme.text; font-size: 13px; vertical-alignment: center; horizontal-stretch: 1; overflow: elide; }
                     Text { text: row.count; color: row.selected ? Theme.white : Theme.weak-text; font-size: 12px; vertical-alignment: center; }
                 }
-                press := TouchArea { enabled: !Shell.swiping; clicked => { Sandbox.lineup-pick(row.index); } }
+                press := Tap { enabled: !Shell.swiping; tapped => { Sandbox.lineup-pick(row.index); } }
             }
         }
         Input { text: Sandbox.lineup-name; placeholder: "Lineup Name"; height: 30px; text-size: 13px; edited(value) => { Sandbox.lineup-renamed(value); } }

@@ -9,7 +9,7 @@ import "../../foundry/fonts/NotoSansThai-Regular.ttf";
 import { Theme } from "theme.slint";
 import { Btn, Tone, Toast } from "widgets/basics.slint";
 import { Drawer, EdgeGrab } from "widgets/drawer.slint";
-import { Shell, Page } from "shell.slint";
+import { Shell, Page, Tap } from "shell.slint";
 import { HomePage, Home } from "pages/home.slint";
 import { CatsPage, Cats } from "pages/cats.slint";
 import { EnemiesPage, Enemies } from "pages/enemies.slint";
@@ -91,6 +91,7 @@ export component AppWindow inherits Window {
                 padding: Theme.sidebar-padding;
                 padding-right: 0px;
                 Flickable {
+                    interactive: !Shell.swiping;
                     mouse-drag-pan-enabled: true;
                     content-height: tabs.preferred-height;
                     tabs := VerticalLayout {
@@ -109,8 +110,9 @@ export component AppWindow inherits Window {
                                 width: parent.width;
                                 height: parent.height;
                             }
-                            press := TouchArea {
-                                clicked => {
+                            press := Tap {
+                                enabled: !Shell.swiping;
+                                tapped => {
                                     Shell.navigate(tab.page);
                                     Shell.nav-open = false;
                                 }

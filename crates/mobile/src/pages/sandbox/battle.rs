@@ -7,6 +7,7 @@ use tracing::{info, warn};
 use crate::platform;
 use crate::host::{self, Canvas, Command, Diagnostics, Event, Launch, Occupant, Phase, Standing, Touch};
 use crate::pages::Context;
+use crate::settings::Orientation;
 use crate::{AppWindow, Sandbox, Shell, VitalRow};
 
 use super::state::Volume;
@@ -35,6 +36,7 @@ pub struct Part {
     pub hold: Timer,
     pub blackout: bool,
     pub tapped: Option<Instant>,
+    pub turning: Option<bool>,
 }
 
 impl Default for Part {
@@ -53,6 +55,7 @@ impl Default for Part {
             hold: Timer::default(),
             blackout: false,
             tapped: None,
+            turning: None,
         }
     }
 }
@@ -188,12 +191,22 @@ pub fn wire(window: &AppWindow, state: &Shared, context: &Rc<Context>) {
 
         state.battle.bounds = (width, height);
 
+        let turned = state.battle.turning == Some(width > height);
+
+        if turned {
+            state.battle.turning = None;
+        }
+
         if let Some(arena) = &state.arena {
             if let Some(ui) = weak.upgrade() {
                 arena.send(Command::Density(ui.window().scale_factor()));
             }
 
             arena.send(Command::Resize(width, height));
+
+            if turned {
+                arena.send(Command::Turned(true));
+            }
         }
     });
 
@@ -298,6 +311,7 @@ pub fn event(ui: &AppWindow, state: &Shared, context: &Rc<Context>, event: Event
                 held.battle.probe = None;
                 held.battle.diagnosing = false;
                 held.battle.hint.clear();
+                held.battle.turning = None;
             }
 
             let before = state.borrow().battle.standing.phase;
@@ -316,6 +330,23 @@ pub fn event(ui: &AppWindow, state: &Shared, context: &Rc<Context>, event: Event
                     held.battle.immersed = standing.phase == Phase::Loading;
                     drop(held);
                     platform::set_orientation(orientation);
+
+                    if standing.phase == Phase::Leaving {
+                        let mut held = state.borrow_mut();
+                        let (width, height) = held.battle.bounds;
+                        let wide = width > height;
+                        let settled = match orientation {
+                            Orientation::Automatic => true,
+                            Orientation::Portrait => !wide,
+                            Orientation::Landscape => wide,
+                        };
+
+                        held.battle.turning = (!settled).then_some(!wide);
+
+                        if settled && let Some(arena) = &held.arena {
+                            arena.send(Command::Turned(false));
+                        }
+                    }
                 }
             }
 

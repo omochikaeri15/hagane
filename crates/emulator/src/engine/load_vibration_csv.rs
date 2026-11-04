@@ -1,5 +1,3 @@
-use std::collections::BTreeMap;
-
 use crate::{Fault, ops};
 
 use super::{
@@ -7,23 +5,8 @@ use super::{
     read_csv_cell_double, read_csv_row,
 };
 
-#[derive(Clone, Default, PartialEq, Debug)]
-pub struct VibrationStep {
-    pub strength: f64,
-    pub seconds: f64,
-    pub extra: f64,
-}
-
-#[derive(Clone, Default, PartialEq, Debug)]
-pub struct VibrationStore {
-    pub steps: BTreeMap<i32, BTreeMap<i32, VibrationStep>>,
-    pub power: f64,
-    pub time: f64,
-    pub tail: f64,
-}
-
 pub fn load_vibration_csv(ctx: &mut AppContext) -> Result<(), Fault> {
-    ctx.vibration.steps.clear();
+    ctx.battle_event_latch.gates.clear();
 
     if let Some(bytes) = open_asset_stream(ctx, b"Vibration.csv", 0, 0)? {
         let stm = &mut AssetStream::new(&bytes, b'\n');
@@ -44,41 +27,38 @@ pub fn load_vibration_csv(ctx: &mut AppContext) -> Result<(), Fault> {
             let group = ops::div_2(id).wrapping_add(1);
             let slot = id.wrapping_sub(ops::div_2(id).wrapping_mul(2));
 
-            ctx.vibration
-                .steps
+            ctx.battle_event_latch
+                .gates
                 .entry(group)
                 .or_default()
                 .entry(slot)
-                .or_default()
-                .strength = value;
+                .or_default()[0] = value;
 
             let value = read_csv_cell_double(stm, 3) / 1000.0;
 
-            ctx.vibration
-                .steps
+            ctx.battle_event_latch
+                .gates
                 .entry(group)
                 .or_default()
                 .entry(slot)
-                .or_default()
-                .seconds = value;
+                .or_default()[1] = value;
 
             let value = read_csv_cell_double(stm, 4);
 
-            ctx.vibration
-                .steps
+            ctx.battle_event_latch
+                .gates
                 .entry(group)
                 .or_default()
                 .entry(slot)
-                .or_default()
-                .extra = value;
+                .or_default()[2] = value;
         }
     }
 
-    ctx.vibration.power =
+    ctx.battle_event_latch.power =
         get_setting_double(&ctx.settings, b"option_vibration_power_android", 0.0)?;
-    ctx.vibration.time =
+    ctx.battle_event_latch.sample_seconds =
         get_setting_double(&ctx.settings, b"option_vibration_time_android", 0.0)? / 1000.0;
-    ctx.vibration.tail = -1.0;
+    ctx.battle_event_latch.tail = -1.0;
 
     Ok(())
 }

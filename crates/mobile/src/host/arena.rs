@@ -39,6 +39,7 @@ pub enum Command {
     Watch { reel: Reel, source: ReplaySource, phone: bool, lag: Lag, width: f32, height: f32 },
     Stop,
     Resume,
+    Turned(bool),
     Touches(Vec<Touch>),
     Resize(f32, f32),
     Phone(bool),
@@ -185,6 +186,11 @@ impl Stage {
                 self.padded = padded;
             }
             Command::Density(density) => self.density = density.max(1.0),
+            Command::Turned(rotated) => {
+                if let Some(session) = self.session.as_mut() {
+                    session.turned(rotated);
+                }
+            }
             Command::Hold(held) => {
                 self.held = held;
 

@@ -15,7 +15,7 @@ use super::{
     DropItemRow, EventDisplayRow, MissionConditionSetting, MissionData, MissionGatyaSetting, MissionLimitOption, MissionMonthly,
     PointEventReward, RealmsRngTable, RecommendedLevelup, SceneHost, ScreenMetrics, SheetTable, SoundManager, SoundResumeBatchTask, SpecialRuleStore,
     StagePairRecord, StageRestriction, SurgeEvent, TextBlock, TextRenderer, Texture, TreasureGauge, TreasureStore,
-    UiHost, UnlockGroup, VibrationStore, UnlockPopupRow, WebPopupEntry, ZombieLotteryRow,
+    UiHost, UnlockGroup, UnlockPopupRow, WebPopupEntry, ZombieLotteryRow,
 };
 
 const GAME_SIZE: usize = 0x47c170;
@@ -1153,7 +1153,6 @@ pub struct AppContext {
     pub autoset_groups: BTreeMap<i32, i32>,
     pub autoset_organizations: BTreeMap<i32, [[i32; 3]; 10]>,
     pub map_layouts: BTreeMap<i32, MapLayout>,
-    pub vibration: VibrationStore,
     pub daily_login_grades: BTreeMap<i32, DailyLoginGrade>,
     pub sound_manager: SoundManager,
     pub change_conditions: BTreeMap<i32, ChangeCondition>,
@@ -2299,7 +2298,6 @@ impl AppContext {
             autoset_groups: BTreeMap::new(),
             autoset_organizations: BTreeMap::new(),
             map_layouts: BTreeMap::new(),
-            vibration: VibrationStore::default(),
             daily_login_grades: BTreeMap::new(),
             sound_manager: SoundManager::default(),
             change_conditions: BTreeMap::new(),

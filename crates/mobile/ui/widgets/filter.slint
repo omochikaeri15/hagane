@@ -1,4 +1,4 @@
-import { Shell } from "../shell.slint";
+import { Shell, Tap } from "../shell.slint";
 import { Theme } from "../theme.slint";
 import { Btn, Tone, Input, Label } from "basics.slint";
 import { AbilityIcon, IconBox } from "detail.slint";
@@ -24,7 +24,7 @@ export component FilterIconsWrap inherits VerticalLayout {
             height: 40px;
             opacity: self.at < root.items.length && root.items[self.at].active ? 1.0 : 0.4;
             if self.at < root.items.length: IconBox { icon: root.items[parent.at].icon; size: 40px; }
-            if self.at < root.items.length: TouchArea { enabled: !Shell.swiping; clicked => { root.toggled(root.items[parent.at].id); } }
+            if self.at < root.items.length: Tap { enabled: !Shell.swiping; tapped => { root.toggled(root.items[parent.at].id); } }
         }
     }
 }
@@ -63,7 +63,7 @@ export component FilterLabeledList inherits VerticalLayout {
                 Rectangle {
                     width: 40px; height: 40px; opacity: item.active ? 1.0 : 0.4;
                     IconBox { icon: item.icon; size: 40px; }
-                    TouchArea { enabled: !Shell.swiping; clicked => { root.toggled(item.id); } }
+                    Tap { enabled: !Shell.swiping; tapped => { root.toggled(item.id); } }
                 }
                 Btn { tone: Tone.text; label: item.name; pad-x: 0px; clicked => { root.toggled(item.id); } }
             }

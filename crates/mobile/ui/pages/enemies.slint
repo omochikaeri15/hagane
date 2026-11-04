@@ -5,7 +5,7 @@ import { Drawer, EdgeGrab } from "../widgets/drawer.slint";
 import { Line, AbilityIcon, AbilityLine, StatCell, HeaderBtn, RosterRow, Lines, IconRow, AbilityRows, StatGrid, HeaderToggle } from "../widgets/detail.slint";
 import { FilterIcon, FilterLabeled, RangeField, FilterIconsWrap, FilterLabeledList, RangeRows } from "../widgets/filter.slint";
 import { AnimViewer, Viewer, DebugToggles } from "../widgets/viewer.slint";
-import { Shell } from "../shell.slint";
+import { Shell, Tap } from "../shell.slint";
 
 export global Enemies {
     in property <[RosterRow]> roster;
@@ -158,8 +158,8 @@ component Roster inherits Panel {
                         source: row.banner;
                         image-fit: fill;
                     }
-                    press := TouchArea { enabled: !Shell.swiping;
-                        clicked => { Enemies.select(row.id); Enemies.roster-open = false; }
+                    press := Tap { enabled: !Shell.swiping;
+                        tapped => { Enemies.select(row.id); Enemies.roster-open = false; }
                     }
                 }
             }

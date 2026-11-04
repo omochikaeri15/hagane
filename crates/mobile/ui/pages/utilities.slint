@@ -1,4 +1,4 @@
-import { Shell } from "../shell.slint";
+import { Shell, Tap } from "../shell.slint";
 import { Theme } from "../theme.slint";
 import { SwipeGuard } from "../shell.slint";
 import { Btn, Tone, Input, Combo, Label, Rule, Workspace, Card, Dialog } from "../widgets/basics.slint";
@@ -144,7 +144,7 @@ component BackdropViewer inherits Rectangle {
                     root.last-y = self.mouse-y;
                     root.dragging = true;
                 } else if event.kind == PointerEventKind.move {
-                    if root.dragging && !gesture.active {
+                    if root.dragging && !gesture.active && (Shell.hover-input || !Shell.press-edge) {
                         Backdrop.pan(self.mouse-x - root.last-x, self.mouse-y - root.last-y);
                         root.last-x = self.mouse-x;
                         root.last-y = self.mouse-y;
@@ -181,7 +181,7 @@ component BackdropViewer inherits Rectangle {
             Rectangle {
                 height: 18px;
                 Text { text: Backdrop.controls-expanded ? "\u{25bc}" : "\u{25b2}"; color: Theme.text; font-size: 14px; font-weight: 700; font-family: "Miscellaneous-Symbols"; horizontal-alignment: center; vertical-alignment: center; width: parent.width; height: parent.height; }
-                TouchArea { enabled: !Shell.swiping; clicked => { Backdrop.controls-expanded = !Backdrop.controls-expanded; } }
+                Tap { enabled: !Shell.swiping; tapped => { Backdrop.controls-expanded = !Backdrop.controls-expanded; } }
             }
             Rectangle { height: 1phx; background: Theme.bg-strong; }
             HorizontalLayout {

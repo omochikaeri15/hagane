@@ -19,6 +19,7 @@ use foundry::domains::enemy::scanner::EnemyEntry;
 use foundry::domains::settings::AnimSettings;
 use foundry::systems::animation::{Loop, MotionSet, NO_OFFSET, Placement, Rigging, cycle, loop_frame, restart, restart_frame};
 
+use crate::host;
 use crate::pages::Context;
 use crate::{AppWindow, MotionTile, Theme, Viewer, bridge};
 
@@ -95,6 +96,7 @@ pub struct State {
     last_stamp: Option<Stamp>,
     reach: Option<Reach>,
     pixels: Vec<u8>,
+    gpu_sheet: Option<(Arc<Rig>, Arc<[u8]>)>,
     active: bool,
     timer: Timer,
     export: export::Form,
@@ -262,6 +264,7 @@ impl State {
             last_stamp: None,
             reach: None,
             pixels: Vec::new(),
+            gpu_sheet: None,
             active: false,
             timer: Timer::default(),
             export: export::Form::default(),
@@ -665,6 +668,7 @@ pub fn forget(context: &Rc<Context>) {
     state.anims.clear();
     state.last_stamp = None;
     state.reach = None;
+    state.gpu_sheet = None;
 }
 
 pub fn hide(context: &Rc<Context>) {
@@ -674,6 +678,7 @@ pub fn hide(context: &Rc<Context>) {
         state.active = false;
         state.timer.stop();
         state.last_time = None;
+        state.last_stamp = None;
     }
 }
 
@@ -938,17 +943,13 @@ fn tick(ui: &AppWindow, context: &Rc<Context>) {
     let view = state.view();
     let complete = anim.is_some() || state.is_model();
     let (width, height) = pixels;
-    let mut buffer = std::mem::take(&mut state.pixels);
-
-    buffer.clear();
-    buffer.resize(width as usize * height as usize * 4, 0);
-    scene::clear(&mut buffer, clear);
-
     let camera = scene::camera(&view, state.selecting, state.region);
-
-    match rig.as_deref().filter(|_| complete) {
+    let mut frames: Vec<FrameData> = Vec::new();
+    let drawn = rig.as_deref().filter(|_| complete);
+    let shapes = match drawn {
         Some(rig) => {
-            let frames: Vec<FrameData> = resolve_frame(rig, anim.as_deref(), frame, offset);
+            frames = resolve_frame(rig, anim.as_deref(), frame, offset);
+
             let bounds = show.show_world.then(|| {
                 let stale = state.reach.as_ref().is_none_or(|held| held.rig != rig_key || held.anim != anim_key || held.offset != offset);
 
@@ -962,19 +963,45 @@ fn tick(ui: &AppWindow, context: &Rc<Context>) {
                 state.reach.as_ref().and_then(|held| held.bounds)
             });
             let pose = scene::Pose { rig, anim: anim.as_deref(), frame, offset, frames: &frames };
+
             let mut shapes = scene::shapes(&pose, bounds.flatten(), &view, &show);
 
             shapes.extend(camera);
-            scene::paint(&mut buffer, width, height, rig.sheet.image_data.as_deref(), &frames, &view, &shapes);
+            shapes
         }
-        None => scene::paint_shapes(&mut buffer, width, height, &view, &camera),
+        None => camera,
+    };
+
+    let sheet = drawn.and_then(|rig| rig.sheet.image_data.as_deref());
+
+    if host::gpu_available() {
+        let held = state.gpu_sheet.take().filter(|(kept, _)| rig.as_ref().is_some_and(|rig| Arc::ptr_eq(kept, rig)));
+        let pixels = held.map(|(_, pixels)| pixels).or_else(|| sheet.map(|image| Arc::from(image.as_raw().as_slice())));
+        let handle = sheet.zip(pixels.as_ref()).map(|(image, pixels)| (image.width(), image.height(), Arc::clone(pixels)));
+
+        state.gpu_sheet = rig.clone().zip(pixels);
+        host::submit_scene(scene::gpu_scene((width, height), clear, handle, &frames, &view, &shapes).into());
+        drop(state);
+        ui.window().request_redraw();
+    } else {
+        let mut buffer = std::mem::take(&mut state.pixels);
+
+        buffer.clear();
+        buffer.resize(width as usize * height as usize * 4, 0);
+        scene::clear(&mut buffer, clear);
+
+        if drawn.is_some() {
+            scene::paint(&mut buffer, width, height, sheet, &frames, &view, &shapes);
+        } else {
+            scene::paint_shapes(&mut buffer, width, height, &view, &shapes);
+        }
+
+        let image = Image::from_rgba8_premultiplied(SharedPixelBuffer::<Rgba8Pixel>::clone_from_slice(&buffer, width, height));
+
+        state.pixels = buffer;
+        drop(state);
+        ui.global::<Viewer>().set_frame(image);
     }
-
-    let image = Image::from_rgba8_premultiplied(SharedPixelBuffer::<Rgba8Pixel>::clone_from_slice(&buffer, width, height));
-
-    state.pixels = buffer;
-    drop(state);
-    ui.global::<Viewer>().set_frame(image);
 
     if controls_dirty {
         sync_controls(ui, context);

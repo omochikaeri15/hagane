@@ -28,6 +28,8 @@ const STEP_TIME: Duration = Duration::from_nanos(1_000_000_000 / GAME_FPS);
 const EARLY_STEP: Duration = Duration::from_millis(1);
 const MOST_STEPS: u32 = 4;
 const PRESENT_PATIENCE: Duration = Duration::from_secs(2);
+const TURN_PATIENCE: Duration = Duration::from_secs(2);
+const TURN_SETTLE: Duration = Duration::from_millis(400);
 const SLOW_STEP: Duration = Duration::from_millis(100);
 
 struct Opened {
@@ -110,6 +112,7 @@ pub(super) struct Session {
     discard: bool,
     due: Option<Instant>,
     held_since: Option<Instant>,
+    opens_at: Option<Instant>,
     lag: Lag,
     failure: Option<String>,
     stale: bool,
@@ -137,6 +140,7 @@ impl Session {
             discard: false,
             due: None,
             held_since: None,
+            opens_at: None,
             lag: Lag::default(),
             failure: None,
             reel: None,
@@ -283,6 +287,12 @@ impl Session {
         }
     }
 
+    pub(super) fn turned(&mut self, rotated: bool) {
+        if self.opens_at.is_some() {
+            self.opens_at = Some(Instant::now() + if rotated { TURN_SETTLE } else { Duration::ZERO });
+        }
+    }
+
     pub(super) fn until_due(&self) -> Option<Duration> {
         (self.phase == Phase::Running).then_some(self.due?.saturating_duration_since(Instant::now()))
     }
@@ -336,6 +346,10 @@ impl Session {
 
                 if self.sweep >= CLOSED_FRAME {
                     self.phase = if self.again { Phase::Loading } else { Phase::Leaving };
+
+                    if self.phase == Phase::Leaving {
+                        self.opens_at = Some(Instant::now() + TURN_PATIENCE);
+                    }
 
                     if self.driver.watching() {
                         self.driver.end_playback();
@@ -416,6 +430,7 @@ impl Session {
                     self.due = None;
                 } else {
                     self.phase = Phase::Leaving;
+                    self.opens_at = Some(Instant::now() + TURN_PATIENCE);
                     self.started = Instant::now();
                     self.driver.end_playback();
                     self.driver.draw_curtain(self.sweep);
@@ -424,6 +439,20 @@ impl Session {
                 true
             }
             Phase::Leaving => {
+                if let Some(opens_at) = self.opens_at {
+                    if Instant::now() < opens_at {
+                        self.sweep = CLOSED_FRAME;
+                        self.driver.draw_curtain(self.sweep);
+
+                        return true;
+                    }
+
+                    self.opens_at = None;
+                    self.started = Instant::now();
+
+                    return true;
+                }
+
                 self.sweep = CLOSED_FRAME + 1 + elapsed;
 
                 if self.sweep > LAST_FRAME {
@@ -523,6 +552,7 @@ impl Session {
             self.entered = false;
             self.driver.silence();
             self.phase = Phase::Leaving;
+            self.opens_at = Some(Instant::now() + TURN_PATIENCE);
             self.sweep = CLOSED_FRAME;
             self.driver.end_playback();
             self.started = Instant::now();

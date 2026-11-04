@@ -1,5 +1,5 @@
 import { Theme } from "../theme.slint";
-import { Shell, SwipeGuard } from "../shell.slint";
+import { Shell, SwipeGuard, Tap } from "../shell.slint";
 
 export enum Tone { primary, danger, success, warning, neutral, toggle, inert, text, status-success, status-warning, status-danger }
 
@@ -57,9 +57,9 @@ export component Btn inherits Rectangle {
         }
     }
 
-    ta := TouchArea {
+    ta := Tap {
         enabled: (root.enabled) && !Shell.swiping;
-        clicked => { root.clicked(); }
+        tapped => { root.clicked(); }
     }
 }
 
@@ -101,9 +101,9 @@ export component Toggle inherits Rectangle {
             vertical-alignment: center;
         }
     }
-    TouchArea {
+    Tap {
         enabled: (root.enabled) && !Shell.swiping;
-        clicked => { root.changed(!root.value); }
+        tapped => { root.changed(!root.value); }
     }
 }
 
@@ -281,9 +281,9 @@ export component Combo inherits Rectangle {
     property <length> list-height: min(root.options.length * 36px, 300px) + 2px;
     property <bool> opens-upward: root.absolute-position.y + root.height + root.list-height + 2px > Shell.app-height;
 
-    ta := TouchArea {
+    ta := Tap {
         enabled: (root.enabled) && !Shell.swiping;
-        clicked => { menu.show(); }
+        tapped => { menu.show(); }
     }
     menu := PopupWindow {
         close-policy: close-on-click-outside;
@@ -320,8 +320,8 @@ export component Combo inherits Rectangle {
                             vertical-alignment: center;
                             overflow: elide;
                         }
-                        row := TouchArea { enabled: !Shell.swiping;
-                            clicked => {
+                        row := Tap { enabled: !Shell.swiping;
+                            tapped => {
                                 root.current = index;
                                 root.selected(index);
                                 menu.close();
@@ -415,9 +415,9 @@ export component ListRow inherits Rectangle {
     border-radius: Theme.radius-sm;
     background: root.selected ? Theme.primary : (ta.pressed ? Theme.list-hover : (root.filled ? Theme.bg-strong : transparent));
     @children
-    ta := TouchArea {
+    ta := Tap {
         enabled: (root.enabled) && !Shell.swiping;
-        clicked => { root.clicked(); }
+        tapped => { root.clicked(); }
     }
 }
 
@@ -574,8 +574,8 @@ export component Dialog inherits Rectangle {
                         stroke-width: 2px;
                         commands: "M 0 0 L 12 12 M 12 0 L 0 12";
                     }
-                    TouchArea { enabled: !Shell.swiping;
-                        clicked => { root.open = false; root.closed(); }
+                    Tap { enabled: !Shell.swiping;
+                        tapped => { root.open = false; root.closed(); }
                     }
                 }
             }
@@ -593,8 +593,8 @@ export component Scrim inherits Rectangle {
     width: 100%;
     height: 100%;
     background: transparent;
-    TouchArea { enabled: !Shell.swiping;
-        clicked => { root.clicked(); }
+    Tap { enabled: !Shell.swiping;
+        tapped => { root.clicked(); }
     }
 }
 
@@ -622,7 +622,7 @@ export component Tip inherits Rectangle {
 export component TapTip inherits Rectangle {
     in property <string> text;
     property <bool> shown;
-    TouchArea { enabled: !Shell.swiping; clicked => { root.shown = !root.shown; } }
+    Tap { enabled: !Shell.swiping; tapped => { root.shown = !root.shown; } }
     if root.shown: Tip {
         shown: true;
         text: root.text;

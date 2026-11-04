@@ -48,6 +48,15 @@ export global Shell {
     callback fullscreen-changed(bool);
 }
 
+export component Tap inherits TouchArea {
+    callback tapped;
+    clicked => {
+        if abs(self.mouse-x - self.pressed-x) <= 8px && abs(self.mouse-y - self.pressed-y) <= 8px {
+            root.tapped();
+        }
+    }
+}
+
 export component SwipeGuard {
     in property <bool> lipped;
     property <length> left: self.absolute-position.x;

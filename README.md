@@ -39,6 +39,32 @@ Hagane requires two additional resources to unlock full functionality. Without t
 - Device that Hagane is installed on is rooted with `su` permissions.
 - Legally obtained Decryption Keys and Initialization Vectors for every region.
 
+Because Hagane is not distributed through an app store, your OS may flag it on the first run:
+
+> #### Android
+>
+> Only Android 8.0+ on `arm64` or `x86_64` is supported by this application.
+>
+> You may see a message saying **"For your security, your phone is not allowed to install unknown apps from this source"**.
+>
+> To continue, tap **Settings**, turn on **Allow from this source**, then go back and tap **Install**.
+>
+> You may also see a **Google Play Protect** warning. To start the install, tap **More details**, then tap **Install anyway**.
+>
+> Where Android's developer verification is in effect, an app from an unverified developer also needs the **advanced flow**, turned on once from your phone's settings. It asks you to enable Developer Options, restart, and wait a day. Installing over `adb` does not need it.
+
+> #### iOS
+>
+> Only iOS 15+ is supported by this application.
+>
+> Hagane is an unsigned `.ipa`, so you must sign and install it with your own Apple ID through a tool such as **Sideloadly** or **AltStore**.
+>
+> You may see an error saying **"Untrusted Developer"**. To fix this, go to **Settings > General > VPN & Device Management**, tap your Apple ID, then tap **Trust**.
+>
+> You may also see **"Developer Mode Required"**. To fix this, go to **Settings > Privacy & Security > Developer Mode**, turn it on, and restart your device.
+>
+> With a free Apple ID, the signature expires after 7 days. When the app stops opening, sign it again with the same tool.
+
 ## Website
 Least features, but better compatibility, and most accesssible while requiring no set-up.
 

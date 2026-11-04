@@ -9,6 +9,9 @@ pub struct BattleEventLatch {
     pub time: f64,
     pub strength: f64,
     pub gates: BTreeMap<i32, BTreeMap<i32, [f64; 3]>>,
+    pub power: f64,
+    pub sample_seconds: f64,
+    pub tail: f64,
 }
 
 pub fn latch_battle_event(latch: &mut BattleEventLatch, faction: i32, kind: i32) {
