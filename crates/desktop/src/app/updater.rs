@@ -1,6 +1,5 @@
 use std::env;
 use std::fs;
-use std::iter;
 #[cfg(unix)]
 use std::os::unix::process::CommandExt;
 #[cfg(unix)]
@@ -13,10 +12,10 @@ use std::time::Duration;
 use iced::futures::channel::mpsc;
 use iced::widget::{column, container, progress_bar, row, text, Space};
 use iced::{Alignment, Color, Element, Length, Size, Task, Theme};
-use self_update::{cargo_crate_version, version, Download, Extract, TempDir};
+use self_update::{cargo_crate_version, Download, Extract, TempDir};
 use tracing::{error, info, warn};
 
-use foundry::common::{github, platform, process};
+use foundry::common::{github, process};
 
 use crate::common::feedback::CONFIRM_SHORT_LABEL;
 use crate::widget::popup;
@@ -102,11 +101,9 @@ impl HaganeApp {
             cleanup_temp_files();
             let _ = tx.unbounded_send(UpdaterMsg::DownloadStarted(target_version.clone()));
 
-            let UpdateTarget { tag: target_tag, asset: target_asset_name, .. } = target;
+            info!("Installing asset {} from {}", github::TARGET.asset, target.tag);
 
-            info!("Installing asset {} from {}", target_asset_name, target_tag);
-
-            if let Err(err) = install(&target_tag, &target_asset_name) {
+            if let Err(err) = install(&target.tag, github::TARGET.asset) {
                 cleanup_temp_files();
                 error!("Failed during update installation sequence: {}", err);
                 let _ = tx.unbounded_send(UpdaterMsg::CheckFailed(CheckFailure::Install));
@@ -193,22 +190,13 @@ fn view_update_found<'a>(target: &UpdateTarget, confirming_never: bool) -> Eleme
     ]
     .spacing(BUTTON_SPACING);
 
-    let stepping = (target.version != target.latest).then(|| {
-        subtle_text(format!(
-            "{} is out, but this build has to install {} first",
-            display_version(&target.latest),
-            display_version(&target.version)
-        ))
-    });
-
     column![
         theme::bold_text(format!("Hagane {}", display_version(&target.version))).size(TITLE_SIZE),
         subtle_text(format!("You are running v{}", cargo_crate_version!())),
+        text("Would you like to download the update now?").size(BODY_SIZE),
+        actions,
+        subtle_text("\"Never\" stops all future update checks"),
     ]
-    .extend(stepping)
-    .push(text("Would you like to download the update now?").size(BODY_SIZE))
-    .push(actions)
-    .push(subtle_text("\"Never\" stops all future update checks"))
     .spacing(CONTENT_SPACING)
     .align_x(Alignment::Center)
     .into()
@@ -352,16 +340,6 @@ pub(crate) fn restart_app() {
     std::process::exit(0);
 }
 
-fn asset_candidates() -> [String; 1] {
-    [format!("hagane-{}.zip", platform::suffix().replace('_', "-"))]
-}
-
-fn matching_asset(release: &github::Release) -> Option<String> {
-    asset_candidates()
-        .into_iter()
-        .find(|candidate| release.has_asset(candidate))
-}
-
 #[derive(Debug)]
 struct CheckError {
     reason: CheckFailure,
@@ -381,180 +359,7 @@ impl From<github::Error> for CheckError {
 }
 
 fn check_remote() -> Result<Option<UpdateTarget>, CheckError> {
-    let current_version = cargo_crate_version!();
+    let offering = github::newest_offering(REPO_OWNER, REPO_NAME, cargo_crate_version!())?;
 
-    let tag = match github::latest_tag(REPO_OWNER, REPO_NAME) {
-        Ok(tag) => tag,
-        Err(err) => {
-            warn!("The latest release page could not be read, asking the GitHub API instead: {}", err);
-            return check_api(current_version);
-        }
-    };
-
-    let latest = github::Release { tag_name: tag, body: None, prerelease: false, assets: Vec::new() };
-
-    if !is_upgrade(current_version, &latest) {
-        return Ok(None);
-    }
-
-    for asset in asset_candidates() {
-        match github::has_download(REPO_OWNER, REPO_NAME, &latest.tag_name, &asset) {
-            Ok(true) => {
-                return Ok(Some(UpdateTarget {
-                    latest: latest.version().to_string(),
-                    version: latest.version().to_string(),
-                    tag: latest.tag_name,
-                    asset,
-                }));
-            }
-            Ok(false) => {}
-            Err(err) => {
-                warn!("{} could not be probed for {}, asking the GitHub API instead: {}", latest.tag_name, asset, err);
-                return check_api(current_version);
-            }
-        }
-    }
-
-    warn!("{} carries no asset this build understands; listing every release to find a step", latest.tag_name);
-
-    let releases = github::list_releases(REPO_OWNER, REPO_NAME)?;
-    select_target(&releases, current_version)
-}
-
-fn check_api(current_version: &str) -> Result<Option<UpdateTarget>, CheckError> {
-    if let Some(latest) = github::latest_release(REPO_OWNER, REPO_NAME)? {
-        if !is_upgrade(current_version, &latest) {
-            return Ok(None);
-        }
-
-        if let Some(asset) = matching_asset(&latest) {
-            return Ok(Some(UpdateTarget {
-                latest: latest.version().to_string(),
-                version: latest.version().to_string(),
-                tag: latest.tag_name,
-                asset,
-            }));
-        }
-
-        warn!("{} carries no asset this build understands; listing every release to find a step", latest.tag_name);
-    }
-
-    let releases = github::list_releases(REPO_OWNER, REPO_NAME)?;
-    select_target(&releases, current_version)
-}
-
-fn is_upgrade(current_version: &str, release: &github::Release) -> bool {
-    release.is_versioned()
-        && !release.prerelease
-        && version::bump_is_greater(current_version, release.version())
-            .inspect_err(|err| warn!("Skipping release {}: {}", release.tag_name, err))
-            .unwrap_or(false)
-}
-
-fn select_target(releases: &[github::Release], current_version: &str) -> Result<Option<UpdateTarget>, CheckError> {
-    let mut newer = releases.iter().filter(|release| is_upgrade(current_version, release));
-
-    let Some(latest) = newer.next() else { return Ok(None); };
-
-    let Some((installable, asset)) = iter::once(latest)
-        .chain(newer)
-        .find_map(|release| matching_asset(release).map(|asset| (release, asset)))
-    else {
-        info!("Releases up to {} ship nothing for this build, so v{} stays current", latest.tag_name, current_version);
-        return Ok(None);
-    };
-
-    if installable.tag_name != latest.tag_name {
-        warn!(
-            "{} carries no asset this build understands; stepping through {} first",
-            latest.tag_name, installable.tag_name
-        );
-    }
-
-    Ok(Some(UpdateTarget {
-        latest: latest.version().to_string(),
-        version: installable.version().to_string(),
-        tag: installable.tag_name.clone(),
-        asset,
-    }))
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn release(tag: &str, assets: &[&str]) -> github::Release {
-        github::Release {
-            tag_name: tag.to_string(),
-            body: None,
-            prerelease: false,
-            assets: assets
-                .iter()
-                .map(|name| github::Asset { name: name.to_string() })
-                .collect(),
-        }
-    }
-
-    fn known_asset() -> String {
-        format!("hagane-{}.zip", platform::suffix().replace('_', "-"))
-    }
-
-    #[test]
-    fn picks_the_newest_installable_release() {
-        let asset = known_asset();
-        let releases = [release("v3.0.0", &[&asset]), release("v2.9.0", &[&asset])];
-
-        let target = select_target(&releases, "2.8.0").unwrap().unwrap();
-
-        assert_eq!(target.tag, "v3.0.0");
-        assert_eq!(target.latest, "3.0.0");
-        assert_eq!(target.asset, asset);
-    }
-
-    // The point of the fallback: a rename on the newest release must not strand old builds.
-    #[test]
-    fn steps_back_to_the_last_release_this_build_understands() {
-        let asset = known_asset();
-        let releases = [
-            release("v3.0.0", &["bcc-3.0.0-x86_64.tar.zst"]),
-            release("v2.9.1", &["bcc-2.9.1-x86_64.tar.zst"]),
-            release("v2.9.0", &[&asset]),
-            release("v2.7.0", &[&asset]),
-        ];
-
-        let target = select_target(&releases, "2.8.0").unwrap().unwrap();
-
-        assert_eq!(target.tag, "v2.9.0");
-        assert_eq!(target.latest, "3.0.0");
-    }
-
-    // A release that only shipped the website must not show desktop users an update error.
-    #[test]
-    fn never_walks_back_past_the_running_version() {
-        let releases = [
-            release("v3.0.0", &["bcc-3.0.0-x86_64.tar.zst"]),
-            release("v2.7.0", &[&known_asset()]),
-        ];
-
-        assert!(select_target(&releases, "2.8.0").unwrap().is_none());
-    }
-
-    #[test]
-    fn ignores_prereleases_and_unversioned_tags() {
-        let asset = known_asset();
-        let mut beta = release("v3.0.0", &[&asset]);
-        beta.prerelease = true;
-        let releases = [beta, release("tools", &[&asset]), release("v2.9.0", &[&asset])];
-
-        let target = select_target(&releases, "2.8.0").unwrap().unwrap();
-
-        assert_eq!(target.tag, "v2.9.0");
-    }
-
-    #[test]
-    fn reports_nothing_when_already_current() {
-        let releases = [release("v2.8.0", &[&known_asset()])];
-
-        assert!(select_target(&releases, "2.8.0").unwrap().is_none());
-    }
+    Ok(offering.map(|found| UpdateTarget { version: found.version, tag: found.tag }))
 }

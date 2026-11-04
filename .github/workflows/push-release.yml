@@ -274,6 +274,10 @@ jobs:
         include:
           - flavor: apk
             runner: ubuntu-latest
+            asset: hagane-android-apk.zip
+          - flavor: ipa
+            runner: macos-latest
+            asset: hagane-ios-ipa.zip
     steps:
       - uses: actions/checkout@v5
 
@@ -341,11 +345,33 @@ jobs:
           cp target/release/apk/hagane.apk "apk-bundle/${{ env.BIN_NAME }}.apk"
           (cd apk-bundle && zip ../hagane-android-apk.zip "${{ env.BIN_NAME }}.apk")
 
+      - name: Add the iOS target
+        if: matrix.flavor == 'ipa'
+        run: rustup target add aarch64-apple-ios
+
+      - name: Build the iOS binary
+        if: matrix.flavor == 'ipa'
+        env:
+          IPHONEOS_DEPLOYMENT_TARGET: "15.0"
+        run: cargo build --release --target aarch64-apple-ios -p mobile --bin mobile
+
+      - name: Bundle the unsigned IPA
+        if: matrix.flavor == 'ipa'
+        run: |
+          APP="Payload/${{ env.BIN_NAME }}.app"
+          mkdir -p "$APP"
+          cp target/aarch64-apple-ios/release/mobile "$APP/Hagane"
+          sed "s/__VERSION__/${{ needs.check-version.outputs.app_version }}/g" crates/mobile/ios/Info.plist > "$APP/Info.plist"
+          cp crates/mobile/ios/AppIcon.png "$APP/AppIcon.png"
+          codesign --force --sign - "$APP" || echo "ad-hoc signing skipped"
+          zip -r "${{ env.BIN_NAME }}.ipa" Payload
+          zip hagane-ios-ipa.zip "${{ env.BIN_NAME }}.ipa"
+
       - name: Upload Mobile Artifact
         uses: actions/upload-artifact@v4
         with:
           name: mobile-${{ matrix.flavor }}-build
-          path: hagane-android-apk.zip
+          path: ${{ matrix.asset }}
           retention-days: 1
 
   create-release:
@@ -390,6 +416,7 @@ jobs:
           if [ "${{ needs.check-version.outputs.mobile }}" = true ]; then
             ASSETS+=(
               mobile-apk-build/hagane-android-apk.zip
+              mobile-ipa-build/hagane-ios-ipa.zip
             )
           fi
           gh release create "v${{ needs.check-version.outputs.app_version }}" \

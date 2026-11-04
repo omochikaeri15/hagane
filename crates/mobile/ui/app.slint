@@ -35,7 +35,7 @@ export component AppWindow inherits Window {
     title: "Hagane";
     default-font-family: "Fira Sans";
     default-font-size: Theme.text-size;
-    background: Theme.bg;
+    background: Sandbox.immersed ? #000000 : Theme.bg;
     preferred-width: 412px;
     preferred-height: 915px;
 
@@ -55,7 +55,7 @@ export component AppWindow inherits Window {
         y: root.inset-top;
         width: root.width - root.inset-left - root.inset-right;
         height: root.height - root.inset-top - root.inset-bottom;
-        clip: true;
+        clip: !Sandbox.active;
         init => { Shell.app-width = self.width; Shell.app-height = self.height; Shell.measured(root.width, root.height, root.safe-area-insets.top, root.safe-area-insets.bottom); }
         changed width => { Shell.app-width = self.width; Shell.measured(root.width, root.height, root.safe-area-insets.top, root.safe-area-insets.bottom); }
         changed height => { Shell.app-height = self.height; Shell.measured(root.width, root.height, root.safe-area-insets.top, root.safe-area-insets.bottom); }
@@ -80,7 +80,12 @@ export component AppWindow inherits Window {
         }
 
         if Viewer.expanded: AnimViewer { width: 100%; height: 100%; }
-        if Sandbox.active: BattleLayer { width: 100%; height: 100%; }
+        if Sandbox.active: BattleLayer {
+            x: Sandbox.immersed ? 0px : -root.inset-left;
+            y: Sandbox.immersed ? 0px : -root.inset-top;
+            width: Sandbox.immersed ? parent.width : root.width;
+            height: Sandbox.immersed ? parent.height : root.height;
+        }
 
         nav := Drawer {
             right: true;

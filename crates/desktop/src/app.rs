@@ -209,10 +209,8 @@ pub enum CheckFailure {
 
 #[derive(Clone, Debug)]
 pub struct UpdateTarget {
-    pub latest: String,
     pub version: String,
     pub tag: String,
-    pub asset: String,
 }
 
 #[derive(Clone)]

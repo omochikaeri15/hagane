@@ -2,7 +2,7 @@ use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
 use std::ops::Range;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 
 use glow::HasContext;
@@ -70,6 +70,7 @@ const PACE_WINDOW: Duration = Duration::from_secs(2);
 const PACE_GAP: Duration = Duration::from_secs(4);
 
 static AVAILABLE: AtomicBool = AtomicBool::new(false);
+static PRESENTED: AtomicU64 = AtomicU64::new(0);
 
 thread_local! {
     static PENDING: RefCell<Option<Scene>> = const { RefCell::new(None) };
@@ -131,6 +132,14 @@ impl From<ViewerScene> for Scene {
 
 pub fn available() -> bool {
     AVAILABLE.load(Ordering::Acquire)
+}
+
+pub fn presented() -> u64 {
+    PRESENTED.load(Ordering::Acquire)
+}
+
+pub fn note_presented() {
+    PRESENTED.fetch_add(1, Ordering::AcqRel);
 }
 
 pub fn submit(scene: Scene) {
@@ -639,7 +648,9 @@ impl Presenter {
         };
         let rendered = (slot, texture, width, height);
 
-        if self.bound != Some(rendered) {
+        note_presented();
+
+        if self.bound != Some(rendered) || slot == SceneSlot::Viewer {
             let image: Image = unsafe {
                 BorrowedOpenGLTextureBuilder::new_gl_2d_rgba_texture(texture.0, (width, height).into()).origin(BorrowedOpenGLTextureOrigin::BottomLeft).build()
             };

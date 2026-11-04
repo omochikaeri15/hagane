@@ -28,7 +28,7 @@ use super::sound::{Pool, Speaker};
 use super::text::{Formatter, LABEL_PREFIX};
 
 const CURTAIN_CLOSING: i32 = 1;
-const CURTAIN_FADE: i32 = 0;
+const CURTAIN_TEETH_PERIOD: i32 = 1580;
 const TOUCH_PRESSED: i32 = 0;
 const TOUCH_MOVED: i32 = 1;
 const TOUCH_RELEASED: i32 = 2;
@@ -204,7 +204,7 @@ impl Driver {
         }
 
         ctx.set_assets(Box::new(assets));
-        ctx.set_platform(Box::new(DevicePlatform::new(InertPlatform { profile: Rc::clone(&self.profile) })));
+        ctx.set_platform(Box::new(DevicePlatform::new(InertPlatform { profile: Rc::clone(&self.profile) }, DiskAssets::new(Rc::clone(&self.files), Rc::clone(&self.sheets), Rc::clone(&self.ledger)))));
         ctx.set_audio(Box::new(Pool::new(Rc::clone(&self.files), Rc::clone(&self.ledger), Rc::clone(&self.speaker))));
         ctx.set_meta(Box::new(InertMeta));
         ctx.set_scene_host(Box::new(InertScene { returning: Rc::clone(&self.returning) }));
@@ -664,6 +664,8 @@ impl Driver {
 
         let before = emulator::runtime::layout_snapshot(&mut self.ctx);
 
+        emulator::runtime::forget_insets(&mut self.ctx);
+
         self.ctx.device_screen_w = width as i32;
         self.ctx.device_screen_h = height as i32;
         self.profile.tablet.set(!self.phone);
@@ -1099,12 +1101,12 @@ impl Driver {
             return;
         }
 
-        if let Err(fault) = self.paint_curtain(CURTAIN_CLOSING) {
+        if let Err(fault) = self.paint_curtain() {
             warn!("emu: curtain draw faulted: {fault}");
         }
     }
 
-    fn paint_curtain(&mut self, style: i32) -> Result<(), emulator::Fault> {
+    fn paint_curtain(&mut self) -> Result<(), emulator::Fault> {
         self.stamp_frame();
 
         let scale = self.ctx.screen_metrics.scale2;
@@ -1113,8 +1115,17 @@ impl Driver {
 
         let top = self.ctx.i32_at(AppContext::LETTERBOX_PAD)?.wrapping_add(self.ctx.i32_at(AppContext::LETTERBOX_SHIFT)?);
 
-        emulator::engine::set_draw_origin(&mut self.ctx, 0, top)?;
-        emulator::engine::draw_screen_transition(&mut self.ctx, style)?;
+        let reach = emulator::engine::get_design_height2(&self.ctx);
+        let mut offset = 0;
+
+        while offset < reach {
+            emulator::engine::set_insets_ignored(&mut self.ctx, 1)?;
+            emulator::engine::set_draw_origin(&mut self.ctx, 0, top.wrapping_add(offset))?;
+            emulator::engine::draw_screen_transition(&mut self.ctx, CURTAIN_CLOSING)?;
+            offset += CURTAIN_TEETH_PERIOD;
+        }
+
+        emulator::engine::set_insets_ignored(&mut self.ctx, 0)?;
         emulator::engine::set_draw_origin(&mut self.ctx, 0, 0)?;
 
         let pad = self.ctx.i32_at(AppContext::LETTERBOX_PAD)?;
@@ -1144,16 +1155,6 @@ impl Driver {
     }
 
     pub(super) fn draw_curtain(&mut self, sweep: i32) {
-        self.curtain(sweep, CURTAIN_CLOSING);
-    }
-
-    pub(super) fn draw_exit_curtain(&mut self, sweep: i32) {
-        let tall = self.ctx.device_screen_h > self.ctx.device_screen_w;
-
-        self.curtain(sweep, if tall { CURTAIN_FADE } else { CURTAIN_CLOSING });
-    }
-
-    fn curtain(&mut self, sweep: i32, style: i32) {
         let pad = match self.ctx.i32_at(AppContext::LETTERBOX_PAD) {
             Ok(pad) => pad,
             Err(fault) => {
@@ -1175,7 +1176,7 @@ impl Driver {
 
         match armed {
             Ok(()) => {
-                if let Err(fault) = self.paint_curtain(style) {
+                if let Err(fault) = self.paint_curtain() {
                     warn!("emu: curtain draw faulted: {fault}");
                 }
             }

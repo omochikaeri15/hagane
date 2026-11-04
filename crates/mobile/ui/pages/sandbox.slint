@@ -898,7 +898,7 @@ export component SandboxPage inherits Rectangle {
 
 export component BattleLayer inherits Rectangle {
     property <float> pinch-scale: 1.0;
-    background: Sandbox.blackout ? #000000 : transparent;
+    background: Sandbox.immersed ? #000000 : transparent;
     init => { Sandbox.resized(self.width, self.height); }
     changed width => { Sandbox.resized(self.width, self.height); }
     changed height => { Sandbox.resized(self.width, self.height); }

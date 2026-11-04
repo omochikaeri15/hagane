@@ -2,7 +2,7 @@ use std::path::Path;
 #[cfg(any(target_os = "android", target_os = "ios"))]
 use std::path::PathBuf;
 
-#[cfg(not(target_os = "android"))]
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 use tracing::debug;
 use tracing::warn;
 
@@ -31,6 +31,8 @@ pub fn open_url(url: &str) {
     }
 }
 
+pub const ORIENTATION_ENFORCED: bool = cfg!(any(target_os = "android", target_os = "ios"));
+
 #[cfg(target_os = "android")]
 pub fn set_orientation(orientation: Orientation) {
     if let Err(err) = crate::android::set_orientation(orientation) {
@@ -38,9 +40,16 @@ pub fn set_orientation(orientation: Orientation) {
     }
 }
 
-#[cfg(not(target_os = "android"))]
+#[cfg(target_os = "ios")]
 pub fn set_orientation(orientation: Orientation) {
-    debug!(?orientation, "Screen orientation is only enforced on Android");
+    if let Err(err) = crate::ios::set_orientation(orientation) {
+        warn!("The screen orientation could not be changed: {err}");
+    }
+}
+
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
+pub fn set_orientation(orientation: Orientation) {
+    debug!(?orientation, "Screen orientation is only enforced on phones");
 }
 
 #[cfg(target_os = "android")]
@@ -134,9 +143,16 @@ pub fn set_fullscreen(fullscreen: bool) {
     }
 }
 
-#[cfg(not(target_os = "android"))]
+#[cfg(target_os = "ios")]
 pub fn set_fullscreen(fullscreen: bool) {
-    debug!(fullscreen, "The system bars are only controlled on Android");
+    if let Err(err) = crate::ios::set_fullscreen(fullscreen) {
+        warn!("The system bars could not be changed: {err}");
+    }
+}
+
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
+pub fn set_fullscreen(fullscreen: bool) {
+    debug!(fullscreen, "The system bars are only controlled on phones");
 }
 
 #[cfg(target_os = "android")]
@@ -165,15 +181,20 @@ pub fn is_tablet() -> Option<bool> {
 }
 
 #[cfg(target_os = "android")]
-pub fn vibrate(strength: f32, millis: i32) {
+pub fn vibrate(strength: f32, millis: i32, _sharpness: f32) {
     if let Err(err) = crate::android::vibrate(strength, millis) {
         warn!("The phone could not vibrate: {err}");
     }
 }
 
-#[cfg(not(target_os = "android"))]
-pub fn vibrate(strength: f32, millis: i32) {
-    debug!(strength, millis, "Vibration is only wired on Android");
+#[cfg(target_os = "ios")]
+pub fn vibrate(strength: f32, millis: i32, sharpness: f32) {
+    crate::ios::vibrate(strength, millis, sharpness);
+}
+
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
+pub fn vibrate(strength: f32, millis: i32, sharpness: f32) {
+    debug!(strength, millis, sharpness, "Vibration is only wired on phones");
 }
 
 #[cfg(target_os = "android")]
@@ -183,7 +204,12 @@ pub fn cancel_vibration() {
     }
 }
 
-#[cfg(not(target_os = "android"))]
+#[cfg(target_os = "ios")]
+pub fn cancel_vibration() {
+    crate::ios::cancel_vibration();
+}
+
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 pub fn cancel_vibration() {}
 
 #[cfg(target_os = "android")]
@@ -191,7 +217,12 @@ pub fn has_vibrator() -> bool {
     crate::android::has_vibrator().inspect_err(|err| warn!("The vibrator could not be queried: {err}")).unwrap_or(false)
 }
 
-#[cfg(not(target_os = "android"))]
+#[cfg(target_os = "ios")]
+pub fn has_vibrator() -> bool {
+    crate::ios::has_vibrator()
+}
+
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 pub fn has_vibrator() -> bool {
     false
 }

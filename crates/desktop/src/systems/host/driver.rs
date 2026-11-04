@@ -763,6 +763,8 @@ impl Driver {
 
         let before = emulator::runtime::layout_snapshot(&mut self.ctx);
 
+        emulator::runtime::forget_insets(&mut self.ctx);
+
         self.ctx.device_screen_w = width as i32;
         self.ctx.device_screen_h = height as i32;
         self.profile.tablet.set(!self.phone);

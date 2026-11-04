@@ -8,7 +8,7 @@ use slint::{ComponentHandle, Timer, TimerMode};
 use tracing::{error, info, warn};
 
 use foundry::common::architecture::Workspace;
-use foundry::common::github;
+use foundry::common::github::{self, Offering};
 use foundry::domains::settings::UpdateMode;
 
 use crate::pages::Context;
@@ -16,26 +16,19 @@ use crate::{AppWindow, Tone, Updater, bridge, platform};
 
 const OWNER: &str = "omochikaeri15";
 const REPO: &str = "hagane";
-const ASSET: &str = "hagane-android-apk.zip";
 const APK: &str = "apk";
 const APK_MIME: &str = "application/vnd.android.package-archive";
 const CURRENT: &str = env!("CARGO_PKG_VERSION");
 const BANNER_MS: u64 = 2000;
 const CONFIRM_MS: u64 = 3000;
 
-#[derive(Clone)]
-struct Target {
-    version: String,
-    tag: String,
-}
-
 enum Status {
     Idle,
     Checking,
     Current,
-    Found(Target),
-    Downloading(Target, f32),
-    Ready(Target, String),
+    Found(Offering),
+    Downloading(Offering, f32),
+    Ready(Offering, String),
     Failed(String),
 }
 
@@ -61,33 +54,16 @@ impl State {
     }
 }
 
-fn found(manual: bool) -> Result<Option<Target>, String> {
-    let release = github::latest_release(OWNER, REPO).map_err(|err| err.to_string())?;
-    let Some(release) = release else {
-        return Ok(None);
-    };
-
-    if !release.is_versioned() || release.prerelease || !github::newer(CURRENT, release.version()) {
-        return Ok(None);
-    }
-
-    if platform::DOWNLOADS && !release.has_asset(ASSET) {
-        if manual {
-            info!(tag = release.tag_name, "The latest release ships no Android build");
-        }
-
-        return Ok(None);
-    }
-
-    Ok(Some(Target { version: release.version().to_owned(), tag: release.tag_name.clone() }))
+fn found() -> Result<Option<Offering>, String> {
+    github::newest_offering(OWNER, REPO, CURRENT).map_err(|err| err.to_string())
 }
 
-fn fetch(target: &Target, progress: &dyn Fn(f32)) -> Result<String, String> {
+fn fetch(target: &Offering, progress: &dyn Fn(f32)) -> Result<String, String> {
     let workspace = Workspace::claim("update").map_err(|err| format!("the update folder could not be prepared: {err}"))?;
-    let archive = workspace.path().join(ASSET);
+    let archive = workspace.path().join(github::TARGET.asset);
     let mut file = fs::File::create(&archive).map_err(|err| format!("the update could not be saved: {err}"))?;
 
-    github::download_asset(OWNER, REPO, &target.tag, ASSET, &mut file, &|done, total| {
+    github::download_asset(OWNER, REPO, &target.tag, github::TARGET.asset, &mut file, &|done, total| {
         progress(total.map_or(0.0, |total| done as f32 / total.max(1) as f32));
     })
     .map_err(|err| err.to_string())?;
@@ -291,7 +267,7 @@ fn check(ui: &AppWindow, state: &Shared, context: &Rc<Context>, manual: bool) {
     bridge::offload(
         ui,
         "update_check",
-        move || found(manual),
+        found,
         move |ui, outcome| {
             {
                 let mut held = landing.borrow_mut();
@@ -346,7 +322,7 @@ fn flash(ui: &AppWindow, state: &Shared, context: &Rc<Context>) {
     });
 }
 
-fn download(ui: &AppWindow, state: &Shared, context: &Rc<Context>, target: Target) {
+fn download(ui: &AppWindow, state: &Shared, context: &Rc<Context>, target: Offering) {
     let Some(tickets) = state.borrow().tickets else {
         return;
     };

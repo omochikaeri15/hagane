@@ -3,20 +3,37 @@
 use std::cell::RefCell;
 use std::path::Path;
 use std::ptr::NonNull;
+use std::sync::OnceLock;
+use std::sync::mpsc::{self, Receiver, Sender};
+use std::thread;
+use std::time::Duration;
 
 use objc2::rc::Retained;
 use objc2::runtime::ProtocolObject;
-use objc2::{DefinedClass, MainThreadMarker, MainThreadOnly, define_class, msg_send};
-use objc2_foundation::{NSArray, NSObject, NSObjectProtocol, NSString, NSURL};
-use objc2_ui_kit::{UIDocumentPickerDelegate, UIDocumentPickerViewController, UIViewController};
+use objc2::rc::autoreleasepool;
+use objc2::{AnyThread, DefinedClass, MainThreadMarker, MainThreadOnly, define_class, msg_send, sel};
+use objc2_core_haptics::{
+    CHHapticDeviceCapability, CHHapticEngine, CHHapticEvent, CHHapticEventParameter, CHHapticEventParameterIDHapticIntensity, CHHapticEventParameterIDHapticSharpness, CHHapticEventTypeHapticContinuous,
+    CHHapticEventTypeHapticTransient, CHHapticPattern, CHHapticPatternPlayer,
+};
+use objc2_foundation::{NSArray, NSError, NSObject, NSObjectProtocol, NSString, NSURL};
+use objc2_ui_kit::{UIDocumentPickerDelegate, UIDocumentPickerViewController, UIInterfaceOrientationMask, UIViewController, UIWindowSceneGeometryPreferencesIOS};
 use objc2_uniform_type_identifiers::UTType;
 use raw_window_handle::{HasWindowHandle, RawWindowHandle};
-use slint::ComponentHandle;
-use tracing::error;
+use slint::winit_030::WinitWindowAccessor;
+use slint::winit_030::winit::platform::ios::{ScreenEdge, ValidOrientations, WindowExtIOS};
+use slint::{ComponentHandle, Timer, Weak};
+use tracing::{error, warn};
 
 use crate::AppWindow;
+use crate::settings::Orientation;
 
 const ANY_ITEM: &str = "public.item";
+const WINDOW_TRIES: u32 = 25;
+const WINDOW_RETRY: Duration = Duration::from_millis(200);
+const TRANSIENT_BELOW_SECONDS: f64 = 0.03;
+const MILLIS_PER_SECOND: f64 = 1000.0;
+const IMMEDIATELY: f64 = 0.0;
 
 struct Ivars {
     request: i32,
@@ -56,6 +73,7 @@ impl PickerDelegate {
 
 thread_local! {
     static DELEGATE: RefCell<Option<Retained<PickerDelegate>>> = const { RefCell::new(None) };
+    static WINDOW: RefCell<Option<Weak<AppWindow>>> = const { RefCell::new(None) };
 }
 
 fn deliver(request: i32, paths: Option<Vec<String>>) {
@@ -110,6 +128,186 @@ pub fn save(ui: &AppWindow, path: &Path, request: i32) -> Result<(), String> {
     let presenter = presenter(ui)?;
 
     presenter.presentViewController_animated_completion(&picker, true, None);
+
+    Ok(())
+}
+
+pub fn watch_window(window: &AppWindow) {
+    WINDOW.with(|held| *held.borrow_mut() = Some(window.as_weak()));
+}
+
+pub fn set_fullscreen(fullscreen: bool) -> Result<(), String> {
+    apply_fullscreen(fullscreen, WINDOW_TRIES)
+}
+
+fn apply_fullscreen(fullscreen: bool, tries: u32) -> Result<(), String> {
+    let ui = WINDOW.with(|held| held.borrow().as_ref().and_then(Weak::upgrade)).ok_or("the window is gone")?;
+    let edges = if fullscreen { ScreenEdge::ALL } else { ScreenEdge::NONE };
+    let applied = ui.window().with_winit_window(|window| {
+        window.set_prefers_status_bar_hidden(fullscreen);
+        window.set_prefers_home_indicator_hidden(fullscreen);
+        window.set_preferred_screen_edges_deferring_system_gestures(edges);
+    });
+
+    if applied.is_some() {
+        return Ok(());
+    }
+
+    if tries == 0 {
+        return Err("the window never appeared".to_owned());
+    }
+
+    Timer::single_shot(WINDOW_RETRY, move || {
+        if let Err(err) = apply_fullscreen(fullscreen, tries - 1) {
+            warn!("The system bars could not be changed: {err}");
+        }
+    });
+
+    Ok(())
+}
+
+enum Haptic {
+    Play { strength: f32, seconds: f64, sharpness: f32 },
+    Cancel,
+}
+
+static HAPTICS: OnceLock<Option<Sender<Haptic>>> = OnceLock::new();
+
+fn haptics() -> Option<&'static Sender<Haptic>> {
+    HAPTICS
+        .get_or_init(|| {
+            let (sender, requests) = mpsc::channel();
+
+            thread::Builder::new()
+                .name("haptics".to_owned())
+                .spawn(move || run_haptics(&requests))
+                .inspect_err(|err| error!("The haptics thread could not be started: {err}"))
+                .ok()
+                .map(|_| sender)
+        })
+        .as_ref()
+}
+
+fn run_haptics(requests: &Receiver<Haptic>) {
+    let mut engine = None;
+    let mut playing: Option<Retained<ProtocolObject<dyn CHHapticPatternPlayer>>> = None;
+
+    while let Ok(first) = requests.recv() {
+        let latest = requests.try_iter().last().unwrap_or(first);
+
+        autoreleasepool(|_| {
+            if let Some(player) = playing.take() {
+                let _ = unsafe { player.cancelAndReturnError() };
+            }
+
+            if let Haptic::Play { strength, seconds, sharpness } = latest {
+                playing = play_haptic(&mut engine, strength, seconds, sharpness).inspect_err(|err| warn!("The phone could not vibrate: {err}")).ok();
+            }
+        });
+    }
+}
+
+fn play_haptic(engine: &mut Option<Retained<CHHapticEngine>>, strength: f32, seconds: f64, sharpness: f32) -> Result<Retained<ProtocolObject<dyn CHHapticPatternPlayer>>, Retained<NSError>> {
+    unsafe {
+        let held = match engine.take() {
+            Some(held) => held,
+            None => {
+                let made = CHHapticEngine::initAndReturnError(CHHapticEngine::alloc())?;
+
+                made.setPlaysHapticsOnly(true);
+                made.setAutoShutdownEnabled(true);
+                made
+            }
+        };
+
+        held.startAndReturnError()?;
+
+        let parameters = NSArray::from_retained_slice(&[
+            CHHapticEventParameter::initWithParameterID_value(CHHapticEventParameter::alloc(), CHHapticEventParameterIDHapticIntensity, strength),
+            CHHapticEventParameter::initWithParameterID_value(CHHapticEventParameter::alloc(), CHHapticEventParameterIDHapticSharpness, sharpness),
+        ]);
+        let event = if seconds < TRANSIENT_BELOW_SECONDS {
+            CHHapticEvent::initWithEventType_parameters_relativeTime(CHHapticEvent::alloc(), CHHapticEventTypeHapticTransient, &parameters, IMMEDIATELY)
+        } else {
+            CHHapticEvent::initWithEventType_parameters_relativeTime_duration(CHHapticEvent::alloc(), CHHapticEventTypeHapticContinuous, &parameters, IMMEDIATELY, seconds)
+        };
+        let pattern = CHHapticPattern::initWithEvents_parameters_error(CHHapticPattern::alloc(), &NSArray::from_retained_slice(&[event]), &NSArray::new())?;
+        let player = held.createPlayerWithPattern_error(&pattern)?;
+
+        player.startAtTime_error(IMMEDIATELY)?;
+        *engine = Some(held);
+
+        Ok(player)
+    }
+}
+
+pub fn vibrate(strength: f32, millis: i32, sharpness: f32) {
+    if !has_vibrator() {
+        return;
+    }
+
+    let request = Haptic::Play { strength, seconds: f64::from(millis) / MILLIS_PER_SECOND, sharpness };
+
+    if haptics().is_some_and(|sender| sender.send(request).is_err()) {
+        warn!("The haptics thread is gone");
+    }
+}
+
+pub fn cancel_vibration() {
+    if haptics().is_some_and(|sender| sender.send(Haptic::Cancel).is_err()) {
+        warn!("The haptics thread is gone");
+    }
+}
+
+pub fn has_vibrator() -> bool {
+    static SUPPORTED: OnceLock<bool> = OnceLock::new();
+
+    *SUPPORTED.get_or_init(|| unsafe { CHHapticEngine::capabilitiesForHardware().supportsHaptics() })
+}
+
+pub fn set_orientation(orientation: Orientation) -> Result<(), String> {
+    apply_orientation(orientation, WINDOW_TRIES)
+}
+
+fn apply_orientation(orientation: Orientation, tries: u32) -> Result<(), String> {
+    let ui = WINDOW.with(|held| held.borrow().as_ref().and_then(Weak::upgrade)).ok_or("the window is gone")?;
+    let (valid, mask) = match orientation {
+        Orientation::Automatic => (ValidOrientations::LandscapeAndPortrait, UIInterfaceOrientationMask::AllButUpsideDown),
+        Orientation::Portrait => (ValidOrientations::Portrait, UIInterfaceOrientationMask::Portrait),
+        Orientation::Landscape => (ValidOrientations::Landscape, UIInterfaceOrientationMask::Landscape),
+    };
+
+    if ui.window().with_winit_window(|window| window.set_valid_orientations(valid)).is_some() {
+        return rotate_scene(&ui, mask);
+    }
+
+    if tries == 0 {
+        return Err("the window never appeared".to_owned());
+    }
+
+    Timer::single_shot(WINDOW_RETRY, move || {
+        if let Err(err) = apply_orientation(orientation, tries - 1) {
+            warn!("The screen orientation could not be changed: {err}");
+        }
+    });
+
+    Ok(())
+}
+
+fn rotate_scene(ui: &AppWindow, mask: UIInterfaceOrientationMask) -> Result<(), String> {
+    let mtm = MainThreadMarker::new().ok_or("the orientation must change on the main thread")?;
+    let controller = presenter(ui)?;
+    let scene = controller.view().and_then(|view| view.window()).and_then(|window| window.windowScene()).ok_or("the window has no scene")?;
+
+    if !scene.respondsToSelector(sel!(requestGeometryUpdateWithPreferences:errorHandler:)) {
+        return Ok(());
+    }
+
+    controller.setNeedsUpdateOfSupportedInterfaceOrientations();
+
+    let preferences = UIWindowSceneGeometryPreferencesIOS::initWithInterfaceOrientations(mtm.alloc(), mask);
+
+    scene.requestGeometryUpdateWithPreferences_errorHandler(&preferences, None);
 
     Ok(())
 }

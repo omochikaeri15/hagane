@@ -16,6 +16,7 @@ use foundry::domains::settings::ReplaySource;
 use super::assets::{DiskAssets, FileIndex, SheetCache};
 use super::diagnostics::Diagnostics;
 use super::driver::{Driver, Label};
+use super::gpu;
 use super::input::TouchQueue;
 use super::sink::Frame;
 
@@ -29,7 +30,7 @@ const EARLY_STEP: Duration = Duration::from_millis(1);
 const MOST_STEPS: u32 = 4;
 const PRESENT_PATIENCE: Duration = Duration::from_secs(2);
 const TURN_PATIENCE: Duration = Duration::from_secs(2);
-const TURN_SETTLE: Duration = Duration::from_millis(150);
+const TURN_SETTLE: Duration = Duration::from_millis(300);
 const SLOW_STEP: Duration = Duration::from_millis(100);
 
 struct Opened {
@@ -113,6 +114,8 @@ pub(super) struct Session {
     due: Option<Instant>,
     held_since: Option<Instant>,
     opens_at: Option<Instant>,
+    curtain_seen: u64,
+    curtain_stepped: Instant,
     lag: Lag,
     failure: Option<String>,
     stale: bool,
@@ -141,6 +144,8 @@ impl Session {
             due: None,
             held_since: None,
             opens_at: None,
+            curtain_seen: 0,
+            curtain_stepped: Instant::now(),
             lag: Lag::default(),
             failure: None,
             reel: None,
@@ -442,18 +447,28 @@ impl Session {
                 if let Some(opens_at) = self.opens_at {
                     if Instant::now() < opens_at {
                         self.sweep = CLOSED_FRAME;
-                        self.driver.draw_exit_curtain(self.sweep);
+                        self.driver.draw_curtain(self.sweep);
 
                         return true;
                     }
 
                     self.opens_at = None;
-                    self.started = Instant::now();
-
-                    return true;
+                    self.curtain_seen = gpu::presented().wrapping_sub(1);
+                    self.curtain_stepped = Instant::now();
                 }
 
-                self.sweep = CLOSED_FRAME + 1 + elapsed;
+                let waited = self.curtain_stepped.elapsed();
+                let seen = gpu::presented();
+
+                if !(waited >= PRESENT_PATIENCE || (waited >= FRAME_TIME && seen != self.curtain_seen)) {
+                    return false;
+                }
+
+                let now = Instant::now();
+
+                self.curtain_seen = seen;
+                self.curtain_stepped = (self.curtain_stepped + FRAME_TIME).max(now.checked_sub(FRAME_TIME).unwrap_or(now));
+                self.sweep += 1;
 
                 if self.sweep > LAST_FRAME {
                     self.phase = Phase::Idle;
@@ -474,7 +489,7 @@ impl Session {
                     return true;
                 }
 
-                self.driver.draw_exit_curtain(self.sweep);
+                self.driver.draw_curtain(self.sweep);
 
                 true
             }

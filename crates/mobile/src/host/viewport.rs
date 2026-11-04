@@ -1,7 +1,9 @@
+use std::cell::RefCell;
+use std::collections::BTreeSet;
 use std::ops::Range;
 use std::sync::Arc;
 
-use tracing::debug;
+use tracing::warn;
 
 use foundry::systems::raster::{self, Alpha, Batch, Texture, Vertex};
 
@@ -14,6 +16,10 @@ const BAR_COLOR: [f32; 4] = [0.0, 0.0, 0.0, 1.0];
 const UNTINTED: [f32; 4] = [0.0; 4];
 const PLAY_HEIGHT: f32 = 720.0;
 const CLEARED: [u8; 4] = [0, 0, 0, 0];
+
+thread_local! {
+    static REPORTED: RefCell<BTreeSet<Box<str>>> = const { RefCell::new(BTreeSet::new()) };
+}
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Canvas {
@@ -67,7 +73,7 @@ fn compose(frame: &Frame, sheets: &SheetCache, canvas: Canvas, width: f32, heigh
     let mut vertices: Vec<Vertex> = Vec::with_capacity(frame.quads.len() * 6 + 36);
     let mut runs: Vec<Run> = Vec::new();
     let surface = |cx: f32, cy: f32| Vertex { position: [cx / width * 2.0 - 1.0, 1.0 - cy / height * 2.0], uv: [0.0, 0.0], color: BAR_COLOR, tint: UNTINTED };
-    let mut absent: Vec<&str> = Vec::new();
+    let mut absent: Vec<(&str, [f32; 4])> = Vec::new();
     let resolved: Vec<Option<(&str, (u32, u32))>> = frame.sheets.iter().map(|name| sheets.get(name).map(|sheet| (name.as_ref(), (sheet.width, sheet.height)))).collect();
 
     for quad in &frame.quads {
@@ -84,9 +90,9 @@ fn compose(frame: &Frame, sheets: &SheetCache, canvas: Canvas, width: f32, heigh
 
         if let Some(name) = frame.sheet(quad)
             && sheet.is_none()
-            && !absent.contains(&name)
+            && !absent.iter().any(|(seen, _)| *seen == name)
         {
-            absent.push(name);
+            absent.push((name, quad.colors[0]));
         }
 
         let key = sheet.map(|(name, _)| name);
@@ -135,8 +141,10 @@ fn compose(frame: &Frame, sheets: &SheetCache, canvas: Canvas, width: f32, heigh
         runs.push(Run { sheet: None, blend: 0, range: start..end });
     }
 
-    if !absent.is_empty() {
-        debug!("emu: {} sheets drawn but never decoded: {absent:?}", absent.len());
+    for (name, color) in absent {
+        if REPORTED.with(|seen| seen.borrow_mut().insert(Box::from(name))) {
+            warn!(sheet = name, ?color, "emu: a sheet was drawn before it was decoded, so it shows as a solid block");
+        }
     }
 
     (vertices, runs)

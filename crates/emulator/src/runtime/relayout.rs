@@ -74,6 +74,15 @@ pub fn layout_snapshot(ctx: &mut AppContext) -> Result<Layout, Fault> {
     })
 }
 
+pub fn forget_insets(ctx: &mut AppContext) {
+    let metrics = &mut ctx.screen_metrics;
+
+    metrics.inset_left = 0;
+    metrics.inset_top = 0;
+    metrics.inset_right = 0;
+    metrics.inset_bottom = 0;
+}
+
 const LATCHED: [(usize, Across, Down); 26] = [
     (AppContext::CANNON_RECT, Across::Inset(-0x92), Down::Corner(0x1fe)),
     (AppContext::WORKER_RECT, Across::Left(-0x30), Down::Corner(0x207)),

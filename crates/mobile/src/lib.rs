@@ -49,6 +49,11 @@ pub fn run(home: DataHome) -> Result<(), PlatformError> {
         android::watch_window(&window);
     }
 
+    #[cfg(target_os = "ios")]
+    {
+        ios::watch_window(&window);
+    }
+
     host::install_renderer(&window);
     platform::set_fullscreen(state.fullscreen());
     platform::set_orientation(state.orientation());

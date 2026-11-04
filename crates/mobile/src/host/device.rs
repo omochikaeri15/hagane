@@ -1,18 +1,44 @@
-use emulator::engine::Platform;
+use emulator::engine::{AssetSource, Platform};
 use emulator::runtime::InertPlatform;
 
 use crate::platform;
 
+use super::assets::DiskAssets;
+
 const MILLIS_PER_SECOND: f64 = 1000.0;
+const VIBRATION_FILE: &[u8] = b"Vibration.csv";
+const IOS_KIND: f64 = 0.0;
+const SHORTEST_SECONDS: f64 = 0.02;
+const DEFAULT_SHARPNESS: f64 = 0.5;
+const SAME: f64 = 1e-6;
 
 pub(super) struct DevicePlatform {
     inert: InertPlatform,
+    assets: DiskAssets,
+    rows: Option<Vec<[f64; 5]>>,
 }
 
 impl DevicePlatform {
-    pub(super) fn new(inert: InertPlatform) -> Self {
-        Self { inert }
+    pub(super) fn new(inert: InertPlatform, assets: DiskAssets) -> Self {
+        Self { inert, assets, rows: None }
     }
+
+    fn ios_row(&mut self, strength: f64, seconds: f64) -> (f64, f64, f64) {
+        let rows = self.rows.get_or_insert_with(|| self.assets.open(VIBRATION_FILE, 0, 0).map_or_else(Vec::new, |bytes| rows(&String::from_utf8_lossy(&bytes))));
+
+        ios_twin(rows, strength, seconds).unwrap_or((strength, seconds, DEFAULT_SHARPNESS))
+    }
+}
+
+fn rows(csv: &str) -> Vec<[f64; 5]> {
+    csv.lines().map_while(|line| line.split(',').map(|cell| cell.trim().parse().ok()).collect::<Option<Vec<f64>>>()?.try_into().ok()).collect()
+}
+
+fn ios_twin(rows: &[[f64; 5]], strength: f64, seconds: f64) -> Option<(f64, f64, f64)> {
+    let same = |left: f64, right: f64| (left - right).abs() < SAME;
+    let [id, ..] = rows.iter().find(|[_, kind, power, millis, _]| *kind != IOS_KIND && same(*power, strength) && same((millis / MILLIS_PER_SECOND).max(SHORTEST_SECONDS), seconds))?;
+
+    rows.iter().find(|[row, kind, ..]| row == id && *kind == IOS_KIND).map(|[_, _, power, millis, sharpness]| (*power, millis / MILLIS_PER_SECOND, *sharpness))
 }
 
 impl Platform for DevicePlatform {
@@ -53,7 +79,9 @@ impl Platform for DevicePlatform {
     }
 
     fn vibrate(&mut self, delay: f64, duration: f64, _amplitude: f64) {
-        platform::vibrate(delay as f32, (duration * MILLIS_PER_SECOND) as i32);
+        let (strength, seconds, sharpness) = if cfg!(target_os = "ios") { self.ios_row(delay, duration) } else { (delay, duration, DEFAULT_SHARPNESS) };
+
+        platform::vibrate(strength as f32, (seconds * MILLIS_PER_SECOND) as i32, sharpness as f32);
     }
 
     fn cancel_vibration(&mut self) {
@@ -166,5 +194,20 @@ impl Platform for DevicePlatform {
 
     fn localize(&mut self, text: &[u8]) -> Vec<u8> {
         self.inert.localize(text)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // The engine only ever hands over the Android row, so iOS finds its own through the shared id.
+    #[test]
+    fn an_android_row_finds_the_ios_row_with_its_id() {
+        let table = rows("0,0,0,0,1\n0,1,0,0,-1\n7,0,0.5,3,0.9\n7,1,0.25,40,-1\n8,0,0.1,50,0.2\n8,1,0.6,10,-1\n");
+
+        assert_eq!(ios_twin(&table, 0.25, 0.04), Some((0.5, 0.003, 0.9)));
+        assert_eq!(ios_twin(&table, 0.6, SHORTEST_SECONDS), Some((0.1, 0.05, 0.2)));
+        assert_eq!(ios_twin(&table, 0.9, 1.0), None);
     }
 }

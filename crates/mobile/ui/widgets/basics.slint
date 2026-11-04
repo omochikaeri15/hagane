@@ -466,6 +466,7 @@ export component Toast inherits Rectangle {
     width: 100%;
     height: panel.height;
     background: transparent;
+    clip: true;
     panel := Rectangle {
         width: min(body.preferred-width, root.width - 16px);
         height: body.preferred-height;

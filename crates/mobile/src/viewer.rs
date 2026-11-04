@@ -35,6 +35,7 @@ const WHEEL_LINE_PIXELS: f32 = 0.6;
 const FRAME_ADVANCE_PER_TICK: f32 = 0.5;
 const TICK_MS: f64 = 1000.0 / 60.0;
 const LONGEST_TICK_MS: f64 = 100.0;
+const HOLD_OLD_FRAME: Duration = Duration::from_millis(500);
 const HOLD_DELAY_MS: f64 = 200.0;
 const HOLD_FRAMES_PER_SEC: f32 = 30.0;
 const CULL_SCALE: f32 = 100.0;
@@ -97,6 +98,7 @@ pub struct State {
     reach: Option<Reach>,
     pixels: Vec<u8>,
     gpu_sheet: Option<(Arc<Rig>, Arc<[u8]>)>,
+    waiting_since: Option<Instant>,
     active: bool,
     timer: Timer,
     export: export::Form,
@@ -265,6 +267,7 @@ impl State {
             reach: None,
             pixels: Vec::new(),
             gpu_sheet: None,
+            waiting_since: None,
             active: false,
             timer: Timer::default(),
             export: export::Form::default(),
@@ -722,7 +725,6 @@ fn show(ui: &AppWindow, context: &Rc<Context>, key: String, build: impl FnOnce()
             state.clamp_frame();
         }
 
-        ui.global::<Viewer>().set_frame(Image::default());
         load_selected(ui, context);
         export::synced(ui, context);
     }
@@ -938,10 +940,23 @@ fn tick(ui: &AppWindow, context: &Rc<Context>) {
         return;
     }
 
+    let complete = anim.is_some() || state.is_model();
+
+    if rig.is_some() && complete {
+        state.waiting_since = None;
+    } else if now.duration_since(*state.waiting_since.get_or_insert(now)) < HOLD_OLD_FRAME {
+        drop(state);
+
+        if controls_dirty {
+            sync_controls(ui, context);
+        }
+
+        return;
+    }
+
     state.last_stamp = Some(stamp);
 
     let view = state.view();
-    let complete = anim.is_some() || state.is_model();
     let (width, height) = pixels;
     let camera = scene::camera(&view, state.selecting, state.region);
     let mut frames: Vec<FrameData> = Vec::new();

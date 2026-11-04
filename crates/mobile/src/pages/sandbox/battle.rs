@@ -335,11 +335,12 @@ pub fn event(ui: &AppWindow, state: &Shared, context: &Rc<Context>, event: Event
                         let mut held = state.borrow_mut();
                         let (width, height) = held.battle.bounds;
                         let wide = width > height;
-                        let settled = match orientation {
-                            Orientation::Automatic => true,
-                            Orientation::Portrait => !wide,
-                            Orientation::Landscape => wide,
-                        };
+                        let settled = !platform::ORIENTATION_ENFORCED
+                            || match orientation {
+                                Orientation::Automatic => true,
+                                Orientation::Portrait => !wide,
+                                Orientation::Landscape => wide,
+                            };
 
                         held.battle.turning = (!settled).then_some(!wide);
 
@@ -357,6 +358,7 @@ pub fn event(ui: &AppWindow, state: &Shared, context: &Rc<Context>, event: Event
             let image = Image::from_rgba8_premultiplied(SharedPixelBuffer::<Rgba8Pixel>::clone_from_slice(&painted.pixels, painted.width, painted.height));
             let mut held = state.borrow_mut();
 
+            host::note_presented();
             held.battle.blackout = false;
             held.battle.frame = Some(image);
             held.battle.canvas = painted.canvas;

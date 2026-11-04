@@ -32,9 +32,16 @@ pub fn load(owner: &str, repo: &str, current_version: &str) -> Result<Vec<(Strin
 }
 
 fn store(releases: Vec<github::Release>) -> Vec<(String, String)> {
-    let entries: Vec<(String, String)> = releases
+    let entries = entries(releases, &github::TARGET);
+
+    cache::write::<Cache>(UNKEYED, &entries);
+    entries
+}
+
+fn entries(releases: Vec<github::Release>, target: &github::Target) -> Vec<(String, String)> {
+    releases
         .into_iter()
-        .filter(github::Release::is_versioned)
+        .filter(|release| release.is_versioned() && release.offers(target))
         .map(|release| {
             let version = release.version().to_string();
             let notes = release
@@ -44,8 +51,27 @@ fn store(releases: Vec<github::Release>) -> Vec<(String, String)> {
 
             (version, notes)
         })
-        .collect();
+        .collect()
+}
 
-    cache::write::<Cache>(UNKEYED, &entries);
-    entries
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_release_without_this_target_has_no_entry() {
+        let target = github::Target { asset: "hagane-mine.zip", former: &["bcc_mine.zip"] };
+        let releases: Vec<github::Release> = serde_json::from_str(
+            r#"[
+                {"tag_name": "v3.0.0", "body": "other only", "assets": [{"name": "hagane-other.zip"}]},
+                {"tag_name": "v2.9.0", "body": "ours", "assets": [{"name": "hagane-mine.zip"}]},
+                {"tag_name": "v2.8.0", "body": "  ", "assets": [{"name": "bcc_mine.zip"}]},
+                {"tag_name": "v0.2.0", "body": "no builds at all", "assets": []},
+                {"tag_name": "tools", "body": "not a version", "assets": [{"name": "hagane-mine.zip"}]}
+            ]"#,
+        )
+        .unwrap();
+
+        assert_eq!(entries(releases, &target), [("2.9.0".to_owned(), "ours".to_owned()), ("2.8.0".to_owned(), "No notes.".to_owned())]);
+    }
 }
