@@ -1,5 +1,5 @@
 # Hagane
-Suite built for a tower-defense cat game.
+Suite for a tower-defense cat game.
 
 # Desktop
 All features, often faster speeds, and highest capabilities, requires the most set-up.
