@@ -1,13 +1,13 @@
 # Hagane
 Suite for a tower-defense cat game.
 
-# Desktop
+## Desktop
 All features, often faster speeds, and highest capabilities, requires the most set-up.
 
-## Usage
+### Usage
 You must provide files for Hagane to read. These files are not included in the app or repository; they must be obtained through your own personal and legal means.
 
-### Setup
+#### Setup
 Hagane requires two additional third-party resources to unlock full functionality. Without these, the apps capabilities are limited:
 - Rooted Android device/emulator that is not Bluestacks and can run the cat game.
 - Legally obtained Decryption Keys and Initialization Vectors for every region.
@@ -28,24 +28,24 @@ Because Hagane is not signed with a paid certificate, your OS may flag it on the
 >
 > To fix this, type the following command in Terminal: `xattr -cr`, then drag the app binary into the terminal window to auto-fill the path.
 
-# Mobile
-Some features, same platform, but requires some set-up.
+## Mobile
+Some features, same platform, but requires some set-up. Note that `iOS` has less capabilities than `Android`.
 
-## Usage
+### Usage
 You must provide files for Hagane to read. These files are not included in the app or repository; they must be obtained through your own personal and legal means.
 
-### Setup
+#### Setup
 Hagane requires two additional resources to unlock full functionality. Without these, the apps capabilities are limited:
 - Device that Hagane is installed on is rooted with `su` permissions.
 - Legally obtained Decryption Keys and Initialization Vectors for every region.
 
-# Website
+## Website
 Least features, but better compatibility, and most accesssible while requiring no set-up.
 
-## Usage
+### Usage
 Simply visit [hagane.app](https://hagane.app).
 
-### Legal
+## Legal
 > This tool is not affiliated with, endorsed by, or sponsored by PONOS Corp. This project is for educational purposes only. Assets are copyright PONOS Corp. Please support the official release.
 > 
 > This applcation is intended to be used with legally obtained files, keys, IV, and APKs only. Make sure to recieve explicit permission from PONOS Corp. to use their data and assets.
