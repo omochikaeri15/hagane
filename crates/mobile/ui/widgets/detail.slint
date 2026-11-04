@@ -76,7 +76,7 @@ export component TipIcon inherits Rectangle {
     width: root.size;
     height: root.size;
     IconBox { icon: root.icon; size: root.size; }
-    TouchArea {
+    TouchArea { enabled: !Shell.swiping;
         clicked => { root.tapped(); }
     }
 }
@@ -107,7 +107,7 @@ export component AbilityRows inherits VerticalLayout {
                 width: parent.width;
                 height: parent.height;
             }
-            TouchArea { clicked => { root.conjure-toggled(); } }
+            TouchArea { enabled: !Shell.swiping; clicked => { root.conjure-toggled(); } }
         }
     }
 }
@@ -124,7 +124,7 @@ export component IconRow inherits Rectangle {
             width: root.size;
             height: root.size;
             IconBox { icon: item; size: root.size; }
-            TouchArea { clicked => { root.open = root.open == index ? -1 : index; } }
+            TouchArea { enabled: !Shell.swiping; clicked => { root.open = root.open == index ? -1 : index; } }
         }
     }
     if root.open >= 0 && root.open < root.items.length: Tip {
@@ -212,7 +212,7 @@ export component HeaderToggle inherits Rectangle {
         if root.symbol != "": Text { text: root.symbol; color: root.ink; font-size: 13px; font-family: "Miscellaneous-Symbols"; vertical-alignment: center; }
     }
     ta := TouchArea {
-        enabled: root.available;
+        enabled: (root.available) && !Shell.swiping;
         clicked => { root.clicked(); }
     }
 }

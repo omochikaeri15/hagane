@@ -457,12 +457,28 @@ pub fn smallest_width_dp() -> Result<i32, String> {
     })
 }
 
-pub fn output_rate() -> Result<u32, String> {
-    let rate = with_glue("the output sample rate could not be read", |env, activity, class| {
-        env.call_static_method(class, "outputRate", "(Landroid/app/Activity;)I", &[JValue::Object(activity)]).and_then(|value| value.i())
-    })?;
+pub fn vibrate(strength: f32, millis: i32) -> Result<(), String> {
+    with_glue("the phone could not vibrate", |env, activity, class| {
+        env.call_static_method(class, "vibrate", "(Landroid/app/Activity;FI)V", &[JValue::Object(activity), JValue::Float(strength), JValue::Int(millis)]).map(drop)
+    })
+}
 
-    Ok(u32::try_from(rate).unwrap_or_default())
+pub fn cancel_vibration() -> Result<(), String> {
+    with_glue("the vibration could not be cancelled", |env, activity, class| {
+        env.call_static_method(class, "cancelVibration", "(Landroid/app/Activity;)V", &[JValue::Object(activity)]).map(drop)
+    })
+}
+
+pub fn has_vibrator() -> Result<bool, String> {
+    with_glue("the vibrator could not be queried", |env, activity, class| {
+        env.call_static_method(class, "hasVibrator", "(Landroid/app/Activity;)Z", &[JValue::Object(activity)]).and_then(|value| value.z())
+    })
+}
+
+pub fn has_mouse() -> Result<bool, String> {
+    with_glue("the input devices could not be read", |env, _activity, class| {
+        env.call_static_method(class, "hasMouse", "()Z", &[]).and_then(|value| value.z())
+    })
 }
 
 pub fn copy_document(uri: &str, folder: &Path) -> Result<PathBuf, String> {

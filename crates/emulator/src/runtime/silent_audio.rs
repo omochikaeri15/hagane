@@ -5,6 +5,8 @@ use crate::engine::{AudioHost, AudioSource, SoundData};
 pub struct SilentAudio;
 
 impl AudioHost for SilentAudio {
+    fn resume_all(&mut self) {}
+
     fn active_sources(&mut self) -> i32 {
         0
     }

@@ -32,6 +32,15 @@ pub trait Platform {
     fn event_schedule_active(&mut self, now: f64) -> Vec<Vec<i32>>;
     fn config_json_int(&mut self, section: &[u8], name: &[u8]) -> Option<i32>;
     fn notification_schedule(&mut self, flag: u8, kind: i32);
+    fn tapjoy_showing(&mut self) -> bool;
+    fn expedition_notification_schedule(&mut self, kind: i32, flag: u8, cancel: u8);
+    fn onegai_notification_schedule(&mut self, flag: u8, cancel: u8);
+    fn event_calendar_notification_schedule(&mut self, flag: u8, cancel: u8);
+    fn comeback_notification_schedule(&mut self, flag: u8, cancel: u8);
+    fn time_manager_request(&mut self);
+    fn inquiry_code(&mut self) -> Vec<u8>;
+    fn adjust_track_event(&mut self, token: &[u8], value: &[u8]);
+    fn localize(&mut self, text: &[u8]) -> Vec<u8>;
 }
 
 pub fn set_keep_awake(ctx: &mut AppContext, awake: u8) -> Result<(), Fault> {

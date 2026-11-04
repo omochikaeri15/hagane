@@ -1,3 +1,4 @@
+import { Shell } from "../shell.slint";
 import { Theme } from "../theme.slint";
 import { SwipeGuard } from "../shell.slint";
 import { Btn, Tone, Input, Combo, Label, Rule, Workspace, Card, Dialog } from "../widgets/basics.slint";
@@ -136,7 +137,7 @@ component BackdropViewer inherits Rectangle {
                 root.pinch-scale = self.scale;
             }
         }
-        TouchArea {
+        TouchArea { enabled: !Shell.swiping;
             pointer-event(event) => {
                 if event.kind == PointerEventKind.down {
                     root.last-x = self.mouse-x;
@@ -172,7 +173,7 @@ component BackdropViewer inherits Rectangle {
         border-top-left-radius: Theme.radius-lg;
         border-top-right-radius: Theme.radius-lg;
         clip: true;
-        TouchArea { }
+        TouchArea { enabled: !Shell.swiping; }
         body := VerticalLayout {
             padding: 8px;
             padding-bottom: 0px;
@@ -180,7 +181,7 @@ component BackdropViewer inherits Rectangle {
             Rectangle {
                 height: 18px;
                 Text { text: Backdrop.controls-expanded ? "\u{25bc}" : "\u{25b2}"; color: Theme.text; font-size: 14px; font-weight: 700; font-family: "Miscellaneous-Symbols"; horizontal-alignment: center; vertical-alignment: center; width: parent.width; height: parent.height; }
-                TouchArea { clicked => { Backdrop.controls-expanded = !Backdrop.controls-expanded; } }
+                TouchArea { enabled: !Shell.swiping; clicked => { Backdrop.controls-expanded = !Backdrop.controls-expanded; } }
             }
             Rectangle { height: 1phx; background: Theme.bg-strong; }
             HorizontalLayout {
@@ -206,13 +207,13 @@ component BackdropViewer inherits Rectangle {
                         Rectangle {
                             width: 30px; height: 28px; border-radius: Theme.radius-sm; background: Theme.bg-strong;
                             Text { text: "\u{25c0}"; color: Theme.text; font-family: "Miscellaneous-Symbols"; font-size: 14px; horizontal-alignment: center; vertical-alignment: center; width: parent.width; height: parent.height; }
-                            TouchArea { pointer-event(event) => { if event.kind == PointerEventKind.down { Backdrop.hold(-1); } else if event.kind == PointerEventKind.up || event.kind == PointerEventKind.cancel { Backdrop.release(); } } }
+                            TouchArea { enabled: !Shell.swiping; pointer-event(event) => { if event.kind == PointerEventKind.down { Backdrop.hold(-1); } else if event.kind == PointerEventKind.up || event.kind == PointerEventKind.cancel { Backdrop.release(); } } }
                         }
                         Input { width: 80px; height: 28px; text-size: 14px; align: center; placeholder: "0"; enabled: Backdrop.loaded; text: Backdrop.frame-text; edited(value) => { Backdrop.set-frame(value); } }
                         Rectangle {
                             width: 30px; height: 28px; border-radius: Theme.radius-sm; background: Theme.bg-strong;
                             Text { text: "\u{25b6}"; color: Theme.text; font-family: "Miscellaneous-Symbols"; font-size: 14px; horizontal-alignment: center; vertical-alignment: center; width: parent.width; height: parent.height; }
-                            TouchArea { pointer-event(event) => { if event.kind == PointerEventKind.down { Backdrop.hold(1); } else if event.kind == PointerEventKind.up || event.kind == PointerEventKind.cancel { Backdrop.release(); } } }
+                            TouchArea { enabled: !Shell.swiping; pointer-event(event) => { if event.kind == PointerEventKind.down { Backdrop.hold(1); } else if event.kind == PointerEventKind.up || event.kind == PointerEventKind.cancel { Backdrop.release(); } } }
                         }
                     }
                     Rectangle { width: 144px; height: 28px; background: Theme.bg-weak; border-width: 1px; border-color: Theme.bg-strong; border-radius: Theme.radius-sm; Text { text: Backdrop.frame-text; color: Theme.text; font-size: 14px; horizontal-alignment: center; vertical-alignment: center; width: parent.width; height: parent.height; } }

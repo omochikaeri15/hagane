@@ -206,6 +206,10 @@ impl Stage {
         true
     }
 
+    fn wait(&self) -> Duration {
+        self.session.as_ref().and_then(Session::until_due).map_or(TICK, |left| left.min(TICK))
+    }
+
     fn running(&self) -> bool {
         self.session.as_ref().is_some_and(Session::running)
     }
@@ -305,7 +309,7 @@ impl Arena {
             info!("emu: the battle thread is up");
 
             loop {
-                let command = if stage.running() && !stage.held { receiver.recv_timeout(TICK) } else { receiver.recv().map_err(|_| RecvTimeoutError::Disconnected) };
+                let command = if stage.running() && !stage.held { receiver.recv_timeout(stage.wait()) } else { receiver.recv().map_err(|_| RecvTimeoutError::Disconnected) };
 
                 match command {
                     Ok(command) => {

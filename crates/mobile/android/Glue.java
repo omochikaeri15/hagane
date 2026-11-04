@@ -10,13 +10,15 @@ import android.content.Intent;
 import android.database.Cursor;
 import android.graphics.Color;
 import android.graphics.Rect;
-import android.media.AudioManager;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Environment;
+import android.os.VibrationEffect;
+import android.os.Vibrator;
 import android.provider.DocumentsContract;
 import android.provider.OpenableColumns;
 import android.util.Log;
+import android.view.InputDevice;
 import android.view.View;
 import android.view.Window;
 import android.view.WindowInsets;
@@ -164,17 +166,36 @@ public class Glue extends Fragment {
         return activity.getResources().getConfiguration().smallestScreenWidthDp;
     }
 
-    public static int outputRate(Activity activity) {
-        AudioManager manager = (AudioManager) activity.getSystemService(Context.AUDIO_SERVICE);
-        String rate = manager == null ? null : manager.getProperty(AudioManager.PROPERTY_OUTPUT_SAMPLE_RATE);
-        if (rate == null) {
-            return 0;
+    public static void vibrate(Activity activity, float strength, int millis) {
+        Vibrator vibrator = (Vibrator) activity.getSystemService(Context.VIBRATOR_SERVICE);
+        if (vibrator == null || !vibrator.hasVibrator() || millis <= 0) {
+            return;
         }
-        try {
-            return Integer.parseInt(rate);
-        } catch (NumberFormatException unreadable) {
-            return 0;
+        vibrator.cancel();
+        int amplitude = Math.max(1, Math.min((int) (strength * 255.0f), 255));
+        vibrator.vibrate(VibrationEffect.createOneShot(millis, amplitude));
+    }
+
+    public static void cancelVibration(Activity activity) {
+        Vibrator vibrator = (Vibrator) activity.getSystemService(Context.VIBRATOR_SERVICE);
+        if (vibrator != null) {
+            vibrator.cancel();
         }
+    }
+
+    public static boolean hasVibrator(Activity activity) {
+        Vibrator vibrator = (Vibrator) activity.getSystemService(Context.VIBRATOR_SERVICE);
+        return vibrator != null && vibrator.hasVibrator();
+    }
+
+    public static boolean hasMouse() {
+        for (int id : InputDevice.getDeviceIds()) {
+            InputDevice device = InputDevice.getDevice(id);
+            if (device != null && device.supportsSource(InputDevice.SOURCE_MOUSE)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     @Override

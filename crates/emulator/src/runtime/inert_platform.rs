@@ -110,4 +110,28 @@ impl Platform for InertPlatform {
     }
 
     fn notification_schedule(&mut self, _flag: u8, _kind: i32) {}
+
+    fn tapjoy_showing(&mut self) -> bool {
+        false
+    }
+
+    fn expedition_notification_schedule(&mut self, _kind: i32, _flag: u8, _cancel: u8) {}
+
+    fn onegai_notification_schedule(&mut self, _flag: u8, _cancel: u8) {}
+
+    fn event_calendar_notification_schedule(&mut self, _flag: u8, _cancel: u8) {}
+
+    fn comeback_notification_schedule(&mut self, _flag: u8, _cancel: u8) {}
+
+    fn time_manager_request(&mut self) {}
+
+    fn inquiry_code(&mut self) -> Vec<u8> {
+        Vec::new()
+    }
+
+    fn adjust_track_event(&mut self, _token: &[u8], _value: &[u8]) {}
+
+    fn localize(&mut self, text: &[u8]) -> Vec<u8> {
+        text.to_vec()
+    }
 }

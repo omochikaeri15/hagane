@@ -23,6 +23,7 @@ use super::input::{Touch, TouchQueue};
 use super::keys::{Keys, LEAVE_AFTER};
 use super::replay;
 use super::sink::{Frame, Recorder};
+use super::device::DevicePlatform;
 use super::sound::{Pool, Speaker};
 use super::text::{Formatter, LABEL_PREFIX};
 
@@ -202,7 +203,7 @@ impl Driver {
         }
 
         ctx.set_assets(Box::new(assets));
-        ctx.set_platform(Box::new(InertPlatform { profile: Rc::clone(&self.profile) }));
+        ctx.set_platform(Box::new(DevicePlatform::new(InertPlatform { profile: Rc::clone(&self.profile) })));
         ctx.set_audio(Box::new(Pool::new(Rc::clone(&self.files), Rc::clone(&self.ledger), Rc::clone(&self.speaker))));
         ctx.set_meta(Box::new(InertMeta));
         ctx.set_scene_host(Box::new(InertScene { returning: Rc::clone(&self.returning) }));
@@ -567,6 +568,7 @@ impl Driver {
             }
             Cue::SecondRelease => emulator::engine::app_on_touch(&mut self.ctx, TOUCH_RELEASED, self.second.0, self.second.1, SECOND_FINGER),
             Cue::Forgive => Ok(()),
+            Cue::Focus(focused) => emulator::engine::app_focus_changed(&mut self.ctx, i32::from(focused)),
             Cue::Key(key, pressed) => {
                 let action = replay::action_of(key);
 
@@ -594,7 +596,7 @@ impl Driver {
         };
 
         if let Err(fault) = fed {
-            warn!("emu: touch could not be queued: {fault}");
+            warn!("emu: an input could not be played: {fault}");
         }
     }
 
@@ -1033,6 +1035,18 @@ impl Driver {
 
         if let Err(fault) = dimmed {
             warn!("emu: frame could not be dimmed: {fault}");
+        }
+    }
+
+    pub(super) fn focus_changed(&mut self, focused: bool) {
+        if self.watching() {
+            return;
+        }
+
+        self.play(Cue::Focus(focused));
+
+        if matches!(self.tape, Tape::Recording(_)) {
+            self.pending.push(Cue::Focus(focused));
         }
     }
 

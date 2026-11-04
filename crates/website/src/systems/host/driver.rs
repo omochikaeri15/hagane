@@ -229,6 +229,42 @@ impl Platform for HostPlatform {
     fn notification_schedule(&mut self, flag: u8, kind: i32) {
         self.inner.notification_schedule(flag, kind);
     }
+
+    fn tapjoy_showing(&mut self) -> bool {
+        self.inner.tapjoy_showing()
+    }
+
+    fn expedition_notification_schedule(&mut self, kind: i32, flag: u8, cancel: u8) {
+        self.inner.expedition_notification_schedule(kind, flag, cancel);
+    }
+
+    fn onegai_notification_schedule(&mut self, flag: u8, cancel: u8) {
+        self.inner.onegai_notification_schedule(flag, cancel);
+    }
+
+    fn event_calendar_notification_schedule(&mut self, flag: u8, cancel: u8) {
+        self.inner.event_calendar_notification_schedule(flag, cancel);
+    }
+
+    fn comeback_notification_schedule(&mut self, flag: u8, cancel: u8) {
+        self.inner.comeback_notification_schedule(flag, cancel);
+    }
+
+    fn time_manager_request(&mut self) {
+        self.inner.time_manager_request();
+    }
+
+    fn inquiry_code(&mut self) -> Vec<u8> {
+        self.inner.inquiry_code()
+    }
+
+    fn adjust_track_event(&mut self, token: &[u8], value: &[u8]) {
+        self.inner.adjust_track_event(token, value);
+    }
+
+    fn localize(&mut self, text: &[u8]) -> Vec<u8> {
+        self.inner.localize(text)
+    }
 }
 
 pub struct Equipment {
@@ -710,6 +746,7 @@ impl Driver {
             }
             Cue::SecondRelease => emulator::engine::app_on_touch(&mut self.ctx, TOUCH_RELEASED, self.second.0, self.second.1, SECOND_FINGER),
             Cue::Forgive => Ok(()),
+            Cue::Focus(focused) => emulator::engine::app_focus_changed(&mut self.ctx, i32::from(focused)),
             Cue::Key(key, pressed) => {
                 let action = replay::action_of(key);
 
@@ -737,7 +774,7 @@ impl Driver {
         };
 
         if let Err(fault) = fed {
-            warn!("emu: touch could not be queued: {fault}");
+            warn!("emu: an input could not be played: {fault}");
         }
     }
 

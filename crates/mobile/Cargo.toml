@@ -79,6 +79,9 @@ exported = true
 name = "android.permission.INTERNET"
 
 [[package.metadata.android.uses_permission]]
+name = "android.permission.VIBRATE"
+
+[[package.metadata.android.uses_permission]]
 name = "android.permission.QUERY_ALL_PACKAGES"
 
 [[package.metadata.android.uses_permission]]

@@ -19,12 +19,12 @@ export component HelpPage inherits Rectangle {
             for label[index] in Help.pages: HeaderToggle { label: label; selected: Help.page == index; horizontal-stretch: 1; clicked => { Help.pick(index); } }
         }
         Rule { }
-        Flickable { flicked => { Shell.guard-claim = Shell.press-seq; }
+        Flickable {
             mouse-drag-pan-enabled: true;
             vertical-stretch: 1;
             max-height: 100000px;
             content-height: body.preferred-height + 32px > self.height ? body.preferred-height + 32px : self.height;
-            interactive: body.preferred-height + 32px > self.height;
+            interactive: (body.preferred-height + 32px > self.height) && !Shell.swiping;
             body := StyledText {
                 x: (parent.width - self.width) / 2;
                 y: 16px;

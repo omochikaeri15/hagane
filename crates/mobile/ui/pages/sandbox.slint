@@ -79,6 +79,7 @@ export global Sandbox {
     in property <int> lag;
     in property <int> quality: 100;
     in property <bool> fullscreen: true;
+    in property <bool> immersed;
     in property <[ArcRow]> arcs;
     in property <[ChapterFold]> chapters;
     in property <[string]> grades;
@@ -280,7 +281,7 @@ component DeckSlot inherits Rectangle {
         Text { text: "NP"; color: Theme.white; font-size: 7px; horizontal-alignment: center; vertical-alignment: center; width: parent.width; height: parent.height; }
     }
     SwipeGuard { }
-    TouchArea {
+    TouchArea { enabled: !Shell.swiping;
         pointer-event(event) => {
             if event.kind == PointerEventKind.down {
                 root.press-x = self.mouse-x;
@@ -452,7 +453,7 @@ component ComboCard inherits Rectangle {
             }
         }
     }
-    TouchArea { clicked => { Sandbox.combo-tapped(root.combo.line); } }
+    TouchArea { enabled: !Shell.swiping; clicked => { Sandbox.combo-tapped(root.combo.line); } }
 }
 
 component ComboList inherits OutlinedCard {
@@ -470,7 +471,7 @@ component ComboList inherits OutlinedCard {
             Combo { horizontal-stretch: 3; height: 28px; text-size: 12px; options: Sandbox.combo-kinds; current: Sandbox.combo-kind; selected(index) => { Sandbox.combo-kind-set(index); } }
             Combo { horizontal-stretch: 2; height: 28px; text-size: 12px; options: Sandbox.combo-strengths; current: Sandbox.combo-strength; selected(index) => { Sandbox.combo-strength-set(index); } }
         }
-        ListView { scrolled => { Shell.guard-claim = Shell.press-seq; }
+        ListView {
             mouse-drag-pan-enabled: true;
             vertical-stretch: 1;
             for combo in Sandbox.combos: VerticalLayout {
@@ -489,7 +490,7 @@ component RosterPanel inherits Panel {
         Input { text <=> Sandbox.search; placeholder: "Search Cat..."; text-size: 13px; height: 32px; edited(value) => { Sandbox.search-changed(value); } }
         Rectangle { height: 4px; }
         if Sandbox.roster-count == 0: Label { text: "No Cats Found!"; color: Theme.danger; horizontal-alignment: center; vertical-stretch: 1; vertical-alignment: center; }
-        if Sandbox.roster-count > 0: ListView { scrolled => { Shell.guard-claim = Shell.press-seq; }
+        if Sandbox.roster-count > 0: ListView {
             mouse-drag-pan-enabled: true;
             vertical-stretch: 1;
             for row in Sandbox.roster: Rectangle {
@@ -509,7 +510,7 @@ component RosterPanel inherits Panel {
                         source: row.banner;
                         image-fit: fill;
                     }
-                    press := TouchArea { clicked => { Sandbox.recruit(row.id); } }
+                    press := TouchArea { enabled: !Shell.swiping; clicked => { Sandbox.recruit(row.id); } }
                 }
             }
         }
@@ -577,22 +578,27 @@ component ConfigTab inherits VerticalLayout {
     padding-right: 10px;
     padding-top: 6px;
     spacing: 8px;
-    Flickable { flicked => { Shell.guard-claim = Shell.press-seq; }
-        mouse-drag-pan-enabled: true;
+    Rectangle {
         height: 32px;
-        content-width: tabs.preferred-width;
-        tabs := HorizontalLayout {
-            spacing: 4px;
-            for label[index] in Sandbox.panels: HeaderToggle { label: label; selected: Sandbox.panel == index; available: true; width: max(self.preferred-width, 84px); clicked => { Sandbox.panel-set(index); } }
+        SwipeGuard { lipped: true; }
+        Flickable { interactive: !Shell.swiping;
+            mouse-drag-pan-enabled: true;
+            width: 100%;
+            height: 100%;
+            content-width: tabs.preferred-width;
+            tabs := HorizontalLayout {
+                spacing: 4px;
+                for label[index] in Sandbox.panels: HeaderToggle { label: label; selected: Sandbox.panel == index; available: true; width: max(self.preferred-width, 84px); clicked => { Sandbox.panel-set(index); } }
+            }
         }
     }
     Rule { }
-    Flickable { flicked => { Shell.guard-claim = Shell.press-seq; }
+    Flickable {
         mouse-drag-pan-enabled: true;
         vertical-stretch: 1;
         max-height: 100000px;
         content-height: body.preferred-height + 72px > self.height ? body.preferred-height + 72px : self.height;
-        interactive: body.preferred-height + 72px > self.height;
+        interactive: (body.preferred-height + 72px > self.height) && !Shell.swiping;
         body := VerticalLayout {
             x: 0;
             y: 0;
@@ -697,12 +703,12 @@ component ReplayTab inherits Rectangle {
                 Input { text <=> Sandbox.rename; placeholder: "Replay Name"; height: 32px; text-size: 14px; horizontal-stretch: 1; enabled: Sandbox.replay-renamable; edited(value) => { Sandbox.replay-renamed(value); } }
                 Btn { label: "Replays"; tone: Tone.neutral; width: 90px; height: 32px; text-size: 13px; clicked => { Sandbox.replays-open = true; } }
             }
-            Flickable { flicked => { Shell.guard-claim = Shell.press-seq; }
+            Flickable {
                 mouse-drag-pan-enabled: true;
                 vertical-stretch: 1;
                 max-height: 100000px;
                 content-height: column.preferred-height + 72px > self.height ? column.preferred-height + 72px : self.height;
-                interactive: column.preferred-height + 72px > self.height;
+                interactive: (column.preferred-height + 72px > self.height) && !Shell.swiping;
                 column := VerticalLayout {
                     x: 0;
                     y: 0;
@@ -740,7 +746,7 @@ component ReplayTab inherits Rectangle {
                 spacing: 4px;
                 Label { text: "Replays"; bold: true; font-size: 16px; }
                 Rule { }
-                ListView { scrolled => { Shell.guard-claim = Shell.press-seq; }
+                ListView {
                     mouse-drag-pan-enabled: true;
                     vertical-stretch: 1;
                     for row[index] in Sandbox.replays: Rectangle {
@@ -748,7 +754,7 @@ component ReplayTab inherits Rectangle {
                         background: row.selected ? Theme.primary : (press.pressed ? Theme.bg-strongest : Theme.bg-strong);
                         border-radius: Theme.radius-sm;
                         Text { text: row.label; color: row.selected ? Theme.white : Theme.text; font-size: 12px; vertical-alignment: center; width: parent.width - 12px; x: 6px; height: parent.height; overflow: elide; }
-                        press := TouchArea { clicked => { Sandbox.replay-pick(index); Sandbox.replays-open = false; } }
+                        press := TouchArea { enabled: !Shell.swiping; clicked => { Sandbox.replay-pick(index); Sandbox.replays-open = false; } }
                     }
                 }
             }
@@ -770,7 +776,7 @@ component LineupsDialog inherits Dialog {
             Btn { tone: Tone.danger; label: Sandbox.delete-label; height: 30px; text-size: 13px; horizontal-stretch: 1; clicked => { Sandbox.lineup-delete(); } }
         }
         Input { text <=> Sandbox.saved-search; placeholder: "Search Lineup..."; height: 30px; text-size: 13px; edited(value) => { Sandbox.saved-search-changed(value); } }
-        ListView { scrolled => { Shell.guard-claim = Shell.press-seq; }
+        ListView {
             mouse-drag-pan-enabled: true;
             vertical-stretch: 1;
             for row in Sandbox.saved: Rectangle {
@@ -784,7 +790,7 @@ component LineupsDialog inherits Dialog {
                     Text { text: row.name; color: row.selected ? Theme.white : Theme.text; font-size: 13px; vertical-alignment: center; horizontal-stretch: 1; overflow: elide; }
                     Text { text: row.count; color: row.selected ? Theme.white : Theme.weak-text; font-size: 12px; vertical-alignment: center; }
                 }
-                press := TouchArea { clicked => { Sandbox.lineup-pick(row.index); } }
+                press := TouchArea { enabled: !Shell.swiping; clicked => { Sandbox.lineup-pick(row.index); } }
             }
         }
         Input { text: Sandbox.lineup-name; placeholder: "Lineup Name"; height: 30px; text-size: 13px; edited(value) => { Sandbox.lineup-renamed(value); } }
@@ -829,7 +835,7 @@ component AgreementDialog inherits Dialog {
     VerticalLayout {
         padding: 20px;
         spacing: 18px;
-        Flickable { flicked => { Shell.guard-claim = Shell.press-seq; }
+        Flickable { interactive: !Shell.swiping;
             mouse-drag-pan-enabled: true;
             vertical-stretch: 1;
             max-height: 100000px;
@@ -906,7 +912,7 @@ export component BattleLayer inherits Rectangle {
             }
         }
         TouchArea {
-            enabled: !Sandbox.covered && !Sandbox.frozen;
+            enabled: (!Sandbox.covered && !Sandbox.frozen) && !Shell.swiping;
             pointer-event(event) => {
                 if event.kind == PointerEventKind.down {
                     Sandbox.touch(0, self.mouse-x, self.mouse-y);
@@ -941,7 +947,7 @@ export component SandboxDialogs {
             padding: 20px;
             spacing: 14px;
             Label { text: "The game attempted to crash due to a fault"; font-size: 14px; horizontal-alignment: center; wrap: word-wrap; }
-            Flickable { flicked => { Shell.guard-claim = Shell.press-seq; }
+            Flickable { interactive: !Shell.swiping;
                 mouse-drag-pan-enabled: true;
                 height: 120px;
                 content-height: reason.preferred-height;
@@ -972,13 +978,13 @@ export component SandboxDialogs {
                     horizontal-stretch: 1;
                     spacing: 4px;
                     Label { text: "Enemies (" + Sandbox.vital-enemies.length + ")"; bold: true; font-size: 13px; }
-                    ListView { scrolled => { Shell.guard-claim = Shell.press-seq; } vertical-stretch: 1; for row in Sandbox.vital-enemies: HorizontalLayout { height: 20px; Label { text: row.name; font-size: 12px; horizontal-stretch: 1; overflow: elide; } Label { text: row.hp; font-size: 12px; } } }
+                    ListView { vertical-stretch: 1; for row in Sandbox.vital-enemies: HorizontalLayout { height: 20px; Label { text: row.name; font-size: 12px; horizontal-stretch: 1; overflow: elide; } Label { text: row.hp; font-size: 12px; } } }
                 }
                 VerticalLayout {
                     horizontal-stretch: 1;
                     spacing: 4px;
                     Label { text: "Cats (" + Sandbox.vital-cats.length + ")"; bold: true; font-size: 13px; }
-                    ListView { scrolled => { Shell.guard-claim = Shell.press-seq; } vertical-stretch: 1; for row in Sandbox.vital-cats: HorizontalLayout { height: 20px; Label { text: row.name; font-size: 12px; horizontal-stretch: 1; overflow: elide; } Label { text: row.hp; font-size: 12px; } } }
+                    ListView { vertical-stretch: 1; for row in Sandbox.vital-cats: HorizontalLayout { height: 20px; Label { text: row.name; font-size: 12px; horizontal-stretch: 1; overflow: elide; } Label { text: row.hp; font-size: 12px; } } }
                 }
             }
         }

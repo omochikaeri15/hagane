@@ -26,7 +26,7 @@ use super::soundtrack::GAME_FPS;
 const BLACK_FROM: i32 = 0xb;
 pub(super) const CLOSED_FRAME: i32 = 0xc;
 const LAST_FRAME: i32 = 0x18;
-const FRAME_TIME: Duration = Duration::from_millis(33);
+const FRAME_TIME: Duration = STEP_TIME;
 pub(crate) const STEP_TIME: Duration = Duration::from_nanos(1_000_000_000 / GAME_FPS as u64);
 const HALF_STEP: Duration = Duration::from_nanos(500_000_000 / GAME_FPS as u64);
 const MOST_STEPS: u32 = 4;

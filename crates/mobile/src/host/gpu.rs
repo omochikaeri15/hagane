@@ -545,12 +545,14 @@ impl Presenter {
                 self.bound = None;
                 AVAILABLE.store(true, Ordering::Release);
             }
-            Err(err) => warn!("emu: battles fall back to the CPU: {err}"),
+            Err(err) => {
+                AVAILABLE.store(false, Ordering::Release);
+                warn!("emu: battles fall back to the CPU: {err}");
+            }
         }
     }
 
     fn teardown(&mut self) {
-        AVAILABLE.store(false, Ordering::Release);
         self.bound = None;
 
         if let Some(renderer) = self.renderer.take() {

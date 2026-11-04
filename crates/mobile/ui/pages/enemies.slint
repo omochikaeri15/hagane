@@ -78,7 +78,7 @@ component FilterDialog inherits Dialog {
     body-height: Shell.app-height / 2;
     VerticalLayout {
         host := Rectangle {
-            Flickable { flicked => { Shell.guard-claim = Shell.press-seq; }
+            Flickable { interactive: !Shell.swiping;
                 mouse-drag-pan-enabled: true;
                 width: parent.width;
                 height: parent.height;
@@ -138,7 +138,7 @@ component Roster inherits Panel {
         Input { text <=> Enemies.search; placeholder: "Search Enemy..."; text-size: 13px; height: 32px; edited(value) => { Enemies.search-changed(value); } }
         Rectangle { height: 4px; }
         if Enemies.roster-count == 0: Label { text: "No Enemies Found!"; color: Theme.danger; horizontal-alignment: center; vertical-stretch: 1; vertical-alignment: center; }
-        if Enemies.roster-count > 0: ListView { scrolled => { Shell.guard-claim = Shell.press-seq; }
+        if Enemies.roster-count > 0: ListView {
             mouse-drag-pan-enabled: true;
             vertical-stretch: 1;
             for row in Enemies.roster: Rectangle {
@@ -158,7 +158,7 @@ component Roster inherits Panel {
                         source: row.banner;
                         image-fit: fill;
                     }
-                    press := TouchArea {
+                    press := TouchArea { enabled: !Shell.swiping;
                         clicked => { Enemies.select(row.id); Enemies.roster-open = false; }
                     }
                 }
@@ -272,13 +272,13 @@ export component EnemiesPage inherits Rectangle {
             padding-bottom: 12px;
             if Enemies.selected < 0: Label { text: "Select a Unit"; font-size: 24px; horizontal-alignment: center; vertical-alignment: center; vertical-stretch: 1; }
             if Enemies.selected >= 0: Header { vertical-stretch: 0; }
-            if Enemies.selected >= 0 && Enemies.tab != 2: Flickable { flicked => { Shell.guard-claim = Shell.press-seq; }
+            if Enemies.selected >= 0 && Enemies.tab != 2: Flickable {
                 mouse-drag-pan-enabled: true;
                 vertical-stretch: 1;
                 max-height: 100000px;
                 content-width: self.width;
                 content-height: body.preferred-height + 16px > self.height ? body.preferred-height + 16px : self.height;
-                interactive: body.preferred-height + 16px > self.height;
+                interactive: (body.preferred-height + 16px > self.height) && !Shell.swiping;
                 body := VerticalLayout {
                     x: 0;
                     y: 0;

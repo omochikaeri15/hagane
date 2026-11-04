@@ -19,7 +19,6 @@ pub trait SceneHost {
     fn collab_reward_dialog(&mut self, map: i32, stage: i32);
     fn unlock_popup_pending(&mut self) -> bool;
     fn loader_busy(&mut self) -> bool;
-    fn loader_resuming_sound(&mut self) -> bool;
     fn fade_menu_dispatch(&mut self, style: i32, scene: i32) -> bool;
     fn fade_menu_prompt(&mut self) -> bool;
     fn draw_menu_scene(&mut self, scene: i32);

@@ -57,6 +57,7 @@ pub fn run(home: DataHome) -> Result<(), PlatformError> {
     window.global::<Shell>().set_game_empty(!architecture::game_present());
     window.global::<Shell>().on_measured(|width, height, top, bottom| debug!(width, height, top, bottom, "Window geometry"));
     window.global::<Shell>().on_fullscreen_changed(platform::set_fullscreen);
+    window.global::<Shell>().set_hover_input(platform::hover_input());
 
     let engine = engine::Engine::start(&window, &state, &memory);
     let context = pages::Context::new(&window, state, memory, engine);

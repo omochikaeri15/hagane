@@ -76,7 +76,7 @@ component List inherits Panel {
         Btn { tone: Tone.toggle; active: Mods.add-open; label: "Add Mod"; text-size: 13px; height: 32px; clicked => { Mods.open-add(); } }
         Rectangle { height: 4px; }
         if Mods.mods.length == 0: Label { text: "No Mods Found"; color: Theme.danger; font-size: 13px; horizontal-alignment: center; vertical-alignment: center; vertical-stretch: 1; }
-        if Mods.mods.length > 0: ListView { scrolled => { Shell.guard-claim = Shell.press-seq; }
+        if Mods.mods.length > 0: ListView {
             mouse-drag-pan-enabled: true;
             vertical-stretch: 1;
             for row[index] in Mods.mods: Rectangle {
@@ -97,7 +97,7 @@ component List inherits Panel {
                         if row.has-icon: Rectangle { width: 40px; Image { source: row.icon; width: 32px; height: 32px; x: 4px; y: 4px; image-fit: contain; } }
                         Text { text: row.name; color: row.selected ? Theme.white : Theme.text; font-size: 12px; horizontal-alignment: center; vertical-alignment: center; horizontal-stretch: 1; overflow: elide; }
                     }
-                    press := TouchArea { clicked => { Mods.select(index); Mods.list-open = false; } }
+                    press := TouchArea { enabled: !Shell.swiping; clicked => { Mods.select(index); Mods.list-open = false; } }
                 }
             }
         }

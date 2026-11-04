@@ -107,28 +107,74 @@ export component Drawer inherits Rectangle {
     }
 }
 
-export component EdgeGrab inherits SwipeGestureHandler {
+export component EdgeGrab inherits TouchArea {
     in property <bool> right;
     in property <bool> armed: true;
     in property <length> reach: 240px;
     callback dragged(float);
     callback dropped;
+    property <length> start-x;
+    property <length> start-y;
+    property <bool> undecided;
+    property <bool> swiping;
+    property <length> travel-x: self.mouse-x - self.start-x;
+    property <length> travel-y: self.mouse-y - self.start-y;
+    property <bool> free: root.armed && Shell.guard-claim != Shell.press-seq;
     width: 100%;
     height: 100%;
-    property <bool> free: root.armed && Shell.guard-claim != Shell.press-seq;
-    handle-swipe-left: root.right && root.free;
-    handle-swipe-right: !root.right && root.free;
-    changed pressed-position => {
+    enabled: !Shell.hover-input;
+
+    function publish(x: length, y: length) {
         if root.right {
             Shell.taps += 1;
-            Shell.press-x = root.absolute-position.x + root.pressed-position.x;
-            Shell.press-y = root.absolute-position.y + root.pressed-position.y;
-            Shell.press-edge = root.pressed-position.x < Theme.edge || root.pressed-position.x > root.width - Theme.edge;
+            Shell.press-x = root.absolute-position.x + x;
+            Shell.press-y = root.absolute-position.y + y;
+            Shell.press-edge = x < Theme.edge || x > root.width - Theme.edge;
             Shell.press-seq += 1;
         }
     }
-    moved => { if root.swiping { root.dragged((root.right ? root.pressed-position.x - root.current-position.x : root.current-position.x - root.pressed-position.x) / root.reach); } }
-    swiped => { root.dropped(); }
-    cancelled => { root.dropped(); }
-    @children
+
+    function follow() {
+        if root.swiping {
+            root.dragged((root.right ? -root.travel-x : root.travel-x) / root.reach);
+        } else if root.undecided && (abs(root.travel-x) > 8px || abs(root.travel-y) > 8px) {
+            root.undecided = false;
+            if root.free && abs(root.travel-x) > abs(root.travel-y) && (root.right ? root.travel-x < 0px : root.travel-x > 0px) {
+                root.swiping = true;
+                Shell.swiping = true;
+                root.dragged((root.right ? -root.travel-x : root.travel-x) / root.reach);
+            }
+        }
+    }
+
+    changed has-hover => {
+        if self.has-hover {
+            root.start-x = self.mouse-x;
+            root.start-y = self.mouse-y;
+            root.undecided = true;
+            root.publish(self.mouse-x, self.mouse-y);
+        } else {
+            root.undecided = false;
+            if root.swiping {
+                root.swiping = false;
+                Shell.swiping = false;
+                root.dropped();
+            }
+        }
+    }
+    changed mouse-x => { root.follow(); }
+    changed mouse-y => { root.follow(); }
+
+    SwipeGestureHandler {
+        enabled: Shell.hover-input;
+        width: 100%;
+        height: 100%;
+        handle-swipe-left: root.right && root.free;
+        handle-swipe-right: !root.right && root.free;
+        changed pressed-position => { root.publish(self.pressed-position.x, self.pressed-position.y); }
+        moved => { if self.swiping { root.dragged((root.right ? self.pressed-position.x - self.current-position.x : self.current-position.x - self.pressed-position.x) / root.reach); } }
+        swiped => { root.dropped(); }
+        cancelled => { root.dropped(); }
+        @children
+    }
 }

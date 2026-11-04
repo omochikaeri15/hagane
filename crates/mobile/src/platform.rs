@@ -163,11 +163,48 @@ pub fn is_tablet() -> Option<bool> {
 }
 
 #[cfg(target_os = "android")]
-pub fn output_rate() -> Option<u32> {
-    crate::android::output_rate().inspect_err(|err| warn!("The output sample rate could not be read: {err}")).ok().filter(|rate| *rate > 0)
+pub fn vibrate(strength: f32, millis: i32) {
+    if let Err(err) = crate::android::vibrate(strength, millis) {
+        warn!("The phone could not vibrate: {err}");
+    }
 }
 
 #[cfg(not(target_os = "android"))]
-pub fn output_rate() -> Option<u32> {
-    None
+pub fn vibrate(strength: f32, millis: i32) {
+    debug!(strength, millis, "Vibration is only wired on Android");
+}
+
+#[cfg(target_os = "android")]
+pub fn cancel_vibration() {
+    if let Err(err) = crate::android::cancel_vibration() {
+        warn!("The vibration could not be cancelled: {err}");
+    }
+}
+
+#[cfg(not(target_os = "android"))]
+pub fn cancel_vibration() {}
+
+#[cfg(target_os = "android")]
+pub fn has_vibrator() -> bool {
+    crate::android::has_vibrator().inspect_err(|err| warn!("The vibrator could not be queried: {err}")).unwrap_or(false)
+}
+
+#[cfg(not(target_os = "android"))]
+pub fn has_vibrator() -> bool {
+    false
+}
+
+#[cfg(target_os = "android")]
+pub fn hover_input() -> bool {
+    crate::android::has_mouse().inspect_err(|err| warn!("The input devices could not be read: {err}")).unwrap_or(false)
+}
+
+#[cfg(target_os = "ios")]
+pub fn hover_input() -> bool {
+    false
+}
+
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
+pub fn hover_input() -> bool {
+    true
 }

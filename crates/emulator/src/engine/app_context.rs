@@ -1,6 +1,6 @@
 use std::{
     cell,
-    collections::{BTreeMap, BTreeSet},
+    collections::{BTreeMap, BTreeSet, VecDeque},
     rc::{Rc, Weak},
 };
 
@@ -13,7 +13,7 @@ use super::{
     ExGroup, ExplosionEvent, FixedLineupStore, GatyaChanceAnimation, GatyaDataSet, HiddenData, GamatotoBonus, GamatotoCollabo, GamatotoSpecialDrop, Imgcut, ItemPackRow, ItemShopRow, LabyrinthFloor, LineupRecord, Maanim,
     Mamodel, MapLayout, Medal, MapOption, OfficersClubRow, OrbEffectStore, MapRecord, MapStageShortcut, MatatabiRow, MetaHost, OrbStore, Platform, RankingRecord, ReleasePoint,
     DropItemRow, EventDisplayRow, MissionConditionSetting, MissionData, MissionGatyaSetting, MissionLimitOption, MissionMonthly,
-    PointEventReward, RealmsRngTable, RecommendedLevelup, SceneHost, ScreenMetrics, SheetTable, SoundManager, SpecialRuleStore,
+    PointEventReward, RealmsRngTable, RecommendedLevelup, SceneHost, ScreenMetrics, SheetTable, SoundManager, SoundResumeBatchTask, SpecialRuleStore,
     StagePairRecord, StageRestriction, SurgeEvent, TextBlock, TextRenderer, Texture, TreasureGauge, TreasureStore,
     UiHost, UnlockGroup, VibrationStore, UnlockPopupRow, WebPopupEntry, ZombieLotteryRow,
 };
@@ -1246,6 +1246,7 @@ pub struct AppContext {
     pub guide_label: Texture,
     pub tutorial_lines: [Option<Texture>; 8],
     pub surface_lost: bool,
+    pub batch_tasks: VecDeque<SoundResumeBatchTask>,
     pub ui_sheet_cache: [Option<Rc<Imgcut>>; 0x16],
     pub medals_awarded_flags: BTreeMap<i32, i32>,
     pub medals_pending: Vec<i32>,
@@ -1955,6 +1956,9 @@ impl AppContext {
     pub const RESUMED_MONEY: usize = 0x83e24;
     pub const BATTLE_DECK_KEY: usize = 0xc7c4;
     pub const EX_REDIRECT_ENABLED: usize = 0x3c40c1;
+    pub const SOUNDS_LOADED: usize = 0x3c40c2;
+    pub const FOCUS_CLEARED_BYTE: usize = 0x397079;
+    pub const NOTIFICATIONS_SCHEDULED: usize = 0x3288;
     pub const SCENE_4_PAGE: usize = 0x3324;
     pub const ALL_MAPS_OPEN: usize = 0x3976c0;
     pub const MAP_COORDS: usize = 0x296ef0;
@@ -2389,6 +2393,7 @@ impl AppContext {
             guide_label: Default::default(),
             tutorial_lines: Default::default(),
             surface_lost: false,
+            batch_tasks: VecDeque::new(),
             ui_sheet_cache: Default::default(),
             medals_awarded_flags: BTreeMap::new(),
             medals_pending: Vec::new(),

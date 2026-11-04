@@ -1,7 +1,7 @@
 use crate::Fault;
 
 use super::{
-    AppContext, ad_is_showing, batch_tasks_pending, cat_food_shop_draw, dc_begin_frame, dc_end_frame,
+    AppContext, ad_is_showing, batch_task_current, batch_tasks_pending, cat_food_shop_draw, dc_begin_frame, dc_end_frame,
     dc_set_viewport, dialog_manager_draw, draw_context, draw_screen_transition, fill_rect,
     get_design_height2, get_drawable_width, get_left_inset_logical, gl_surface_ready,
     inquiry_button_draw, main_draw, medal_popup_draw, mission_popup_draw, notice_popup_draw,
@@ -35,8 +35,10 @@ pub fn app_on_draw(ctx: &mut AppContext) -> Result<(), Fault> {
             if batch_tasks_pending(ctx)? {
                 let scene = ctx.i32_at(AppContext::DRAW_SCENE_ID)?;
 
-                if scene == 0x65 || scene == 0x61 {
-                    loading = !ctx.scene_host().ok_or(Fault::host_missing())?.loader_resuming_sound();
+                if scene == 0x65 {
+                    loading = true;
+                } else if scene == 0x61 {
+                    loading = batch_task_current(ctx).is_none();
                 }
             }
 

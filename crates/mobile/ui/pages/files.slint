@@ -47,7 +47,7 @@ component Browser inherits Panel {
         Input { text <=> Files.search; placeholder: "Search File..."; text-size: 13px; height: 30px; edited(value) => { Files.search-changed(value); } }
         Rectangle { height: 4px; }
         if Files.empty-label != "": Label { text: Files.empty-label; color: Theme.danger; font-size: 14px; horizontal-alignment: center; vertical-alignment: center; vertical-stretch: 1; wrap: word-wrap; }
-        if Files.empty-label == "": ListView { scrolled => { Shell.guard-claim = Shell.press-seq; }
+        if Files.empty-label == "": ListView {
             mouse-drag-pan-enabled: true;
             vertical-stretch: 1;
             for row[index] in Files.rows: Rectangle {
@@ -62,7 +62,7 @@ component Browser inherits Panel {
                     if row.folder: Text { text: row.expanded ? "\u{25be}" : "\u{25b8}"; color: row.selected ? Theme.white : Theme.text; font-family: "Miscellaneous-Symbols"; font-size: 12px; width: 14px; vertical-alignment: center; }
                     Text { text: row.name; color: row.selected ? Theme.white : Theme.text; font-size: 13px; vertical-alignment: center; horizontal-stretch: 1; overflow: elide; }
                 }
-                press := TouchArea { clicked => { Files.activate(index); if !row.folder { Files.list-open = false; } } }
+                press := TouchArea { enabled: !Shell.swiping; clicked => { Files.activate(index); if !row.folder { Files.list-open = false; } } }
             }
         }
     }
@@ -124,7 +124,7 @@ export component FilesPage inherits Rectangle {
                                 pic.pinch-scale = self.scale;
                             }
                         }
-                        TouchArea {
+                        TouchArea { enabled: !Shell.swiping;
                             pointer-event(event) => {
                                 if event.kind == PointerEventKind.down {
                                     pic.last-x = self.mouse-x;

@@ -146,7 +146,7 @@ export component FilterDialog inherits Dialog {
     body-height: Shell.app-height / 2;
     VerticalLayout {
         host := Rectangle {
-            Flickable { flicked => { Shell.guard-claim = Shell.press-seq; }
+            Flickable { interactive: !Shell.swiping;
                 mouse-drag-pan-enabled: true;
                 width: parent.width;
                 height: parent.height;
@@ -228,7 +228,7 @@ component Roster inherits Panel {
         Input { text <=> Cats.search; placeholder: "Search Cat..."; text-size: 13px; height: 32px; edited(value) => { Cats.search-changed(value); } }
         Rectangle { height: 4px; }
         if Cats.roster-count == 0: Label { text: "No Cats Found!"; color: Theme.danger; horizontal-alignment: center; vertical-stretch: 1; vertical-alignment: center; }
-        if Cats.roster-count > 0: ListView { scrolled => { Shell.guard-claim = Shell.press-seq; }
+        if Cats.roster-count > 0: ListView {
             mouse-drag-pan-enabled: true;
             vertical-stretch: 1;
             for row in Cats.roster: Rectangle {
@@ -248,7 +248,7 @@ component Roster inherits Panel {
                         source: row.banner;
                         image-fit: fill;
                     }
-                    press := TouchArea {
+                    press := TouchArea { enabled: !Shell.swiping;
                         clicked => { Cats.select(row.id); Cats.roster-open = false; }
                     }
                 }
@@ -347,7 +347,7 @@ component Header inherits VerticalLayout {
                     background: press.pressed ? Theme.bg-strongest : Theme.bg-strong;
                     OrbPicture { orb: orb; width: 19px; height: 19px; x: 1px; y: 1px; }
                     if !orb.has-icon: Label { text: "+"; font-size: 13px; horizontal-alignment: center; vertical-alignment: center; width: parent.width; height: parent.height; }
-                    press := TouchArea { enabled: !Cats.locked; clicked => { Cats.orb-tapped(index); } }
+                    press := TouchArea { enabled: (!Cats.locked) && !Shell.swiping; clicked => { Cats.orb-tapped(index); } }
                 }
             }
         }
@@ -414,7 +414,7 @@ component Talents inherits VerticalLayout {
                     background: #00000066; border-radius: 3.75px; border-width: 1.5px; border-color: #000000cc;
                     Text { text: group.expanded ? "\u{25b2}" : "\u{25bc}"; color: Theme.white; font-family: "Miscellaneous-Symbols"; font-size: 16.5px; horizontal-alignment: center; vertical-alignment: center; width: parent.width; height: parent.height; }
                 }
-                TouchArea { clicked => { Cats.group-toggled(group.index); } }
+                TouchArea { enabled: !Shell.swiping; clicked => { Cats.group-toggled(group.index); } }
             }
             if group.expanded: VerticalLayout {
                 spacing: 2px;
@@ -508,7 +508,7 @@ component Details inherits VerticalLayout {
                             background: #000000a1; border-radius: 4px;
                             mark := Text { text: slot.label; color: Theme.white; font-size: 10px; horizontal-alignment: center; vertical-alignment: center; width: parent.width; height: parent.height; }
                         }
-                        TouchArea { enabled: slot.jumpable; clicked => { Cats.jump-cat(slot.cat-id, slot.form); } }
+                        TouchArea { enabled: (slot.jumpable) && !Shell.swiping; clicked => { Cats.jump-cat(slot.cat-id, slot.form); } }
                     }
                 }
             }
@@ -518,13 +518,13 @@ component Details inherits VerticalLayout {
 
 export component CatDetail inherits VerticalLayout {
     Header { vertical-stretch: 0; }
-    if Cats.tab != 3: view := Flickable { flicked => { Shell.guard-claim = Shell.press-seq; }
+    if Cats.tab != 3: view := Flickable {
         mouse-drag-pan-enabled: true;
         vertical-stretch: 1;
         max-height: 100000px;
         content-width: self.width;
         content-height: body.preferred-height + 16px > self.height ? body.preferred-height + 16px : self.height;
-        interactive: body.preferred-height + 16px > self.height;
+        interactive: (body.preferred-height + 16px > self.height) && !Shell.swiping;
         body := VerticalLayout {
             x: 0;
             y: 0;

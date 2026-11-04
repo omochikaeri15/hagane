@@ -26,6 +26,7 @@ pub struct Part {
     pub failure: Option<String>,
     pub frame: Option<Image>,
     pub scene_live: bool,
+    pub immersed: bool,
     pub canvas: Canvas,
     pub bounds: (f32, f32),
     pub hint: String,
@@ -43,6 +44,7 @@ impl Default for Part {
             failure: None,
             frame: None,
             scene_live: false,
+            immersed: false,
             canvas: Canvas { surfaced: false, scale: 1.0, padded: false, aspect: 0.0 },
             bounds: (0.0, 0.0),
             hint: String::new(),
@@ -308,7 +310,11 @@ pub fn event(ui: &AppWindow, state: &Shared, context: &Rc<Context>, event: Event
                 };
 
                 if let Some(orientation) = wanted {
-                    state.borrow_mut().battle.blackout = standing.phase == Phase::Loading;
+                    let mut held = state.borrow_mut();
+
+                    held.battle.blackout = standing.phase == Phase::Loading;
+                    held.battle.immersed = standing.phase == Phase::Loading;
+                    drop(held);
                     platform::set_orientation(orientation);
                 }
             }
@@ -331,6 +337,7 @@ pub fn event(ui: &AppWindow, state: &Shared, context: &Rc<Context>, event: Event
                 let mut held = state.borrow_mut();
 
                 held.battle.blackout = false;
+                held.battle.frame = None;
                 held.battle.scene_live = true;
                 held.battle.canvas = scene.canvas;
             }
@@ -407,6 +414,7 @@ pub fn sync(ui: &AppWindow, state: &Shared) {
 
     sandbox.set_active(standing.phase != Phase::Idle);
     sandbox.set_blackout(battle.blackout);
+    sandbox.set_immersed(battle.immersed);
     sandbox.set_has_frame(battle.frame.is_some() || battle.scene_live);
 
     if let Some(frame) = &battle.frame {

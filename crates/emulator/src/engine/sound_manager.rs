@@ -28,6 +28,7 @@ pub trait AudioHost {
     fn files_dir(&mut self) -> Vec<u8>;
     fn remove_file(&mut self, path: &[u8]) -> bool;
     fn load_sound_data(&mut self, path: &[u8]) -> Option<Rc<dyn SoundData>>;
+    fn resume_all(&mut self);
 }
 
 pub struct SoundManager {

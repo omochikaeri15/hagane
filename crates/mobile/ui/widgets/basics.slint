@@ -58,7 +58,7 @@ export component Btn inherits Rectangle {
     }
 
     ta := TouchArea {
-        enabled: root.enabled;
+        enabled: (root.enabled) && !Shell.swiping;
         clicked => { root.clicked(); }
     }
 }
@@ -102,7 +102,7 @@ export component Toggle inherits Rectangle {
         }
     }
     TouchArea {
-        enabled: root.enabled;
+        enabled: (root.enabled) && !Shell.swiping;
         clicked => { root.changed(!root.value); }
     }
 }
@@ -126,9 +126,9 @@ export component Input inherits Rectangle {
     property <string> told;
     init => { root.told = root.text; }
     function tell() {
-        if root.told != field.text {
-            root.told = field.text;
-            root.edited(field.text);
+        if root.told != field.text + field.preedit-text {
+            root.told = field.text + field.preedit-text;
+            root.edited(field.text + field.preedit-text);
         }
     }
 
@@ -165,12 +165,13 @@ export component Input inherits Rectangle {
                 horizontal-alignment: root.align;
                 single-line: true;
                 input-type: root.input-type;
-                selection-background-color: Theme.primary-weak;
+                selection-background-color: self.preedit-text != "" ? transparent : Theme.primary-weak;
                 selection-foreground-color: Theme.text;
                 width: parent.width;
                 height: parent.height;
                 edited => { root.tell(); }
                 accepted => { root.accepted(self.text); }
+                changed preedit-text => { if self.has-focus { root.tell(); } }
                 changed text => {
                     if self.has-focus {
                         root.tell();
@@ -192,9 +193,9 @@ export component TextBox inherits Rectangle {
     property <string> told;
     init => { root.told = root.text; }
     function tell() {
-        if root.told != field.text {
-            root.told = field.text;
-            root.edited(field.text);
+        if root.told != field.text + field.preedit-text {
+            root.told = field.text + field.preedit-text;
+            root.edited(field.text + field.preedit-text);
         }
     }
 
@@ -204,7 +205,7 @@ export component TextBox inherits Rectangle {
     border-color: field.has-focus ? Theme.primary-strong : Theme.bg-strong;
     clip: true;
 
-    Flickable { flicked => { Shell.guard-claim = Shell.press-seq; }
+    Flickable { interactive: !Shell.swiping;
         mouse-drag-pan-enabled: true;
         width: 100%;
         height: 100%;
@@ -227,9 +228,10 @@ export component TextBox inherits Rectangle {
             font-size: root.text-size;
             wrap: word-wrap;
             single-line: false;
-            selection-background-color: Theme.primary-weak;
+            selection-background-color: self.preedit-text != "" ? transparent : Theme.primary-weak;
             selection-foreground-color: Theme.text;
             edited => { root.tell(); }
+            changed preedit-text => { if self.has-focus { root.tell(); } }
             changed text => {
                 if self.has-focus {
                     root.tell();
@@ -280,7 +282,7 @@ export component Combo inherits Rectangle {
     property <bool> opens-upward: root.absolute-position.y + root.height + root.list-height + 2px > Shell.app-height;
 
     ta := TouchArea {
-        enabled: root.enabled;
+        enabled: (root.enabled) && !Shell.swiping;
         clicked => { menu.show(); }
     }
     menu := PopupWindow {
@@ -297,7 +299,7 @@ export component Combo inherits Rectangle {
             border-color: Theme.bg-strong;
             border-radius: Theme.radius-sm;
             clip: true;
-            Flickable { flicked => { Shell.guard-claim = Shell.press-seq; }
+            Flickable { interactive: !Shell.swiping;
                 mouse-drag-pan-enabled: true;
                 x: 1px;
                 y: 1px;
@@ -318,7 +320,7 @@ export component Combo inherits Rectangle {
                             vertical-alignment: center;
                             overflow: elide;
                         }
-                        row := TouchArea {
+                        row := TouchArea { enabled: !Shell.swiping;
                             clicked => {
                                 root.current = index;
                                 root.selected(index);
@@ -414,7 +416,7 @@ export component ListRow inherits Rectangle {
     background: root.selected ? Theme.primary : (ta.pressed ? Theme.list-hover : (root.filled ? Theme.bg-strong : transparent));
     @children
     ta := TouchArea {
-        enabled: root.enabled;
+        enabled: (root.enabled) && !Shell.swiping;
         clicked => { root.clicked(); }
     }
 }
@@ -515,7 +517,7 @@ export component Dialog inherits Rectangle {
     height: 100%;
     background: root.modal ? Theme.scrim : transparent;
     changed open => { if root.open { root.drag-x = 0; root.drag-y = 0; } }
-    if root.modal: TouchArea { }
+    if root.modal: TouchArea { enabled: !Shell.swiping; }
     panel := Rectangle {
         width: min(root.panel-width, root.width - 16px);
         height: min(root.height - 16px, root.body-height > 0px ? root.body-height + 34px : frame.preferred-height);
@@ -530,7 +532,7 @@ export component Dialog inherits Rectangle {
         drop-shadow-offset-y: 8px;
         drop-shadow-color: #00000059;
         if root.open: SwipeGuard { }
-        TouchArea { pointer-event(event) => { if event.kind == PointerEventKind.down { Shell.taps += 1; } } }
+        TouchArea { enabled: !Shell.swiping; pointer-event(event) => { if event.kind == PointerEventKind.down { Shell.taps += 1; } } }
         frame := VerticalLayout {
             Rectangle {
                 height: 28px;
@@ -545,7 +547,7 @@ export component Dialog inherits Rectangle {
                     vertical-alignment: center;
                     overflow: elide;
                 }
-                handle := TouchArea {
+                handle := TouchArea { enabled: !Shell.swiping;
                     x: 0;
                     width: parent.width - 28px;
                     mouse-cursor: MouseCursor.grab;
@@ -572,7 +574,7 @@ export component Dialog inherits Rectangle {
                         stroke-width: 2px;
                         commands: "M 0 0 L 12 12 M 12 0 L 0 12";
                     }
-                    TouchArea {
+                    TouchArea { enabled: !Shell.swiping;
                         clicked => { root.open = false; root.closed(); }
                     }
                 }
@@ -591,7 +593,7 @@ export component Scrim inherits Rectangle {
     width: 100%;
     height: 100%;
     background: transparent;
-    TouchArea {
+    TouchArea { enabled: !Shell.swiping;
         clicked => { root.clicked(); }
     }
 }
@@ -620,7 +622,7 @@ export component Tip inherits Rectangle {
 export component TapTip inherits Rectangle {
     in property <string> text;
     property <bool> shown;
-    TouchArea { clicked => { root.shown = !root.shown; } }
+    TouchArea { enabled: !Shell.swiping; clicked => { root.shown = !root.shown; } }
     if root.shown: Tip {
         shown: true;
         text: root.text;
@@ -672,7 +674,7 @@ export component Slider inherits Rectangle {
     }
     if root.guarded: SwipeGuard { }
     ta := TouchArea {
-        enabled: root.enabled;
+        enabled: (root.enabled) && !Shell.swiping;
         pointer-event(event) => {
             if event.kind == PointerEventKind.down {
                 root.live = root.at(self.mouse-x);

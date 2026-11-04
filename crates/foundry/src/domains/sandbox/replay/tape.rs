@@ -27,11 +27,12 @@ pub enum Cue {
     SecondMove(i32, i32),
     SecondPress(i32, i32),
     SecondRelease,
+    Focus(bool),
 }
 
 impl Cue {
     pub fn before_input(self) -> bool {
-        matches!(self, Self::Key(..) | Self::Resize(..) | Self::Phone(_) | Self::Forgive)
+        matches!(self, Self::Key(..) | Self::Resize(..) | Self::Phone(_) | Self::Forgive | Self::Focus(_))
     }
 }
 
@@ -95,6 +96,7 @@ impl fmt::Display for Cue {
             Self::SecondMove(x, y) => write!(f, "M{x},{y}"),
             Self::SecondPress(x, y) => write!(f, "D{x},{y}"),
             Self::SecondRelease => f.write_char('R'),
+            Self::Focus(focused) => write!(f, "f{}", u8::from(*focused)),
         }
     }
 }
@@ -120,6 +122,8 @@ impl std::str::FromStr for Cue {
             Some(("M", at)) => pair(at, ',').map(|(x, y)| Self::SecondMove(x, y)),
             Some(("D", at)) => pair(at, ',').map(|(x, y)| Self::SecondPress(x, y)),
             Some(("R", "")) => Some(Self::SecondRelease),
+            Some(("f", "1")) => Some(Self::Focus(true)),
+            Some(("f", "0")) => Some(Self::Focus(false)),
             _ => None,
         };
 
@@ -174,6 +178,8 @@ mod tests {
             Cue::SecondPress(40, 200),
             Cue::SecondMove(-8, 210),
             Cue::SecondRelease,
+            Cue::Focus(false),
+            Cue::Focus(true),
         ];
         let text = format!("{}\n\n{}\n", format_frame(&frame), format_frame(&[Cue::Release]));
 

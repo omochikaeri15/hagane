@@ -1,5 +1,6 @@
 mod arena;
 mod assets;
+mod device;
 mod diagnostics;
 mod driver;
 mod gpu;

@@ -295,6 +295,8 @@ impl Pool {
 }
 
 impl AudioHost for Pool {
+    fn resume_all(&mut self) {}
+
     fn active_sources(&mut self) -> i32 {
         self.voices.iter().filter_map(Weak::upgrade).filter(|voice| voice.is_playing()).count() as i32
     }

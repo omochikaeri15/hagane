@@ -668,6 +668,7 @@ impl Driver {
             }
             Cue::SecondRelease => emulator::engine::app_on_touch(&mut self.ctx, TOUCH_RELEASED, self.second.0, self.second.1, SECOND_FINGER),
             Cue::Forgive => Ok(()),
+            Cue::Focus(focused) => emulator::engine::app_focus_changed(&mut self.ctx, i32::from(focused)),
             Cue::Key(key, pressed) => {
                 let action = replay::action_of(key);
 
@@ -695,7 +696,7 @@ impl Driver {
         };
 
         if let Err(fault) = fed {
-            warn!("emu: touch could not be queued: {fault}");
+            warn!("emu: an input could not be played: {fault}");
         }
     }
 

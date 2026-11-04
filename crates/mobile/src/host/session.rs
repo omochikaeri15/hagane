@@ -23,9 +23,9 @@ const BLACK_FROM: i32 = 0xb;
 const CLOSED_FRAME: i32 = 0xc;
 const LAST_FRAME: i32 = 0x18;
 const GAME_FPS: u64 = 30;
-const FRAME_TIME: Duration = Duration::from_millis(33);
+const FRAME_TIME: Duration = STEP_TIME;
 const STEP_TIME: Duration = Duration::from_nanos(1_000_000_000 / GAME_FPS);
-const HALF_STEP: Duration = Duration::from_nanos(500_000_000 / GAME_FPS);
+const EARLY_STEP: Duration = Duration::from_millis(1);
 const MOST_STEPS: u32 = 4;
 const PRESENT_PATIENCE: Duration = Duration::from_secs(2);
 const SLOW_STEP: Duration = Duration::from_millis(100);
@@ -268,11 +268,23 @@ impl Session {
         self.driver.hold_sound(held);
 
         if held {
+            if self.held_since.is_none() && self.phase == Phase::Running {
+                self.driver.focus_changed(false);
+            }
+
             self.held_since.get_or_insert_with(Instant::now);
         } else if let Some(since) = self.held_since.take() {
             self.started += since.elapsed();
             self.due = None;
+
+            if self.phase == Phase::Running {
+                self.driver.focus_changed(true);
+            }
         }
+    }
+
+    pub(super) fn until_due(&self) -> Option<Duration> {
+        (self.phase == Phase::Running).then_some(self.due?.saturating_duration_since(Instant::now()))
     }
 
     pub(super) fn hush(&self) {
@@ -450,13 +462,13 @@ impl Session {
         let most = self.lag.most_steps();
         let mut steps = 0;
 
-        while steps < most && self.phase == Phase::Running && now + HALF_STEP >= due {
+        while steps < most && self.phase == Phase::Running && now + EARLY_STEP >= due {
             self.step();
             due += STEP_TIME;
             steps += 1;
         }
 
-        let behind = now + HALF_STEP >= due;
+        let behind = now + EARLY_STEP >= due;
 
         if behind && self.phase == Phase::Running && self.lag == Lag::CatchUp {
             trace!(steps, "emu: the sandbox fell too far behind and let the missed frames go");

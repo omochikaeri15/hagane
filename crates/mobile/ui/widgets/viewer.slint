@@ -70,7 +70,7 @@ component Controls inherits Rectangle {
     border-top-left-radius: Theme.radius-lg;
     border-top-right-radius: Theme.radius-lg;
     clip: true;
-    TouchArea { }
+    TouchArea { enabled: !Shell.swiping; }
     body := VerticalLayout {
         padding: 8px;
         padding-bottom: 0px;
@@ -88,10 +88,10 @@ component Controls inherits Rectangle {
                 width: parent.width;
                 height: parent.height;
             }
-            TouchArea { clicked => { Viewer.controls-expanded = !Viewer.controls-expanded; } }
+            TouchArea { enabled: !Shell.swiping; clicked => { Viewer.controls-expanded = !Viewer.controls-expanded; } }
         }
         Rectangle { height: 1phx; background: Theme.bg-strong; }
-        Flickable { flicked => { Shell.guard-claim = Shell.press-seq; }
+        Flickable { interactive: !Shell.swiping;
             mouse-drag-pan-enabled: true;
             height: Viewer.tiles-scroll ? 55px : max(root.rows, 1) * 29px - 4px;
             content-height: max(root.rows, 1) * 29px - 4px;
@@ -122,7 +122,7 @@ component Controls inherits Rectangle {
                             height: parent.height;
                             x: 2px;
                         }
-                        if self.real && Viewer.tiles[self.at].present: TouchArea {
+                        if self.real && Viewer.tiles[self.at].present: TouchArea { enabled: !Shell.swiping;
                             clicked => { Viewer.pick-tile(parent.at); }
                         }
                     }
@@ -153,13 +153,13 @@ component Controls inherits Rectangle {
                     Rectangle {
                         width: 30px; height: 28px; border-radius: Theme.radius-sm; background: Theme.bg-strong; opacity: Viewer.has-anim ? 1.0 : 0.5;
                         Text { text: "\u{25c0}"; color: Theme.text; font-family: "Miscellaneous-Symbols"; font-size: 14px; horizontal-alignment: center; vertical-alignment: center; width: parent.width; height: parent.height; }
-                        TouchArea { enabled: Viewer.has-anim; pointer-event(event) => { if event.kind == PointerEventKind.down { Viewer.hold(-1); } else if event.kind == PointerEventKind.up || event.kind == PointerEventKind.cancel { Viewer.release(); } } }
+                        TouchArea { enabled: (Viewer.has-anim) && !Shell.swiping; pointer-event(event) => { if event.kind == PointerEventKind.down { Viewer.hold(-1); } else if event.kind == PointerEventKind.up || event.kind == PointerEventKind.cancel { Viewer.release(); } } }
                     }
                     Input { width: 80px; height: 28px; text-size: 14px; align: center; placeholder: "0"; enabled: Viewer.has-anim; text: Viewer.frame-text; input-type: InputType.number; edited(value) => { Viewer.set-frame(value); } }
                     Rectangle {
                         width: 30px; height: 28px; border-radius: Theme.radius-sm; background: Theme.bg-strong; opacity: Viewer.has-anim ? 1.0 : 0.5;
                         Text { text: "\u{25b6}"; color: Theme.text; font-family: "Miscellaneous-Symbols"; font-size: 14px; horizontal-alignment: center; vertical-alignment: center; width: parent.width; height: parent.height; }
-                        TouchArea { enabled: Viewer.has-anim; pointer-event(event) => { if event.kind == PointerEventKind.down { Viewer.hold(1); } else if event.kind == PointerEventKind.up || event.kind == PointerEventKind.cancel { Viewer.release(); } } }
+                        TouchArea { enabled: (Viewer.has-anim) && !Shell.swiping; pointer-event(event) => { if event.kind == PointerEventKind.down { Viewer.hold(1); } else if event.kind == PointerEventKind.up || event.kind == PointerEventKind.cancel { Viewer.release(); } } }
                     }
                 }
                 HorizontalLayout {
@@ -231,7 +231,7 @@ export component AnimViewer inherits Rectangle {
                 root.pinch-scale = self.scale;
             }
         }
-        drag := TouchArea {
+        drag := TouchArea { enabled: !Shell.swiping;
             pointer-event(event) => {
                 if event.kind == PointerEventKind.down {
                     root.last-x = self.mouse-x;
@@ -277,7 +277,7 @@ export component AnimViewer inherits Rectangle {
 
     if Viewer.selecting: Rectangle {
         background: #0000007d;
-        TouchArea { enabled: false; }
+        TouchArea { enabled: (false) && !Shell.swiping; }
     }
     if Viewer.selecting && root.select-started: Rectangle {
         x: min(root.select-x, root.select-x + root.select-w);
@@ -322,7 +322,7 @@ export component AnimViewer inherits Rectangle {
             height: mark.h;
             background: Viewer.expanded ? Theme.white : Theme.text;
         }
-        TouchArea { clicked => { Viewer.expanded = !Viewer.expanded; } }
+        TouchArea { enabled: !Shell.swiping; clicked => { Viewer.expanded = !Viewer.expanded; } }
     }
 
     Controls {

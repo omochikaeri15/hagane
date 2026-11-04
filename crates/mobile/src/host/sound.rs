@@ -6,13 +6,12 @@ use std::rc::{Rc, Weak};
 use std::sync::Arc;
 
 use rodio::buffer::SamplesBuffer;
+#[cfg(target_os = "android")]
 use rodio::cpal::BufferSize;
 use rodio::{Decoder, DeviceSinkBuilder, DeviceSinkError, MixerDeviceSink, Player, Source};
 use tracing::{debug, info, warn};
 
 use emulator::engine::{AudioHost, AudioSource, SoundData};
-
-use crate::platform;
 
 use super::assets::{FileIndex, SharedLedger};
 
@@ -28,7 +27,11 @@ const DESCRIPTION: &[u8; 4] = b"desc";
 const SAMPLES: &[u8; 4] = b"data";
 const LITTLE_ENDIAN: u32 = 2;
 const EDIT_COUNT: usize = 4;
+#[cfg(target_os = "android")]
 const STEREO: NonZero<u16> = NonZero::<u16>::MIN.saturating_add(1);
+#[cfg(target_os = "android")]
+const CLIP_RATE: NonZero<u32> = NonZero::<u32>::MIN.saturating_add(44_099);
+#[cfg(target_os = "android")]
 const BUFFERS_PER_SECOND: u32 = 20;
 
 #[derive(Clone)]
@@ -62,21 +65,23 @@ trait Playing {
     fn hold(&self, held: bool);
 }
 
+#[cfg(target_os = "android")]
 fn open_output() -> Result<MixerDeviceSink, DeviceSinkError> {
-    let Some(rate) = platform::output_rate().and_then(NonZero::new) else {
-        return DeviceSinkBuilder::open_default_sink();
-    };
-
     DeviceSinkBuilder::from_default_device()?
-        .with_sample_rate(rate)
+        .with_sample_rate(CLIP_RATE)
         .with_channels(STEREO)
-        .with_buffer_size(BufferSize::Fixed(rate.get() / BUFFERS_PER_SECOND))
+        .with_buffer_size(BufferSize::Fixed(CLIP_RATE.get() / BUFFERS_PER_SECOND))
         .open_sink_or_fallback()
         .or_else(|error| {
-            warn!("emu: the audio output refused {rate} Hz: {error}");
+            warn!("emu: the audio output refused {CLIP_RATE} Hz: {error}");
 
             DeviceSinkBuilder::open_default_sink()
         })
+}
+
+#[cfg(not(target_os = "android"))]
+fn open_output() -> Result<MixerDeviceSink, DeviceSinkError> {
+    DeviceSinkBuilder::open_default_sink()
 }
 
 pub(super) struct Speaker {
@@ -290,6 +295,10 @@ impl Pool {
 }
 
 impl AudioHost for Pool {
+    fn resume_all(&mut self) {
+        self.speaker.hold(false);
+    }
+
     fn active_sources(&mut self) -> i32 {
         self.speaker.voices.borrow().iter().filter_map(Weak::upgrade).filter(|voice| voice.is_playing()).count() as i32
     }

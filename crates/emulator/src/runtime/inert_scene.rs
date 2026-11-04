@@ -48,9 +48,6 @@ impl SceneHost for InertScene {
     fn loader_busy(&mut self) -> bool {
         false
     }
-    fn loader_resuming_sound(&mut self) -> bool {
-        false
-    }
     fn fade_menu_dispatch(&mut self, _style: i32, _scene: i32) -> bool {
         false
     }
