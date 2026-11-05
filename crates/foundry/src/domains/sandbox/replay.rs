@@ -12,7 +12,7 @@ use crate::Vault;
 #[cfg(all(feature = "disk", feature = "mods"))]
 pub use disk::{Bundle, Recording, delete, export, index, inspect_bundle, inspect_dir, latest, library, list, next_bundle, pack, read_faults, read_input, read_save, rename, restamp, stage, stamp};
 pub use footage::{Footage, Opened, Packer};
-pub use save::{God, Level, Options, Parts, Save, Screen, Seeds, Setup, Stage, Tutorial, Unit, Variant};
+pub use save::{God, Insets, Level, Options, Parts, Save, Screen, Seeds, Setup, Stage, Tutorial, Unit, Variant};
 pub use tape::{Cue, Key, format_frame, parse};
 
 pub const EXTENSION: &str = "bcv";

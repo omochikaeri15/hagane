@@ -4,6 +4,9 @@ use std::time::{Duration, Instant};
 use slint::{ComponentHandle, Image, ModelRc, Rgba8Pixel, SharedPixelBuffer, Timer, TimerMode, VecModel};
 use tracing::{info, warn};
 
+use emulator::runtime::phone_activity;
+use foundry::domains::sandbox::replay::Insets;
+
 use crate::platform;
 use crate::host::{self, Canvas, Command, Diagnostics, Event, Launch, Occupant, Phase, Standing, Touch};
 use crate::pages::Context;
@@ -66,6 +69,14 @@ pub fn bounds(ui: &AppWindow) -> (f32, f32) {
     (shell.get_app_width().max(1.0), shell.get_app_height().max(1.0))
 }
 
+pub fn device_insets(fullscreen: bool, width: f32, height: f32, density: f32) -> Insets {
+    let pixels = |length: f32| (length * density.max(1.0)).round() as i32;
+    let activity = platform::activity().unwrap_or_else(|| phone_activity(pixels(width), pixels(height)));
+    let insets = host::insets_of(&activity);
+
+    if fullscreen { insets } else { Insets { side: 0, top: 0, bottom: 0, ..insets } }
+}
+
 pub fn launch(ui: &AppWindow, state: &Shared, context: &Rc<Context>, launch: Launch) {
     {
         let mut held = state.borrow_mut();
@@ -82,6 +93,10 @@ pub fn launch(ui: &AppWindow, state: &Shared, context: &Rc<Context>, launch: Lau
 
         if let Some(arena) = &held.arena {
             arena.send(Command::Display { scale, padded });
+            let density = ui.window().scale_factor();
+
+            arena.send(Command::Density(density));
+            arena.send(Command::Insets(device_insets(held.saved().fullscreen, launch.width, launch.height, density)));
             arena.send(Command::Start(Box::new(launch)));
         }
     }
@@ -101,14 +116,15 @@ pub fn wire(window: &AppWindow, state: &Shared, context: &Rc<Context>) {
         }
     });
 
-    let (held, _, _) = on(state, context, window);
+    let (held, _, weak) = on(state, context, window);
     sandbox.on_touch(move |kind, x, y| {
         let held_state = held.borrow();
         let battle = &held_state.battle;
         let (width, height) = battle.bounds;
         let (x, y) = battle.canvas.unpad(x, y, width, height);
         let inside = (0.0..=width).contains(&x) && (0.0..=height).contains(&y);
-        let (x, y) = (x.clamp(0.0, width).round() as i32, y.clamp(0.0, height).round() as i32);
+        let density = weak.upgrade().map_or(1.0, |ui| ui.window().scale_factor().max(1.0));
+        let (x, y) = ((x.clamp(0.0, width) * density).round() as i32, (y.clamp(0.0, height) * density).round() as i32);
         let touch = match kind {
             TOUCH_DOWN if inside => Some(Touch::Pressed { x, y }),
             TOUCH_DOWN => None,
@@ -199,7 +215,10 @@ pub fn wire(window: &AppWindow, state: &Shared, context: &Rc<Context>) {
 
         if let Some(arena) = &state.arena {
             if let Some(ui) = weak.upgrade() {
-                arena.send(Command::Density(ui.window().scale_factor()));
+                let density = ui.window().scale_factor();
+
+                arena.send(Command::Density(density));
+                arena.send(Command::Insets(device_insets(state.saved().fullscreen, width, height, density)));
             }
 
             arena.send(Command::Resize(width, height));

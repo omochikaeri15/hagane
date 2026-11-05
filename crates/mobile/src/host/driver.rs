@@ -41,7 +41,6 @@ const PINCH_EASE: i32 = 4;
 const PINCH_LIFT_FRAMES: u32 = 2;
 const FULL_VOLUME: i32 = 100;
 const DIM_ALPHA: i32 = 0x80;
-const NOTCH_SHARE: f32 = 0.04;
 const ALTAR_ROW_SHIFT: i32 = -2;
 const BUTTON_SLOTS: i32 = 21;
 const REWARD_CELLS: usize = 0x2f;
@@ -97,6 +96,8 @@ pub(super) struct Driver {
     window: (f32, f32),
     applied: (f32, f32),
     wanted_phone: bool,
+    insets: Option<tape::Insets>,
+    wanted_insets: Option<tape::Insets>,
     finished: bool,
     label: Label,
     recorded: Option<tape::Save>,
@@ -181,6 +182,8 @@ impl Driver {
             window: (0.0, 0.0),
             applied: (0.0, 0.0),
             wanted_phone: false,
+            insets: None,
+            wanted_insets: None,
             finished: false,
             label: Label::default(),
             recorded: None,
@@ -224,6 +227,7 @@ impl Driver {
 
         let (width, height) = if self.watching() {
             self.phone = self.wanted_phone;
+            self.insets = self.wanted_insets;
             self.window
         } else {
             (self.ctx.device_screen_w as f32, self.ctx.device_screen_h as f32)
@@ -284,7 +288,7 @@ impl Driver {
             version: VERSION.to_owned(),
             app: self.label.app.clone(),
             seeds: replay::seeds_to(self.seeds),
-            screen: tape::Screen { width: self.applied.0, height: self.applied.1, phone: self.phone },
+            screen: tape::Screen { width: self.applied.0, height: self.applied.1, phone: self.phone, insets: self.insets },
             options: replay::options_to(self.options),
             setup: replay::setup_to(&self.setup, &self.label.map, &self.label.stage),
             icons: Vec::new(),
@@ -340,6 +344,7 @@ impl Driver {
         self.close_tape();
         self.set_setup(replay::setup_from(&save.setup));
         self.phone = save.screen.phone;
+        self.insets = save.screen.insets;
         self.apply_size(save.screen.width, save.screen.height);
         self.set_options(replay::options_from(save.options));
         self.seeds = replay::seeds_from(save.seeds);
@@ -389,6 +394,7 @@ impl Driver {
 
         self.close_tape();
         self.phone = self.wanted_phone;
+        self.insets = self.wanted_insets;
 
         let (width, height) = self.window;
 
@@ -594,6 +600,11 @@ impl Driver {
 
                 Ok(())
             }
+            Cue::Insets(insets) => {
+                self.insets = Some(insets);
+
+                Ok(())
+            }
         };
 
         if let Err(fault) = fed {
@@ -668,8 +679,13 @@ impl Driver {
 
         self.ctx.device_screen_w = width as i32;
         self.ctx.device_screen_h = height as i32;
-        self.profile.tablet.set(!self.phone);
-        self.profile.side_inset.set(if self.phone { (width * NOTCH_SHARE).round() as i32 } else { 0 });
+        let insets = tape::Insets::in_force(self.insets, self.phone, width);
+
+        self.profile.tablet.set(insets.tablet);
+        self.profile.side_inset.set(insets.side);
+        self.profile.top_inset.set(insets.top);
+        self.profile.bottom_inset.set(insets.bottom);
+        self.profile.window_ratio.set(insets.window_ratio);
 
         if let Err(fault) = emulator::engine::compute_layout_metrics(&mut self.ctx) {
             warn!("emu: layout metrics could not be computed: {fault}");
@@ -703,6 +719,20 @@ impl Driver {
         let height = self.ctx.device_screen_h as f32;
 
         self.apply_size(width, height);
+    }
+
+    pub(super) fn set_insets(&mut self, insets: Option<tape::Insets>) {
+        self.wanted_insets = insets;
+
+        if self.watching() || self.insets == insets {
+            return;
+        }
+
+        if let (Tape::Recording(_), Some(changed)) = (&self.tape, insets) {
+            self.pending.push(Cue::Insets(changed));
+        }
+
+        self.insets = insets;
     }
 
     pub(super) fn in_battle(&self) -> bool {

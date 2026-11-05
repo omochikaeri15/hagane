@@ -13,12 +13,12 @@ use foundry::domains::settings::source::{self, ErrorKind, Partial, Step};
 use foundry::domains::settings::{Stamp, UpdateMode};
 
 use crate::pages::Context;
-use crate::{AppWindow, Settings, Shell, Source, Tone, bridge};
+use crate::{AppWindow, Settings, Source, Tone, bridge};
 
 use super::format_size;
 
-const AGREEMENT: &str = "v1";
-const ACKNOWLEDGMENT: &str = "The purpose of this agreement is to ensure that you, the User, are aware of the potential quirks regarding the use of a Provider.\nBy accepting this agreement, you must have read, understood, and accepted the following facts about Providers:\n\n\u{2022} Providers wipe the import manifest, so future imports will import every file.\n\u{2022} Providers always overwrite every game file, so edits to vanilla will be lost.\n\nYou can accept the agreement by tapping the \"Agree\" button below. Selecting \"Disagree\" will close this pop-up.";
+const AGREEMENT: &str = "v2";
+const ACKNOWLEDGMENT: &str = "The purpose of this agreement is to ensure that you, the User, are aware of the potential quirks regarding the use of a Provider.\nBy accepting this agreement, you must have read, understood, and accepted the following facts about Providers:\n\n\u{2022} Providers wipe the import manifest, so future imports will import every file.\n\u{2022} Providers may not keep recent or up to date game data.\n\nYou can accept the agreement by tapping the \"Agree\" button below. Selecting \"Disagree\" will close this pop-up.";
 const BANNER_MS: u64 = 2000;
 const CONFIRM_MS: u64 = 3000;
 
@@ -52,7 +52,6 @@ struct State {
     partial: Arc<Mutex<Option<Partial>>>,
     confirm_ignore: bool,
     open: bool,
-    pending: Option<String>,
     timer: Timer,
     tickets: Option<Tickets>,
 }
@@ -117,7 +116,6 @@ impl State {
             partial: Arc::default(),
             confirm_ignore: false,
             open: false,
-            pending: None,
             timer: Timer::default(),
             tickets: None,
         }
@@ -141,6 +139,10 @@ impl State {
     fn busy(&self) -> bool {
         matches!(self.status, Status::Checking | Status::Installing(_))
     }
+}
+
+fn agreed(context: &Context) -> bool {
+    context.memory.get().source_agreement == AGREEMENT
 }
 
 pub(super) fn wire(window: &AppWindow, context: &Rc<Context>) {
@@ -176,18 +178,12 @@ pub(super) fn wire(window: &AppWindow, context: &Rc<Context>) {
             return;
         };
 
-        if held.borrow().pending.is_none() && link.as_str() == ctx.state.settings().files.source_link {
+        if link.as_str() == ctx.state.settings().files.source_link {
             return;
         }
 
         if held.borrow().busy() {
             refresh(&ui, &held, &ctx);
-            return;
-        }
-
-        if ctx.memory.get().source_agreement != AGREEMENT {
-            held.borrow_mut().pending = Some(link.to_string());
-            ask_terms(&ui);
             return;
         }
 
@@ -199,7 +195,9 @@ pub(super) fn wire(window: &AppWindow, context: &Rc<Context>) {
     let (held, ctx, weak) = on(&state, context, window);
     panel.on_check(move || {
         if let Some(ui) = weak.upgrade() {
-            if held.borrow().prompts() {
+            if matches!(held.borrow().status, Status::Found(_)) && !agreed(&ctx) {
+                ask_terms(&ui);
+            } else if held.borrow().prompts() {
                 held.borrow_mut().open = true;
                 refresh(&ui, &held, &ctx);
             } else {
@@ -212,6 +210,7 @@ pub(super) fn wire(window: &AppWindow, context: &Rc<Context>) {
     panel.on_accept(move || {
         if let Some(ui) = weak.upgrade()
             && matches!(held.borrow().status, Status::Found(_))
+            && agreed(&ctx)
         {
             let link = ctx.state.settings().files.source_link.trim().to_owned();
 
@@ -294,14 +293,12 @@ pub(super) fn wire(window: &AppWindow, context: &Rc<Context>) {
         ctx.memory.update(|memory| memory.source_agreement = AGREEMENT.to_owned());
         ui.global::<Source>().set_terms_open(false);
 
-        let pending = held.borrow_mut().pending.take();
-
-        if let Some(link) = pending {
-            ctx.state.apply(|settings| settings.files.source_link = link);
-            held.borrow_mut().settle();
+        if matches!(held.borrow().status, Status::Found(_)) {
+            held.borrow_mut().open = true;
+            refresh(&ui, &held, &ctx);
+        } else {
+            check(&ui, &held, &ctx, true);
         }
-
-        refresh(&ui, &held, &ctx);
     });
 
     let (held, ctx, weak) = on(&state, context, window);
@@ -311,8 +308,6 @@ pub(super) fn wire(window: &AppWindow, context: &Rc<Context>) {
         };
 
         ui.global::<Source>().set_terms_open(false);
-        held.borrow_mut().pending = None;
-        ctx.state.apply(|settings| settings.files.source_link.clear());
         held.borrow_mut().settle();
         refresh(&ui, &held, &ctx);
     });
@@ -328,10 +323,7 @@ pub(super) fn wire(window: &AppWindow, context: &Rc<Context>) {
 }
 
 fn ask_terms(ui: &AppWindow) {
-    let shell = ui.global::<Shell>();
-
     ui.global::<Source>().set_terms_open(true);
-    shell.set_taps(shell.get_taps() + 1);
 }
 
 fn check(ui: &AppWindow, state: &Shared, context: &Rc<Context>, manual: bool) {
@@ -345,10 +337,8 @@ fn check(ui: &AppWindow, state: &Shared, context: &Rc<Context>, manual: bool) {
         return;
     }
 
-    if context.memory.get().source_agreement != AGREEMENT {
-        if manual {
-            ask_terms(ui);
-        }
+    if manual && !agreed(context) {
+        ask_terms(ui);
 
         return;
     }
@@ -389,10 +379,18 @@ fn check(ui: &AppWindow, state: &Shared, context: &Rc<Context>, manual: bool) {
                 Ok(stamp) => {
                     info!(modified = stamp.modified, "The game data source holds newer files");
 
-                    let mut state = landing.borrow_mut();
+                    let ready = agreed(&ctx);
 
-                    state.status = Status::Found(summary(&stamp));
-                    state.open = true;
+                    {
+                        let mut state = landing.borrow_mut();
+
+                        state.status = Status::Found(summary(&stamp));
+                        state.open = ready;
+                    }
+
+                    if !ready {
+                        ask_terms(ui);
+                    }
                 }
                 Err(err) if manual => flash(ui, &landing, &ctx, Status::Failed(err.kind)),
                 Err(_) => {}
@@ -531,7 +529,7 @@ fn refresh(ui: &AppWindow, state: &Shared, context: &Rc<Context>) {
         Status::Failed(_) => ("Download Failed!", Tone::StatusDanger, false),
     };
 
-    panel.set_link(held.pending.as_deref().unwrap_or(settings.files.source_link.as_str()).into());
+    panel.set_link(settings.files.source_link.as_str().into());
     panel.set_link_enabled(!held.busy());
     panel.set_label(label.into());
     panel.set_tone(tone);

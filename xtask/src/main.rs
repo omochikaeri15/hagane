@@ -1,294 +1,47 @@
+mod android;
+mod deploy;
+mod ship;
+
 use std::env;
-use std::fs;
-use std::io::Write;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio, exit};
 
-const BUILDS: &str = ".github/release-builds";
-const FRONTENDS: [&str; 3] = ["desktop", "website", "mobile"];
-const APP_REMOTE: &str = "origin";
-const APP_RELEASE_BRANCH: &str = "main";
-const APP_DEV_BRANCH: &str = "dev";
-const APP_MANIFEST: &str = "Cargo.toml";
-const APP_LOCKFILE: &str = "Cargo.lock";
-const APP_TAG_PREFIX: &str = "v";
-const CHANGELOG: &str = "CHANGELOG.md";
-
-fn run_git(args: &[&str]) {
-    let status = Command::new("git")
-        .args(args)
-        .status()
-        .expect("Failed to execute git command");
-
-    if !status.success() {
-        eprintln!("Error: 'git {}' failed. Aborting.", args.join(" "));
-        exit(1);
-    }
+fn fail(message: &str) -> ! {
+    eprintln!("Error: {message}");
+    exit(1);
 }
 
-fn run_cargo(args: &[&str]) {
-    let status = Command::new("cargo")
-        .args(args)
-        .status()
-        .expect("Failed to execute cargo command");
-
-    if !status.success() {
-        eprintln!("Error: 'cargo {}' failed. Aborting.", args.join(" "));
-        exit(1);
-    }
+fn workspace_root() -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR")).parent().expect("xtask sits inside the workspace").to_path_buf()
 }
 
-fn git_succeeds(args: &[&str]) -> bool {
-    Command::new("git")
-        .args(args)
+fn target_dir(root: &Path) -> PathBuf {
+    let output = Command::new("cargo")
+        .args(["metadata", "--format-version", "1", "--no-deps"])
+        .current_dir(root)
+        .stderr(Stdio::inherit())
         .output()
-        .map(|output| output.status.success())
-        .unwrap_or(false)
-}
+        .expect("Failed to execute cargo metadata");
+    let metadata = String::from_utf8_lossy(&output.stdout);
+    let (_, rest) = metadata.split_once("\"target_directory\":\"").expect("cargo metadata named no target directory");
+    let (target, _) = rest.split_once('"').expect("cargo metadata cut the target directory short");
 
-fn released_versions() -> Vec<(u64, u64, u64)> {
-    let output = Command::new("git")
-        .args(["ls-remote", "--tags", "--refs", APP_REMOTE])
-        .output()
-        .expect("Failed to execute git ls-remote");
-
-    if !output.status.success() {
-        eprintln!("Error: could not list the tags on {APP_REMOTE}. Is GitHub reachable?");
-        exit(1);
-    }
-
-    String::from_utf8_lossy(&output.stdout)
-        .lines()
-        .filter_map(|line| line.rsplit_once("refs/tags/")?.1.strip_prefix(APP_TAG_PREFIX).and_then(parse_version))
-        .collect()
-}
-
-fn this_month() -> (u64, u64) {
-    let output = Command::new("date").arg("+%y %-m").output().expect("Failed to execute date");
-    let text = String::from_utf8_lossy(&output.stdout);
-    let mut parts = text.split_whitespace().map(|part| part.parse::<u64>().ok());
-
-    let (Some(Some(year)), Some(Some(month))) = (parts.next(), parts.next()) else {
-        eprintln!("Error: could not read the current year and month from 'date'.");
-        exit(1);
-    };
-
-    (year, month)
-}
-
-fn next_version(released: &[(u64, u64, u64)], current: Option<(u64, u64, u64)>) -> String {
-    let (year, month) = this_month();
-    let count = released
-        .iter()
-        .copied()
-        .chain(current)
-        .filter(|&(y, m, _)| (y, m) == (year, month))
-        .map(|(_, _, n)| n + 1)
-        .max()
-        .unwrap_or(0);
-
-    format!("{year}.{month}.{count}")
-}
-
-fn ensure_changelog(last: Option<(u64, u64, u64)>) {
-    let notes = fs::read_to_string(CHANGELOG).unwrap_or_default();
-
-    if notes.trim().is_empty() {
-        eprintln!("Error: {CHANGELOG} is empty. It becomes the release notes, so write them first.");
-        exit(1);
-    }
-
-    run_git(&["add", CHANGELOG]);
-
-    let Some((major, minor, patch)) = last else { return; };
-    let tag = format!("{APP_TAG_PREFIX}{major}.{minor}.{patch}");
-
-    run_git(&["fetch", "--no-tags", APP_REMOTE, "tag", &tag]);
-
-    if git_succeeds(&["diff", "--cached", "--quiet", &tag, "--", CHANGELOG]) {
-        eprintln!("Error: {CHANGELOG} is unchanged since {tag}. Write the notes for this release first.");
-        exit(1);
-    }
-}
-
-fn stamp_version(old: &str, new: &str) {
-    let manifest = fs::read_to_string(APP_MANIFEST).expect("Failed to read the workspace manifest");
-    let stamped = manifest.replacen(&format!("version = \"{old}\""), &format!("version = \"{new}\""), 1);
-
-    fs::write(APP_MANIFEST, stamped).expect("Failed to write the workspace manifest");
-}
-
-fn git_stdout(args: &[&str]) -> String {
-    let output = Command::new("git").args(args).output().expect("Failed to execute git command");
-
-    String::from_utf8_lossy(&output.stdout).trim().to_string()
-}
-
-fn cargo_stdout(args: &[&str]) -> String {
-    let output = Command::new("cargo").args(args).output().expect("Failed to execute cargo command");
-
-    if !output.status.success() {
-        eprintln!("Error: 'cargo {}' failed. Aborting.", args.join(" "));
-        exit(1);
-    }
-
-    String::from_utf8_lossy(&output.stdout).into_owned()
-}
-
-fn git_hash(text: &str) -> String {
-    let mut child = Command::new("git")
-        .args(["hash-object", "--stdin"])
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .spawn()
-        .expect("Failed to execute git hash-object");
-
-    child
-        .stdin
-        .take()
-        .expect("git hash-object has no stdin")
-        .write_all(text.as_bytes())
-        .expect("Failed to feed git hash-object");
-
-    let output = child.wait_with_output().expect("Failed to read git hash-object");
-
-    String::from_utf8_lossy(&output.stdout).trim().to_string()
-}
-
-fn tree_entry(line: &str, root: &Path) -> Option<String> {
-    let line = line.trim().trim_end_matches(" (*)");
-    let (name, rest) = line.split_once(' ')?;
-    let local = rest
-        .split_once(" (")
-        .and_then(|(_, path)| path.strip_suffix(')'))
-        .and_then(|path| fs::canonicalize(path).ok())
-        .and_then(|path| path.strip_prefix(root).ok().map(Path::to_path_buf));
-
-    Some(local.map_or_else(
-        || line.to_string(),
-        |dir| format!("{name} {}", git_stdout(&["rev-parse", &format!("HEAD:{}", dir.display())])),
-    ))
-}
-
-fn fingerprint(package: &str, root: &Path) -> String {
-    let tree = cargo_stdout(&["tree", "-p", package, "--target", "all", "-e", "normal,build", "--prefix", "none"]);
-    let mut entries: Vec<String> = tree.lines().filter_map(|line| tree_entry(line, root)).collect();
-
-    entries.sort_unstable();
-    entries.dedup();
-
-    let manifest = fs::read_to_string(APP_MANIFEST).expect("Failed to read the workspace manifest");
-    entries.extend(manifest.lines().filter(|line| !line.trim_start().starts_with("version =")).map(str::to_string));
-
-    git_hash(&entries.join("\n"))
-}
-
-fn settle_builds(version: &str, everything: bool) -> Vec<&'static str> {
-    let root = env::current_dir().and_then(fs::canonicalize).expect("Failed to resolve the workspace root");
-    let recorded = fs::read_to_string(BUILDS).unwrap_or_default();
-    let mut lines = Vec::new();
-    let mut shipping = Vec::new();
-
-    for name in FRONTENDS {
-        let fingerprint = fingerprint(name, &root);
-        let kept = recorded.lines().find_map(|line| {
-            let mut parts = line.split_whitespace();
-            let matches = parts.next() == Some(name);
-            let built = parts.next();
-
-            (matches && parts.next() == Some(fingerprint.as_str())).then_some(built).flatten()
-        });
-        let built = kept.filter(|_| !everything).unwrap_or(version);
-
-        if built == version {
-            shipping.push(name);
-        }
-
-        lines.push(format!("{name} {built} {fingerprint}"));
-    }
-
-    fs::write(BUILDS, lines.join("\n") + "\n").expect("Failed to write the release builds");
-
-    shipping
-}
-
-fn ship(everything: bool) {
-    println!("Starting Hagane Release...");
-
-    println!("> Reading the releases on {APP_REMOTE}...");
-    let released = released_versions();
-    ensure_changelog(released.iter().copied().max());
-
-    let current = manifest_version(APP_MANIFEST);
-    let version = next_version(&released, parse_version(&current));
-
-    if version != current {
-        println!("> Stamping {APP_TAG_PREFIX}{version} (was {current})...");
-        stamp_version(&current, &version);
-    }
-
-    println!("> Verifying build state with cargo check...");
-    run_cargo(&["check"]);
-
-    let release_files = [APP_MANIFEST, APP_LOCKFILE, CHANGELOG, BUILDS];
-    let tag = format!("{APP_TAG_PREFIX}{version}");
-
-    println!("> Fingerprinting the front ends against their last builds...");
-    let builds = settle_builds(&version, everything);
-
-    if builds.is_empty() {
-        println!("> No front end changed since its last build; {tag} only carries notes.");
-    } else {
-        println!("> {tag} builds {}.", builds.join(" and "));
-    }
-
-    run_git(&[&["add"][..], &release_files].concat());
-
-    if !git_succeeds(&[&["diff", "--cached", "--quiet", "--"][..], &release_files].concat()) {
-        println!("> Committing {tag}...");
-        run_git(&[&["commit", "-m", &tag, "--"][..], &release_files].concat());
-    }
-
-    println!("> Checking out {APP_RELEASE_BRANCH} and pulling latest changes...");
-    run_git(&["checkout", APP_RELEASE_BRANCH]);
-    run_git(&["pull"]);
-
-    println!("> Merging {APP_DEV_BRANCH} into {APP_RELEASE_BRANCH}...");
-    run_git(&["merge", APP_DEV_BRANCH]);
-
-    println!("> Pushing {APP_RELEASE_BRANCH} to remote...");
-    run_git(&["push"]);
-
-    println!("> Returning to {APP_DEV_BRANCH} branch...");
-    run_git(&["checkout", APP_DEV_BRANCH]);
-
-    println!("{tag} shipped! The release workflow builds and publishes it with {CHANGELOG} as the notes.");
-}
-
-fn parse_version(text: &str) -> Option<(u64, u64, u64)> {
-    let mut parts = text.trim().split('.').map(|part| part.parse::<u64>().ok());
-    let version = (parts.next()??, parts.next()??, parts.next()??);
-
-    parts.next().is_none().then_some(version)
-}
-
-fn manifest_version(path: &str) -> String {
-    let manifest = fs::read_to_string(path).expect("Failed to read a Cargo manifest");
-
-    manifest
-        .lines()
-        .map(str::trim)
-        .find_map(|line| line.strip_prefix("version")?.trim_start().strip_prefix('=')?.trim().strip_prefix('"')?.strip_suffix('"'))
-        .expect("The Cargo manifest has no version line")
-        .to_string()
+    PathBuf::from(target)
 }
 
 fn main() {
-    match env::args().nth(1).as_deref() {
-        None => ship(false),
-        Some("--all") => ship(true),
-        Some(unknown) => {
-            eprintln!("Unknown xtask argument '{unknown}'. Use 'cargo ship', or 'cargo ship --all' to rebuild every front end.");
+    let args: Vec<String> = env::args().skip(1).collect();
+    let args: Vec<&str> = args.iter().map(String::as_str).collect();
+
+    match args.as_slice() {
+        [] => ship::release(false),
+        ["all"] => ship::release(true),
+        ["debug", "android" | "apk"] => android::build(),
+        ["deploy", "website" | "web"] => deploy::website(),
+        ["deploy", "stop"] => deploy::stop(),
+        [deploy::SERVE_COMMAND, root] => deploy::serve(Path::new(root)),
+        unknown => {
+            eprintln!("Unknown xtask arguments '{}'. Use 'cargo ship', 'cargo ship all', 'cargo debug android', 'cargo deploy website' or 'cargo deploy stop'.", unknown.join(" "));
             exit(2);
         }
     }

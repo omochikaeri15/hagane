@@ -55,10 +55,10 @@ open = "5.4.1"
 slint-build = "1.18"
 
 [package.metadata.android]
-package = "app.omochikaeri.hagane"
+package = "app.omochikaeri.haganedev"
 build_targets = ["aarch64-linux-android", "x86_64-linux-android"]
 resources = "res"
-apk_name = "hagane"
+apk_name = "Hagane-dev"
 strip = "strip"
 
 [package.metadata.android.signing.release]
@@ -70,7 +70,7 @@ min_sdk_version = 26
 target_sdk_version = 35
 
 [package.metadata.android.application]
-label = "Hagane"
+label = "Hagane-dev"
 icon = "@mipmap/ic_launcher"
 theme = "@android:style/Theme.DeviceDefault.NoActionBar"
 

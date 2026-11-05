@@ -6,6 +6,9 @@ use std::path::PathBuf;
 use tracing::debug;
 use tracing::warn;
 
+#[cfg(target_os = "android")]
+use emulator::java::{self, DisplayCutout};
+use emulator::java::Activity;
 use foundry::domains::import::device::Installed;
 
 #[cfg(any(target_os = "android", target_os = "ios"))]
@@ -169,19 +172,40 @@ pub fn on_shown(handler: impl Fn(bool) + 'static) {
 pub fn on_shown(_handler: impl Fn(bool) + 'static) {}
 
 #[cfg(target_os = "android")]
-const TABLET_WIDTH_DP: i32 = 600;
-
-#[cfg(target_os = "android")]
 pub fn is_tablet() -> Option<bool> {
-    crate::android::smallest_width_dp()
-        .inspect_err(|err| warn!("The screen size could not be read: {err}"))
-        .ok()
-        .filter(|width| *width > 0)
-        .map(|width| width >= TABLET_WIDTH_DP)
+    activity().as_ref().map(java::is_tablet)
 }
 
 #[cfg(not(target_os = "android"))]
 pub fn is_tablet() -> Option<bool> {
+    None
+}
+
+#[cfg(target_os = "android")]
+pub fn activity() -> Option<Activity> {
+    let [sdk_int, multi_window, screen_width, screen_height, window_width, window_height, cut, left, top, right, bottom] =
+        crate::android::screen_facts().inspect_err(|err| warn!("The screen could not be read: {err}")).ok()?;
+    let mut activity = Activity {
+        sdk_int,
+        display_cutout: (cut != 0).then_some(DisplayCutout { left, top, right, bottom }),
+        in_multi_window: multi_window != 0,
+        display_size: (screen_width, screen_height),
+        ..Activity::default()
+    };
+    let screen = (screen_width.max(screen_height), screen_width.min(screen_height));
+    let window = (window_width.max(window_height), window_width.min(window_height));
+
+    java::on_surface_changed(&mut activity, screen.0, screen.1);
+
+    if window != screen {
+        java::on_surface_changed(&mut activity, window.0, window.1);
+    }
+
+    Some(activity)
+}
+
+#[cfg(not(target_os = "android"))]
+pub fn activity() -> Option<Activity> {
     None
 }
 

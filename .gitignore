@@ -50,3 +50,4 @@ tmp_new_version
 Thumbs.db
 
 crates/mobile/release.keystore
+/compiled/

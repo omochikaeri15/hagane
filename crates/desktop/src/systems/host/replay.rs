@@ -1,3 +1,4 @@
+use emulator::java::{self, Activity};
 use emulator::runtime::{BattleOptions, CatGod, PartLevels, Seeds, Setup, SetupUnit, StageEntry, StageVariant, TechLevel, TutorialFlags};
 use foundry::domains::sandbox::replay::{self as tape, Key};
 
@@ -37,6 +38,16 @@ pub fn seeds_to(seeds: Seeds) -> tape::Seeds {
 
 pub fn seeds_from(seeds: tape::Seeds) -> Seeds {
     Seeds { rng: seeds.rng, entropy: seeds.entropy }
+}
+
+pub fn insets_of(activity: &Activity) -> tape::Insets {
+    tape::Insets {
+        side: java::get_safe_inset_left(activity).max(java::get_safe_inset_right(activity)),
+        top: java::get_safe_inset_top(activity),
+        bottom: java::get_safe_inset_bottom(activity),
+        window_ratio: java::get_screen_window_ratio(activity),
+        tablet: java::is_tablet(activity),
+    }
 }
 
 pub fn options_to(options: BattleOptions) -> tape::Options {

@@ -125,6 +125,7 @@ pub struct State {
     quality: Slot<()>,
     quality_notice: String,
     session: Option<Session>,
+    density: f32,
     tapped: Option<std::time::Instant>,
     lineup: lineup::State,
     config: config::State,
@@ -154,6 +155,7 @@ impl Default for State {
             quality: Slot::default(),
             quality_notice: String::new(),
             session: None,
+            density: 1.0,
             tapped: None,
             lineup: lineup::State::new(0),
             config: config::State::default(),
@@ -517,8 +519,10 @@ impl State {
 
         self.foreign = None;
 
+        let density = self.density;
         let session = self.session.get_or_insert_with(Session::new);
 
+        session.set_density(density);
         session.set_phone(options.device == SandboxDevice::Phone);
         session.set_lag(options.lag());
         session.resize(width, height);
@@ -533,6 +537,14 @@ impl State {
         }
     }
 
+    pub fn set_density(&mut self, density: f32) {
+        self.density = density;
+
+        if let Some(session) = self.session.as_mut() {
+            session.set_density(density);
+        }
+    }
+
     pub(crate) fn gather_keepsakes(&mut self, vault: Arc<Vault>, save: replay_tape::Save, config: ScannerConfig) -> Task<Message> {
         self.ticket += 1;
 
@@ -542,8 +554,10 @@ impl State {
     }
 
     pub(crate) fn start(&mut self, width: f32, height: f32, options: &SandboxState, setup: Setup, label: Option<Label>) {
+        let density = self.density;
         let session = self.session.get_or_insert_with(Session::new);
 
+        session.set_density(density);
         session.set_recording(label.is_some());
         session.label(label.unwrap_or_default());
         session.equip(setup);

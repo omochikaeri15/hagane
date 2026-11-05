@@ -9,6 +9,7 @@ import android.content.Context;
 import android.content.Intent;
 import android.database.Cursor;
 import android.graphics.Color;
+import android.graphics.Point;
 import android.graphics.Rect;
 import android.net.Uri;
 import android.os.Build;
@@ -18,6 +19,7 @@ import android.os.Vibrator;
 import android.provider.DocumentsContract;
 import android.provider.OpenableColumns;
 import android.util.Log;
+import android.view.DisplayCutout;
 import android.view.InputDevice;
 import android.view.View;
 import android.view.Window;
@@ -42,6 +44,8 @@ public class Glue extends Fragment {
     private static final int RESERVED_DP = 200;
 
     private static boolean fullscreen;
+
+    private static volatile int[] cutoutInsets;
 
     private static boolean watchingLayout;
 
@@ -103,10 +107,12 @@ public class Glue extends Fragment {
                         @Override
                         public void onLayoutChange(View view, int left, int top, int right, int bottom, int oldLeft, int oldTop, int oldRight, int oldBottom) {
                             reserveEdges(view);
+                            readCutout(view);
                         }
                     });
                 }
                 reserveEdges(decor);
+                readCutout(decor);
             }
         });
     }
@@ -126,6 +132,51 @@ public class Glue extends Fragment {
         } catch (RuntimeException refused) {
             Log.w(TAG, "the screen edges could not be reserved from the back gesture", refused);
         }
+    }
+
+    private static void readCutout(View decor) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.P || decor.getWidth() == 0) {
+            return;
+        }
+        WindowInsets insets = decor.getRootWindowInsets();
+        DisplayCutout cutout = insets == null ? null : insets.getDisplayCutout();
+        if (cutout == null) {
+            return;
+        }
+        cutoutInsets = decor.getHeight() > decor.getWidth()
+            ? new int[] { cutout.getSafeInsetTop(), cutout.getSafeInsetRight(), cutout.getSafeInsetBottom(), cutout.getSafeInsetLeft() }
+            : new int[] { cutout.getSafeInsetLeft(), cutout.getSafeInsetTop(), cutout.getSafeInsetRight(), cutout.getSafeInsetBottom() };
+    }
+
+    private static Point screenSize(Activity activity) {
+        Point size = new Point();
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && activity.isInMultiWindowMode()) {
+            WindowManager manager = activity.createWindowContext(activity.getDisplay(), WindowManager.LayoutParams.TYPE_APPLICATION, null).getSystemService(WindowManager.class);
+            Rect bounds = manager.getMaximumWindowMetrics().getBounds();
+            size.set(bounds.width(), bounds.height());
+        } else {
+            activity.getWindowManager().getDefaultDisplay().getRealSize(size);
+        }
+        return size;
+    }
+
+    public static int[] screenFacts(Activity activity) {
+        View decor = activity.getWindow().getDecorView();
+        Point screen = screenSize(activity);
+        int[] cutout = cutoutInsets;
+        return new int[] {
+            Build.VERSION.SDK_INT,
+            activity.isInMultiWindowMode() ? 1 : 0,
+            screen.x,
+            screen.y,
+            decor.getWidth(),
+            decor.getHeight(),
+            cutout == null ? 0 : 1,
+            cutout == null ? 0 : cutout[0],
+            cutout == null ? 0 : cutout[1],
+            cutout == null ? 0 : cutout[2],
+            cutout == null ? 0 : cutout[3]
+        };
     }
 
     private static void applyBars(Activity activity) {
@@ -160,10 +211,6 @@ public class Glue extends Fragment {
                 | View.SYSTEM_UI_FLAG_FULLSCREEN;
             window.getDecorView().setSystemUiVisibility(fullscreen ? edge | hide : edge);
         }
-    }
-
-    public static int smallestWidthDp(Activity activity) {
-        return activity.getResources().getConfiguration().smallestScreenWidthDp;
     }
 
     public static void vibrate(Activity activity, float strength, int millis) {

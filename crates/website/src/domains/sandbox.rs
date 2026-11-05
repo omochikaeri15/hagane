@@ -408,7 +408,9 @@ pub(crate) fn Sandbox() -> Element {
         };
         let setup = build_setup(&held, &cats.0, &play_globals, entry);
         let warmth = warm::collect(&setup, &bundle.0.registry, &picked, &cats.0);
+        let ratio = play_platform.host().pixel_ratio();
         let (width, height) = size();
+        let (width, height) = ((width * ratio).round(), (height * ratio).round());
         let options = OptionsWire {
             music: Volume::nearest(held.music_volume).percent(),
             effects: Volume::nearest(held.effects_volume).percent(),
@@ -538,8 +540,9 @@ fn watch(platform: &Platform, sandbox: Signal<SandboxState>, settings: Signal<fo
     let held = settings.peek();
     let priority = held.general.language_priority.clone();
     let source = held.sandbox.replay_source;
+    let ratio = platform.host().pixel_ratio();
 
-    platform.host().battle(BattleCommand::Watch { reel, checked, source, phone, width: size.0, height: size.1, priority });
+    platform.host().battle(BattleCommand::Watch { reel, checked, source, phone, width: (size.0 * ratio).round(), height: (size.1 * ratio).round(), priority });
 }
 
 #[component]

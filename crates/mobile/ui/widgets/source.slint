@@ -59,7 +59,7 @@ component SourceDialog inherits Dialog {
                 Btn { tone: Tone.neutral; label: "No"; width: 90px; height: 30px; text-size: 13px; clicked => { Source.decline(); } }
                 Btn { tone: Tone.danger; label: Source.ignore-label; width: 90px; height: 30px; text-size: 13px; clicked => { Source.ignore(); } }
             }
-            Label { text: "Downloading replaces your \"game\" folder"; font-size: 13px; weak: true; horizontal-alignment: center; wrap: word-wrap; }
+            Label { text: "Downloading updates your \"game\" folder, undoing any edits"; font-size: 13px; weak: true; horizontal-alignment: center; wrap: word-wrap; }
             Label { text: "\"Ignore\" stops all future file checks on launch"; font-size: 13px; weak: true; horizontal-alignment: center; wrap: word-wrap; }
         }
         if Source.kind == 1: VerticalLayout {

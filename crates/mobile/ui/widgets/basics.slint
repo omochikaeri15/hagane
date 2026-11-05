@@ -124,11 +124,18 @@ export component Input inherits Rectangle {
     property <int> taps: Shell.taps;
     changed taps => { if field.has-focus { field.clear-focus(); } }
     property <string> told;
-    init => { root.told = root.text; }
+    init => { root.told = root.text; field.text = root.text; }
     function tell() {
         if root.told != field.text + field.preedit-text {
             root.told = field.text + field.preedit-text;
-            root.edited(field.text + field.preedit-text);
+            root.text = root.told;
+            root.edited(root.told);
+        }
+    }
+    changed text => {
+        if root.text != root.told {
+            root.told = root.text;
+            field.text = root.text;
         }
     }
 
@@ -156,7 +163,6 @@ export component Input inherits Rectangle {
                 height: parent.height;
             }
             field := TextInput {
-                text <=> root.text;
                 enabled: root.enabled;
                 read-only: root.read-only;
                 color: root.enabled ? Theme.text : Theme.secondary;
@@ -177,6 +183,7 @@ export component Input inherits Rectangle {
                         root.tell();
                     } else {
                         root.told = self.text;
+                        root.text = self.text;
                     }
                 }
             }
@@ -191,11 +198,18 @@ export component TextBox inherits Rectangle {
     in property <length> text-size: 14px;
     callback edited(string);
     property <string> told;
-    init => { root.told = root.text; }
+    init => { root.told = root.text; field.text = root.text; }
     function tell() {
         if root.told != field.text + field.preedit-text {
             root.told = field.text + field.preedit-text;
-            root.edited(field.text + field.preedit-text);
+            root.text = root.told;
+            root.edited(root.told);
+        }
+    }
+    changed text => {
+        if root.text != root.told {
+            root.told = root.text;
+            field.text = root.text;
         }
     }
 
@@ -222,7 +236,6 @@ export component TextBox inherits Rectangle {
             x: 8px;
             y: 8px;
             width: parent.width - 16px;
-            text <=> root.text;
             read-only: root.read-only;
             color: Theme.text;
             font-size: root.text-size;
@@ -237,6 +250,7 @@ export component TextBox inherits Rectangle {
                     root.tell();
                 } else {
                     root.told = self.text;
+                    root.text = self.text;
                 }
             }
         }

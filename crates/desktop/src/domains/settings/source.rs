@@ -25,7 +25,7 @@ By accepting this agreement, you must have read, understood, and accepted the fo
 
 - Providers are incompatible with the "Mining" page, and will wipe its data.
 - Providers wipe the import manifest, so future imports will import every file.
-- Providers always overwrite every game file, so edits to vanilla will be lost.
+- Providers may not keep recent or up to date game data.
 
 You can accept the agreement by clicking the "Agree" button below. Selecting "Disagree" will close this pop-up.
 "#;
@@ -106,7 +106,6 @@ pub struct State {
     terms_open: bool,
     terms_popup: popup::State,
     terms: Vec<markdown::Item>,
-    pending: Option<String>,
 }
 
 impl Default for State {
@@ -123,7 +122,6 @@ impl Default for State {
             terms_open: false,
             terms_popup: popup::State::default(),
             terms: crate::common::markdown::parse(ACKNOWLEDGMENT),
-            pending: None,
         }
     }
 }
@@ -212,13 +210,6 @@ impl State {
                     return Task::none();
                 }
 
-                if held.agreement != agreement() {
-                    self.pending = Some(link);
-                    self.terms_open = true;
-
-                    return Task::none();
-                }
-
                 core_settings.files.source_link = link;
                 self.settle();
 
@@ -240,8 +231,8 @@ impl State {
                     return Task::none();
                 }
 
-                if held.agreement != agreement() {
-                    self.terms_open = manual;
+                if manual && held.agreement != agreement() {
+                    self.terms_open = true;
 
                     return Task::none();
                 }
@@ -278,8 +269,11 @@ impl State {
                     }
                     Ok(stamp) => {
                         info!(modified = stamp.modified, "The game data source holds newer files");
+                        let agreed = held.agreement == agreement();
+
                         self.status = Status::Found(summary(&stamp));
-                        self.is_open = true;
+                        self.is_open = agreed;
+                        self.terms_open = !agreed;
 
                         Task::none()
                     }
@@ -288,12 +282,18 @@ impl State {
                 }
             }
             Message::Show => {
+                if matches!(self.status, Status::Found(_)) && held.agreement != agreement() {
+                    self.terms_open = true;
+
+                    return Task::none();
+                }
+
                 self.is_open = self.prompts();
 
                 Task::none()
             }
             Message::Accept => {
-                if !matches!(self.status, Status::Found(_)) {
+                if !matches!(self.status, Status::Found(_)) || held.agreement != agreement() {
                     return Task::none();
                 }
 
@@ -407,17 +407,16 @@ impl State {
                 held.agreement = agreement();
                 self.terms_open = false;
 
-                if let Some(link) = self.pending.take() {
-                    core_settings.files.source_link = link;
-                    self.settle();
+                if matches!(self.status, Status::Found(_)) {
+                    self.is_open = true;
+
+                    return Task::none();
                 }
 
-                Task::none()
+                Task::done(Message::Check { manual: true })
             }
             Message::Disagree => {
                 self.terms_open = false;
-                self.pending = None;
-                core_settings.files.source_link.clear();
                 self.settle();
 
                 Task::none()
@@ -651,7 +650,7 @@ impl State {
             subtle_text(summary),
             text("Would you like to download them now?").size(BODY_SIZE),
             actions,
-            subtle_text("Downloading replaces your \"game\" folder"),
+            subtle_text("Downloading updates your \"game\" folder, undoing any edits"),
             subtle_text("\"Ignore\" stops all future file checks on launch"),
         ]
         .spacing(CONTENT_SPACING)
@@ -723,33 +722,64 @@ mod tests {
         assert_eq!(uploaded(""), "");
     }
 
-    // Nothing typed may reach the settings until the agreement is on record.
+    fn found() -> Message {
+        let stamp = Stamp { id: "new".to_owned(), modified: String::new(), size: 0 };
+
+        Message::Checked { manual: false, link: "link".to_owned(), result: Ok(stamp) }
+    }
+
+    // The link is yours to type and keep, an agreement only ever gates the checking and the download.
     #[test]
-    fn a_link_only_lands_once_the_agreement_is_accepted() {
+    fn a_refusal_never_touches_the_link() {
         let mut state = State::default();
         let mut settings = CoreSettings::default();
         let mut held = SourceState::default();
 
-        let _ = state.update(Message::LinkChanged("first".to_owned()), &mut settings, &mut held);
-        assert!(state.terms_open() && settings.files.source_link.is_empty());
+        let _ = state.update(Message::LinkChanged("link".to_owned()), &mut settings, &mut held);
+        assert!(!state.terms_open());
+        assert_eq!(settings.files.source_link, "link");
+
+        let _ = state.update(Message::Check { manual: true }, &mut settings, &mut held);
+        assert!(state.terms_open() && matches!(state.status, Status::Idle));
 
         let _ = state.update(Message::Disagree, &mut settings, &mut held);
-        assert!(!state.terms_open() && settings.files.source_link.is_empty() && held.agreement.is_empty());
+        assert!(!state.terms_open());
+        assert_eq!(settings.files.source_link, "link");
+    }
 
-        let _ = state.update(Message::LinkChanged("second".to_owned()), &mut settings, &mut held);
+    // New files on launch ask for the agreement first, and the download popup only ever comes after it.
+    #[test]
+    fn new_files_wait_behind_the_agreement() {
+        let mut state = State::default();
+        let mut settings = CoreSettings::default();
+        let mut held = SourceState::default();
+
+        settings.files.source_link = "link".to_owned();
+        state.status = Status::Checking;
+
+        let _ = state.update(found(), &mut settings, &mut held);
+        assert!(state.terms_open() && !state.popup_open());
+
+        let _ = state.update(Message::Show, &mut settings, &mut held);
+        assert!(!state.popup_open());
+
+        let _ = state.update(Message::Disagree, &mut settings, &mut held);
+        assert!(!state.terms_open() && !state.popup_open() && matches!(state.status, Status::Idle));
+        assert!(held.agreement.is_empty());
+        assert_eq!(settings.files.source_link, "link");
+
+        state.status = Status::Checking;
+
+        let _ = state.update(found(), &mut settings, &mut held);
         let _ = state.update(Message::Agree, &mut settings, &mut held);
-        assert_eq!(settings.files.source_link, "second");
+        assert!(!state.terms_open() && state.popup_open());
         assert_eq!(held.agreement, agreement());
 
-        let _ = state.update(Message::LinkChanged("third".to_owned()), &mut settings, &mut held);
-        assert!(!state.terms_open());
-        assert_eq!(settings.files.source_link, "third");
+        // Once agreed, the next launch goes straight to the download popup.
+        let _ = state.update(Message::Decline, &mut settings, &mut held);
+        state.status = Status::Checking;
 
-        // A link saved before the agreement existed is wiped by a refusal too.
-        held.agreement.clear();
-        let _ = state.update(Message::Check { manual: true }, &mut settings, &mut held);
-        assert!(state.terms_open());
-        let _ = state.update(Message::Disagree, &mut settings, &mut held);
-        assert!(settings.files.source_link.is_empty());
+        let _ = state.update(found(), &mut settings, &mut held);
+        assert!(!state.terms_open() && state.popup_open());
     }
 }

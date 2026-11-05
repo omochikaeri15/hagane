@@ -225,6 +225,10 @@ pub fn watch(ui: &AppWindow, state: &Shared, context: &Rc<Context>, checked: boo
 
         if let Some(arena) = &held.arena {
             arena.send(Command::Display { scale: saved.render_scale(), padded: saved.padded() });
+            let density = ui.window().scale_factor();
+
+            arena.send(Command::Density(density));
+            arena.send(Command::Insets(battle::device_insets(saved.fullscreen, width, height, density)));
             arena.send(Command::Volumes(Volume::nearest(saved.music_volume).percent(), Volume::nearest(saved.effects_volume).percent()));
             arena.send(Command::Watch { reel, source: settings.sandbox.replay_source, phone: saved.device() == Device::Phone, lag: saved.lag, width, height });
         }

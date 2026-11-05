@@ -103,6 +103,14 @@ fn fullscreen_key(event: iced::Event, _status: iced::event::Status, _window: win
     (key == iced::keyboard::Key::Named(iced::keyboard::key::Named::F11)).then_some(Message::ToggleFullscreen)
 }
 
+fn window_rescaled(event: iced::Event, _status: iced::event::Status, _window: window::Id) -> Option<Message> {
+    let iced::Event::Window(window::Event::Rescaled(scale)) = event else {
+        return None;
+    };
+
+    Some(Message::WindowScaled(scale))
+}
+
 fn undo_key(event: iced::keyboard::Event) -> Option<Message> {
     let iced::keyboard::Event::KeyPressed { key, modifiers, .. } = event else {
         return None;
@@ -371,6 +379,7 @@ pub enum Message {
     CloseWithMode(window::Id, window::Mode),
     ToggleSidebar,
     WindowResized(Size),
+    WindowScaled(f32),
     ToggleFullscreen,
     Updater(UpdaterMsg),
     UpdaterAction(UpdaterAction),
@@ -549,6 +558,7 @@ impl HaganeApp {
             Subscription::run(watcher::changes).map(Message::FilesChanged),
             window::close_requests().map(Message::CloseRequested),
             iced::event::listen_with(fullscreen_key),
+            iced::event::listen_with(window_rescaled),
         ];
 
         if self.updater_popup_open && matches!(self.updater_status, UpdateStatus::Downloading(_)) {
@@ -1223,6 +1233,11 @@ impl HaganeApp {
                     self.settings.window.width = size.width;
                     self.settings.window.height = size.height;
                 }
+
+                window::latest().and_then(window::scale_factor).map(Message::WindowScaled)
+            }
+            Message::WindowScaled(scale) => {
+                self.sandbox_state.set_density(scale);
 
                 Task::none()
             }

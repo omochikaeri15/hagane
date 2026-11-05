@@ -1,5 +1,7 @@
 use std::fmt::{self, Write};
 
+use super::save::Insets;
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Key {
     Slot(u8),
@@ -28,11 +30,12 @@ pub enum Cue {
     SecondPress(i32, i32),
     SecondRelease,
     Focus(bool),
+    Insets(Insets),
 }
 
 impl Cue {
     pub fn before_input(self) -> bool {
-        matches!(self, Self::Key(..) | Self::Resize(..) | Self::Phone(_) | Self::Forgive | Self::Focus(_))
+        matches!(self, Self::Key(..) | Self::Resize(..) | Self::Phone(_) | Self::Insets(_) | Self::Forgive | Self::Focus(_))
     }
 }
 
@@ -80,6 +83,19 @@ fn pair(text: &str, separator: char) -> Option<(i32, i32)> {
     Some((x.parse().ok()?, y.parse().ok()?))
 }
 
+fn insets(text: &str) -> Option<Insets> {
+    let mut fields = text.split(',');
+    let insets = Insets {
+        side: fields.next()?.parse().ok()?,
+        top: fields.next()?.parse().ok()?,
+        bottom: fields.next()?.parse().ok()?,
+        window_ratio: fields.next()?.parse().ok()?,
+        tablet: fields.next()? == "1",
+    };
+
+    fields.next().is_none().then_some(insets)
+}
+
 impl fmt::Display for Cue {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
@@ -97,6 +113,7 @@ impl fmt::Display for Cue {
             Self::SecondPress(x, y) => write!(f, "D{x},{y}"),
             Self::SecondRelease => f.write_char('R'),
             Self::Focus(focused) => write!(f, "f{}", u8::from(*focused)),
+            Self::Insets(insets) => write!(f, "I{},{},{},{},{}", insets.side, insets.top, insets.bottom, insets.window_ratio, u8::from(insets.tablet)),
         }
     }
 }
@@ -124,6 +141,7 @@ impl std::str::FromStr for Cue {
             Some(("R", "")) => Some(Self::SecondRelease),
             Some(("f", "1")) => Some(Self::Focus(true)),
             Some(("f", "0")) => Some(Self::Focus(false)),
+            Some(("I", fields)) => insets(fields).map(Self::Insets),
             _ => None,
         };
 
@@ -180,6 +198,7 @@ mod tests {
             Cue::SecondRelease,
             Cue::Focus(false),
             Cue::Focus(true),
+            Cue::Insets(Insets { side: 100, top: 0, bottom: 7, window_ratio: 0.5, tablet: true }),
         ];
         let text = format!("{}\n\n{}\n", format_frame(&frame), format_frame(&[Cue::Release]));
 

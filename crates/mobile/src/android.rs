@@ -11,7 +11,7 @@ use std::process;
 use std::sync::OnceLock;
 use std::time::Duration;
 
-use jni::objects::{GlobalRef, JClass, JObject, JObjectArray, JString, JValue};
+use jni::objects::{GlobalRef, JClass, JIntArray, JObject, JObjectArray, JString, JValue};
 use jni::sys::{jboolean, jint};
 use jni::{JNIEnv, JavaVM, NativeMethod};
 use slint::android::AndroidApp;
@@ -451,9 +451,14 @@ pub fn set_bars(fullscreen: bool) -> Result<(), String> {
     })
 }
 
-pub fn smallest_width_dp() -> Result<i32, String> {
-    with_glue("the screen size could not be read", |env, activity, class| {
-        env.call_static_method(class, "smallestWidthDp", "(Landroid/app/Activity;)I", &[JValue::Object(activity)]).and_then(|value| value.i())
+pub fn screen_facts() -> Result<[i32; 11], String> {
+    with_glue("the screen could not be read", |env, activity, class| {
+        let facts = env.call_static_method(class, "screenFacts", "(Landroid/app/Activity;)[I", &[JValue::Object(activity)]).and_then(|value| value.l())?;
+        let mut read = [0; 11];
+
+        env.get_int_array_region(JIntArray::from(facts), 0, &mut read)?;
+
+        Ok(read)
     })
 }
 

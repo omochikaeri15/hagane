@@ -2,10 +2,38 @@ use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
 
+const NOTCH_SHARE: f32 = 0.04;
+
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Seeds {
     pub rng: u32,
     pub entropy: u64,
+}
+
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq)]
+pub struct Insets {
+    pub side: i32,
+    pub top: i32,
+    pub bottom: i32,
+    pub window_ratio: f32,
+    pub tablet: bool,
+}
+
+impl Default for Insets {
+    fn default() -> Self {
+        Self { side: 0, top: 0, bottom: 0, window_ratio: 1.0, tablet: false }
+    }
+}
+
+impl Insets {
+    pub fn in_force(known: Option<Self>, phone: bool, width: f32) -> Self {
+        match (known, phone) {
+            (Some(known), true) => known,
+            (Some(known), false) => Self { window_ratio: known.window_ratio, tablet: true, ..Self::default() },
+            (None, true) => Self { side: (width * NOTCH_SHARE).round() as i32, ..Self::default() },
+            (None, false) => Self { tablet: true, ..Self::default() },
+        }
+    }
 }
 
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, Default, PartialEq)]
@@ -13,6 +41,8 @@ pub struct Screen {
     pub width: f32,
     pub height: f32,
     pub phone: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub insets: Option<Insets>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -128,4 +158,28 @@ pub struct Save {
     pub costs: Vec<i32>,
     pub altar_cap: Option<i32>,
     pub terminated: bool,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // A replay from before real insets carries none, and has to keep playing with the share it was recorded under.
+    #[test]
+    fn a_tape_without_insets_keeps_the_old_notch() {
+        let old: Screen = serde_json::from_str(r#"{"width":780.0,"height":360.0,"phone":true}"#).unwrap();
+
+        assert_eq!(old.insets, None);
+        assert_eq!(Insets::in_force(old.insets, old.phone, old.width).side, 31);
+        assert!(!Insets::in_force(old.insets, old.phone, old.width).tablet);
+        assert_eq!(Insets::in_force(None, false, old.width), Insets { tablet: true, ..Insets::default() });
+    }
+
+    #[test]
+    fn known_insets_win_and_only_a_phone_gets_them() {
+        let known = Insets { side: 100, top: 4, bottom: 8, window_ratio: 0.5, tablet: false };
+
+        assert_eq!(Insets::in_force(Some(known), true, 2340.0), known);
+        assert_eq!(Insets::in_force(Some(known), false, 2340.0), Insets { window_ratio: 0.5, tablet: true, ..Insets::default() });
+    }
 }

@@ -9,6 +9,7 @@ use tracing::{error, info};
 
 use emulator::runtime::{BattleOptions, Setup};
 use foundry::Vault;
+use foundry::domains::sandbox::replay::Insets;
 use foundry::domains::settings::ReplaySource;
 
 use crate::{AppWindow, bridge};
@@ -47,6 +48,7 @@ pub enum Command {
     Lag(Lag),
     Display { scale: f32, padded: bool },
     Density(f32),
+    Insets(Insets),
     Hold(bool),
     Diagnose(bool),
     Vault(Arc<Vault>),
@@ -98,6 +100,7 @@ struct Stage {
     scale: f32,
     padded: bool,
     density: f32,
+    insets: Option<Insets>,
     held: bool,
     diagnosing: bool,
     standing: Standing,
@@ -108,6 +111,10 @@ struct Stage {
 impl Stage {
     fn post(&self, event: Event) {
         bridge::post(&self.weak, self.ticket, event);
+    }
+
+    fn device_size(&self, width: f32, height: f32) -> (f32, f32) {
+        ((width * self.density).round(), (height * self.density).round())
     }
 
     fn session(&mut self) -> &mut Session {
@@ -121,14 +128,17 @@ impl Stage {
 
                 self.bounds = (width, height);
 
+                let (pixel_width, pixel_height) = self.device_size(width, height);
+                let insets = self.insets;
                 let session = self.session();
 
                 session.set_recording(record);
                 session.label(label);
                 session.equip(setup);
                 session.set_phone(phone);
+                session.set_insets(insets);
                 session.set_lag(lag);
-                session.resize(width, height);
+                session.resize(pixel_width, pixel_height);
                 session.configure(options);
                 session.begin();
                 self.failure = None;
@@ -136,11 +146,14 @@ impl Stage {
             Command::Watch { reel, source, phone, lag, width, height } => {
                 self.bounds = (width, height);
 
+                let (pixel_width, pixel_height) = self.device_size(width, height);
+                let insets = self.insets;
                 let session = self.session();
 
                 session.set_phone(phone);
+                session.set_insets(insets);
                 session.set_lag(lag);
-                session.resize(width, height);
+                session.resize(pixel_width, pixel_height);
                 session.watch(reel, source);
                 self.failure = None;
             }
@@ -162,8 +175,10 @@ impl Stage {
             Command::Resize(width, height) => {
                 self.bounds = (width, height);
 
+                let (pixel_width, pixel_height) = self.device_size(width, height);
+
                 if let Some(session) = self.session.as_mut() {
-                    session.resize(width, height);
+                    session.resize(pixel_width, pixel_height);
                 }
             }
             Command::Phone(phone) => {
@@ -186,6 +201,13 @@ impl Stage {
                 self.padded = padded;
             }
             Command::Density(density) => self.density = density.max(1.0),
+            Command::Insets(insets) => {
+                self.insets = Some(insets);
+
+                if let Some(session) = self.session.as_mut() {
+                    session.set_insets(Some(insets));
+                }
+            }
             Command::Turned(rotated) => {
                 if let Some(session) = self.session.as_mut() {
                     session.turned(rotated);
@@ -315,7 +337,7 @@ impl Arena {
     pub fn spawn(weak: Weak<AppWindow>, ticket: bridge::Ticket, vault: Arc<Vault>) -> Option<Self> {
         let (sender, receiver) = mpsc::channel::<Command>();
         let spawned = thread::Builder::new().name("battle".to_owned()).spawn(move || {
-            let mut stage = Stage { session: None, vault, weak, ticket, bounds: (0.0, 0.0), scale: 1.0, padded: false, density: 1.0, held: false, diagnosing: false, standing: Standing::default(), failure: None, was_running: false };
+            let mut stage = Stage { session: None, vault, weak, ticket, bounds: (0.0, 0.0), scale: 1.0, padded: false, density: 1.0, insets: None, held: false, diagnosing: false, standing: Standing::default(), failure: None, was_running: false };
 
             info!("emu: the battle thread is up");
 

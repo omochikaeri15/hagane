@@ -404,15 +404,16 @@ pub(crate) fn Arena() -> Element {
 
     let (width, height) = size();
     let bounds = Bounds { width, height };
+    let ratio = platform.host().pixel_ratio();
     let locate = move |x: f64, y: f64| -> Option<(i32, i32)> {
         let (x, y) = canvas.unpad(x as f32, y as f32, bounds);
 
-        ((0.0..=bounds.width).contains(&x) && (0.0..=bounds.height).contains(&y)).then(|| (x.round() as i32, y.round() as i32))
+        ((0.0..=bounds.width).contains(&x) && (0.0..=bounds.height).contains(&y)).then(|| ((x * ratio).round() as i32, (y * ratio).round() as i32))
     };
     let clamp = move |x: f64, y: f64| -> (i32, i32) {
         let (x, y) = canvas.unpad(x as f32, y as f32, bounds);
 
-        (x.clamp(0.0, bounds.width).round() as i32, y.clamp(0.0, bounds.height).round() as i32)
+        ((x.clamp(0.0, bounds.width) * ratio).round() as i32, (y.clamp(0.0, bounds.height) * ratio).round() as i32)
     };
     let mut stay = move |pointer: i32| {
         if leaving.peek().is_some_and(|(held, _)| held == pointer) {
@@ -521,15 +522,19 @@ pub(crate) fn Arena() -> Element {
                     if let Ok(rect) = event.data().get_client_rect().await {
                         let area = turn.area(rect.origin.x, rect.origin.y, rect.size.width, rect.size.height);
 
+                        let ratio = platform.host().pixel_ratio();
+
                         size.set((area.width as f32, area.height as f32));
-                        platform.host().battle(BattleCommand::Resize(area.width as f32, area.height as f32));
+                        platform.host().battle(BattleCommand::Resize((area.width as f32 * ratio).round(), (area.height as f32 * ratio).round()));
                     }
                 });
             },
             onresize: move |event| {
                 if let Ok(box_size) = event.data().get_content_box_size() {
+                    let ratio = platform.host().pixel_ratio();
+
                     size.set((box_size.width as f32, box_size.height as f32));
-                    platform.host().battle(BattleCommand::Resize(box_size.width as f32, box_size.height as f32));
+                    platform.host().battle(BattleCommand::Resize((box_size.width as f32 * ratio).round(), (box_size.height as f32 * ratio).round()));
                 }
             },
             onkeydown: move |event| {

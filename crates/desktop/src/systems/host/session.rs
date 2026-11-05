@@ -310,6 +310,10 @@ impl Session {
         self.failure.as_deref()
     }
 
+    pub fn set_density(&mut self, density: f32) {
+        self.driver.set_density(density);
+    }
+
     pub fn resize(&mut self, width: f32, height: f32) {
         self.driver.resize(width, height);
     }

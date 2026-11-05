@@ -4,11 +4,28 @@ use std::cell::Cell;
 use std::rc::Rc;
 
 use crate::engine::Platform;
+use crate::java::{Activity, on_surface_changed};
 
-#[derive(Default)]
 pub struct DeviceProfile {
     pub tablet: Cell<bool>,
     pub side_inset: Cell<i32>,
+    pub top_inset: Cell<i32>,
+    pub bottom_inset: Cell<i32>,
+    pub window_ratio: Cell<f32>,
+}
+
+impl Default for DeviceProfile {
+    fn default() -> Self {
+        Self { tablet: Cell::new(false), side_inset: Cell::new(0), top_inset: Cell::new(0), bottom_inset: Cell::new(0), window_ratio: Cell::new(1.0) }
+    }
+}
+
+pub fn phone_activity(width: i32, height: i32) -> Activity {
+    let mut activity = Activity { sdk_int: Activity::CUTOUT_SDK - 1, ..Activity::default() };
+
+    on_surface_changed(&mut activity, width, height);
+
+    activity
 }
 
 #[derive(Default)]
@@ -24,7 +41,7 @@ impl Platform for InertPlatform {
     }
 
     fn screen_window_ratio(&mut self) -> f32 {
-        1.0
+        self.profile.window_ratio.get()
     }
 
     fn safe_inset_left(&mut self) -> i32 {
@@ -32,7 +49,7 @@ impl Platform for InertPlatform {
     }
 
     fn safe_inset_top(&mut self) -> i32 {
-        0
+        self.profile.top_inset.get()
     }
 
     fn safe_inset_right(&mut self) -> i32 {
@@ -40,7 +57,7 @@ impl Platform for InertPlatform {
     }
 
     fn safe_inset_bottom(&mut self) -> i32 {
-        0
+        self.profile.bottom_inset.get()
     }
 
     fn system_clock_now(&mut self) -> i64 {

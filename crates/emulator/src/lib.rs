@@ -2,6 +2,7 @@
 pub mod engine;
 mod entropy;
 mod fault;
+pub mod java;
 pub mod ops;
 pub mod runtime;
 

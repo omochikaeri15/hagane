@@ -26,7 +26,7 @@ pub use keys::{
 };
 pub use inert_meta::InertMeta;
 pub use limits::{HostLimits, set_limits};
-pub use inert_platform::{DeviceProfile, InertPlatform};
+pub use inert_platform::{DeviceProfile, InertPlatform, phone_activity};
 pub use inert_scene::{InertScene, pump_stage_return};
 pub use inert_ui::InertUi;
 pub use relayout::{Layout, forget_insets, layout_snapshot, relatch_battle_rects};

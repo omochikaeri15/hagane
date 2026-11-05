@@ -35,5 +35,6 @@ pub use diagnostics::{Diagnostics, Occupant, Vitals};
 pub use driver::Label;
 pub use gpu::{ViewerScene, available as gpu_available, forget as forget_scene, install as install_renderer, note_presented, submit as submit_scene};
 pub use input::Touch;
+pub use replay::insets_of;
 pub use session::{Lag, Phase, Reel};
 pub use viewport::Canvas;

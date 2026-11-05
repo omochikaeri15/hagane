@@ -329,6 +329,14 @@ jobs:
           echo "$KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/release.keystore"
           keytool -list -keystore "$RUNNER_TEMP/release.keystore" -storepass "$KEYSTORE_PASSWORD" > /dev/null
 
+      - name: Give the APK its release identity
+        if: matrix.flavor == 'apk'
+        run: |
+          sed -i -e 's/^package = "app.omochikaeri.haganedev"$/package = "app.omochikaeri.hagane"/' -e 's/^apk_name = "Hagane-dev"$/apk_name = "hagane"/' -e 's/^label = "Hagane-dev"$/label = "Hagane"/' crates/mobile/Cargo.toml
+          grep -q '^package = "app.omochikaeri.hagane"$' crates/mobile/Cargo.toml
+          grep -q '^apk_name = "hagane"$' crates/mobile/Cargo.toml
+          grep -q '^label = "Hagane"$' crates/mobile/Cargo.toml
+
       - name: Build the APK
         if: matrix.flavor == 'apk'
         env:

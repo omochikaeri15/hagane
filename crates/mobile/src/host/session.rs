@@ -253,6 +253,10 @@ impl Session {
         self.driver.take_options()
     }
 
+    pub(super) fn set_insets(&mut self, insets: Option<tape::Insets>) {
+        self.driver.set_insets(insets);
+    }
+
     pub(super) fn set_phone(&mut self, phone: bool) {
         self.driver.set_phone(phone);
     }

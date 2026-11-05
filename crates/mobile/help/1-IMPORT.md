@@ -7,7 +7,7 @@ The `Import` page has three methods for obtaining game files: `Device`, `Pack`, 
 ### Source
 Fetch the vanilla game files from a file host through `Settings > Files > Source`. This method requires the following:
 - **A source link** to an asset payload served from a public bucket. Paste it into the link field and tap "Check for Files Now".
-- **Accepting the acknowledgment** that appears the first time a link is entered. A provider always overwrites every game file and clears the import manifest.
+- **Accepting the acknowledgment** that appears when you first check for files, or when the check on launch first finds new ones. Disagreeing keeps your link but downloads nothing. A provider clears the import manifest and may not keep recent or up to date game data.
 
 With `File Handling` set to `Prompt` the app checks the link on launch and offers newer files as a download. `Ignore` never checks on launch.
 
