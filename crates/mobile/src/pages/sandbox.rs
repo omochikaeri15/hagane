@@ -559,6 +559,7 @@ fn play(ui: &AppWindow, state: &Shared, context: &Rc<Context>) {
             height,
             label: Label { app: context.engine.mounted().unwrap_or_else(|| VANILLA_APP.to_owned()), map: staging.map, stage: staging.stage },
             record: !settings.sandbox.disable_replays,
+            auto_save: settings.sandbox.auto_save_bcv.then_some(settings.sandbox.saved_bcv_name),
         }
     };
 

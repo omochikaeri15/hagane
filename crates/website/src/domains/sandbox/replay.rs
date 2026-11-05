@@ -270,7 +270,7 @@ pub(crate) fn Replays(globals: Shared, cats: Option<Cats>) -> Element {
     let badge = BADGE_SIZE * scale.max(TEXT_FLOOR);
     let orb_size = ORB_SIZE * scale;
     let time = latest.as_ref().map_or_else(|| MISSING.to_owned(), |recorded| frames::label(i32::try_from(recorded.frames).unwrap_or(i32::MAX)));
-    let screen = save.map_or_else(|| MISSING.to_owned(), |save| format!("{} \u{00d7} {}{}", save.screen.width.round(), save.screen.height.round(), if save.screen.phone { " (Phone)" } else { "" }));
+    let screen = save.map_or_else(|| MISSING.to_owned(), |save| format!("{} \u{00d7} {}", save.screen.width.round(), save.screen.height.round()));
     let assets = latest.as_ref().map_or_else(|| MISSING.to_owned(), |recorded| format!("{} files", recorded.assets));
     let size = latest.as_ref().map_or_else(|| MISSING.to_owned(), |recorded| format!("{:.1} MB", recorded.bytes as f64 / MEGABYTE));
     let ready = latest.is_some();

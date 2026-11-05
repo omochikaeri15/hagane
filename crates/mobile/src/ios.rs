@@ -19,8 +19,8 @@ use objc2_core_haptics::{
     CHHapticDeviceCapability, CHHapticEngine, CHHapticEvent, CHHapticEventParameter, CHHapticEventParameterIDHapticIntensity, CHHapticEventParameterIDHapticSharpness, CHHapticEventTypeHapticContinuous,
     CHHapticEventTypeHapticTransient, CHHapticPattern, CHHapticPatternPlayer,
 };
-use objc2_foundation::{NSArray, NSError, NSNotification, NSNotificationCenter, NSObject, NSObjectProtocol, NSOperationQueue, NSString, NSURL};
-use objc2_ui_kit::{UIApplicationDidBecomeActiveNotification, UIApplicationWillResignActiveNotification, UIDocumentPickerDelegate, UIDocumentPickerViewController, UIInterfaceOrientationMask, UIViewController, UIWindowSceneGeometryPreferencesIOS};
+use objc2_foundation::{NSArray, NSDictionary, NSError, NSNotification, NSNotificationCenter, NSObject, NSObjectProtocol, NSOperationQueue, NSString, NSURL};
+use objc2_ui_kit::{UIApplication, UIApplicationDidBecomeActiveNotification, UIApplicationWillResignActiveNotification, UIDocumentPickerDelegate, UIDocumentPickerViewController, UIInterfaceOrientationMask, UIViewController, UIWindowSceneGeometryPreferencesIOS};
 use objc2_uniform_type_identifiers::UTType;
 use raw_window_handle::{HasWindowHandle, RawWindowHandle};
 use slint::winit_030::WinitWindowAccessor;
@@ -131,6 +131,16 @@ pub fn save(ui: &AppWindow, path: &Path, request: i32) -> Result<(), String> {
     let presenter = presenter(ui)?;
 
     presenter.presentViewController_animated_completion(&picker, true, None);
+
+    Ok(())
+}
+
+pub fn open_folder(path: &Path) -> Result<(), String> {
+    let mtm = MainThreadMarker::new().ok_or("a folder can only be opened from the main thread")?;
+    let address = NSString::from_str(&format!("shareddocuments://{}", path.display()));
+    let url = NSURL::URLWithString(&address).ok_or_else(|| format!("{} has no address", path.display()))?;
+
+    unsafe { UIApplication::sharedApplication(mtm).openURL_options_completionHandler(&url, &NSDictionary::new(), None) };
 
     Ok(())
 }

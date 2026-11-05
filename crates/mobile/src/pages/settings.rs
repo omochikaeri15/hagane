@@ -8,16 +8,15 @@ use std::time::Duration;
 
 use slint::platform::WindowEvent;
 use slint::{ComponentHandle, ModelRc, SharedString, Timer, TimerMode, VecModel};
-use tracing::{debug, error, info};
+use tracing::{debug, error, info, warn};
 
 use codex::chapter::treasure::ARC_SLOTS;
 use foundry::common::architecture;
-use foundry::common::dirs;
 use foundry::common::io::APP_LANGUAGES;
 use foundry::common::keys::sanitize;
 use foundry::domains::cat::files as cat_files;
 use foundry::domains::import;
-use foundry::domains::settings::{ExceptionList, ExceptionRule, FrameCount, ImportStructure, ReplaySource, RuleHandling, UpdateMode, UserKeys, Utf8Mode, lang};
+use foundry::domains::settings::{ExceptionList, ExceptionRule, FrameCount, ImportStructure, ReplaySource, SavedBcvName, RuleHandling, UpdateMode, UserKeys, Utf8Mode, lang};
 use foundry::systems::treasure::{self, ARCS, Catalog};
 
 use crate::pages::Context;
@@ -25,6 +24,7 @@ use crate::settings::{Exports, Orientation};
 use crate::{AppWindow, ArcRow, ChapterFold, KeyRow, LangRow, LangToggle, RuleRow, Settings, Tone, TreasureItem, TreasureSet, bridge, delivery, picker, platform};
 
 const FEEDBACK_MS: u64 = 2000;
+const OPEN_FILES_LABEL: &str = "Open \"files\" Folder";
 const CONFIRM_MS: u64 = 3000;
 const ENTRY_DIGITS: usize = 4;
 const LICENSES: &str = include_str!("../../../foundry/assets/licenses.txt");
@@ -34,12 +34,6 @@ const CHAPTER_TITLES: [[&str; 3]; 3] = [
     ["Cats of the Cosmos Ch. 1", "Cats of the Cosmos Ch. 2", "Cats of the Cosmos Ch. 3"],
 ];
 const REGION_LABELS: [&str; 4] = ["Japan", "Global", "Taiwan", "Korea"];
-
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum Target {
-    Game,
-    Cache,
-}
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Phase {
@@ -62,10 +56,8 @@ pub struct State {
     rules_confirm: bool,
     languages_for: Option<usize>,
     game: Phase,
-    cache: Phase,
-    confirm: Option<Target>,
-    sizes: Option<(u64, u64)>,
-    scanning: bool,
+    confirm_game: bool,
+    open_failed: bool,
     default_level: String,
     showcase: [String; 3],
     timers: Vec<Timer>,
@@ -88,24 +80,6 @@ fn format_size(size: u64) -> String {
     } else {
         format!("{size:.1} B")
     }
-}
-
-fn folder_size(path: &Path) -> u64 {
-    let mut size = 0;
-
-    if let Ok(entries) = std::fs::read_dir(path) {
-        for entry in entries.flatten() {
-            if let Ok(metadata) = entry.metadata() {
-                if metadata.is_dir() {
-                    size += folder_size(&entry.path());
-                } else {
-                    size += metadata.len();
-                }
-            }
-        }
-    }
-
-    size
 }
 
 fn typable(entry: &str) -> bool {
@@ -154,10 +128,8 @@ impl State {
             rules_confirm: false,
             languages_for: None,
             game: Phase::Idle,
-            cache: Phase::Idle,
-            confirm: None,
-            sizes: None,
-            scanning: false,
+            confirm_game: false,
+            open_failed: false,
             default_level: settings.cat_data.default_level.to_string(),
             showcase: [settings.animation.default_showcase_walk.to_string(), settings.animation.default_showcase_idle.to_string(), settings.animation.default_showcase_kb.to_string()],
             timers: Vec::new(),
@@ -232,7 +204,6 @@ pub fn wire(window: &AppWindow, context: &Rc<Context>) -> Shared {
 
     settings.set_licenses(LICENSES.into());
     settings.set_forms(ModelRc::new(VecModel::from((0..cat_files::FORM_COUNT).map(|form| SharedString::from(cat_files::form_name(form))).collect::<Vec<_>>())));
-    settings.set_data_path(std::env::current_dir().map_or_else(|_| "unknown".into(), |path| path.display().to_string().into()));
 
     let on = |state: &Shared, context: &Rc<Context>, window: &AppWindow| (Rc::clone(state), Rc::clone(context), window.as_weak());
 
@@ -242,10 +213,6 @@ pub fn wire(window: &AppWindow, context: &Rc<Context>) -> Shared {
         ctx.memory.update(|memory| memory.settings_tab = index.clamp(0, 9) as u8);
 
         if let Some(ui) = weak.upgrade() {
-            if index == 5 {
-                measure(&ui, &held, &ctx);
-            }
-
             refresh(&ui, &held, &ctx);
         }
     });
@@ -772,20 +739,46 @@ pub fn wire(window: &AppWindow, context: &Rc<Context>) -> Shared {
     let (held, ctx, weak) = on(&state, context, window);
     settings.on_delete_game(move || {
         if let Some(ui) = weak.upgrade() {
-            delete(&ui, &held, &ctx, Target::Game);
+            delete_game(&ui, &held, &ctx);
         }
     });
 
     let (held, ctx, weak) = on(&state, context, window);
-    settings.on_clear_cache(move || {
-        if let Some(ui) = weak.upgrade() {
-            delete(&ui, &held, &ctx, Target::Cache);
+    settings.on_open_files(move || {
+        let Some(ui) = weak.upgrade() else {
+            return;
+        };
+        let opened = std::env::current_dir().map_err(|err| err.to_string()).and_then(|root| platform::open_folder(&root));
+
+        if let Err(reason) = opened {
+            warn!("The files folder could not be opened: {reason}");
+            held.borrow_mut().open_failed = true;
+            later(&held, &ui, &ctx, FEEDBACK_MS, |state| state.open_failed = false);
+            refresh(&ui, &held, &ctx);
         }
     });
 
     let (held, ctx, weak) = on(&state, context, window);
     settings.on_replay_source_set(move |index| {
         ctx.state.apply(|settings| settings.sandbox.replay_source = ReplaySource::ALL.get(index.max(0) as usize).copied().unwrap_or_default());
+
+        if let Some(ui) = weak.upgrade() {
+            refresh(&ui, &held, &ctx);
+        }
+    });
+
+    let (held, ctx, weak) = on(&state, context, window);
+    settings.on_saved_bcv_name_set(move |index| {
+        ctx.state.apply(|settings| settings.sandbox.saved_bcv_name = SavedBcvName::ALL.get(index.max(0) as usize).copied().unwrap_or_default());
+
+        if let Some(ui) = weak.upgrade() {
+            refresh(&ui, &held, &ctx);
+        }
+    });
+
+    let (held, ctx, weak) = on(&state, context, window);
+    settings.on_toggle_auto_save_bcv(move |value| {
+        ctx.state.apply(|settings| settings.sandbox.auto_save_bcv = value);
 
         if let Some(ui) = weak.upgrade() {
             refresh(&ui, &held, &ctx);
@@ -869,60 +862,21 @@ fn relanguage(ui: &AppWindow, context: &Rc<Context>) {
     context.engine.rebuild(ui, config);
 }
 
-fn measure(ui: &AppWindow, state: &Shared, context: &Rc<Context>) {
-    if state.borrow().scanning {
-        return;
-    }
-
-    state.borrow_mut().scanning = true;
-
-    let landing = Rc::clone(state);
-    let ctx = Rc::clone(context);
-
-    bridge::offload(
-        ui,
-        "disk_sizes",
-        || (folder_size(Path::new(architecture::GAME)), dirs::cache_path().map_or(0, |dir| folder_size(&dir))),
-        move |ui, sizes| {
-            {
-                let mut held = landing.borrow_mut();
-
-                held.sizes = Some(sizes);
-                held.scanning = false;
-            }
-
-            refresh(ui, &landing, &ctx);
-        },
-    );
-}
-
-fn delete(ui: &AppWindow, state: &Shared, context: &Rc<Context>, target: Target) {
-    let armed = state.borrow().confirm == Some(target);
-
-    if !armed {
-        state.borrow_mut().confirm = Some(target);
-        later(state, ui, context, CONFIRM_MS, |held| held.confirm = None);
+fn delete_game(ui: &AppWindow, state: &Shared, context: &Rc<Context>) {
+    if !state.borrow().confirm_game {
+        state.borrow_mut().confirm_game = true;
+        later(state, ui, context, CONFIRM_MS, |held| held.confirm_game = false);
         refresh(ui, state, context);
         return;
     }
 
-    let path = match target {
-        Target::Game => PathBuf::from(architecture::GAME),
-        Target::Cache => match dirs::cache_path() {
-            Some(dir) => dir,
-            None => return,
-        },
-    };
+    let path = PathBuf::from(architecture::GAME);
 
     {
         let mut held = state.borrow_mut();
 
-        held.confirm = None;
-
-        match target {
-            Target::Game => held.game = Phase::Deleting,
-            Target::Cache => held.cache = Phase::Deleting,
-        }
+        held.confirm_game = false;
+        held.game = Phase::Deleting;
     }
 
     refresh(ui, state, context);
@@ -940,36 +894,19 @@ fn delete(ui: &AppWindow, state: &Shared, context: &Rc<Context>, target: Target)
                 return false;
             }
 
-            if target == Target::Game {
-                import::forget_imports();
-            }
+            import::forget_imports();
 
             true
         },
         move |ui, _| {
-            {
-                let mut held = landing.borrow_mut();
+            landing.borrow_mut().game = Phase::Done;
+            ctx.state.apply(|settings| settings.files.source_stamp = None);
+            ctx.images.forget_all();
 
-                match target {
-                    Target::Game => held.game = Phase::Done,
-                    Target::Cache => held.cache = Phase::Done,
-                }
-            }
+            let config = ctx.state.settings().scanner_config(ctx.engine.mounted());
 
-            if target == Target::Game {
-                ctx.state.apply(|settings| settings.files.source_stamp = None);
-                ctx.images.forget_all();
-
-                let config = ctx.state.settings().scanner_config(ctx.engine.mounted());
-
-                ctx.engine.rebuild(ui, config);
-            }
-
-            later(&landing, ui, &ctx, FEEDBACK_MS, move |held| match target {
-                Target::Game => held.game = Phase::Idle,
-                Target::Cache => held.cache = Phase::Idle,
-            });
-            measure(ui, &landing, &ctx);
+            ctx.engine.rebuild(ui, config);
+            later(&landing, ui, &ctx, FEEDBACK_MS, |held| held.game = Phase::Idle);
             refresh(ui, &landing, &ctx);
         },
     );
@@ -1085,35 +1022,19 @@ fn refresh(ui: &AppWindow, state: &Shared, context: &Rc<Context>) {
     settings.set_rule_languages(ModelRc::new(VecModel::from(toggles)));
 
     let game_exists = architecture::game_present();
-    let cache_present = dirs::cache_path().is_some_and(|dir| architecture::has_content(&dir));
-    let size_text = |size: Option<u64>| -> SharedString {
-        match (held.scanning, size) {
-            (true, _) => "Scanning file sizes...".into(),
-            (false, Some(bytes)) => format_size(bytes).into(),
-            (false, None) => "Unknown file size".into(),
-        }
-    };
     let (game_label, game_tone, game_enabled) = match held.game {
         Phase::Deleting => ("Deleting \"game\"...".to_owned(), Tone::StatusWarning, false),
         Phase::Done => ("Deleted \"game\"!".to_owned(), Tone::StatusSuccess, false),
-        Phase::Idle if game_exists => (if held.confirm == Some(Target::Game) { "Continue?".to_owned() } else { "Delete \"game\"".to_owned() }, Tone::Danger, true),
+        Phase::Idle if game_exists => (if held.confirm_game { "Continue?".to_owned() } else { "Delete \"game\"".to_owned() }, Tone::Danger, true),
         Phase::Idle => ("No \"game\"".to_owned(), Tone::Neutral, false),
     };
-    let (cache_label, cache_tone, cache_enabled) = match held.cache {
-        Phase::Deleting => ("Clearing Cache...".to_owned(), Tone::StatusWarning, false),
-        Phase::Done => ("Cache Cleared!".to_owned(), Tone::StatusSuccess, false),
-        Phase::Idle if cache_present => (if held.confirm == Some(Target::Cache) { "Continue?".to_owned() } else { "Clear Cache".to_owned() }, Tone::Danger, true),
-        Phase::Idle => ("Cache Empty".to_owned(), Tone::Neutral, false),
-    };
+    let (open_files_label, open_files_tone) = feedback(held.open_failed.then_some(false), OPEN_FILES_LABEL, OPEN_FILES_LABEL);
 
     settings.set_game_label(game_label.into());
     settings.set_game_tone(game_tone);
     settings.set_game_enabled(game_enabled);
-    settings.set_game_size(size_text(held.sizes.map(|sizes| sizes.0)));
-    settings.set_cache_label(cache_label.into());
-    settings.set_cache_tone(cache_tone);
-    settings.set_cache_enabled(cache_enabled);
-    settings.set_cache_size(size_text(held.sizes.map(|sizes| sizes.1)));
+    settings.set_open_files_label(open_files_label);
+    settings.set_open_files_tone(open_files_tone);
     settings.set_orientation(match context.state.orientation() {
         Orientation::Automatic => 0,
         Orientation::Portrait => 1,
@@ -1123,4 +1044,6 @@ fn refresh(ui: &AppWindow, state: &Shared, context: &Rc<Context>) {
     settings.set_replay_source(ReplaySource::ALL.iter().position(|source| *source == core.sandbox.replay_source).map_or(0, |index| index as i32));
     settings.set_sandbox_banner_form(core.sandbox.banner_form.min(3) as i32);
     settings.set_disable_replays(core.sandbox.disable_replays);
+    settings.set_auto_save_bcv(core.sandbox.auto_save_bcv);
+    settings.set_saved_bcv_name(SavedBcvName::ALL.iter().position(|naming| *naming == core.sandbox.saved_bcv_name).unwrap_or(0) as i32);
 }

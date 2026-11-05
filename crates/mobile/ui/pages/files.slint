@@ -56,7 +56,7 @@ component Browser inherits Panel {
                 background: row.selected ? Theme.primary : (press.pressed ? Theme.list-hover : transparent);
                 border-radius: Theme.radius-sm;
                 HorizontalLayout {
-                    padding-left: 6px + row.depth * 12px;
+                    padding-left: 6px + row.depth * 24px;
                     padding-right: 6px;
                     spacing: 2px;
                     if row.folder: Text { text: row.expanded ? "\u{25be}" : "\u{25b8}"; color: row.selected ? Theme.white : Theme.text; font-family: "Miscellaneous-Symbols"; font-size: 12px; width: 14px; vertical-alignment: center; }

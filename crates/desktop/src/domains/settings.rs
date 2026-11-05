@@ -16,7 +16,7 @@ use iced::{Alignment, Element, Length, Size, Task, Theme};
 use foundry::domains::cat::files as cat_files;
 use foundry::systems::treasure::Catalog;
 use foundry::domains::sandbox::keybind::Bind;
-use foundry::domains::settings::{lang, nightly, ContextScope, EditorMode, ReplaySource, Utf8Mode};
+use foundry::domains::settings::{lang, nightly, ContextScope, EditorMode, ReplaySource, SavedBcvName, Utf8Mode};
 use foundry::domains::settings::{
     ExportBehavior, FrameCount, ImportStructure, ScrubBehavior, Settings as CoreSettings,
     SidebarBehavior,
@@ -64,6 +64,8 @@ pub enum Message {
     SandboxBannerSelected(usize),
     ReplaySourceSelected(ReplaySource),
     ToggleDisableReplays(bool),
+    ToggleAutoSaveBcv(bool),
+    SavedBcvNameSelected(SavedBcvName),
     KeyCapture(Bind),
     KeyCaptured(String),
     KeysReset,
@@ -222,6 +224,14 @@ impl State {
             }
             Message::ToggleDisableReplays(val) => {
                 core_settings.sandbox.disable_replays = val;
+                Task::none()
+            }
+            Message::ToggleAutoSaveBcv(val) => {
+                core_settings.sandbox.auto_save_bcv = val;
+                Task::none()
+            }
+            Message::SavedBcvNameSelected(naming) => {
+                core_settings.sandbox.saved_bcv_name = naming;
                 Task::none()
             }
             Message::ToggleInvalidCats(val) => {
@@ -557,9 +567,20 @@ impl State {
                         Some(core_settings.sandbox.replay_source),
                         Some(Message::ReplaySourceSelected),
                     ),
+                    combo_row(
+                        "Saved BCV Name",
+                        "The automatic naming convention of saved BCV files",
+                        SavedBcvName::ALL,
+                        Some(core_settings.sandbox.saved_bcv_name),
+                        Some(Message::SavedBcvNameSelected),
+                    ),
                     hover_hint(
                         toggle_row(core_settings.sandbox.disable_replays, text("Disable Replays"), Some(Message::ToggleDisableReplays)),
                         "Disables the replay set-up path\nMay improve battle start speeds",
+                    ),
+                    hover_hint(
+                        toggle_row(core_settings.sandbox.auto_save_bcv, text("Auto-Save BCV"), Some(Message::ToggleAutoSaveBcv)),
+                        "Automatically saves the BCV file of every battle to disk during the exit sequence",
                     ),
                 ].spacing(10),
             ),

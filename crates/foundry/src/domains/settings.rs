@@ -155,9 +155,31 @@ pub struct SandboxSettings {
     pub keys: crate::domains::sandbox::keybind::Keybinds,
     pub replay_source: ReplaySource,
     pub disable_replays: bool,
+    pub auto_save_bcv: bool,
+    pub saved_bcv_name: SavedBcvName,
     pub video_format: VideoFormat,
     pub video_quality: Option<u32>,
     pub video_compression: Option<u32>,
+}
+
+#[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Eq, Default, Debug)]
+pub enum SavedBcvName {
+    #[default]
+    Replay,
+    Location,
+}
+
+impl SavedBcvName {
+    pub const ALL: [Self; 2] = [Self::Replay, Self::Location];
+}
+
+impl std::fmt::Display for SavedBcvName {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(match self {
+            Self::Replay => "\"Replay\"",
+            Self::Location => "Location",
+        })
+    }
 }
 
 #[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Eq, Default, Debug)]

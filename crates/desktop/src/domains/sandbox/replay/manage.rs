@@ -205,7 +205,11 @@ fn copy(bundle: &Path) -> JobOutcome {
 }
 
 impl State {
-    pub fn refresh(&mut self, settings: &Settings, bundles: &[PathBuf]) {
+    pub fn busy_under(&self, path: &Path) -> bool {
+        self.jobs.iter().any(|(pick, job)| job.running.is_some() && matches!(pick, Pick::Bundle(held) if held.starts_with(path)))
+    }
+
+    pub fn refresh(&mut self, settings: &Settings, shelf: &tape::Shelf) {
         self.ffmpeg = ffmpeg::is_installed();
         self.format = settings.sandbox.video_format;
         self.quality = settings.sandbox.video_quality.map_or_else(String::new, |value| value.to_string());
@@ -214,7 +218,7 @@ impl State {
             job.running.is_some()
                 || match pick {
                     Pick::Latest => true,
-                    Pick::Bundle(path) => bundles.contains(path),
+                    Pick::Bundle(path) => shelf.holds_bundle(path),
                 }
         });
     }
@@ -245,7 +249,7 @@ impl State {
 
                     return self.finish(Pick::Latest, JobOutcome::Failed("there is no state folder holding the latest battle".to_owned()));
                 };
-                let out = tape::next_bundle(&tape::library());
+                let out = tape::saved_bundle(&tape::library(), settings.sandbox.saved_bcv_name, &dir);
                 let abort = self.jobs.entry(Pick::Latest).or_default().begin(Work::Save, Status::progress("Saving", 0.0));
 
                 (save(dir, out, abort), Effect::None)

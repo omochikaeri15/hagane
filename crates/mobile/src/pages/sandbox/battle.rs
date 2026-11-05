@@ -420,6 +420,11 @@ pub fn event(ui: &AppWindow, state: &Shared, context: &Rc<Context>, event: Event
             refresh(ui, state, context);
         }
         Event::Cut => context.toast(ui, REPLAY_TERMINATED, true),
+        Event::Shelved => {
+            if state.borrow().saved().tab == super::state::Tab::Replay {
+                super::replay::relist(ui, state, context);
+            }
+        }
         Event::Ended => {
             info!("emu: the battle ended");
 

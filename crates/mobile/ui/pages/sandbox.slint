@@ -1,4 +1,4 @@
-import { ListView } from "std-widgets.slint";
+import { ListView, ScrollView } from "std-widgets.slint";
 import { Theme } from "../theme.slint";
 import { SwipeGuard, Tap } from "../shell.slint";
 import { Btn, Tone, Input, Combo, Toggle, Label, Dialog, Rule, Progress, OutlinedCard, Card, Panel, Status, Slider } from "../widgets/basics.slint";
@@ -16,7 +16,7 @@ export struct ConfigEntry { label: string, hint: string, value: string }
 export struct ItemRow { label: string, on: bool, allowed: bool }
 export struct VitalRow { name: string, hp: string }
 export struct Field { label: string, lines: [Line] }
-export struct ReplayRow { label: string, selected: bool }
+export struct ReplayRow { label: string, selected: bool, depth: int, folder: bool, expanded: bool, parent: int, levels: int, room: int }
 
 export global Sandbox {
     in-out property <int> tab;
@@ -111,9 +111,17 @@ export global Sandbox {
 
     in property <[ReplayRow]> replays;
     in-out property <bool> replays-open;
+    in property <bool> replay-latest;
+    in property <bool> replay-latest-picked;
     in property <string> replay-title;
     in property <bool> replay-ready;
     in property <bool> replay-renamable;
+    in-out property <string> replay-search;
+    in property <bool> replay-is-folder;
+    in property <string> replay-folder-note;
+    in property <string> replay-folder-delete-label: "Delete Folder";
+    in property <bool> replay-folder-delete-enabled;
+    in property <bool> replay-folder-create-enabled: true;
     in property <[Field]> meta;
     in property <[Field]> game;
     in property <[DeckCell]> tiles;
@@ -205,7 +213,12 @@ export global Sandbox {
     callback outbreak-set(int);
     callback tutorial-toggled(int, bool);
     callback replay-pick(int);
+    callback replay-pick-latest();
     callback replay-renamed(string);
+    callback replay-search-changed(string);
+    callback replay-move(int, int);
+    callback replay-folder-create();
+    callback replay-folder-delete();
     callback replay-save();
     callback replay-export();
     callback replay-delete();
@@ -590,8 +603,8 @@ component ConfigTab inherits VerticalLayout {
     spacing: 8px;
     Rectangle {
         height: 32px;
-        SwipeGuard { lipped: true; }
-        Flickable { interactive: !Shell.swiping && (Shell.hover-input || !Shell.press-edge);
+        SwipeGuard { lipped: true; left-wall: strip.content-x >= 0px; right-wall: strip.content-x <= strip.width - strip.content-width; }
+        strip := Flickable { interactive: !Shell.swiping && (Shell.hover-input || !Shell.press-edge);
             mouse-drag-pan-enabled: true;
             width: 100%;
             height: 100%;
@@ -701,6 +714,130 @@ component FieldRows inherits VerticalLayout {
     }
 }
 
+export component ReplayShelf inherits Rectangle {
+    property <length> row-height: 26px;
+    property <int> count: Sandbox.replays.length;
+    property <length> content: max(root.count * root.row-height, list.visible-height);
+    property <bool> holding;
+    property <bool> was-held;
+    property <length> finger-y;
+    property <length> aim-y: Shell.hover-input ? root.finger-y : root.finger-y - root.row-height / 2;
+    property <int> carried: -1;
+    property <int> pressed-row: floor(hit.pressed-y / root.row-height);
+    property <bool> still: abs(hit.mouse-x - hit.pressed-x) <= 8px && abs(hit.mouse-y - hit.pressed-y) <= 8px;
+    property <bool> liftable: root.pressed-row >= 0 && root.pressed-row < root.count;
+    property <int> under: max(0, floor((root.aim-y - list.content-y) / root.row-height));
+    property <bool> over-row: root.under < root.count;
+    property <int> target: !root.over-row ? -1 : (Sandbox.replays[root.under].folder ? root.under : Sandbox.replays[root.under].parent);
+    property <int> carried-levels: root.carried >= 0 ? Sandbox.replays[root.carried].levels : 0;
+    property <bool> fits: root.target < 0 || Sandbox.replays[root.target].room >= root.carried-levels;
+    property <int> aimed: root.holding && root.fits ? root.target : -2;
+    function lift() {
+        root.carried = root.pressed-row;
+        root.finger-y = hit.mouse-y + list.content-y;
+        root.was-held = true;
+        root.holding = true;
+        Shell.holding = true;
+    }
+    function settle(commit: bool) {
+        if commit && root.carried >= 0 && root.aimed != -2 {
+            Sandbox.replay-move(root.carried, root.aimed);
+        }
+        root.holding = false;
+        root.carried = -1;
+        Shell.holding = false;
+    }
+    border-radius: Theme.radius-sm;
+    border-width: root.aimed == -1 ? 2px : 0px;
+    border-color: Theme.success;
+    clip: true;
+    list := ScrollView {
+        mouse-drag-pan-enabled: !Shell.swiping && !root.holding;
+        width: 100%;
+        height: 100%;
+        content-width: self.visible-width;
+        content-height: root.content;
+        for row[index] in Sandbox.replays: Rectangle {
+            x: 0;
+            y: index * root.row-height;
+            width: list.visible-width;
+            height: root.row-height;
+            opacity: index == root.carried ? 0.5 : 1;
+            background: row.selected ? Theme.primary : (hit.pressed && !root.holding && index == root.pressed-row ? Theme.list-hover : transparent);
+            border-radius: Theme.radius-sm;
+            border-width: index == root.aimed ? 2px : 0px;
+            border-color: Theme.success;
+            HorizontalLayout {
+                padding-left: 6px + row.depth * 24px;
+                padding-right: 6px;
+                spacing: 2px;
+                if row.folder: Text { text: row.expanded ? "\u{25be}" : "\u{25b8}"; color: row.selected ? Theme.white : Theme.text; font-family: "Miscellaneous-Symbols"; font-size: 12px; width: 14px; vertical-alignment: center; }
+                Text { text: row.label; color: row.selected ? Theme.white : Theme.text; font-size: 13px; vertical-alignment: center; horizontal-stretch: 1; overflow: elide; }
+            }
+        }
+        hit := TouchArea {
+            x: 0;
+            y: 0;
+            width: list.visible-width;
+            height: root.content;
+            enabled: !Shell.swiping;
+            pointer-event(event) => {
+                if event.kind == PointerEventKind.down {
+                    root.was-held = false;
+                } else if root.holding && (event.kind == PointerEventKind.up || event.kind == PointerEventKind.cancel) {
+                    root.settle(event.kind == PointerEventKind.up);
+                }
+            }
+            changed pressed => {
+                if !self.pressed && root.holding {
+                    root.settle(false);
+                }
+            }
+            changed mouse-y => {
+                if root.holding {
+                    root.finger-y = self.mouse-y + list.content-y;
+                }
+            }
+            clicked => {
+                if !root.was-held && root.still && root.pressed-row >= 0 && root.pressed-row < root.count {
+                    if Sandbox.replays[root.pressed-row].folder {
+                        Sandbox.replay-pick(root.pressed-row);
+                    } else {
+                        Sandbox.replay-pick(root.pressed-row);
+                        Sandbox.replays-open = false;
+                    }
+                }
+            }
+        }
+    }
+    if root.count == 0: Label { text: "No Replays Found"; color: Theme.danger; font-size: 14px; horizontal-alignment: center; vertical-alignment: center; width: 100%; height: 100%; wrap: word-wrap; }
+    if root.holding: Rectangle {
+        x: 8px;
+        y: clamp(root.aim-y - root.row-height, 0px, root.height - self.height);
+        width: root.width - 16px;
+        height: root.row-height;
+        background: Theme.primary;
+        border-radius: Theme.radius-sm;
+        Text { text: Sandbox.replays[root.carried].label; color: Theme.white; font-size: 13px; vertical-alignment: center; x: 6px; width: parent.width - 12px; height: parent.height; overflow: elide; }
+    }
+    Timer {
+        interval: 350ms;
+        running: hit.pressed && !root.holding && !root.was-held && root.still && root.liftable && !Shell.swiping;
+        triggered => { root.lift(); }
+    }
+    Timer {
+        interval: 16ms;
+        running: root.holding;
+        triggered => {
+            if root.finger-y < 32px {
+                list.content-y = min(0px, list.content-y + 6px);
+            } else if root.finger-y > root.height - 32px {
+                list.content-y = max(list.visible-height - root.content, list.content-y - 6px);
+            }
+        }
+    }
+}
+
 component ReplayTab inherits Rectangle {
     EdgeGrab { armed: !Sandbox.replays-open && !Shell.nav-open && Sandbox.active == false; reach: drawer.panel-width; dragged(fraction) => { drawer.drag(fraction); } dropped => { drawer.release(); }
         VerticalLayout {
@@ -708,11 +845,7 @@ component ReplayTab inherits Rectangle {
             padding-right: 10px;
             padding-top: 6px;
             spacing: 8px;
-            HorizontalLayout {
-                spacing: 8px;
-                Input { text <=> Sandbox.rename; placeholder: "Replay Name"; height: 32px; text-size: 14px; horizontal-stretch: 1; enabled: Sandbox.replay-renamable; edited(value) => { Sandbox.replay-renamed(value); } }
-                Btn { label: "Replays"; tone: Tone.neutral; width: 90px; height: 32px; text-size: 13px; clicked => { Sandbox.replays-open = true; } }
-            }
+            rename-field := Input { text <=> Sandbox.rename; placeholder: Sandbox.replay-is-folder ? "Folder Name" : "Replay Name"; height: 32px; text-size: 14px; enabled: Sandbox.replay-renamable; edited(value) => { Sandbox.replay-renamed(value); } }
             Flickable {
                 mouse-drag-pan-enabled: true;
                 vertical-stretch: 1;
@@ -725,10 +858,11 @@ component ReplayTab inherits Rectangle {
                     width: parent.width;
                     height: self.preferred-height;
                     spacing: 10px;
-                    Card { height: meta.preferred-height; meta := VerticalLayout { padding: 12px; spacing: 6px; Label { text: "Meta"; bold: true; font-size: 16px; } Rule { } FieldRows { fields: Sandbox.meta; } } }
-                    Card { height: game.preferred-height; game := VerticalLayout { padding: 12px; spacing: 6px; Label { text: "Game"; bold: true; font-size: 16px; } Rule { } FieldRows { fields: Sandbox.game; } } }
-                    TileCard { avail: root.width - 20px; }
-                    Card {
+                    if Sandbox.replay-is-folder: Card { height: folder.preferred-height; folder := VerticalLayout { padding: 12px; spacing: 6px; Label { text: "Folder"; bold: true; font-size: 16px; } Rule { } Label { text: Sandbox.replay-folder-note; font-size: 14px; } } }
+                    if !Sandbox.replay-is-folder: Card { height: meta.preferred-height; meta := VerticalLayout { padding: 12px; spacing: 6px; Label { text: "Meta"; bold: true; font-size: 16px; } Rule { } FieldRows { fields: Sandbox.meta; } } }
+                    if !Sandbox.replay-is-folder: Card { height: game.preferred-height; game := VerticalLayout { padding: 12px; spacing: 6px; Label { text: "Game"; bold: true; font-size: 16px; } Rule { } FieldRows { fields: Sandbox.game; } } }
+                    if !Sandbox.replay-is-folder: TileCard { avail: root.width - 20px; }
+                    if !Sandbox.replay-is-folder: Card {
                         height: manage.preferred-height;
                         manage := VerticalLayout {
                             padding: 12px;
@@ -749,24 +883,23 @@ component ReplayTab inherits Rectangle {
     }
     drawer := Drawer {
         open <=> Sandbox.replays-open;
-        panel-width: min(220px, root.width * 0.6);
+        panel-width: min(300px, root.width * 0.8);
         Panel {
+            dark: true;
+            width: 100%;
+            height: 100%;
             VerticalLayout {
                 padding: 8px;
                 spacing: 4px;
-                Label { text: "Replays"; bold: true; font-size: 16px; }
-                Rule { }
-                ListView {
-                    mouse-drag-pan-enabled: true;
-                    vertical-stretch: 1;
-                    for row[index] in Sandbox.replays: Rectangle {
-                        height: 40px;
-                        background: row.selected ? Theme.primary : (press.pressed ? Theme.bg-strongest : Theme.bg-strong);
-                        border-radius: Theme.radius-sm;
-                        Text { text: row.label; color: row.selected ? Theme.white : Theme.text; font-size: 12px; vertical-alignment: center; width: parent.width - 12px; x: 6px; height: parent.height; overflow: elide; }
-                        press := Tap { enabled: !Shell.swiping; tapped => { Sandbox.replay-pick(index); Sandbox.replays-open = false; } }
-                    }
+                HorizontalLayout {
+                    spacing: 4px;
+                    Btn { label: "Create Folder"; tone: Tone.success; enabled: Sandbox.replay-folder-create-enabled; height: 30px; text-size: 13px; horizontal-stretch: 1; clicked => { Sandbox.replay-folder-create(); Sandbox.replays-open = false; rename-field.take-focus(); } }
+                    Btn { label: Sandbox.replay-folder-delete-label; tone: Tone.danger; enabled: Sandbox.replay-folder-delete-enabled; height: 30px; text-size: 13px; horizontal-stretch: 1; clicked => { Sandbox.replay-folder-delete(); } }
                 }
+                Input { text <=> Sandbox.replay-search; placeholder: "Search Replays..."; text-size: 13px; height: 30px; edited(value) => { Sandbox.replay-search-changed(value); } }
+                Btn { label: "Latest Battle"; tone: Tone.toggle; active: Sandbox.replay-latest-picked; enabled: Sandbox.replay-latest; height: 30px; text-size: 13px; clicked => { Sandbox.replay-pick-latest(); Sandbox.replays-open = false; } }
+                Rectangle { height: 4px; }
+                ReplayShelf { vertical-stretch: 1; }
             }
         }
     }

@@ -474,6 +474,17 @@ pub fn cancel_vibration() -> Result<(), String> {
     })
 }
 
+pub fn open_folder(path: &Path) -> Result<(), String> {
+    let text = path.display().to_string();
+    let opened = with_glue("the file browser could not be asked", |env, activity, class| {
+        let text = env.new_string(&text)?;
+
+        env.call_static_method(class, "openFolder", "(Landroid/app/Activity;Ljava/lang/String;)Z", &[JValue::Object(activity), JValue::Object(&text)]).and_then(|value| value.z())
+    })?;
+
+    if opened { Ok(()) } else { Err(format!("no installed app would open {}", path.display())) }
+}
+
 pub fn has_vibrator() -> Result<bool, String> {
     with_glue("the vibrator could not be queried", |env, activity, class| {
         env.call_static_method(class, "hasVibrator", "(Landroid/app/Activity;)Z", &[JValue::Object(activity)]).and_then(|value| value.z())

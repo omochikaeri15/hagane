@@ -15,5 +15,9 @@ The `Stage` tab is the Stages page. The stage and crown you pick there is the on
 ## Replay
 Every battle is recorded as the latest battle unless `Settings > Sandbox > Disable Replays` is on. The `Replay` tab lists the latest battle and every replay saved to the `sandbox` folder. `Save to Library` keeps the latest battle there, `Export to BCV` writes it as a replay file through your export location, and `Watch` plays it back. A replay recorded in another game version asks before it plays.
 
+`Settings > Sandbox > Auto-Save BCV` saves every battle to the `sandbox` folder as you leave it, and `Saved BCV Name` picks what those files get called.
+
+Swipe right on the `Replay` tab to open the list of replays. `Latest Battle` sits above it, and replays can be organized into sub-folders there. `Create Folder` makes one inside the selected folder, and its name is edited in the name field like a replay's. Tap a folder to open it. Folders go up to 4 levels deep, and anything deeper is left out of the list. Press and hold a replay or folder for a moment to pick it up, then drag it onto another folder, or onto an empty spot to take it back out. A drag without the hold scrolls the list. `Delete Folder` deletes the selected folder and every replay inside it, and asks you to tap it again to continue.
+
 ## Battle
 Tap and drag like in the game. Pinch to zoom the battlefield. While a replay plays, hold a finger on the screen for two seconds to leave it, or double tap to open the live readout of every unit's health and the current seed. If the battle faults, you can continue past the fault or terminate the battle.

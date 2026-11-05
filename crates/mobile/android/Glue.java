@@ -22,6 +22,7 @@ import android.util.Log;
 import android.view.DisplayCutout;
 import android.view.InputDevice;
 import android.view.View;
+import android.view.ViewGroup;
 import android.view.Window;
 import android.view.WindowInsets;
 import android.view.WindowInsetsController;
@@ -211,6 +212,22 @@ public class Glue extends Fragment {
                 | View.SYSTEM_UI_FLAG_FULLSCREEN;
             window.getDecorView().setSystemUiVisibility(fullscreen ? edge | hide : edge);
         }
+        if (Build.VERSION.SDK_INT == Build.VERSION_CODES.S || Build.VERSION.SDK_INT == Build.VERSION_CODES.S_V2) {
+            dropKeyboardAnimation(activity);
+        }
+    }
+
+    private static void dropKeyboardAnimation(Activity activity) {
+        ViewGroup content = activity.findViewById(android.R.id.content);
+        if (content == null) {
+            return;
+        }
+        for (int index = 0; index < content.getChildCount(); index++) {
+            View child = content.getChildAt(index);
+            if (child.onCheckIsTextEditor()) {
+                child.setWindowInsetsAnimationCallback(null);
+            }
+        }
     }
 
     public static void vibrate(Activity activity, float strength, int millis) {
@@ -227,6 +244,36 @@ public class Glue extends Fragment {
         Vibrator vibrator = (Vibrator) activity.getSystemService(Context.VIBRATOR_SERVICE);
         if (vibrator != null) {
             vibrator.cancel();
+        }
+    }
+
+    public static boolean openFolder(Activity activity, String path) {
+        Intent browser = new Intent(Intent.ACTION_VIEW);
+        browser.setDataAndType(Uri.parse(path), "resource/folder");
+
+        if (launch(activity, browser)) {
+            return true;
+        }
+
+        String shared = Environment.getExternalStorageDirectory().getPath() + "/";
+
+        if (!path.startsWith(shared)) {
+            return false;
+        }
+
+        Intent system = new Intent(Intent.ACTION_VIEW);
+        system.setDataAndType(DocumentsContract.buildDocumentUri("com.android.externalstorage.documents", "primary:" + path.substring(shared.length())), DocumentsContract.Document.MIME_TYPE_DIR);
+
+        return launch(activity, system);
+    }
+
+    private static boolean launch(Activity activity, Intent intent) {
+        try {
+            activity.startActivity(intent);
+            return true;
+        } catch (RuntimeException err) {
+            Log.w(TAG, "No app took the folder: " + err);
+            return false;
         }
     }
 

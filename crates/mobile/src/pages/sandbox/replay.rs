@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
@@ -32,7 +32,9 @@ const MEGABYTE: f64 = 1024.0 * 1024.0;
 const CONFIRM_MS: u64 = 2000;
 const ENDED_MS: u64 = 2000;
 const CONFIRM_LABEL: &str = "Continue?";
+const DEEPEST_FOLDER: usize = 4;
 const DELETE_LABEL: &str = "Delete";
+const DELETE_FOLDER_LABEL: &str = "Delete Folder";
 const SAVE_LABELS: [&str; 3] = ["Save to Library", "Saving...", "Saved!"];
 const EXPORT_LABELS: [&str; 3] = ["Export to BCV", "Exporting...", "Exported!"];
 const FAILURE_LABEL: &str = "Failed!";
@@ -46,6 +48,7 @@ const FIRST_TALENT_FORM: usize = 2;
 enum Pick {
     Latest,
     Bundle(PathBuf),
+    Folder(PathBuf),
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -67,8 +70,14 @@ enum Update {
 
 #[derive(Default)]
 pub struct Part {
-    picks: Vec<Pick>,
-    picked: Option<usize>,
+    shelf: tape::Shelf,
+    expanded: HashSet<PathBuf>,
+    search: String,
+    latest: bool,
+    rows: Vec<tape::ShelfRow>,
+    picked: Option<Pick>,
+    confirm_folder: bool,
+    folder_timer: slint::Timer,
     summary: Option<Summary>,
     inspecting: Option<Pick>,
     running: Option<Work>,
@@ -90,6 +99,7 @@ fn target_of(pick: &Pick) -> Option<PathBuf> {
     match pick {
         Pick::Latest => tape::latest(),
         Pick::Bundle(path) => Some(path.clone()),
+        Pick::Folder(_) => None,
     }
 }
 
@@ -97,6 +107,51 @@ fn label_of(pick: &Pick) -> String {
     match pick {
         Pick::Latest => LATEST_LABEL.to_owned(),
         Pick::Bundle(path) => path.file_stem().map_or_else(String::new, |stem| stem.to_string_lossy().into_owned()),
+        Pick::Folder(path) => path.file_name().map_or_else(String::new, |name| name.to_string_lossy().into_owned()),
+    }
+}
+
+impl Part {
+    fn pick_at(&self, index: usize) -> Option<Pick> {
+        let row = self.rows.get(index)?;
+
+        Some(if row.folder { Pick::Folder(row.path.clone()) } else { Pick::Bundle(row.path.clone()) })
+    }
+
+    fn rebuild(&mut self) {
+        self.rows = self.shelf.rows(&self.expanded, &self.search);
+    }
+
+    fn holds(&self, pick: &Pick) -> bool {
+        match pick {
+            Pick::Latest => self.latest,
+            Pick::Bundle(path) => self.shelf.holds_bundle(path),
+            Pick::Folder(path) => self.shelf.holds_folder(path),
+        }
+    }
+
+    fn rebase(&mut self, old: &Path, fresh: &Path) {
+        self.expanded = self.expanded.drain().map(|path| tape::rebased(&path, old, fresh).unwrap_or(path)).collect();
+
+        if let Some(Pick::Bundle(path) | Pick::Folder(path)) = &mut self.picked
+            && let Some(moved) = tape::rebased(path, old, fresh)
+        {
+            *path = moved;
+        }
+
+        if let Some(Pick::Bundle(path) | Pick::Folder(path)) = &mut self.inspecting
+            && let Some(moved) = tape::rebased(path, old, fresh)
+        {
+            *path = moved;
+        }
+    }
+
+    fn creation_parent(&self) -> PathBuf {
+        match &self.picked {
+            Some(Pick::Folder(folder)) => folder.clone(),
+            Some(Pick::Bundle(bundle)) => bundle.parent().map_or_else(tape::library, Path::to_path_buf),
+            _ => tape::library(),
+        }
     }
 }
 
@@ -123,29 +178,25 @@ fn talent_levels(cat: &CatEntry, talents: &[(i32, i32)]) -> HashMap<u8, u8> {
 }
 
 fn picked(state: &Shared) -> Option<Pick> {
-    let held = state.borrow();
-
-    held.replay.picked.and_then(|index| held.replay.picks.get(index).cloned())
+    state.borrow().replay.picked.clone()
 }
 
 pub fn relist(ui: &AppWindow, state: &Shared, context: &Rc<Context>) {
-    let library = tape::library();
-    let mut picks = Vec::new();
-
-    if tape::latest().is_some_and(|dir| dir.join("save").is_file()) {
-        picks.push(Pick::Latest);
-    }
-
-    picks.extend(tape::list(&library).into_iter().map(Pick::Bundle));
-
-    let current = picked(state);
-    let index = current.and_then(|current| picks.iter().position(|pick| *pick == current)).or_else(|| (!picks.is_empty()).then_some(0));
+    let shelf = tape::Shelf::read_to(&tape::library(), DEEPEST_FOLDER);
+    let latest = tape::latest().is_some_and(|dir| dir.join("save").is_file());
 
     {
         let mut held = state.borrow_mut();
+        let part = &mut held.replay;
 
-        held.replay.picks = picks;
-        held.replay.picked = index;
+        part.shelf = shelf;
+        part.latest = latest;
+        part.rebuild();
+
+        let kept = part.picked.clone().filter(|pick| part.holds(pick));
+        let first = part.latest.then_some(Pick::Latest).or_else(|| part.rows.iter().find(|row| !row.folder).map(|row| Pick::Bundle(row.path.clone())));
+
+        part.picked = kept.or(first);
     }
 
     inspect(ui, state, context);
@@ -163,6 +214,16 @@ fn inspect(ui: &AppWindow, state: &Shared, context: &Rc<Context>) {
         return;
     };
     let Some(target) = target_of(&pick) else {
+        {
+            let mut held = state.borrow_mut();
+
+            held.replay.inspecting = None;
+            held.replay.summary = None;
+            held.replay.rename = label_of(&pick);
+        }
+
+        refresh(ui, state, context);
+
         return;
     };
 
@@ -215,6 +276,7 @@ pub fn watch(ui: &AppWindow, state: &Shared, context: &Rc<Context>, checked: boo
     let reel = match pick {
         Pick::Latest => Reel::Latest,
         Pick::Bundle(path) => Reel::Bundle(path),
+        Pick::Folder(_) => return,
     };
     let (width, height) = battle::bounds(ui);
     let settings = context.state.settings();
@@ -264,7 +326,7 @@ fn begin(ui: &AppWindow, state: &Shared, context: &Rc<Context>, work: Work) {
                 return;
             }
 
-            tape::next_bundle(&library)
+            tape::saved_bundle(&library, context.state.settings().sandbox.saved_bcv_name, &target)
         }
         (Work::Export, Pick::Latest) => {
             let folder = Path::new(paths::EXPORTS);
@@ -276,7 +338,7 @@ fn begin(ui: &AppWindow, state: &Shared, context: &Rc<Context>, work: Work) {
                 .find(|path| !path.exists())
                 .unwrap_or_else(|| folder.join(format!("{BUNDLE_STEM}.{}", tape::EXTENSION)))
         }
-        (Work::Export, Pick::Bundle(_)) => PathBuf::new(),
+        (Work::Export, Pick::Bundle(_) | Pick::Folder(_)) => PathBuf::new(),
     };
 
     {
@@ -389,11 +451,22 @@ pub fn wire(window: &AppWindow, state: &Shared, context: &Rc<Context>) {
 
     let (held, ctx, weak) = on(state, context, window);
     sandbox.on_replay_pick(move |index| {
-        let index = index.max(0) as usize;
+        let chosen = held.borrow().replay.pick_at(index.max(0) as usize);
 
-        if index < held.borrow().replay.picks.len() {
-            held.borrow_mut().replay.picked = Some(index);
-            held.borrow_mut().replay.confirm_delete = false;
+        if let Some(pick) = chosen {
+            let mut state = held.borrow_mut();
+            let part = &mut state.replay;
+
+            if let Pick::Folder(folder) = &pick
+                && !part.expanded.remove(folder)
+            {
+                part.expanded.insert(folder.clone());
+            }
+
+            part.rebuild();
+            part.picked = Some(pick);
+            part.confirm_delete = false;
+            part.confirm_folder = false;
         }
 
         if let Some(ui) = weak.upgrade() {
@@ -402,22 +475,181 @@ pub fn wire(window: &AppWindow, state: &Shared, context: &Rc<Context>) {
     });
 
     let (held, ctx, weak) = on(state, context, window);
-    sandbox.on_replay_renamed(move |name| {
-        held.borrow_mut().replay.rename = name.to_string();
+    sandbox.on_replay_pick_latest(move || {
+        {
+            let mut state = held.borrow_mut();
+            let part = &mut state.replay;
 
-        let Some(Pick::Bundle(bundle)) = picked(&held) else {
+            if !part.latest {
+                return;
+            }
+
+            part.picked = Some(Pick::Latest);
+            part.confirm_delete = false;
+            part.confirm_folder = false;
+        }
+
+        if let Some(ui) = weak.upgrade() {
+            inspect(&ui, &held, &ctx);
+        }
+    });
+
+    let (held, ctx, weak) = on(state, context, window);
+    sandbox.on_replay_search_changed(move |query| {
+        {
+            let mut state = held.borrow_mut();
+
+            state.replay.search = query.to_string();
+            state.replay.rebuild();
+        }
+
+        if let Some(ui) = weak.upgrade() {
+            refresh(&ui, &held, &ctx);
+        }
+    });
+
+    let (held, ctx, weak) = on(state, context, window);
+    sandbox.on_replay_move(move |from, onto| {
+        let Some(ui) = weak.upgrade() else {
+            return;
+        };
+        let (item, folder) = {
+            let state = held.borrow();
+            let part = &state.replay;
+
+            if part.running.is_some() {
+                return;
+            }
+
+            let Some(Pick::Bundle(item) | Pick::Folder(item)) = part.pick_at(from.max(0) as usize) else {
+                return;
+            };
+            let folder = match usize::try_from(onto).ok().and_then(|onto| part.pick_at(onto)) {
+                Some(Pick::Folder(path)) => path,
+                _ => part.shelf.root().to_path_buf(),
+            };
+
+            (item, folder)
+        };
+
+        let moved = held.borrow().replay.shelf.move_into(&item, &folder);
+
+        match moved {
+            Ok(Some(moved)) => {
+                {
+                    let mut state = held.borrow_mut();
+
+                    state.replay.rebase(&item, &moved);
+                    state.replay.expanded.insert(folder);
+                }
+
+                relist(&ui, &held, &ctx);
+            }
+            Ok(None) => {}
+            Err(reason) => warn!("The replay could not be moved: {reason}"),
+        }
+    });
+
+    let (held, ctx, weak) = on(state, context, window);
+    sandbox.on_replay_folder_create(move || {
+        let Some(ui) = weak.upgrade() else {
+            return;
+        };
+        let parent = held.borrow().replay.creation_parent();
+
+        let created = held.borrow().replay.shelf.create_folder(&parent);
+
+        match created {
+            Ok(folder) => {
+                {
+                    let mut state = held.borrow_mut();
+
+                    state.replay.expanded.insert(parent);
+                    state.replay.picked = Some(Pick::Folder(folder));
+                }
+
+                relist(&ui, &held, &ctx);
+            }
+            Err(reason) => warn!("The replay folder could not be created: {reason}"),
+        }
+    });
+
+    let (held, ctx, weak) = on(state, context, window);
+    sandbox.on_replay_folder_delete(move || {
+        let Some(ui) = weak.upgrade() else {
+            return;
+        };
+        let Some(Pick::Folder(folder)) = picked(&held) else {
             return;
         };
 
-        match tape::rename(&bundle, &name) {
+        if !held.borrow().replay.confirm_folder {
+            held.borrow_mut().replay.confirm_folder = true;
+
+            let landing = Rc::clone(&held);
+            let ctx_inner = Rc::clone(&ctx);
+            let weak_inner = ui.as_weak();
+
+            held.borrow().replay.folder_timer.start(TimerMode::SingleShot, Duration::from_millis(CONFIRM_MS), move || {
+                landing.borrow_mut().replay.confirm_folder = false;
+
+                if let Some(ui) = weak_inner.upgrade() {
+                    refresh(&ui, &landing, &ctx_inner);
+                }
+            });
+            refresh(&ui, &held, &ctx);
+
+            return;
+        }
+
+        held.borrow_mut().replay.confirm_folder = false;
+
+        if held.borrow().replay.running.is_some() {
+            return;
+        }
+
+        match tape::delete_folder(&tape::library(), &folder) {
+            Ok(()) => {
+                let mut state = held.borrow_mut();
+
+                state.replay.expanded.retain(|path| !path.starts_with(&folder));
+                state.replay.picked = None;
+            }
+            Err(reason) => {
+                warn!("{reason}");
+                held.borrow_mut().replay.failure = Some(reason);
+            }
+        }
+
+        relist(&ui, &held, &ctx);
+    });
+
+    let (held, ctx, weak) = on(state, context, window);
+    sandbox.on_replay_renamed(move |name| {
+        held.borrow_mut().replay.rename = name.to_string();
+
+        let (old, outcome) = match picked(&held) {
+            Some(Pick::Bundle(bundle)) => {
+                let outcome = tape::rename(&bundle, &name);
+
+                (bundle, outcome)
+            }
+            Some(Pick::Folder(folder)) => {
+                let outcome = tape::rename_folder(&folder, &name);
+
+                (folder, outcome)
+            }
+            _ => return,
+        };
+
+        match outcome {
             Ok(Some(renamed)) => {
                 {
                     let mut state = held.borrow_mut();
-                    let index = state.replay.picked;
 
-                    if let Some(pick) = index.and_then(|index| state.replay.picks.get_mut(index)) {
-                        *pick = Pick::Bundle(renamed);
-                    }
+                    state.replay.rebase(&old, &renamed);
+                    state.replay.shelf.relocate(&old, &renamed);
+                    state.replay.rebuild();
                 }
 
                 if let Some(ui) = weak.upgrade() {
@@ -473,7 +705,7 @@ pub fn wire(window: &AppWindow, state: &Shared, context: &Rc<Context>) {
         let outcome = match picked(&held) {
             Some(Pick::Bundle(bundle)) => tape::delete(&bundle),
             Some(Pick::Latest) => tape::latest().map_or(Ok(()), |dir| fs::remove_dir_all(&dir).map_err(|err| format!("{} could not be deleted: {err}", dir.display()))),
-            None => Ok(()),
+            Some(Pick::Folder(_)) | None => Ok(()),
         };
 
         if let Err(reason) = outcome {
@@ -606,19 +838,49 @@ pub fn sync(ui: &AppWindow, state: &Shared, context: &Rc<Context>) {
     let sandbox = ui.global::<Sandbox>();
     let held = state.borrow();
     let part = &held.replay;
-    let pick = part.picked.and_then(|index| part.picks.get(index));
-    let rows: Vec<ReplayRow> = part.picks.iter().enumerate().map(|(index, pick)| ReplayRow { label: label_of(pick).into(), selected: part.picked == Some(index) }).collect();
+    let pick = part.picked.as_ref();
+    let rows: Vec<ReplayRow> = part
+        .rows
+        .iter()
+        .map(|row| ReplayRow {
+            label: row.name.as_str().into(),
+            selected: match pick {
+                Some(Pick::Bundle(path) | Pick::Folder(path)) => *path == row.path,
+                _ => false,
+            },
+            depth: i32::from(row.depth),
+            folder: row.folder,
+            expanded: row.expanded,
+            parent: row.parent.map_or(-1, |parent| parent as i32),
+            levels: part.shelf.levels(&row.path) as i32,
+            room: part.shelf.room(&row.path) as i32,
+        })
+        .collect();
+    let folder = match pick {
+        Some(Pick::Folder(folder)) => Some(folder),
+        _ => None,
+    };
 
     sandbox.set_replays(ModelRc::new(VecModel::from(rows)));
+    sandbox.set_replay_latest(part.latest);
+    sandbox.set_replay_latest_picked(pick == Some(&Pick::Latest));
     sandbox.set_replay_title(pick.map(label_of).unwrap_or_default().into());
     sandbox.set_rename(part.rename.as_str().into());
-    sandbox.set_replay_renamable(matches!(pick, Some(Pick::Bundle(_))));
+    sandbox.set_replay_renamable(matches!(pick, Some(Pick::Bundle(_) | Pick::Folder(_))));
+    sandbox.set_replay_is_folder(folder.is_some());
+    sandbox.set_replay_folder_note(folder.map_or_else(String::new, |folder| match part.shelf.count(folder) {
+        1 => "1 replay".to_owned(),
+        count => format!("{count} replays"),
+    }).into());
+    sandbox.set_replay_folder_delete_label(if part.confirm_folder { CONFIRM_LABEL.into() } else { DELETE_FOLDER_LABEL.into() });
+    sandbox.set_replay_folder_delete_enabled(folder.is_some() && part.running.is_none());
+    sandbox.set_replay_folder_create_enabled(part.shelf.room(&part.creation_parent()) > 0);
 
     let summary = part.summary.as_ref();
     let save = summary.and_then(|summary| summary.save.as_ref());
     let ready = save.is_some() && part.inspecting.is_none();
     let time = summary.and_then(|summary| summary.frames).map_or_else(|| MISSING.to_owned(), |count| frames::label(i32::try_from(count).unwrap_or(i32::MAX)));
-    let screen = save.map_or_else(|| MISSING.to_owned(), |save| format!("{} \u{00d7} {}{}", save.screen.width.round(), save.screen.height.round(), if save.screen.phone { " (Phone)" } else { "" }));
+    let screen = save.map_or_else(|| MISSING.to_owned(), |save| format!("{} \u{00d7} {}", save.screen.width.round(), save.screen.height.round()));
     let assets = summary.map_or_else(|| MISSING.to_owned(), |summary| format!("{} files", summary.assets));
     let size = summary.map_or_else(|| MISSING.to_owned(), |summary| format!("{:.1} MB", summary.bytes as f64 / MEGABYTE));
 

@@ -1,7 +1,9 @@
 mod keepsakes;
 mod manage;
+mod shelf;
 
-use std::collections::HashMap;
+use std::cell::Cell;
+use std::collections::{HashMap, HashSet};
 use std::fmt;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -9,8 +11,8 @@ use std::time::{Duration, Instant};
 
 use iced::alignment::{Horizontal, Vertical};
 use iced::widget::image::Handle;
-use iced::widget::{button, column, container, image as iced_image, mouse_area, row, rule, scrollable, stack, text, text_input, Column, Row, Space};
-use iced::{mouse, Border, Color, Element, Length, Padding, Size, Task, Theme};
+use iced::widget::{column, container, image as iced_image, mouse_area, row, rule, scrollable, stack, text, text_input, Column, Row, Space};
+use iced::{mouse, Border, Color, Element, Length, Padding, Point, Size, Task, Theme};
 use tracing::warn;
 
 use emulator::runtime::VERSION;
@@ -28,11 +30,12 @@ use foundry::common::gfx::open_image;
 
 use crate::app::state::AppState;
 use crate::app::theme;
+use crate::common::feedback::Slot;
 use crate::common::{fonts, header_icon};
 use crate::domains::cat;
 use crate::domains::stage::CROWN_GLYPH;
 use crate::systems::host::Reel;
-use crate::widget::{list_row, popup, section, smooth_scroll, text_with_superscript};
+use crate::widget::{popup, section, smooth_scroll, text_with_superscript};
 
 use super::lineup::{Metrics, SMALLEST};
 use super::orbs;
@@ -42,15 +45,10 @@ pub(super) use keepsakes::gather as gather_keepsakes;
 const SCOPE: &str = "sandbox-replay-units";
 const UNIT_POPUP: popup::Spec = popup::Spec::new(popup::Kind::ReplayUnit, Size::new(760.0, 540.0));
 const ROW_SPACING: f32 = 8.0;
-const LIST_SPACING: f32 = 4.0;
 const LABEL_SIZE: f32 = 14.0;
 const LATEST_LABEL: &str = "Latest Battle";
-const LIST_WIDTH: f32 = 200.0;
+const LIST_WIDTH: f32 = 237.0;
 const LIST_PADDING: f32 = 8.0;
-const ROW_HEIGHT: f32 = 40.0;
-const ROW_TEXT_SIZE: f32 = 12.0;
-const EDGE_GAP: f32 = 4.0;
-const SCROLLBAR_GAP: f32 = 2.0;
 const SEARCH_GAP: f32 = 4.0;
 const LIST_GAP: f32 = 8.0;
 const TITLE_SIZE: f32 = 22.0;
@@ -97,6 +95,13 @@ pub enum Message {
     Orbs(orbs::Message),
     UnitPopup(popup::Message),
     Manage(manage::Message),
+    RowPress(usize),
+    RowMove(Point),
+    RowRelease,
+    TreeScrolled(f32),
+    CreateFolder,
+    DeleteFolder,
+    DeleteFolderExpired,
 }
 
 impl fmt::Debug for Message {
@@ -111,6 +116,13 @@ impl fmt::Debug for Message {
             Self::Orbs(msg) => write!(f, "Orbs({msg:?})"),
             Self::UnitPopup(_) => write!(f, "UnitPopup"),
             Self::Manage(msg) => write!(f, "Manage({msg:?})"),
+            Self::RowPress(row) => write!(f, "RowPress({row})"),
+            Self::RowMove(at) => write!(f, "RowMove({at:?})"),
+            Self::RowRelease => write!(f, "RowRelease"),
+            Self::TreeScrolled(offset) => write!(f, "TreeScrolled({offset})"),
+            Self::CreateFolder => write!(f, "CreateFolder"),
+            Self::DeleteFolder => write!(f, "DeleteFolder"),
+            Self::DeleteFolderExpired => write!(f, "DeleteFolderExpired"),
         }
     }
 }
@@ -137,7 +149,15 @@ struct Details {
 
 #[derive(Default)]
 pub struct State {
-    bundles: Vec<PathBuf>,
+    shelf: tape::Shelf,
+    rows: Vec<shelf::Row>,
+    expanded: HashSet<PathBuf>,
+    widest: f32,
+    drag: shelf::Drag,
+    tree_offset: f32,
+    tree_height: Cell<f32>,
+    folder: Option<PathBuf>,
+    folder_confirm: Slot<()>,
     picked: Option<Pick>,
     details: Option<Details>,
     staged: Option<Arc<Staged>>,
@@ -154,8 +174,6 @@ pub struct State {
     open: Option<usize>,
     clicked: Option<(usize, Instant)>,
     search: String,
-    names: Vec<String>,
-    shown: Vec<usize>,
     rename: String,
     manage: manage::State,
     treasure: Bonus,
@@ -163,9 +181,11 @@ pub struct State {
     pub(super) names_dynamic: bool,
 }
 
-pub fn is_bundle(path: &Path) -> bool {
-    path.extension().is_some_and(|extension| extension.eq_ignore_ascii_case(tape::EXTENSION))
-        && path.parent().is_some_and(|parent| parent.file_name().is_some_and(|name| name == tape::library().as_os_str()))
+pub fn touches_library(path: &Path) -> bool {
+    let library = tape::library();
+    let shelved = !path.is_file() || path.extension().is_some_and(|extension| extension.eq_ignore_ascii_case(tape::EXTENSION));
+
+    shelved && path.ancestors().skip(1).any(|ancestor| ancestor.file_name().is_some_and(|name| name == library.as_os_str()))
 }
 
 fn bundle_name(path: &Path) -> String {
@@ -198,9 +218,7 @@ fn describe(title: String, summary: &Summary) -> Details {
     meta.push(("Time", summary.frames.map_or_else(|| "Missing".to_owned(), |count| frames::label(i32::try_from(count).unwrap_or(i32::MAX)))));
 
     if let Some(save) = &summary.save {
-        let phone = if save.screen.phone { " (Phone)" } else { "" };
-
-        meta.push(("Screen", format!("{} × {}{phone}", save.screen.width.round(), save.screen.height.round())));
+        meta.push(("Screen", format!("{} × {}", save.screen.width.round(), save.screen.height.round())));
     }
 
     meta.push(("Assets", format!("{} files", summary.assets)));
@@ -296,12 +314,17 @@ impl State {
     }
 
     pub fn refresh(&mut self, settings: &Settings, localizable: &Localizable) -> Task<Message> {
-        self.bundles = tape::list(&tape::library());
-        self.manage.refresh(settings, &self.bundles);
-        self.filter();
+        self.reshelve();
+        self.manage.refresh(settings, &self.shelf);
+
+        if let Some(folder) = self.folder.clone().filter(|folder| self.shelf.holds_folder(folder)) {
+            self.select_folder(folder);
+
+            return Task::none();
+        }
 
         let picked = match self.picked.take() {
-            Some(Pick::Bundle(path)) if !self.bundles.contains(&path) => None,
+            Some(Pick::Bundle(path)) if !self.shelf.holds_bundle(&path) => None,
             other => other,
         };
 
@@ -309,11 +332,20 @@ impl State {
     }
 
     pub fn relist(&mut self, config: ScannerConfig, localizable: &Localizable) -> Task<Message> {
-        self.bundles = tape::list(&tape::library());
-        self.filter();
+        self.reshelve();
+
+        if let Some(folder) = self.folder.clone() {
+            if self.shelf.holds_folder(&folder) {
+                self.recount_folder(&folder);
+
+                return Task::none();
+            }
+
+            return self.select(Pick::Latest, config, localizable);
+        }
 
         match &self.picked {
-            Some(Pick::Bundle(path)) if !self.bundles.contains(path) => self.select(Pick::Latest, config, localizable),
+            Some(Pick::Bundle(path)) if !self.shelf.holds_bundle(path) => self.select(Pick::Latest, config, localizable),
             _ => Task::none(),
         }
     }
@@ -343,6 +375,8 @@ impl State {
             Pick::Latest => String::new(),
         };
         self.picked = Some(pick.clone());
+        self.folder = None;
+        self.folder_confirm.clear();
         self.open = None;
 
         match staged {
@@ -519,7 +553,26 @@ impl State {
             }
             Message::Search(query) => {
                 self.search = query;
-                self.filter();
+                self.rebuild_rows();
+
+                self.snap_tree()
+            }
+            Message::RowPress(row) => {
+                self.press_row(row);
+
+                Task::none()
+            }
+            Message::RowMove(at) => self.move_row(at),
+            Message::RowRelease => self.release_row(settings, ctx.localizable),
+            Message::TreeScrolled(offset) => {
+                self.tree_offset = offset;
+
+                Task::none()
+            }
+            Message::CreateFolder => self.create_folder(),
+            Message::DeleteFolder => self.delete_folder(settings, ctx.localizable),
+            Message::DeleteFolderExpired => {
+                self.folder_confirm.expire();
 
                 Task::none()
             }
@@ -590,20 +643,134 @@ impl State {
         }
     }
 
-    fn filter(&mut self) {
-        let query = self.search.to_lowercase();
+    fn release_row(&mut self, settings: &Settings, localizable: &Localizable) -> Task<Message> {
+        match self.take_drag() {
+            shelf::Drag::Pressed { row, .. } => {
+                let Some(entry) = self.row_entry(row).cloned() else {
+                    return Task::none();
+                };
 
-        self.names = self.bundles.iter().map(|path| bundle_name(path)).collect();
-        self.shown = self
-            .names
-            .iter()
-            .enumerate()
-            .filter(|(_, name)| query.is_empty() || name.to_lowercase().contains(&query))
-            .map(|(index, _)| index)
-            .collect();
+                self.manage.forget_confirm();
+
+                if !entry.folder {
+                    return self.select(Pick::Bundle(entry.path), settings.scanner_config(None), localizable);
+                }
+
+                if !self.expanded.remove(&entry.path) {
+                    self.expanded.insert(entry.path.clone());
+                }
+
+                self.rebuild_rows();
+                self.select_folder(entry.path);
+
+                Task::none()
+            }
+            shelf::Drag::Moving { item, onto: Some(onto), .. } => self.land(&item, onto, settings, localizable),
+            _ => Task::none(),
+        }
+    }
+
+    fn land(&mut self, item: &Path, onto: shelf::Landing, settings: &Settings, localizable: &Localizable) -> Task<Message> {
+        let Some(folder) = self.landing_folder(onto) else {
+            return Task::none();
+        };
+
+        if self.manage.busy_under(item) {
+            return Task::none();
+        }
+
+        match self.shelf.move_into(item, &folder) {
+            Ok(Some(moved)) => {
+                self.rebase(item, &moved);
+                self.expanded.insert(folder);
+
+                self.relist(settings.scanner_config(None), localizable)
+            }
+            Ok(None) => Task::none(),
+            Err(reason) => {
+                warn!("The replay library could not be changed: {reason}");
+
+                Task::none()
+            }
+        }
+    }
+
+    fn create_folder(&mut self) -> Task<Message> {
+        let parent = self.creation_parent();
+
+        match self.shelf.create_folder(&parent) {
+            Ok(folder) => {
+                self.expanded.insert(parent);
+                self.reshelve();
+                self.select_folder(folder);
+
+                iced::widget::operation::focus(shelf::rename_id())
+            }
+            Err(reason) => {
+                warn!("The replay library could not be changed: {reason}");
+
+                Task::none()
+            }
+        }
+    }
+
+    fn delete_folder(&mut self, settings: &Settings, localizable: &Localizable) -> Task<Message> {
+        let Some(folder) = self.folder.clone() else {
+            return Task::none();
+        };
+
+        if !self.folder_confirm.is_set() {
+            return self.folder_confirm.set((), Message::DeleteFolderExpired);
+        }
+
+        self.folder_confirm.clear();
+
+        if self.manage.busy_under(&folder) {
+            return Task::none();
+        }
+
+        if let Err(reason) = tape::delete_folder(&tape::library(), &folder) {
+            warn!("The replay library could not be changed: {reason}");
+
+            return Task::none();
+        }
+
+        self.cache.retain(|(pick, _, _)| !matches!(pick, Pick::Bundle(path) if path.starts_with(&folder)));
+        self.expanded.retain(|path| !path.starts_with(&folder));
+        self.folder = None;
+
+        self.refresh(settings, localizable)
+    }
+
+    fn rename_folder_live(&mut self, old: &Path) {
+        if self.manage.busy_under(old) {
+            return;
+        }
+
+        match tape::rename_folder(old, &self.rename) {
+            Ok(Some(renamed)) => {
+                let name = renamed.file_name().map_or_else(String::new, |name| name.to_string_lossy().into_owned());
+
+                self.rebase(old, &renamed);
+                self.shelf.relocate(old, &renamed);
+                self.rebuild_rows();
+
+                if let Some(details) = &mut self.details {
+                    details.title = name;
+                }
+            }
+            Ok(None) => {}
+            Err(reason) => warn!("The replay folder could not be renamed: {reason}"),
+        }
     }
 
     fn rename_live(&mut self) {
+        if let Some(old) = self.folder.clone() {
+            self.rename_folder_live(&old);
+
+            return;
+        }
+
         let Some(Pick::Bundle(old)) = self.picked.clone() else {
             return;
         };
@@ -635,9 +802,7 @@ impl State {
             }
         }
 
-        if let Some(held) = self.bundles.iter_mut().find(|held| **held == old) {
-            *held = renamed;
-        }
+        self.shelf.relocate(&old, &renamed);
 
         if let Some(details) = &mut self.details {
             details.title.clone_from(&name);
@@ -645,11 +810,13 @@ impl State {
 
         self.manage.rekey(&stale, fresh.clone());
         self.picked = Some(fresh);
-        self.filter();
+        self.rebuild_rows();
     }
 
     fn settle_rename(&mut self) {
-        if let Some(Pick::Bundle(path)) = &self.picked {
+        if let Some(folder) = &self.folder {
+            self.rename = folder.file_name().map_or_else(String::new, |name| name.to_string_lossy().into_owned());
+        } else if let Some(Pick::Bundle(path)) = &self.picked {
             self.rename = bundle_name(path);
         }
     }
@@ -688,61 +855,6 @@ impl State {
         }
 
         Some(column![theme::bold_text("Orbs").size(ORB_HEADER_SIZE), slots].spacing(6).align_x(Horizontal::Center).into())
-    }
-
-    fn view_list(&self) -> Element<'_, Message> {
-        let search = text_input("Search Replays...", &self.search)
-            .on_input(Message::Search)
-            .padding(4)
-            .size(13)
-            .width(Length::Fill)
-            .style(theme::rounded_input);
-
-        let latest_picked = self.picked == Some(Pick::Latest);
-        let latest = button(theme::button_label(LATEST_LABEL).size(13))
-            .on_press(Message::Select(Pick::Latest))
-            .padding([4, 8])
-            .width(Length::Fill)
-            .style(move |theme: &Theme, status| theme::toggle_button(theme, status, latest_picked));
-
-        let list: Element<'_, Message> = if self.shown.is_empty() {
-            container(theme::centered_text("No Replays Found").size(13).style(text::danger))
-                .width(Length::Fill)
-                .height(Length::Fill)
-                .center_x(Length::Fill)
-                .center_y(Length::Fill)
-                .into()
-        } else {
-            let mut rows = Column::with_capacity(self.shown.len()).spacing(LIST_SPACING).width(Length::Fill);
-
-            for (path, name) in self.shown.iter().filter_map(|index| Some((self.bundles.get(*index)?, self.names.get(*index)?))) {
-                let picked = matches!(&self.picked, Some(Pick::Bundle(held)) if held == path);
-                let face = row![
-                    Space::new().width(Length::Fixed(EDGE_GAP)),
-                    theme::centered_text(name.as_str()).size(ROW_TEXT_SIZE).width(Length::Fill),
-                    Space::new().width(Length::Fixed(EDGE_GAP)),
-                ]
-                    .align_y(Vertical::Center)
-                    .height(Length::Fill);
-
-                rows = rows.push(list_row(
-                    container(face).width(Length::Fill).height(Length::Fixed(ROW_HEIGHT)),
-                    picked,
-                    true,
-                    Length::Fill,
-                    Message::Select(Pick::Bundle(path.clone())),
-                ));
-            }
-
-            smooth_scroll(scrollable(rows).spacing(SCROLLBAR_GAP).height(Length::Fill).width(Length::Fill)).into()
-        };
-
-        container(column![search, Space::new().height(SEARCH_GAP), latest, Space::new().height(LIST_GAP), list].height(Length::Fill))
-            .width(Length::Fixed(LIST_WIDTH + LIST_PADDING * 2.0))
-            .height(Length::Fill)
-            .padding(LIST_PADDING)
-            .style(theme::list_panel_container)
-            .into()
     }
 
     fn view_tile(&self, metrics: Metrics, slot: usize, tile: &Tile) -> Element<'_, Message> {
@@ -836,6 +948,15 @@ impl State {
 
 
         let title: Element<'_, Message> = match &self.picked {
+            None if self.folder.is_some() => text_input("Folder Name", &self.rename)
+                .id(shelf::rename_id())
+                .on_input(Message::RenameInput)
+                .on_submit(Message::CommitRename)
+                .size(TITLE_SIZE)
+                .padding(TITLE_PADDING)
+                .width(Length::Fixed(CONTENT_WIDTH))
+                .style(theme::rounded_input)
+                .into(),
             Some(Pick::Bundle(_)) => text_input("Replay Title", &self.rename)
                 .on_input(Message::RenameInput)
                 .on_submit(Message::CommitRename)
@@ -851,6 +972,10 @@ impl State {
                 .style(|theme: &Theme, _| theme::rounded_input(theme, text_input::Status::Active))
                 .into(),
         };
+
+        if self.folder.is_some() {
+            return column![title, Space::new().height(TITLE_GAP), content_rule(), Space::new().height(RULE_PADDING), content_card("Folder", rows(&details.meta))].into();
+        }
 
         let mut content = column![
             title,
@@ -877,9 +1002,39 @@ impl State {
     pub fn view(&self, bottom: f32) -> Element<'_, Message> {
         let page = container(self.view_details()).padding(Padding { bottom, ..Padding::new(DETAILS_PADDING) }).width(Length::Fill);
 
-        row![self.view_list(), smooth_scroll(scrollable(page).width(Length::Fill).height(Length::Fill))]
-            .width(Length::Fill)
-            .height(Length::Fill)
-            .into()
+        self.with_drag(
+            row![self.view_list(), smooth_scroll(scrollable(page).width(Length::Fill).height(Length::Fill))]
+                .width(Length::Fill)
+                .height(Length::Fill)
+                .into(),
+        )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::fs;
+
+    use super::*;
+
+    // Folders report no replay of their own, so the library has to notice them by where they are.
+    #[test]
+    fn a_change_counts_when_it_can_reach_the_replay_tree() {
+        let base = std::env::temp_dir().join(format!("hagane-library-{}", std::process::id()));
+        let library = base.join(tape::library());
+        let notes = library.join("notes.txt");
+
+        fs::create_dir_all(library.join("Sharks")).unwrap();
+        fs::write(&notes, "x").unwrap();
+
+        assert!(touches_library(&library.join("Sharks")));
+        assert!(touches_library(&library.join("Deleted.Folder")));
+        assert!(touches_library(&library.join("Sharks/Great.bcv")));
+        assert!(touches_library(&library.join("Sharks/GREAT.BCV")));
+        assert!(!touches_library(&notes));
+        assert!(!touches_library(&base.join("game/Sharks")));
+        assert!(!touches_library(&base.join("game/Great.bcv")));
+
+        let _ = fs::remove_dir_all(&base);
     }
 }

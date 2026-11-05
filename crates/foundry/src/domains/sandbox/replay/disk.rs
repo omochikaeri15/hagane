@@ -318,7 +318,7 @@ fn walk(dir: &Path, prefix: &str, found: &mut Vec<(String, PathBuf)>) -> io::Res
     Ok(())
 }
 
-pub fn next_bundle(library: &Path) -> PathBuf {
+pub(super) fn next_bundle(library: &Path) -> PathBuf {
     (1usize..)
         .map(|number| library.join(format!("{BUNDLE_STEM}{number}.{EXTENSION}")))
         .find(|path| !path.exists())
@@ -578,22 +578,6 @@ pub fn inspect_bundle(bundle: &Path) -> Summary {
     }
 }
 
-fn playable(bundle: &Path) -> bool {
+pub(super) fn playable(bundle: &Path) -> bool {
     solid::sniff(bundle) && read_head(bundle, false).is_some_and(|head| head.save.is_some() && head.input.is_some())
-}
-
-pub fn list(library: &Path) -> Vec<PathBuf> {
-    let Ok(entries) = fs::read_dir(library) else {
-        return Vec::new();
-    };
-
-    let mut found: Vec<PathBuf> = entries
-        .flatten()
-        .map(|entry| entry.path())
-        .filter(|path| path.extension().is_some_and(|extension| extension.eq_ignore_ascii_case(EXTENSION)))
-        .filter(|path| playable(path))
-        .collect();
-
-    found.sort_by_key(|path| path.file_name().map(|name| name.to_string_lossy().to_lowercase()));
-    found
 }

@@ -41,9 +41,11 @@ export global Shell {
     in-out property <length> press-y;
     in-out property <bool> press-edge;
     in-out property <bool> swiping;
+    in-out property <bool> holding;
     in property <bool> hover-input;
     in-out property <int> press-seq;
-    in-out property <int> guard-claim: -1;
+    in-out property <int> claim-leftward: -1;
+    in-out property <int> claim-rightward: -1;
     callback measured(length, length, length, length);
     callback fullscreen-changed(bool);
 }
@@ -59,14 +61,19 @@ export component Tap inherits TouchArea {
 
 export component SwipeGuard {
     in property <bool> lipped;
+    in property <bool> left-wall;
+    in property <bool> right-wall;
     property <length> left: self.absolute-position.x;
     property <length> top: self.absolute-position.y;
     property <int> claim: Shell.press-x >= self.left && Shell.press-x < self.left + self.width && Shell.press-y >= self.top && Shell.press-y < self.top + self.height && !(self.lipped && Shell.press-edge) ? Shell.press-seq : -1;
     width: 100%;
     height: 100%;
     changed claim => {
-        if self.claim >= 0 {
-            Shell.guard-claim = self.claim;
+        if self.claim >= 0 && !self.left-wall {
+            Shell.claim-rightward = self.claim;
+        }
+        if self.claim >= 0 && !self.right-wall {
+            Shell.claim-leftward = self.claim;
         }
     }
 }

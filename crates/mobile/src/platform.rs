@@ -34,6 +34,21 @@ pub fn open_url(url: &str) {
     }
 }
 
+#[cfg(target_os = "android")]
+pub fn open_folder(path: &Path) -> Result<(), String> {
+    crate::android::open_folder(path)
+}
+
+#[cfg(target_os = "ios")]
+pub fn open_folder(path: &Path) -> Result<(), String> {
+    crate::ios::open_folder(path)
+}
+
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
+pub fn open_folder(path: &Path) -> Result<(), String> {
+    open::that(path).map_err(|err| err.to_string())
+}
+
 pub const ORIENTATION_ENFORCED: bool = cfg!(any(target_os = "android", target_os = "ios"));
 
 #[cfg(target_os = "android")]

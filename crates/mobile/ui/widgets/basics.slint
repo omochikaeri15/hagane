@@ -125,9 +125,12 @@ export component Input inherits Rectangle {
     changed taps => { if field.has-focus { field.clear-focus(); } }
     property <string> told;
     init => { root.told = root.text; field.text = root.text; }
+    pure function typed() -> string {
+        return field.has-focus ? field.text + field.preedit-text : field.text;
+    }
     function tell() {
-        if root.told != field.text + field.preedit-text {
-            root.told = field.text + field.preedit-text;
+        if root.told != root.typed() {
+            root.told = root.typed();
             root.text = root.told;
             root.edited(root.told);
         }
@@ -153,6 +156,8 @@ export component Input inherits Rectangle {
         padding-bottom: 5px;
         Rectangle {
             Text {
+                x: 0;
+                y: 0;
                 visible: root.text == "" && !field.has-focus;
                 text: root.placeholder;
                 color: Theme.secondary;
@@ -163,6 +168,8 @@ export component Input inherits Rectangle {
                 height: parent.height;
             }
             field := TextInput {
+                x: 0;
+                y: 0;
                 enabled: root.enabled;
                 read-only: root.read-only;
                 color: root.enabled ? Theme.text : Theme.secondary;
@@ -199,9 +206,12 @@ export component TextBox inherits Rectangle {
     callback edited(string);
     property <string> told;
     init => { root.told = root.text; field.text = root.text; }
+    pure function typed() -> string {
+        return field.has-focus ? field.text + field.preedit-text : field.text;
+    }
     function tell() {
-        if root.told != field.text + field.preedit-text {
-            root.told = field.text + field.preedit-text;
+        if root.told != root.typed() {
+            root.told = root.typed();
             root.text = root.told;
             root.edited(root.told);
         }

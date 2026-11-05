@@ -68,17 +68,15 @@ export global Settings {
     in property <string> game-label: "No \"game\"";
     in property <Tone> game-tone: Tone.neutral;
     in property <bool> game-enabled;
-    in property <string> game-size;
-    in property <string> cache-label: "Cache Empty";
-    in property <Tone> cache-tone: Tone.neutral;
-    in property <bool> cache-enabled;
-    in property <string> cache-size;
-    in property <string> data-path;
+    in property <string> open-files-label: "Open \"files\" Folder";
+    in property <Tone> open-files-tone: Tone.primary;
 
     in property <int> orientation;
     in property <bool> fullscreen;
     in property <int> exports;
     in property <int> replay-source;
+    in property <int> saved-bcv-name;
+    in property <bool> auto-save-bcv;
     in property <int> sandbox-banner-form;
     in property <bool> disable-replays;
 
@@ -131,11 +129,13 @@ export global Settings {
     callback rules-export();
     callback rules-reset();
     callback delete-game();
-    callback clear-cache();
+    callback open-files();
     callback orientation-set(int);
     callback toggle-fullscreen(bool);
     callback exports-set(int);
     callback replay-source-set(int);
+    callback saved-bcv-name-set(int);
+    callback toggle-auto-save-bcv(bool);
     callback sandbox-banner-form-set(int);
     callback toggle-disable-replays(bool);
 }
@@ -430,7 +430,9 @@ export component SettingsPage inherits Rectangle {
                     Section {
                         title: "Replay";
                         Row { label: "Replay Source"; Combo { width: 110px; height: 30px; text-size: 13px; options: ["Hybrid", "BCV", "VFS"]; current: Settings.replay-source; selected(index) => { Settings.replay-source-set(index); } } }
+                        Row { label: "Saved BCV Name"; Combo { width: 110px; height: 30px; text-size: 13px; options: ["\"Replay\"", "Location"]; current: Settings.saved-bcv-name; selected(index) => { Settings.saved-bcv-name-set(index); } } }
                         Toggle { value: Settings.disable-replays; label: "Disable Replays"; changed(value) => { Settings.toggle-disable-replays(value); } }
+                        Toggle { value: Settings.auto-save-bcv; label: "Auto-Save BCV"; changed(value) => { Settings.toggle-auto-save-bcv(value); } }
                     }
                 }
                 if Settings.tab == 2: VerticalLayout {
@@ -463,11 +465,8 @@ export component SettingsPage inherits Rectangle {
                     spacing: 20px;
                     Section {
                         title: "Disk";
+                        Btn { label: Settings.open-files-label; tone: Settings.open-files-tone; width: 200px; height: 32px; text-size: 14px; clicked => { Settings.open-files(); } }
                         Btn { label: Settings.game-label; tone: Settings.game-tone; enabled: Settings.game-enabled; width: 200px; height: 32px; text-size: 14px; clicked => { Settings.delete-game(); } }
-                        Note { text: Settings.game-size; }
-                        Btn { label: Settings.cache-label; tone: Settings.cache-tone; enabled: Settings.cache-enabled; width: 200px; height: 32px; text-size: 14px; clicked => { Settings.clear-cache(); } }
-                        Note { text: Settings.cache-size; }
-                        Label { text: Settings.data-path; font-size: 13px; wrap: word-wrap; }
                     }
                     Section {
                         title: "Source";

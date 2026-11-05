@@ -3,6 +3,8 @@ mod save;
 mod tape;
 #[cfg(all(feature = "disk", feature = "mods"))]
 mod disk;
+#[cfg(all(feature = "disk", feature = "mods"))]
+mod shelf;
 
 use crate::common::architecture;
 use crate::domains::cat::scanner::{self, CatEntry};
@@ -10,7 +12,9 @@ use crate::domains::settings::ScannerConfig;
 use crate::Vault;
 
 #[cfg(all(feature = "disk", feature = "mods"))]
-pub use disk::{Bundle, Recording, delete, export, index, inspect_bundle, inspect_dir, latest, library, list, next_bundle, pack, read_faults, read_input, read_save, rename, restamp, stage, stamp};
+pub use disk::{Bundle, Recording, delete, export, index, inspect_bundle, inspect_dir, latest, library, pack, read_faults, read_input, read_save, rename, restamp, stage, stamp};
+#[cfg(all(feature = "disk", feature = "mods"))]
+pub use shelf::{Shelf, ShelfRow, delete_folder, rebased, rename_folder, saved_bundle};
 pub use footage::{Footage, Opened, Packer};
 pub use save::{God, Insets, Level, Options, Parts, Save, Screen, Seeds, Setup, Stage, Tutorial, Unit, Variant};
 pub use tape::{Cue, Key, format_frame, parse};

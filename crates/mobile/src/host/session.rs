@@ -2,16 +2,19 @@ use std::cell::RefCell;
 use std::fmt;
 use std::path::PathBuf;
 use std::rc::Rc;
-use std::sync::atomic::Ordering;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::thread;
 use std::time::{Duration, Instant};
 
 use serde::{Deserialize, Serialize};
-use tracing::{trace, warn};
+use tracing::{error, info, trace, warn};
 
 use emulator::runtime::{BattleOptions, Setup};
 use foundry::Vfs;
+use foundry::common::job::JobOutcome;
 use foundry::domains::sandbox::replay as tape;
-use foundry::domains::settings::ReplaySource;
+use foundry::domains::settings::{ReplaySource, SavedBcvName};
 
 use super::assets::{DiskAssets, FileIndex, SheetCache};
 use super::diagnostics::Diagnostics;
@@ -23,6 +26,7 @@ use super::sink::Frame;
 const BLACK_FROM: i32 = 0xb;
 const CLOSED_FRAME: i32 = 0xc;
 const LAST_FRAME: i32 = 0x18;
+const SAVE_PATIENCE: Duration = Duration::from_secs(5);
 const GAME_FPS: u64 = 30;
 const FRAME_TIME: Duration = STEP_TIME;
 const STEP_TIME: Duration = Duration::from_nanos(1_000_000_000 / GAME_FPS);
@@ -99,8 +103,22 @@ pub enum Phase {
     Running,
     Faulted,
     Closing,
+    Saving,
     Leaving,
 }
+
+struct Saver {
+    done: Arc<AtomicBool>,
+    began: Instant,
+}
+
+impl Saver {
+    fn busy(&self) -> bool {
+        !self.done.load(Ordering::Acquire)
+    }
+}
+
+pub(super) type Shelved = Arc<dyn Fn() + Send + Sync>;
 
 pub(super) struct Session {
     driver: Driver,
@@ -122,6 +140,8 @@ pub(super) struct Session {
     again: bool,
     reel: Option<(Reel, ReplaySource)>,
     recording: bool,
+    auto_save: Option<(SavedBcvName, Shelved)>,
+    saver: Option<Saver>,
     cut: bool,
 }
 
@@ -150,12 +170,56 @@ impl Session {
             failure: None,
             reel: None,
             recording: true,
+            auto_save: None,
+            saver: None,
             cut: false,
         }
     }
 
     pub(super) fn set_lag(&mut self, lag: Lag) {
         self.lag = lag;
+    }
+
+    pub(super) fn set_auto_save(&mut self, auto_save: Option<(SavedBcvName, Shelved)>) {
+        self.auto_save = auto_save;
+    }
+
+    fn start_saving(&mut self) -> bool {
+        let Some((naming, shelved)) = self.auto_save.clone() else {
+            return false;
+        };
+
+        if !self.driver.finish_recording() {
+            return false;
+        }
+
+        let Some(latest) = tape::latest() else {
+            return false;
+        };
+        let out = tape::saved_bundle(&tape::library(), naming, &latest);
+        let done = Arc::new(AtomicBool::new(false));
+        let landed = Arc::clone(&done);
+        let spawned = thread::Builder::new().name("replay_auto_save".to_owned()).spawn(move || {
+            if matches!(tape::pack(&latest, &out, |_| {}, &AtomicBool::new(false)), JobOutcome::Completed) {
+                info!("The battle was saved to {}", out.display());
+            }
+
+            landed.store(true, Ordering::Release);
+            shelved();
+        });
+
+        match spawned {
+            Ok(_) => {
+                self.saver = Some(Saver { done, began: Instant::now() });
+
+                true
+            }
+            Err(err) => {
+                error!("The auto-save thread could not be started: {err}");
+
+                false
+            }
+        }
     }
 
     pub(super) fn set_recording(&mut self, recording: bool) {
@@ -179,14 +243,14 @@ impl Session {
     }
 
     pub(super) fn surfaced(&self) -> bool {
-        matches!(self.phase, Phase::Loading | Phase::Running | Phase::Faulted | Phase::Closing)
+        matches!(self.phase, Phase::Loading | Phase::Running | Phase::Faulted | Phase::Closing | Phase::Saving)
     }
 
     pub(super) fn covered(&self) -> bool {
         match self.phase {
             Phase::Idle | Phase::Faulted => false,
             Phase::Running => self.driver.fading(),
-            Phase::Closing => true,
+            Phase::Closing | Phase::Saving => true,
             Phase::Covering | Phase::Loading | Phase::Leaving => (BLACK_FROM..=CLOSED_FRAME).contains(&self.sweep),
         }
     }
@@ -196,7 +260,7 @@ impl Session {
     }
 
     fn in_transition(&self) -> bool {
-        matches!(self.phase, Phase::Covering | Phase::Loading | Phase::Closing | Phase::Leaving)
+        matches!(self.phase, Phase::Covering | Phase::Loading | Phase::Closing | Phase::Saving | Phase::Leaving)
     }
 
     pub(super) fn watching(&self) -> bool {
@@ -354,7 +418,11 @@ impl Session {
                 self.driver.draw_curtain_over(self.sweep);
 
                 if self.sweep >= CLOSED_FRAME {
-                    self.phase = if self.again { Phase::Loading } else { Phase::Leaving };
+                    self.phase = match (self.start_saving(), self.again) {
+                        (true, _) => Phase::Saving,
+                        (false, true) => Phase::Loading,
+                        (false, false) => Phase::Leaving,
+                    };
 
                     if self.phase == Phase::Leaving {
                         self.opens_at = Some(Instant::now() + TURN_PATIENCE);
@@ -391,7 +459,30 @@ impl Session {
 
                 true
             }
+            Phase::Saving => {
+                self.sweep = CLOSED_FRAME;
+                self.driver.draw_curtain(self.sweep);
+
+                if self.saver.as_ref().is_some_and(|saver| saver.busy() && saver.began.elapsed() < SAVE_PATIENCE) {
+                    return true;
+                }
+
+                self.phase = if self.again { Phase::Loading } else { Phase::Leaving };
+                self.started = Instant::now();
+
+                if self.phase == Phase::Leaving {
+                    self.opens_at = Some(Instant::now() + TURN_PATIENCE);
+                } else {
+                    self.await_curtain();
+                }
+
+                true
+            }
             Phase::Loading => {
+                if self.saver.as_ref().is_some_and(Saver::busy) {
+                    return false;
+                }
+
                 let waited = self.started.elapsed();
 
                 if !self.frame.borrow().presented.shown.load(Ordering::Acquire) {
@@ -570,8 +661,14 @@ impl Session {
         if self.entered && !self.driver.in_battle() {
             self.entered = false;
             self.driver.silence();
-            self.phase = Phase::Leaving;
-            self.opens_at = Some(Instant::now() + TURN_PATIENCE);
+
+            if self.start_saving() {
+                self.phase = Phase::Saving;
+            } else {
+                self.phase = Phase::Leaving;
+                self.opens_at = Some(Instant::now() + TURN_PATIENCE);
+            }
+
             self.sweep = CLOSED_FRAME;
             self.driver.end_playback();
             self.started = Instant::now();

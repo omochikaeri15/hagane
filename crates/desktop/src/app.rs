@@ -1466,7 +1466,10 @@ impl HaganeApp {
             }
             Message::FilesChanged(Change::Bulk) => {
                 info!("File watcher reported a bulk change, re-indexing everything");
-                self.rebuild_content()
+
+                let relisted = self.sandbox_state.relist_replays(&self.settings, &self.localizable).map(Message::Sandbox);
+
+                Task::batch([self.rebuild_content(), relisted])
             }
             Message::FilesChanged(Change::Batch(paths)) => {
                 let replays = paths.iter().any(|path| sandbox::State::is_replay(path));
@@ -1804,7 +1807,9 @@ impl HaganeApp {
                     let lineup = foundry::domains::sandbox::replay::Save { setup: host::tape_setup(&setup, "", ""), ..Default::default() };
                     let recording = label.is_some();
 
-                    self.sandbox_state.start(self.window_size.width, self.window_size.height, &self.app_state.sandbox, setup, label);
+                    let auto_save = self.settings.sandbox.auto_save_bcv.then_some(self.settings.sandbox.saved_bcv_name);
+
+                    self.sandbox_state.start(self.window_size.width, self.window_size.height, &self.app_state.sandbox, setup, label, auto_save);
 
                     if recording {
                         let config = self.settings.scanner_config(self.mods_state.active_mod());

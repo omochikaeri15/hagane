@@ -396,7 +396,9 @@ component Battleground inherits Section {
         property <length> offset;
         property <length> grab-x;
         property <length> grab-offset;
-        SwipeGuard { }
+        property <bool> swiped: Shell.swiping;
+        changed swiped => { if self.swiped { Stages.ground-dragging = false; } }
+        SwipeGuard { left-wall: parent.offset <= 0px; right-wall: parent.offset >= parent.reach; }
         TouchArea { enabled: !Shell.swiping;
             pointer-event(event) => {
                 if event.kind == PointerEventKind.down {

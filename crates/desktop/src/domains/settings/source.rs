@@ -24,7 +24,7 @@ The purpose of this agreement is to ensure that you, the User, are aware of the 
 By accepting this agreement, you must have read, understood, and accepted the following facts about Providers:
 
 - Providers are incompatible with the "Mining" page, and will wipe its data.
-- Providers wipe the import manifest, so future imports will import every file.
+- Providers wipe the import manifest, so the next import has to check every file again.
 - Providers may not keep recent or up to date game data.
 
 You can accept the agreement by clicking the "Agree" button below. Selecting "Disagree" will close this pop-up.

@@ -41,7 +41,9 @@ Save gameplay to lightweight `bcv` format, or export to other video formats.
 ### Behavior
 Replays are saved automatically, which may increase load times. If you wish to opt-out of Replays and reclaim your load times, you can turn Replays off using `Settings > Sandbox > Replay > Disable Replays`.
 
-Only your last gameplay session is saved. Said session is saved in a temporary folder, and is overwritten by the next session. To save it to a permanent file, you can click on the `Latest Battle` button and click `Save to Disk` under `Manage`.
+Only your last gameplay session is saved. Said session is saved in a temporary folder, and is overwritten by the next session. To save it to a permanent file, you can click on the `Latest Battle` button and click `Save to Disk` under `Manage`, or turn on `Settings > Sandbox > Replay > Auto-Save BCV` to save every battle as you leave it. `Saved BCV Name` picks what those files get called.
+
+Saved replays live in the `sandbox` folder and can be organized into sub-folders. `Create Folder` makes one inside the selected folder, and its name is edited in the title field like a replay's. Click and hold a replay or folder to drag it into another folder, or onto an empty spot to take it back out. `Delete Folder` deletes the selected folder and every replay inside it, and asks you to press it again to continue.
 
 When on this tab, the "Play" button instead becomes "Watch" which allows you to watch the replay. Exit the replay by clicking and holding the "Pause" keybind (default `Esc`).
 

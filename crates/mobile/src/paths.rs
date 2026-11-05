@@ -24,7 +24,7 @@ impl Home {
         if cfg!(target_os = "ios") {
             let home = env::var_os("HOME").map(PathBuf::from)?;
 
-            return Some(Self { data: home.join("Documents"), private: Some(home.join("Library").join("Application Support")) });
+            return Some(Self { data: home.join("Documents"), private: None });
         }
 
         let data = env::var_os(HOME_OVERRIDE).map(PathBuf::from).or_else(|| foundry::common::dirs::data().map(|dir| dir.join(MOBILE_DIR)))?;
@@ -65,9 +65,17 @@ impl Home {
 
 fn point_private(private: &Path) {
     let config = private.join("config");
-    let cache = private.join("cache");
+    let old_cache = private.join("cache");
+    let cache = private.parent().map_or_else(|| old_cache.clone(), |parent| parent.join("cache"));
     let state = private.join("state");
     let data = private.join("data");
+
+    if cache != old_cache
+        && old_cache.exists()
+        && let Err(err) = fs::remove_dir_all(&old_cache)
+    {
+        error!("The old cache folder {} could not be removed: {}", old_cache.display(), err);
+    }
 
     for dir in [&config, &cache, &state, &data] {
         if let Err(err) = fs::create_dir_all(dir) {

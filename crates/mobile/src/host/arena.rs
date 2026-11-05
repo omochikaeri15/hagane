@@ -10,7 +10,7 @@ use tracing::{error, info};
 use emulator::runtime::{BattleOptions, Setup};
 use foundry::Vault;
 use foundry::domains::sandbox::replay::Insets;
-use foundry::domains::settings::ReplaySource;
+use foundry::domains::settings::{ReplaySource, SavedBcvName};
 
 use crate::{AppWindow, bridge};
 
@@ -18,7 +18,7 @@ use super::diagnostics::Diagnostics;
 use super::driver::Label;
 use super::gpu::{self, Scene};
 use super::input::Touch;
-use super::session::{Lag, Phase, Reel, Session};
+use super::session::{Lag, Phase, Reel, Session, Shelved};
 use super::viewport::{self, Canvas};
 
 const TICK: Duration = Duration::from_millis(16);
@@ -33,6 +33,7 @@ pub struct Launch {
     pub height: f32,
     pub label: Label,
     pub record: bool,
+    pub auto_save: Option<SavedBcvName>,
 }
 
 pub enum Command {
@@ -85,6 +86,7 @@ pub enum Event {
     Diagnostics(Diagnostics),
     Cut,
     Ended,
+    Shelved,
 }
 
 pub struct Arena {
@@ -124,7 +126,9 @@ impl Stage {
     fn handle(&mut self, command: Command) -> bool {
         match command {
             Command::Start(launch) => {
-                let Launch { setup, options, phone, lag, width, height, label, record } = *launch;
+                let Launch { setup, options, phone, lag, width, height, label, record, auto_save } = *launch;
+                let (weak, ticket) = (self.weak.clone(), self.ticket);
+                let shelved: Shelved = Arc::new(move || bridge::post(&weak, ticket, Event::Shelved));
 
                 self.bounds = (width, height);
 
@@ -133,6 +137,7 @@ impl Stage {
                 let session = self.session();
 
                 session.set_recording(record);
+                session.set_auto_save(auto_save.map(|naming| (naming, shelved)));
                 session.label(label);
                 session.equip(setup);
                 session.set_phone(phone);

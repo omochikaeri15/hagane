@@ -24,7 +24,7 @@ use foundry::domains::sandbox::keybind::Bind;
 use foundry::domains::sandbox::altar::Altars;
 use foundry::domains::sandbox::TECHS;
 use foundry::domains::sandbox::replay as replay_tape;
-use foundry::domains::settings::{ReplaySource, ScannerConfig, Settings};
+use foundry::domains::settings::{ReplaySource, SavedBcvName, ScannerConfig, Settings};
 use foundry::domains::stage::StageRegistry;
 use foundry::Vault;
 use codex::files::Localizable;
@@ -465,7 +465,7 @@ impl State {
     }
 
     pub(crate) fn is_replay(path: &Path) -> bool {
-        replay::is_bundle(path)
+        replay::touches_library(path)
     }
 
     pub(crate) fn relist_replays(&mut self, settings: &Settings, localizable: &Localizable) -> Task<Message> {
@@ -553,11 +553,12 @@ impl State {
         Task::perform(smol::unblock(move || replay::gather_keepsakes(&vault, save, &config)), move |files| Message::Keepsakes(ticket, files))
     }
 
-    pub(crate) fn start(&mut self, width: f32, height: f32, options: &SandboxState, setup: Setup, label: Option<Label>) {
+    pub(crate) fn start(&mut self, width: f32, height: f32, options: &SandboxState, setup: Setup, label: Option<Label>, auto_save: Option<SavedBcvName>) {
         let density = self.density;
         let session = self.session.get_or_insert_with(Session::new);
 
         session.set_density(density);
+        session.set_auto_save(auto_save);
         session.set_recording(label.is_some());
         session.label(label.unwrap_or_default());
         session.equip(setup);

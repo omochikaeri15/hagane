@@ -41,7 +41,7 @@ slint = { version = "1.18", default-features = false, features = ["renderer-skia
 block2 = "0.6"
 objc2 = "0.6"
 objc2-core-haptics = { version = "0.3", default-features = false, features = ["std", "CHHapticDeviceCapability", "CHHapticEngine", "CHHapticEvent", "CHHapticParameter", "CHHapticPattern", "CHHapticPatternPlayer"] }
-objc2-foundation = { version = "0.3", default-features = false, features = ["std", "block2", "NSArray", "NSDate", "NSEnumerator", "NSError", "NSNotification", "NSObject", "NSOperation", "NSString", "NSURL"] }
+objc2-foundation = { version = "0.3", default-features = false, features = ["std", "block2", "NSArray", "NSDate", "NSDictionary", "NSEnumerator", "NSError", "NSNotification", "NSObject", "NSOperation", "NSString", "NSURL"] }
 objc2-ui-kit = { version = "0.3", default-features = false, features = ["std", "block2", "UIApplication", "UIDocumentPickerViewController", "UIOrientation", "UIResponder", "UIScene", "UIView", "UIViewController", "UIWindow", "UIWindowScene", "UIWindowSceneGeometryPreferences", "UIWindowSceneGeometryPreferencesIOS", "objc2-uniform-type-identifiers"] }
 objc2-uniform-type-identifiers = { version = "0.3", default-features = false, features = ["std", "UTType"] }
 raw-window-handle = "0.6"

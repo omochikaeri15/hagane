@@ -4,7 +4,7 @@ use std::time::Duration;
 
 use iced::widget::{column, container, text, tooltip};
 use iced::{task, Element, Task};
-use tracing::{debug, error};
+use tracing::{debug, error, warn};
 
 use foundry::common::architecture;
 use foundry::domains::import;
@@ -23,6 +23,7 @@ pub enum Target {
 
 #[derive(Debug, Clone)]
 pub enum Message {
+    OpenRoot,
     RequestDelete(Target),
     Refresh,
     SizesLoaded(Sizes),
@@ -128,6 +129,15 @@ impl State {
 
     pub fn update(&mut self, message: Message) -> Task<Message> {
         match message {
+            Message::OpenRoot => {
+                let opened = std::env::current_dir().map_err(|err| err.to_string()).and_then(|root| open::that(&root).map_err(|err| err.to_string()));
+
+                if let Err(reason) = opened {
+                    warn!("The root folder could not be opened: {}", reason);
+                }
+
+                Task::none()
+            }
             Message::RequestDelete(target) => {
                 if !self.confirm.take(&target) {
                     return self.confirm.set(target, Message::ConfirmExpired);
@@ -255,6 +265,7 @@ impl State {
             .is_some_and(|dir| architecture::has_content(&dir));
 
         column![
+            theme::sized_button("Open Root Folder", theme::ACTION_BUTTON_WIDTH, theme::primary_button).on_press(Message::OpenRoot),
             self.disk_button("game", self.game.phase, Target::Game, game_exists, self.sizes.map(|held| held.game)),
             self.cache_button(self.cache.phase, cache_present),
         ].spacing(8).into()

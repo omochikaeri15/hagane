@@ -267,6 +267,17 @@ impl Driver {
         self.ledger.borrow_mut().disarm();
     }
 
+    pub(super) fn finish_recording(&mut self) -> bool {
+        if !matches!(self.tape, Tape::Recording(_)) {
+            return false;
+        }
+
+        self.keep_assets();
+        self.close_tape();
+
+        true
+    }
+
     pub(super) fn arm_recording(&mut self) {
         self.close_tape();
 
