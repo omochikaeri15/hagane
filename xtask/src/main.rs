@@ -36,12 +36,13 @@ fn main() {
     match args.as_slice() {
         [] => ship::release(false),
         ["all"] => ship::release(true),
+        ["recover"] => ship::recover(),
         ["debug", "android" | "apk"] => android::build(),
         ["deploy", "website" | "web"] => deploy::website(),
         ["deploy", "stop"] => deploy::stop(),
         [deploy::SERVE_COMMAND, root] => deploy::serve(Path::new(root)),
         unknown => {
-            eprintln!("Unknown xtask arguments '{}'. Use 'cargo ship', 'cargo ship all', 'cargo debug android', 'cargo deploy website' or 'cargo deploy stop'.", unknown.join(" "));
+            eprintln!("Unknown xtask arguments '{}'. Use 'cargo ship', 'cargo ship all', 'cargo ship recover', 'cargo debug android', 'cargo deploy website' or 'cargo deploy stop'.", unknown.join(" "));
             exit(2);
         }
     }

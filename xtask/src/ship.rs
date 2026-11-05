@@ -183,7 +183,18 @@ fn fingerprint(package: &str, root: &Path) -> String {
     git_hash(&entries.join("\n"))
 }
 
-fn settle_builds(version: &str, everything: bool) -> Vec<&'static str> {
+fn published_build<'a>(recorded: &'a str, name: &str, fingerprint: &str, released: &[(u64, u64, u64)]) -> Option<&'a str> {
+    recorded.lines().find_map(|line| {
+        let mut parts = line.split_whitespace();
+        let matches = parts.next() == Some(name);
+        let built = parts.next()?;
+        let same = parts.next() == Some(fingerprint);
+
+        (matches && same && parse_version(built).is_some_and(|version| released.contains(&version))).then_some(built)
+    })
+}
+
+fn settle_builds(version: &str, released: &[(u64, u64, u64)], everything: bool) -> Vec<&'static str> {
     let root = env::current_dir().and_then(fs::canonicalize).expect("Failed to resolve the workspace root");
     let recorded = fs::read_to_string(BUILDS).unwrap_or_default();
     let mut lines = Vec::new();
@@ -191,13 +202,7 @@ fn settle_builds(version: &str, everything: bool) -> Vec<&'static str> {
 
     for name in FRONTENDS {
         let fingerprint = fingerprint(name, &root);
-        let kept = recorded.lines().find_map(|line| {
-            let mut parts = line.split_whitespace();
-            let matches = parts.next() == Some(name);
-            let built = parts.next();
-
-            (matches && parts.next() == Some(fingerprint.as_str())).then_some(built).flatten()
-        });
+        let kept = published_build(&recorded, name, &fingerprint, released);
         let built = kept.filter(|_| !everything).unwrap_or(version);
 
         if built == version {
@@ -227,6 +232,26 @@ pub(super) fn release(everything: bool) {
         stamp_version(&current, &version);
     }
 
+    publish(&version, &released, everything, false);
+}
+
+pub(super) fn recover() {
+    println!("Recovering the last Hagane Release...");
+
+    println!("> Reading the releases on {APP_REMOTE}...");
+    let released = released_versions();
+    let current = manifest_version(APP_MANIFEST);
+
+    if parse_version(&current).is_none_or(|version| released.contains(&version)) {
+        eprintln!("Error: {APP_TAG_PREFIX}{current} is already published, and an app that took it would never see a second one. Fix it with a new 'cargo ship'.");
+        exit(1);
+    }
+
+    ensure_changelog(released.iter().copied().max());
+    publish(&current, &released, false, true);
+}
+
+fn publish(version: &str, released: &[(u64, u64, u64)], everything: bool, retrying: bool) {
     println!("> Verifying build state with cargo check...");
     run_cargo(&["check"]);
 
@@ -234,7 +259,7 @@ pub(super) fn release(everything: bool) {
     let tag = format!("{APP_TAG_PREFIX}{version}");
 
     println!("> Fingerprinting the front ends against their last builds...");
-    let builds = settle_builds(&version, everything);
+    let builds = settle_builds(version, released, everything);
 
     if builds.is_empty() {
         println!("> No front end changed since its last build; {tag} only carries notes.");
@@ -247,6 +272,15 @@ pub(super) fn release(everything: bool) {
     if !git_succeeds(&[&["diff", "--cached", "--quiet", "--"][..], &release_files].concat()) {
         println!("> Committing {tag}...");
         run_git(&[&["commit", "-m", &tag, "--"][..], &release_files].concat());
+    }
+
+    if retrying {
+        run_git(&["fetch", "--no-tags", APP_REMOTE, APP_RELEASE_BRANCH]);
+
+        if git_stdout(&["rev-list", "--count", &format!("{APP_REMOTE}/{APP_RELEASE_BRANCH}..{APP_DEV_BRANCH}")]) == "0" {
+            println!("> Nothing new for {APP_RELEASE_BRANCH}, adding an empty commit so the release workflow runs again...");
+            run_git(&["commit", "--allow-empty", "-m", &format!("{tag} retry")]);
+        }
     }
 
     println!("> Checking out {APP_RELEASE_BRANCH} and pulling latest changes...");
@@ -281,4 +315,30 @@ fn manifest_version(path: &str) -> String {
         .find_map(|line| line.strip_prefix("version")?.trim_start().strip_prefix('=')?.trim().strip_prefix('"')?.strip_suffix('"'))
         .expect("The Cargo manifest has no version line")
         .to_string()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const RELEASED: [(u64, u64, u64); 1] = [(26, 11, 3)];
+
+    #[test]
+    fn a_published_build_with_the_same_code_is_kept() {
+        assert_eq!(published_build("desktop 26.11.3 abc\nmobile 26.11.3 def\n", "desktop", "abc", &RELEASED), Some("26.11.3"));
+        assert_eq!(published_build("desktop 26.11.3 abc\nmobile 26.11.3 def\n", "mobile", "def", &RELEASED), Some("26.11.3"));
+    }
+
+    #[test]
+    fn changed_code_builds_again() {
+        assert_eq!(published_build("desktop 26.11.3 abc\n", "desktop", "changed", &RELEASED), None);
+        assert_eq!(published_build("desktop 26.11.3 abc\n", "website", "abc", &RELEASED), None);
+    }
+
+    // The script records a build before CI runs it, so a release that failed left this behind. Nobody
+    // ever received that build, and matching its fingerprint must not skip the front end for good.
+    #[test]
+    fn a_build_from_a_release_that_never_published_builds_again() {
+        assert_eq!(published_build("desktop 26.11.4 abc\n", "desktop", "abc", &RELEASED), None);
+    }
 }
