@@ -10,7 +10,8 @@ import { Cats, FilterDialog, CatDetail } from "cats.slint";
 import { TreasureEditor, ArcRow, ChapterFold } from "settings.slint";
 
 export struct DeckCell { filled: bool, aimed: bool, icon: image, has-icon: bool, fallback: string, level: string, cost: string, has-cost: bool, barred: bool, talented: bool, np: image, has-np: bool, orbs: [image] }
-export struct ComboRow { line: int, name: string, effect: string, note: string, name-size: length, effect-size: length, note-size: length, active: bool, banned: bool, icons: [image], has: [bool] }
+export struct ComboSample { name: string, effect: string, note: string }
+export struct ComboRow { line: int, name: string, effect: string, note: string, active: bool, banned: bool, icons: [image], has: [bool] }
 export struct SavedRow { index: int, name: string, count: string, selected: bool }
 export struct ConfigEntry { label: string, hint: string, value: string }
 export struct ItemRow { label: string, on: bool, allowed: bool }
@@ -38,14 +39,12 @@ export global Sandbox {
     in-out property <string> search;
     in property <bool> filter-active;
     in property <[ComboRow]> combos;
+    in property <[ComboSample]> combo-samples;
     in-out property <string> combo-search;
     in property <[string]> combo-kinds;
     in property <int> combo-kind;
     in property <[string]> combo-strengths;
     in property <int> combo-strength;
-    in-out property <length> combo-width;
-    in property <float> combo-scale: 1.0;
-    in property <length> combo-block: 170px;
     in-out property <bool> lineups-open;
     in property <[SavedRow]> saved;
     in-out property <string> saved-search;
@@ -174,7 +173,6 @@ export global Sandbox {
     callback combo-search-changed(string);
     callback combo-kind-set(int);
     callback combo-strength-set(int);
-    callback combo-resized();
     callback lineup-new();
     callback lineup-delete();
     callback lineup-pick(int);
@@ -440,34 +438,84 @@ component Deck inherits OutlinedCard {
     }
 }
 
+export component ComboLines inherits Rectangle {
+    in property <string> text;
+    in property <length> base;
+    in property <length> cap: root.base;
+    in property <length> room;
+    in property <int> weight: 400;
+    in property <float> squeeze: 1.0;
+    property <length> top: min(root.cap, root.base * min(1.0, root.room / max(whole.min-width, 1px), 2 * root.room / max(whole.preferred-width, 1px)));
+    property <float> line: single.preferred-height / root.base;
+    property <int> rung: first.preferred-height <= 2.5 * root.line * first.font-size ? 0 : (second.preferred-height <= 2.5 * root.line * second.font-size ? 1 : (third.preferred-height <= 2.5 * root.line * third.font-size ? 2 : (fourth.preferred-height <= 2.5 * root.line * fourth.font-size ? 3 : 4)));
+    out property <length> fitted: root.rung == 0 ? first.font-size : (root.rung == 1 ? second.font-size : (root.rung == 2 ? third.font-size : (root.rung == 3 ? fourth.font-size : fifth.font-size)));
+    out property <length> needed: root.rung == 0 ? first.preferred-height : (root.rung == 1 ? second.preferred-height : (root.rung == 2 ? third.preferred-height : (root.rung == 3 ? fourth.preferred-height : fifth.preferred-height)));
+    height: shown.preferred-height;
+    whole := Text { x: 0; y: 0; visible: false; text: root.text; font-size: root.base; font-weight: root.weight; wrap: word-wrap; width: root.room; }
+    single := Text { x: 0; y: 0; visible: false; text: root.text; font-size: root.base; font-weight: root.weight; wrap: no-wrap; }
+    first := Text { x: 0; y: 0; visible: false; text: root.text; font-size: root.top; font-weight: root.weight; wrap: word-wrap; width: root.room; }
+    second := Text { x: 0; y: 0; visible: false; text: root.text; font-size: root.top * 0.93; font-weight: root.weight; wrap: word-wrap; width: root.room; }
+    third := Text { x: 0; y: 0; visible: false; text: root.text; font-size: root.top * 0.86; font-weight: root.weight; wrap: word-wrap; width: root.room; }
+    fourth := Text { x: 0; y: 0; visible: false; text: root.text; font-size: root.top * 0.79; font-weight: root.weight; wrap: word-wrap; width: root.room; }
+    fifth := Text { x: 0; y: 0; visible: false; text: root.text; font-size: root.top * 0.72; font-weight: root.weight; wrap: word-wrap; width: root.room; }
+    shown := Text { x: 0; y: 0; width: root.room; text: root.text; color: Theme.text; font-size: root.fitted * root.squeeze; font-weight: root.weight; horizontal-alignment: center; wrap: word-wrap; overflow: clip; }
+}
+
+export component ComboNote inherits Rectangle {
+    in property <string> text;
+    in property <length> base;
+    in property <length> cap: root.base;
+    in property <length> room;
+    in property <float> squeeze: 1.0;
+    property <length> rough: rough-line.font-size * min(1.0, root.room / max(rough-line.preferred-width, 1px));
+    out property <length> fitted: root.rough * min(1.0, root.room / max(exact-line.preferred-width, 1px));
+    out property <length> needed: root.text == "" ? 0px : exact-line.preferred-height;
+    height: root.text == "" ? 0px : shown.preferred-height;
+    rough-line := Text { x: 0; y: 0; visible: false; text: root.text; font-size: min(root.base, root.cap); wrap: no-wrap; }
+    exact-line := Text { x: 0; y: 0; visible: false; text: root.text; font-size: root.rough; wrap: no-wrap; }
+    shown := Text { x: 0; y: 0; width: root.room; text: root.text; color: Theme.text; font-size: root.fitted * root.squeeze; horizontal-alignment: center; wrap: no-wrap; overflow: clip; }
+}
+
+export component ComboText inherits VerticalLayout {
+    in property <string> title;
+    in property <string> effect;
+    in property <string> note;
+    in property <float> scale: 1.0;
+    in property <length> room;
+    in property <float> squeeze: 1.0;
+    out property <length> needed: name-lines.needed + effect-lines.needed + note-line.needed + 2px * root.scale;
+    alignment: center;
+    spacing: 1px * root.scale;
+    width: root.room;
+    name-lines := ComboLines { text: root.title; base: 16px * root.scale; weight: 700; room: root.room; squeeze: root.squeeze; }
+    effect-lines := ComboLines { text: root.effect; base: 14px * root.scale; cap: name-lines.fitted; room: root.room; squeeze: root.squeeze; }
+    note-line := ComboNote { text: root.note; base: 12px * root.scale; cap: effect-lines.fitted; room: root.room; squeeze: root.squeeze; }
+}
+
 component ComboCard inherits Rectangle {
     in property <ComboRow> combo;
-    property <length> slot-width: 52px * 110 / 85 * Sandbox.combo-scale;
-    property <length> slot-height: 52px * Sandbox.combo-scale;
-    height: 88px * Sandbox.combo-scale;
-    border-radius: Theme.radius-md;
+    in property <float> scale;
+    in property <length> block;
+    in property <length> tall;
+    property <length> slot-width: 52px * 110 / 85 * root.scale;
+    property <length> slot-height: 52px * root.scale;
+    height: root.tall;
+    border-radius: Theme.radius-md * root.scale;
     background: root.combo.banned ? Theme.danger.with-alpha(0.18) : (root.combo.active ? Theme.success : Theme.text.with-alpha(0.06));
     HorizontalLayout {
-        padding-left: 8px;
-        padding-right: 8px;
-        spacing: 8px;
-        VerticalLayout {
-            alignment: center;
-            spacing: 1px;
-            width: Sandbox.combo-block;
-            Text { text: root.combo.name; color: Theme.text; font-size: root.combo.name-size; font-weight: 700; horizontal-alignment: center; wrap: word-wrap; overflow: clip; }
-            Text { text: root.combo.effect; color: Theme.text; font-size: root.combo.effect-size; horizontal-alignment: center; wrap: word-wrap; overflow: clip; }
-            if root.combo.note != "": Text { text: root.combo.note; color: Theme.text; font-size: root.combo.note-size; horizontal-alignment: center; wrap: no-wrap; overflow: clip; }
-        }
+        padding-left: 8px * root.scale;
+        padding-right: 8px * root.scale;
+        spacing: 8px * root.scale;
+        words := ComboText { title: root.combo.name; effect: root.combo.effect; note: root.combo.note; scale: root.scale; room: root.block; squeeze: min(1.0, root.tall / max(words.needed, 1px)); }
         VerticalLayout {
             alignment: center;
             HorizontalLayout {
-                spacing: 3px;
+                spacing: 3px * root.scale;
                 alignment: start;
                 for icon[index] in root.combo.icons: Rectangle {
                     width: root.slot-width;
                     height: root.slot-height;
-                    border-radius: Theme.radius-sm;
+                    border-radius: Theme.radius-sm * root.scale;
                     background: root.combo.has[index] ? transparent : Theme.text.with-alpha(0.08);
                     if root.combo.has[index]: Image { source: icon; width: parent.width; height: parent.height; image-fit: contain; }
                 }
@@ -478,7 +526,29 @@ component ComboCard inherits Rectangle {
 }
 
 component ComboList inherits OutlinedCard {
-    changed width => { Sandbox.combo-width = self.width - 20px; Sandbox.combo-resized(); }
+    property <length> chrome: 8px * 3 + 3px * 4 + 5 * 52px * 110 / 85;
+    property <length> room: root.width - 21px;
+    property <length> text-block: 135px;
+    property <float> scale: max(0.0, min(1.0, root.room / (root.chrome + root.text-block)));
+    property <length> block: root.scale < 1.0 ? root.text-block * root.scale : min(root.room - root.chrome, 320px);
+    property <length> tallest: max(sample-0.needed, sample-1.needed, sample-2.needed, sample-3.needed, sample-4.needed, sample-5.needed, sample-6.needed, sample-7.needed);
+    property <length> card-height: max(3 * one-line.preferred-height, root.tallest) + 4px * root.scale;
+    Rectangle {
+        x: 0;
+        y: 0;
+        width: 0;
+        height: 0;
+        visible: false;
+        one-line := Text { x: 0; y: 0; text: "Ag"; font-size: 16px * root.scale; font-weight: 700; wrap: no-wrap; }
+        sample-0 := ComboText { x: 0; y: 0; title: Sandbox.combo-samples[0].name; effect: Sandbox.combo-samples[0].effect; note: Sandbox.combo-samples[0].note; scale: root.scale; room: root.block; }
+        sample-1 := ComboText { x: 0; y: 0; title: Sandbox.combo-samples[1].name; effect: Sandbox.combo-samples[1].effect; note: Sandbox.combo-samples[1].note; scale: root.scale; room: root.block; }
+        sample-2 := ComboText { x: 0; y: 0; title: Sandbox.combo-samples[2].name; effect: Sandbox.combo-samples[2].effect; note: Sandbox.combo-samples[2].note; scale: root.scale; room: root.block; }
+        sample-3 := ComboText { x: 0; y: 0; title: Sandbox.combo-samples[3].name; effect: Sandbox.combo-samples[3].effect; note: Sandbox.combo-samples[3].note; scale: root.scale; room: root.block; }
+        sample-4 := ComboText { x: 0; y: 0; title: Sandbox.combo-samples[4].name; effect: Sandbox.combo-samples[4].effect; note: Sandbox.combo-samples[4].note; scale: root.scale; room: root.block; }
+        sample-5 := ComboText { x: 0; y: 0; title: Sandbox.combo-samples[5].name; effect: Sandbox.combo-samples[5].effect; note: Sandbox.combo-samples[5].note; scale: root.scale; room: root.block; }
+        sample-6 := ComboText { x: 0; y: 0; title: Sandbox.combo-samples[6].name; effect: Sandbox.combo-samples[6].effect; note: Sandbox.combo-samples[6].note; scale: root.scale; room: root.block; }
+        sample-7 := ComboText { x: 0; y: 0; title: Sandbox.combo-samples[7].name; effect: Sandbox.combo-samples[7].effect; note: Sandbox.combo-samples[7].note; scale: root.scale; room: root.block; }
+    }
     VerticalLayout {
         padding: 10px;
         spacing: 6px;
@@ -496,8 +566,8 @@ component ComboList inherits OutlinedCard {
             mouse-drag-pan-enabled: true;
             vertical-stretch: 1;
             for combo in Sandbox.combos: VerticalLayout {
-                padding-bottom: 4px;
-                ComboCard { combo: combo; }
+                padding-bottom: 4px * root.scale;
+                ComboCard { combo: combo; scale: root.scale; block: root.block; tall: root.card-height; }
             }
         }
     }

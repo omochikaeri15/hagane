@@ -381,7 +381,7 @@ const NAME_MARGIN: f32 = 0.94;
 const NAME_MIN: f32 = 8.0;
 const NAME_STEP: f32 = 0.5;
 
-pub(super) fn name_font() -> Option<&'static FontRef<'static>> {
+fn name_font() -> Option<&'static FontRef<'static>> {
     static FONT: OnceLock<Option<FontRef<'static>>> = OnceLock::new();
 
     FONT.get_or_init(|| FontRef::try_from_slice(NAME_FONT).ok()).as_ref()
@@ -394,11 +394,11 @@ fn glyph_width(font: &FontRef<'static>, size: f32, glyph: char) -> f32 {
     if id.0 == 0 { size * 0.9 } else { scaled.h_advance(id) }
 }
 
-pub(super) fn text_width(font: &FontRef<'static>, size: f32, text: &str) -> f32 {
+fn text_width(font: &FontRef<'static>, size: f32, text: &str) -> f32 {
     text.chars().map(|glyph| glyph_width(font, size, glyph)).sum()
 }
 
-pub(super) fn wrapped(font: &FontRef<'static>, size: f32, text: &str, width: f32) -> (usize, f32) {
+fn wrapped(font: &FontRef<'static>, size: f32, text: &str, width: f32) -> (usize, f32) {
     let space = glyph_width(font, size, ' ');
     let mut lines = 1;
     let mut current = 0.0f32;

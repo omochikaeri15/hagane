@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use std::rc::Rc;
 use std::time::{Duration, Instant};
 
-use slint::{ComponentHandle, Image, ModelRc, SharedString, TimerMode, VecModel};
+use slint::{ComponentHandle, Image, Model, ModelRc, SharedString, TimerMode, VecModel};
 
 use foundry::domains::cat::combo::{self, CatCombo};
 use foundry::domains::cat::filter::evaluation::entity_passes_filter;
@@ -16,7 +16,7 @@ use foundry::systems::treasure::Bonus;
 use crate::images::Images;
 use crate::pages::{Context, cats};
 use crate::roster::Entry;
-use crate::{AppWindow, Cats, ComboRow, DeckCell, OrbSlot, Sandbox, SavedRow};
+use crate::{AppWindow, Cats, ComboRow, ComboSample, DeckCell, OrbSlot, Sandbox, SavedRow};
 
 use super::orbs::{BEST_GRADE, Book};
 use super::{Shared, Staging, refresh};
@@ -31,25 +31,12 @@ const DELETE_LABEL: &str = "Delete";
 const EVERY_KIND: &str = "All Types";
 const ANY_STRENGTH: &str = "Any Strength";
 const BANNED_NOTE: &str = "Disabled on this stage";
-const FIXED_STRENGTHS: usize = 3;
-const COMBO_SLOTS: f32 = 5.0;
-const COMBO_ICON_HEIGHT: f32 = 52.0;
-const COMBO_SLOT_ASPECT: f32 = 110.0 / 85.0;
-const COMBO_ICON_GAP: f32 = 3.0;
-const COMBO_ROW_PADDING: f32 = 8.0;
-const COMBO_BODY_GAP: f32 = 8.0;
-const COMBO_TEXT_WIDTH: f32 = 320.0;
-const COMBO_BLOCK_FLOOR: f32 = 140.0;
-const COMBO_NAME_LINES: usize = 2;
-const COMBO_EFFECT_LINES: usize = 2;
-const COMBO_FIT_FLOOR: f32 = 6.0;
-const COMBO_FIT_STEP: f32 = 0.5;
-const COMBO_BOLD_MARGIN: f32 = 0.92;
-const COMBO_SMALLEST: f32 = 0.7;
-const COMBO_TEXT_SMALLEST: f32 = 0.8;
+const COMBO_SAMPLES: usize = 8;
+const COMBO_TEXT_BLOCK: f32 = 135.0;
+const COMBO_GLYPH_SHARE: f32 = 0.52;
 const COMBO_NAME_SIZE: f32 = 16.0;
 const COMBO_EFFECT_SIZE: f32 = 14.0;
-const COMBO_NOTE_SIZE: f32 = 12.0;
+const FIXED_STRENGTHS: usize = 3;
 
 #[derive(Clone, Copy, Default)]
 struct Priced {
@@ -448,13 +435,6 @@ pub fn wire(window: &AppWindow, state: &Shared, context: &Rc<Context>) {
     });
 
     let (held, ctx, weak) = on(state, context, window);
-    sandbox.on_combo_resized(move || {
-        if let Some(ui) = weak.upgrade() {
-            refresh(&ui, &held, &ctx);
-        }
-    });
-
-    let (held, ctx, weak) = on(state, context, window);
     sandbox.on_adopt_combo(move |line| {
         let Some(ui) = weak.upgrade() else {
             return;
@@ -723,28 +703,30 @@ enum Strength {
     Band(i32),
 }
 
-fn combo_scale(width: f32) -> f32 {
-    let slots = COMBO_ICON_HEIGHT * COMBO_SLOT_ASPECT * COMBO_SLOTS;
+fn estimated_lines(text: &str, size: f32) -> usize {
+    let glyphs: usize = text.chars().map(|glyph| if glyph.is_ascii() { 1 } else { 2 }).sum();
 
-    ((width - COMBO_ROW_PADDING * 2.0 - COMBO_BODY_GAP - COMBO_ICON_GAP * (COMBO_SLOTS - 1.0)) / (slots + COMBO_TEXT_WIDTH)).clamp(COMBO_SMALLEST, 1.0)
+    (glyphs as f32 * size * COMBO_GLYPH_SHARE / COMBO_TEXT_BLOCK).ceil() as usize
 }
 
-fn fitted(text: &str, base: f32, available: f32, lines: usize) -> f32 {
-    let Some(font) = cats::name_font() else {
-        return base;
+fn tallest_looking(combos: &[(&CatCombo, Option<&str>)]) -> Vec<ComboSample> {
+    let weight = |combo: &CatCombo| {
+        let lines = estimated_lines(&combo.name, COMBO_NAME_SIZE) + estimated_lines(&combo.effect, COMBO_EFFECT_SIZE);
+
+        (lines, combo.name.chars().count() + combo.effect.chars().count())
     };
-    let fits = |size: f32| {
-        let (needed, widest) = cats::wrapped(font, size, text, available);
+    let mut noted: Vec<_> = combos.iter().filter(|(_, note)| note.is_some()).collect();
+    let mut plain: Vec<_> = combos.iter().filter(|(_, note)| note.is_none()).collect();
 
-        needed <= lines && widest <= available
-    };
-    let mut size = base;
+    noted.sort_by_key(|(combo, _)| std::cmp::Reverse(weight(combo)));
+    plain.sort_by_key(|(combo, _)| std::cmp::Reverse(weight(combo)));
 
-    while size > COMBO_FIT_FLOOR && !fits(size) {
-        size -= COMBO_FIT_STEP;
-    }
-
-    size.max(COMBO_FIT_FLOOR)
+    noted
+        .into_iter()
+        .take(COMBO_SAMPLES / 2)
+        .chain(plain.into_iter().take(COMBO_SAMPLES / 2))
+        .map(|(combo, note)| ComboSample { name: combo.name.as_str().into(), effect: combo.effect.as_str().into(), note: note.unwrap_or_default().into() })
+        .collect()
 }
 
 fn sync_combos(ui: &AppWindow, context: &Rc<Context>, cats: &[CatEntry], lineup: &Lineup, staging: Option<&Staging>, focus: Option<(u32, usize)>, filters: &ComboFilters) {
@@ -782,11 +764,17 @@ fn sync_combos(ui: &AppWindow, context: &Rc<Context>, cats: &[CatEntry], lineup:
         index => Strength::Band(bands[index - FIXED_STRENGTHS].0),
     };
     let query = filters.query.trim().to_lowercase();
-    let width = sandbox.get_combo_width();
-    let scale = combo_scale(width);
-    let text_scale = scale.max(COMBO_TEXT_SMALLEST);
-    let slot_width = COMBO_ICON_HEIGHT * COMBO_SLOT_ASPECT * scale;
-    let block = (width - COMBO_ROW_PADDING * 2.0 - COMBO_BODY_GAP - slot_width * COMBO_SLOTS - COMBO_ICON_GAP * (COMBO_SLOTS - 1.0)).min(COMBO_TEXT_WIDTH * scale).max(COMBO_BLOCK_FLOOR);
+    let noted: Vec<(&CatCombo, Option<&str>)> = every
+        .iter()
+        .map(|combo| (combo, if staging.is_some_and(|staging| staging.rules.bans(combo.effect_type)) { Some(BANNED_NOTE) } else { combo.restriction.as_deref() }))
+        .collect();
+    let samples = tallest_looking(&noted);
+
+    drop(noted);
+
+    if sandbox.get_combo_samples().iter().ne(samples.iter().cloned()) {
+        sandbox.set_combo_samples(ModelRc::new(VecModel::from(samples)));
+    }
 
     let mut cards: Vec<(CatCombo, bool, bool)> = every
         .into_iter()
@@ -822,10 +810,6 @@ fn sync_combos(ui: &AppWindow, context: &Rc<Context>, cats: &[CatEntry], lineup:
         .into_iter()
         .map(|(combo, active, banned)| {
             let note = if banned { Some(BANNED_NOTE.to_owned()) } else { combo.restriction.clone() };
-            let available = block * COMBO_BOLD_MARGIN;
-            let name_size = fitted(&combo.name, COMBO_NAME_SIZE * text_scale, available, COMBO_NAME_LINES);
-            let effect_size = fitted(&combo.effect, COMBO_EFFECT_SIZE * text_scale, available, COMBO_EFFECT_LINES).min(name_size);
-            let note_size = note.as_deref().map_or(COMBO_NOTE_SIZE * text_scale, |note| fitted(note, COMBO_NOTE_SIZE * text_scale, available, 1)).min(effect_size);
             let icons: Vec<Image> = combo
                 .members
                 .iter()
@@ -845,9 +829,6 @@ fn sync_combos(ui: &AppWindow, context: &Rc<Context>, cats: &[CatEntry], lineup:
                 name: combo.name.as_str().into(),
                 effect: combo.effect.as_str().into(),
                 note: note.unwrap_or_default().into(),
-                name_size,
-                effect_size,
-                note_size,
                 active,
                 banned,
                 icons: ModelRc::new(VecModel::from(icons)),
@@ -863,8 +844,6 @@ fn sync_combos(ui: &AppWindow, context: &Rc<Context>, cats: &[CatEntry], lineup:
     sandbox.set_combo_strengths(ModelRc::new(VecModel::from(strength_labels)));
     sandbox.set_combo_strength(strength_index as i32);
     sandbox.set_combo_search(filters.query.as_str().into());
-    sandbox.set_combo_scale(scale);
-    sandbox.set_combo_block(block);
     sandbox.set_combos(ModelRc::new(VecModel::from(shown)));
 }
 
