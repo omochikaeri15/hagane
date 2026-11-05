@@ -203,6 +203,7 @@ pub fn wire(window: &AppWindow, context: &Rc<Context>) -> Shared {
     settings.set_fullscreen(context.state.fullscreen());
 
     settings.set_licenses(LICENSES.into());
+    settings.set_can_open_files(platform::OPEN_FOLDER);
     settings.set_forms(ModelRc::new(VecModel::from((0..cat_files::FORM_COUNT).map(|form| SharedString::from(cat_files::form_name(form))).collect::<Vec<_>>())));
 
     let on = |state: &Shared, context: &Rc<Context>, window: &AppWindow| (Rc::clone(state), Rc::clone(context), window.as_weak());

@@ -34,9 +34,11 @@ pub fn open_url(url: &str) {
     }
 }
 
+pub const OPEN_FOLDER: bool = cfg!(not(target_os = "android"));
+
 #[cfg(target_os = "android")]
 pub fn open_folder(path: &Path) -> Result<(), String> {
-    crate::android::open_folder(path)
+    Err(format!("{} cannot be opened from here, Android has no way to open a folder", path.display()))
 }
 
 #[cfg(target_os = "ios")]

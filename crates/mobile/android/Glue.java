@@ -247,36 +247,6 @@ public class Glue extends Fragment {
         }
     }
 
-    public static boolean openFolder(Activity activity, String path) {
-        Intent browser = new Intent(Intent.ACTION_VIEW);
-        browser.setDataAndType(Uri.parse(path), "resource/folder");
-
-        if (launch(activity, browser)) {
-            return true;
-        }
-
-        String shared = Environment.getExternalStorageDirectory().getPath() + "/";
-
-        if (!path.startsWith(shared)) {
-            return false;
-        }
-
-        Intent system = new Intent(Intent.ACTION_VIEW);
-        system.setDataAndType(DocumentsContract.buildDocumentUri("com.android.externalstorage.documents", "primary:" + path.substring(shared.length())), DocumentsContract.Document.MIME_TYPE_DIR);
-
-        return launch(activity, system);
-    }
-
-    private static boolean launch(Activity activity, Intent intent) {
-        try {
-            activity.startActivity(intent);
-            return true;
-        } catch (RuntimeException err) {
-            Log.w(TAG, "No app took the folder: " + err);
-            return false;
-        }
-    }
-
     public static boolean hasVibrator(Activity activity) {
         Vibrator vibrator = (Vibrator) activity.getSystemService(Context.VIBRATOR_SERVICE);
         return vibrator != null && vibrator.hasVibrator();

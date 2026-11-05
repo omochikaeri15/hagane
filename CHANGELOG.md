@@ -5,7 +5,6 @@ Changes:
 - Updated provider acknowledgement popup, and the conditions under which it pops up.
 - Replays list now conforms to a file tree structure, also supports and can create folders.
 - New Settings > Sandbox > Replay settings that allow auto BCV saving and new BCV naming conventions.
-- Added new "Open {source} Folder" button to desktop and mobile opening the working directory.
 - Removed the "Replays" button from replays under mobile, just swipe for the sidebar.
 - Removed "Clear Cache" button from mobile ui, as well as source dir and size estimates (that never worked).
 - Removed the "Phone" labels from Replay bodies.

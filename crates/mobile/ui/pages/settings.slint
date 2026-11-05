@@ -68,6 +68,7 @@ export global Settings {
     in property <string> game-label: "No \"game\"";
     in property <Tone> game-tone: Tone.neutral;
     in property <bool> game-enabled;
+    in property <bool> can-open-files;
     in property <string> open-files-label: "Open \"files\" Folder";
     in property <Tone> open-files-tone: Tone.primary;
 
@@ -465,7 +466,7 @@ export component SettingsPage inherits Rectangle {
                     spacing: 20px;
                     Section {
                         title: "Disk";
-                        Btn { label: Settings.open-files-label; tone: Settings.open-files-tone; width: 200px; height: 32px; text-size: 14px; clicked => { Settings.open-files(); } }
+                        if Settings.can-open-files: Btn { label: Settings.open-files-label; tone: Settings.open-files-tone; width: 200px; height: 32px; text-size: 14px; clicked => { Settings.open-files(); } }
                         Btn { label: Settings.game-label; tone: Settings.game-tone; enabled: Settings.game-enabled; width: 200px; height: 32px; text-size: 14px; clicked => { Settings.delete-game(); } }
                     }
                     Section {
