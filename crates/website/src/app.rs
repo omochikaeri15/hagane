@@ -151,6 +151,7 @@ pub fn App() -> Element {
     tip::provide();
 
     let turn = turn::provide(&platform);
+    let angler = platform.clone();
     let library = Library::provide(platform);
 
     context::provide(library, settings);
@@ -173,7 +174,7 @@ pub fn App() -> Element {
             class: "viewport-probe",
             onresize: move |event| {
                 if let Ok(size) = event.data().get_border_box_size() {
-                    turn.measure(size.width, size.height);
+                    turn.measure(size.width, size.height, angler.host().screen_angle());
                 }
             },
         }
@@ -222,7 +223,7 @@ fn Shell() -> Element {
     let mut narrow = drawers.narrow;
     let route = use_route::<Route>();
     let (turned, frame) = turn.frame();
-    let class = if turned { format!("app turned {}", theme().class()) } else { format!("app {}", theme().class()) };
+    let class = turned.map_or_else(|| format!("app {}", theme().class()), |turned| format!("app {turned} {}", theme().class()));
 
     use_effect(move || {
         if compact() {
@@ -297,6 +298,11 @@ fn Nav(route: &'static str) -> Element {
                                 Link {
                                     to: tab.clone(),
                                     class: if route == tab.tab_name() { "tab active" } else { "tab" },
+                                    onclick: move |_| {
+                                        if *drawers.compact.peek() {
+                                            open.set(false);
+                                        }
+                                    },
                                     "{tab.tab_name()}"
                                 }
                             }

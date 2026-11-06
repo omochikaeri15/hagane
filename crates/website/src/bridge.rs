@@ -79,12 +79,14 @@ impl Link {
 }
 
 type FullscreenWatch = Rc<RefCell<Option<Box<dyn Fn(bool)>>>>;
+type AngleWatch = Rc<RefCell<Option<Box<dyn Fn(u16)>>>>;
 
 pub(crate) struct WebHost {
     link: Option<Rc<Link>>,
     calls: Calls,
     listeners: Vec<Closure<dyn FnMut(JsValue)>>,
     fullscreen: FullscreenWatch,
+    angle: AngleWatch,
 }
 
 fn document() -> Option<web_sys::Document> {
@@ -95,10 +97,28 @@ fn fullscreen_now() -> bool {
     document().and_then(|document| document.fullscreen_element()).is_some()
 }
 
+fn field(target: &JsValue, name: &str) -> Option<JsValue> {
+    Reflect::get(target, &JsValue::from_str(name)).ok().filter(|value| !value.is_undefined() && !value.is_null())
+}
+
+fn screen_orientation() -> Option<JsValue> {
+    let window: JsValue = web_sys::window()?.into();
+
+    field(&window, "screen").and_then(|screen| field(&screen, "orientation"))
+}
+
+fn angle_now() -> u16 {
+    let modern = screen_orientation().and_then(|orientation| field(&orientation, "angle")).and_then(|angle| angle.as_f64());
+    let legacy = || web_sys::window().and_then(|window| field(&window.into(), "orientation")).and_then(|angle| angle.as_f64());
+    let angle = modern.or_else(legacy).unwrap_or(0.0);
+
+    (angle.round() as i32).rem_euclid(360) as u16
+}
+
 impl WebHost {
     pub(crate) fn spawn() -> Self {
         let calls: Calls = Rc::new(RefCell::new(HashMap::new()));
-        let mut host = Self { link: None, calls: Rc::clone(&calls), listeners: Vec::new(), fullscreen: Rc::default() };
+        let mut host = Self { link: None, calls: Rc::clone(&calls), listeners: Vec::new(), fullscreen: Rc::default(), angle: Rc::default() };
         let on_fullscreen = {
             let watch = Rc::clone(&host.fullscreen);
 
@@ -116,6 +136,29 @@ impl WebHost {
         }
 
         host.listeners.push(on_fullscreen);
+
+        let on_angle = {
+            let watch = Rc::clone(&host.angle);
+
+            Closure::<dyn FnMut(JsValue)>::new(move |_: JsValue| {
+                if let Some(watch) = watch.borrow().as_ref() {
+                    watch(angle_now());
+                }
+            })
+        };
+        let listened = match screen_orientation() {
+            Some(orientation) => Reflect::get(&orientation, &JsValue::from_str(ADD_LISTENER))
+                .ok()
+                .and_then(|add| add.dyn_into::<Function>().ok())
+                .map(|add| add.call2(&orientation, &JsValue::from_str(ORIENTATION_CHANGE), on_angle.as_ref().unchecked_ref())),
+            None => web_sys::window().map(|window| window.add_event_listener_with_callback(LEGACY_ORIENTATION_CHANGE, on_angle.as_ref().unchecked_ref()).map(|()| JsValue::UNDEFINED)),
+        };
+
+        if !matches!(listened, Some(Ok(_))) {
+            warn!("Portrait orientation cannot follow the screen turning over: {:?}", listened);
+        }
+
+        host.listeners.push(on_angle);
 
         register_worker();
 
@@ -306,6 +349,9 @@ fn start() -> Result<Worker, JsValue> {
 
 const PAGE_HIDE: &str = "pagehide";
 const FULLSCREEN_CHANGE: &str = "fullscreenchange";
+const ORIENTATION_CHANGE: &str = "change";
+const LEGACY_ORIENTATION_CHANGE: &str = "orientationchange";
+const ADD_LISTENER: &str = "addEventListener";
 const PERSISTED: &str = "persisted";
 const SERVICE_WORKER: Asset = asset!("/assets/sw.js", AssetOptions::builder().with_hash_suffix(false));
 const IMAGE_CACHE: &str = "hagane-images";
@@ -763,6 +809,14 @@ impl Host for WebHost {
 
     fn fullscreen(&self) -> bool {
         fullscreen_now()
+    }
+
+    fn screen_angle(&self) -> u16 {
+        angle_now()
+    }
+
+    fn screen_angle_watch(&self, watch: Box<dyn Fn(u16)>) {
+        *self.angle.borrow_mut() = Some(watch);
     }
 
     fn set_fullscreen(&self, on: bool) -> Result<(), Fault> {

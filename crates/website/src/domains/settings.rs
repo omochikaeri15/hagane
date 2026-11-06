@@ -17,7 +17,8 @@ use crate::systems::animation::{self, Rigs};
 use crate::systems::catalog;
 use crate::systems::context::{self, Shared};
 use crate::systems::library::Library;
-use crate::systems::{images, turn};
+use crate::systems::images;
+use crate::systems::turn::{self, Orientation};
 use crate::widget::{Drawer, Tip, Toggle, drawer};
 
 const CHAPTER_TITLES: [[&str; 3]; 3] = [
@@ -83,7 +84,7 @@ enum Tab {
 
 const TABS: [(Tab, &str); 6] = [(Tab::General, "General"), (Tab::Cats, "Cats"), (Tab::Enemies, "Enemies"), (Tab::Stages, "Stages"), (Tab::Sandbox, "Sandbox"), (Tab::About, "About")];
 const FULLSCREEN_HINT: &str = "Fills the whole screen with the app\nF11 switches this at any time";
-const LANDSCAPE_HINT: &str = "Turns the app sideways while the screen stands upright\nHold the device with its right side up";
+const ORIENTATION_HINT: &str = "Automatic follows the browser\nPortrait keeps the app upright against the device's own top\nLandscape turns it sideways while the screen stands upright, so hold the device with its right side up";
 const LOGGING_HINT: &str = "Enables logs for easy debugging\nDisable to improve performance\nDevs may refuse to debug without logs";
 const LOGGING_OFF: &str = "off";
 const URL_TYPES: [(&str, &str); 2] = [(URL_DOMAIN, "Domain"), (URL_FOLLOWING, "Following")];
@@ -248,7 +249,7 @@ fn General(platform: Platform, settings: Signal<GameSettings>, globals: Option<S
     let fullscreen = (use_context::<Fullscreen>().0)();
     let turn = turn::turn();
     let drawers = drawer::drawers();
-    let landscape = turn.wanted();
+    let orientation = turn.mode();
     let mut logged = use_context::<Logging>().chosen;
     let logging = logged();
     let navigator = use_navigator();
@@ -336,6 +337,25 @@ fn General(platform: Platform, settings: Signal<GameSettings>, globals: Option<S
                         }
                     }
                 }
+                div { class: "touch-only",
+                    label { class: "setting-row inline", title: ORIENTATION_HINT,
+                        span { "Orientation" }
+                        select { class: "combo", value: "{orientation}",
+                            onchange: {
+                                let platform = platform.clone();
+
+                                move |event: FormEvent| {
+                                    if let Some(mode) = Orientation::ALL.into_iter().find(|mode| mode.to_string() == event.value()) {
+                                        turn.choose(&platform, mode);
+                                    }
+                                }
+                            },
+                            for mode in Orientation::ALL {
+                                option { value: "{mode}", selected: mode == orientation, "{mode}" }
+                            }
+                        }
+                    }
+                }
                 Toggle {
                     value: fullscreen,
                     label: "Fullscreen",
@@ -349,18 +369,6 @@ fn General(platform: Platform, settings: Signal<GameSettings>, globals: Option<S
                             }
                         }
                     },
-                }
-                div { class: "touch-only",
-                    Toggle {
-                        value: landscape,
-                        label: "Landscape Mode",
-                        hint: LANDSCAPE_HINT.to_owned(),
-                        onchange: {
-                            let platform = platform.clone();
-
-                            move |value: bool| turn.want(&platform, value)
-                        },
-                    }
                 }
                 Toggle {
                     value: logging,

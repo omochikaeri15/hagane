@@ -36,6 +36,8 @@ const SMALLEST: f32 = 0.45;
 const TEXT_FLOOR: f32 = 0.8;
 const DECK_SHARE: f32 = 0.68;
 const CARD_GAP: f32 = 10.0;
+const SIDE_SHARE: f32 = 0.55;
+const BAR_ROOM: f32 = 38.0;
 const LEVEL_SIZE: f32 = 11.0;
 const BADGE_SIZE: f32 = 12.0;
 const COST_SIZE: f32 = 12.0;
@@ -89,6 +91,13 @@ impl Metrics {
 
         let across = (width - CARD_GAP * 2.0) / Self::FULL.deck_width();
         let down = height * DECK_SHARE / Self::FULL.deck_height();
+
+        Self::at(across.min(down).clamp(SMALLEST, 1.0))
+    }
+
+    fn beside(width: f32, height: f32) -> Self {
+        let across = width * SIDE_SHARE / Self::FULL.deck_width();
+        let down = (height - BAR_ROOM) / Self::FULL.deck_height();
 
         Self::at(across.min(down).clamp(SMALLEST, 1.0))
     }
@@ -323,7 +332,8 @@ pub(crate) fn Editor(cats: Cats, globals: Shared, rules: Ruled, altar: Option<u3
 
     let priced = Rc::new(price(&lineup, &cats.0, &rules));
     let (area_width, area_height) = area();
-    let metrics = Metrics::fitting(area_width, area_height);
+    let beside = (drawers.compact)() && area_width > area_height;
+    let metrics = if beside { Metrics::beside(area_width, area_height) } else { Metrics::fitting(area_width, area_height) };
     let dragging = drag();
     let lifted = match dragging {
         Drag::Moving { lifted, .. } => lifted,
@@ -525,7 +535,18 @@ pub(crate) fn Editor(cats: Cats, globals: Shared, rules: Ruled, altar: Option<u3
         let mut press = press.clone();
 
         let Some((source, member)) = member else {
-            return rsx! { div { key: "{cell:?}", class: "{frame_class}", style: "{size_style}" } };
+            return rsx! {
+                div {
+                    key: "{cell:?}",
+                    class: "{frame_class}",
+                    style: "{size_style}",
+                    onclick: move |_| {
+                        if *drawers.compact.peek() {
+                            roster_open.set(true);
+                        }
+                    },
+                }
+            };
         };
         let icon = icon_of(member.id, member.form);
         let (level, plus) = match (member.levels(), altar) {
@@ -672,38 +693,40 @@ pub(crate) fn Editor(cats: Cats, globals: Shared, rules: Ruled, altar: Option<u3
                 SandboxRoster { cats: cats.clone(), banner_form, filter_class: filter_class.to_owned(), onpress: Callback::new(move |(id, at, touch): (u32, (f64, f64), bool)| press_row(Cargo::Fresh(id), at, touch)), onmove: moved, onrelease: released, oncancel: cancelled, onsearch: Callback::new(move |query: String| { let sandbox = roster_tools.sandbox; state::apply(&roster_tools.platform, sandbox, |next| next.search_query = query); }) }
             }
             div {
-                class: "lineup-center",
+                class: if beside { "lineup-center beside" } else { "lineup-center" },
                 onresize: move |event| {
                     if let Ok(size) = event.data().get_content_box_size() {
                         area.set((size.width as f32, size.height as f32));
                     }
                 },
-                div { class: "lineup-bar",
-                    span { class: "lineup-name", "{named}" }
-                    button { class: "btn btn-neutral lineup-saved-btn", onclick: move |_| saved_open.toggle(), "Lineups" }
-                }
-                div {
-                    class: "outlined-card deck-card",
-                    style: "width: {metrics.deck_width()}px; height: {metrics.deck_height()}px; padding: {metrics.pad}px;",
-                    onmounted: move |event| deck_mount.set(Some(event)),
-                    div { class: "deck-title bold", style: "height: {metrics.header}px; font-size: {metrics.text(16.0)}px;", "Lineup" }
-                    div { style: "height: {metrics.header_gap}px;" }
-                    div { class: "deck-grid", style: "gap: {metrics.gap}px;",
-                        for line in 0..LINEUP_SLOTS / COLUMNS {
-                            div { key: "{line}", class: "deck-row", style: "gap: {metrics.gap}px;",
-                                for column in 0..COLUMNS {
-                                    {cell_view(Cell::Slot(line * COLUMNS + column))}
+                div { class: "lineup-deck", style: "width: {metrics.deck_width()}px;",
+                    div { class: "lineup-bar",
+                        span { class: "lineup-name", "{named}" }
+                        button { class: "btn btn-neutral lineup-saved-btn", onclick: move |_| saved_open.toggle(), "Lineups" }
+                    }
+                    div {
+                        class: "outlined-card deck-card",
+                        style: "width: {metrics.deck_width()}px; height: {metrics.deck_height()}px; padding: {metrics.pad}px;",
+                        onmounted: move |event| deck_mount.set(Some(event)),
+                        div { class: "deck-title bold", style: "height: {metrics.header}px; font-size: {metrics.text(16.0)}px;", "Lineup" }
+                        div { style: "height: {metrics.header_gap}px;" }
+                        div { class: "deck-grid", style: "gap: {metrics.gap}px;",
+                            for line in 0..LINEUP_SLOTS / COLUMNS {
+                                div { key: "{line}", class: "deck-row", style: "gap: {metrics.gap}px;",
+                                    for column in 0..COLUMNS {
+                                        {cell_view(Cell::Slot(line * COLUMNS + column))}
+                                    }
                                 }
                             }
                         }
-                    }
-                    div { style: "height: {metrics.bench_gap}px;" }
-                    div { class: "deck-title bold", style: "height: {metrics.bench_title}px; font-size: {metrics.text(14.0)}px;", "Bench" }
-                    div { class: "deck-note weak", style: "height: {metrics.bench_note}px; font-size: {metrics.text(LEVEL_SIZE)}px;", "Does not affect battle" }
-                    div { style: "height: {metrics.gap}px;" }
-                    div { class: "deck-row", style: "gap: {metrics.gap}px;",
-                        for index in 0..BENCH_SLOTS {
-                            {cell_view(Cell::Bench(index))}
+                        div { style: "height: {metrics.bench_gap}px;" }
+                        div { class: "deck-title bold", style: "height: {metrics.bench_title}px; font-size: {metrics.text(14.0)}px;", "Bench" }
+                        div { class: "deck-note weak", style: "height: {metrics.bench_note}px; font-size: {metrics.text(LEVEL_SIZE)}px;", "Does not affect battle" }
+                        div { style: "height: {metrics.gap}px;" }
+                        div { class: "deck-row", style: "gap: {metrics.gap}px;",
+                            for index in 0..BENCH_SLOTS {
+                                {cell_view(Cell::Bench(index))}
+                            }
                         }
                     }
                 }

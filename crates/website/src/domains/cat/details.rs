@@ -6,7 +6,7 @@ use foundry::domains::cat::combo::{self, CatCombo, ComboMember};
 use crate::systems::context::Shared;
 use crate::systems::images::{self, Pictures};
 use crate::systems::picture::Pic;
-use crate::widget::{FitColumn, Tip};
+use crate::widget::{FitColumn, Tip, drawer};
 
 use super::{SelectedCat, jump, state};
 
@@ -19,11 +19,15 @@ const COMBO_NAME_SIZE: f32 = 18.0;
 const COMBO_DESCRIPTION_SIZE: f32 = 14.0;
 const COMBO_CHARAGROUP_SIZE: f32 = 11.0;
 const COMBO_UNI_SIZE: u32 = 68;
+const PHONE_NAME_SIZE: f32 = 16.0;
+const PHONE_EFFECT_SIZE: f32 = 13.0;
+const PHONE_NOTE_SIZE: f32 = 11.0;
 
 #[component]
 pub(crate) fn Details(cat: SelectedCat, globals: Shared) -> Element {
     let state = state();
     let pictures = images::pictures();
+    let phone = (drawer::drawers().compact)();
     let form = (state.form)();
     let cat = cat.0;
     let mut lines = cat
@@ -51,7 +55,7 @@ pub(crate) fn Details(cat: SelectedCat, globals: Shared) -> Element {
                     div { class: "details-heading", "Cat Combo" }
                     div { class: "combo-cards",
                         for held in combos.iter() {
-                            {combo_card(held, cat.id, &pictures)}
+                            {combo_card(held, cat.id, &pictures, phone)}
                         }
                     }
                 }
@@ -129,21 +133,30 @@ fn evolve(cat: &foundry::domains::cat::scanner::CatEntry, form: usize, globals: 
     }
 }
 
-fn combo_card(held: &CatCombo, cat_id: u32, pictures: &Pictures) -> Element {
-    let mut lines = vec![(held.name.clone(), COMBO_NAME_SIZE)];
+fn combo_card(held: &CatCombo, cat_id: u32, pictures: &Pictures, phone: bool) -> Element {
+    let sizes = if phone { [PHONE_NAME_SIZE, PHONE_EFFECT_SIZE, PHONE_NOTE_SIZE] } else { [COMBO_NAME_SIZE, COMBO_DESCRIPTION_SIZE, COMBO_CHARAGROUP_SIZE] };
+    let mut lines = vec![(held.name.clone(), sizes[0])];
 
     if !held.effect.trim().is_empty() {
-        lines.push((held.effect.clone(), COMBO_DESCRIPTION_SIZE));
+        lines.push((held.effect.clone(), sizes[1]));
     }
 
     if let Some(restriction) = &held.restriction {
-        lines.push((restriction.clone(), COMBO_CHARAGROUP_SIZE));
+        lines.push((restriction.clone(), sizes[2]));
     }
 
     rsx! {
         div { class: "card-outlined combo-card",
-            div { class: "combo-text",
-                FitColumn { lines }
+            if phone {
+                div { class: "combo-text wrapping",
+                    for (index, (text, size)) in lines.into_iter().enumerate() {
+                        div { key: "{index}", class: "combo-line", style: "font-size: {size}px;", "{text}" }
+                    }
+                }
+            } else {
+                div { class: "combo-text",
+                    FitColumn { lines }
+                }
             }
             div { class: "combo-slots",
                 for member in held.members.iter() {

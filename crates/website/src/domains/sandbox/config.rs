@@ -14,7 +14,7 @@ use crate::domains::settings::{Treasures, Treasury};
 use crate::systems::host::Lag;
 use crate::platform::Platform;
 use crate::systems::context::Shared;
-use crate::widget::{Tip, Toggle, drawer};
+use crate::widget::{Drawer, Tip, Toggle, drawer};
 
 use super::Staged;
 use super::state::{self, Device, Panel, QUALITY_RANGE, QUALITY_STEP, SandboxState, Scaling, Volume};
@@ -167,6 +167,7 @@ fn GimmickEntry(label: String, hint: String, placeholder: String, value: String,
 pub(crate) fn Config(globals: Shared, staged: Option<Staged>) -> Element {
     let platform = use_context::<Platform>();
     let sandbox = state::state();
+    let mut panels_open = use_signal(|| false);
     let held = sandbox.read();
     let panel = held.panel;
 
@@ -176,17 +177,22 @@ pub(crate) fn Config(globals: Shared, staged: Option<Staged>) -> Element {
 
     rsx! {
         div { class: "settings-page sandbox-config",
-            div { class: "settings-tabs",
-                for (which, label) in PANELS {
-                    {
-                        let platform = tab_platform.clone();
+            Drawer { open: panels_open,
+                div { class: "settings-tabs",
+                    for (which, label) in PANELS {
+                        {
+                            let platform = tab_platform.clone();
 
-                        rsx! {
-                            button {
-                                key: "{label}",
-                                class: if panel == which { "list-row filled selected settings-tab" } else { "list-row filled settings-tab" },
-                                onclick: move |_| state::apply(&platform, sandbox, |next| next.panel = which),
-                                "{label}"
+                            rsx! {
+                                button {
+                                    key: "{label}",
+                                    class: if panel == which { "list-row filled selected settings-tab" } else { "list-row filled settings-tab" },
+                                    onclick: move |_| {
+                                        state::apply(&platform, sandbox, |next| next.panel = which);
+                                        panels_open.set(false);
+                                    },
+                                    "{label}"
+                                }
                             }
                         }
                     }

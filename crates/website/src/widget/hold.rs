@@ -1,3 +1,6 @@
+use std::cell::Cell;
+use std::rc::Rc;
+
 use dioxus::prelude::*;
 use tracing::debug;
 
@@ -34,6 +37,9 @@ pub(crate) fn Hold(stamp: String, children: Element) -> Element {
     let mut shown: Signal<Option<Page>> = use_signal(|| None);
     let mut pending: Signal<Option<Page>> = use_signal(|| None);
     let mut round = use_signal(|| 0u32);
+    let mut recheck = use_signal(|| 0u32);
+    let polling: Rc<Cell<bool>> = use_hook(Rc::default);
+    let poller = platform.clone();
     let current = Page { stamp: stamp.clone(), content: children };
 
     let same = shown.peek().as_ref().map(|page| page.stamp == stamp);
@@ -77,10 +83,25 @@ pub(crate) fn Hold(stamp: String, children: Element) -> Element {
         let _ = library.generation();
         let _ = pictures.watch();
         rigs.watch();
+        let _ = recheck();
         let waiting = pending.read().is_some();
-        let busy = library.busy();
 
-        if !waiting || busy || library.waiting() || !pictures.settled() || !rigs.settled() {
+        if !waiting {
+            return;
+        }
+
+        if library.busy() || library.waiting() || !pictures.settled() || !rigs.settled() {
+            if !polling.replace(true) {
+                let host = poller.clone();
+                let polling = Rc::clone(&polling);
+
+                spawn(async move {
+                    host.host().frame().await;
+                    polling.set(false);
+                    recheck += 1;
+                });
+            }
+
             return;
         }
 

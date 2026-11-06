@@ -172,14 +172,16 @@ pub(crate) fn Stages(segments: Vec<String>) -> Element {
     }
 
     rsx! {
-        Browser {}
+        Browser { routed: true }
     }
 }
 
 #[component]
-pub(crate) fn Browser() -> Element {
+pub(crate) fn Browser(#[props(default)] routed: bool) -> Element {
     let platform = use_context::<Platform>();
     let slider = platform.clone();
+    let rememberer = platform.clone();
+    let mut summoned = use_signal(|| false);
     let library = use_context::<Library>();
     let catalogs = catalog::catalogs();
     let settings = context::settings();
@@ -194,15 +196,22 @@ pub(crate) fn Browser() -> Element {
         catalogs.load_enemies(&platform, config);
     });
     use_effect(move || {
-        if (drawers.compact)() {
-            let chosen = state.stage.peek().is_some();
-
-            state.sidebar_open.set(!chosen);
+        if !(drawers.compact)() || *summoned.peek() {
+            return;
         }
+
+        let Load::Ready(bundle) = catalogs.stages() else {
+            return;
+        };
+        let chosen = state.stage.peek().is_some();
+        let restoring = routed && app::last_visited(&rememberer, LAST_STAGE_KEY).and_then(|saved| Route::stage_of(&saved)).is_some_and(|id| bundle.registry.stages.contains_key(&id));
+
+        state.sidebar_open.set(!chosen && !restoring && !bundle.registry.stages.is_empty());
     });
 
     if let Some(id) = (enemy_state.appearances)() {
         enemy_state.appearances.set(None);
+        summoned.set(true);
         state.sidebar_open.set(true);
         state.filter.set(StageFilterState { enemies: vec![EnemyFilter { name_or_id: format!("{id:03}"), ..EnemyFilter::default() }], ..StageFilterState::default() });
     }

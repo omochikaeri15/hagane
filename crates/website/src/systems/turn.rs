@@ -1,10 +1,49 @@
+use std::fmt;
+
 use dioxus::prelude::*;
 
 use crate::platform::Platform;
 
-const TURN_KEY: &str = "landscape";
-const TURN_ON: &str = "on";
-const TURN_OFF: &str = "off";
+const ORIENTATION_KEY: &str = "orientation";
+const LEGACY_KEY: &str = "landscape";
+const LEGACY_ON: &str = "on";
+const CLOCKWISE_ANGLE: u16 = 270;
+
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub(crate) enum Orientation {
+    #[default]
+    Automatic,
+    Portrait,
+    Landscape,
+}
+
+impl Orientation {
+    pub(crate) const ALL: [Self; 3] = [Self::Automatic, Self::Portrait, Self::Landscape];
+
+    fn key(self) -> &'static str {
+        match self {
+            Self::Automatic => "automatic",
+            Self::Portrait => "portrait",
+            Self::Landscape => "landscape",
+        }
+    }
+}
+
+impl fmt::Display for Orientation {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(match self {
+            Self::Automatic => "Automatic",
+            Self::Portrait => "Portrait",
+            Self::Landscape => "Landscape",
+        })
+    }
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Spin {
+    Clockwise,
+    Counter,
+}
 
 #[derive(Clone, Copy, PartialEq, Debug)]
 pub(crate) struct Area {
@@ -14,65 +53,107 @@ pub(crate) struct Area {
     pub(crate) height: f64,
 }
 
+#[derive(Clone, Copy, PartialEq, Debug, Default)]
+struct Viewport {
+    width: f64,
+    height: f64,
+    angle: u16,
+}
+
 #[derive(Clone, Copy)]
 pub(crate) struct Turn {
-    wanted: Signal<bool>,
-    viewport: Signal<(f64, f64)>,
+    mode: Signal<Orientation>,
+    viewport: Signal<Viewport>,
 }
 
 pub(crate) fn provide(platform: &Platform) -> Turn {
-    let wanted = platform.host().recall(TURN_KEY).as_deref() == Some(TURN_ON);
+    let saved = platform.host().recall(ORIENTATION_KEY).and_then(|key| Orientation::ALL.into_iter().find(|mode| mode.key() == key));
+    let mode = saved.unwrap_or_else(|| if platform.host().recall(LEGACY_KEY).as_deref() == Some(LEGACY_ON) { Orientation::Landscape } else { Orientation::Automatic });
 
-    use_context_provider(|| Turn { wanted: Signal::new(wanted), viewport: Signal::new((0.0, 0.0)) })
+    let turn = use_context_provider(|| Turn { mode: Signal::new(mode), viewport: Signal::new(Viewport::default()) });
+    let watcher = platform.clone();
+
+    use_hook(move || watcher.host().screen_angle_watch(Box::new(move |angle| turn.rotated(angle))));
+
+    turn
 }
 
 pub(crate) fn turn() -> Turn {
     use_context::<Turn>()
 }
 
+fn spin(mode: Orientation, viewport: Viewport) -> Option<Spin> {
+    match mode {
+        Orientation::Automatic => None,
+        Orientation::Landscape => (viewport.height > viewport.width).then_some(Spin::Clockwise),
+        Orientation::Portrait => (viewport.width > viewport.height).then_some(if viewport.angle == CLOCKWISE_ANGLE { Spin::Clockwise } else { Spin::Counter }),
+    }
+}
+
 impl Turn {
-    pub(crate) fn wanted(self) -> bool {
-        (self.wanted)()
+    pub(crate) fn mode(self) -> Orientation {
+        (self.mode)()
     }
 
-    pub(crate) fn want(self, platform: &Platform, on: bool) {
-        let mut wanted = self.wanted;
+    pub(crate) fn choose(self, platform: &Platform, mode: Orientation) {
+        let mut held = self.mode;
 
-        platform.host().remember(TURN_KEY, if on { TURN_ON } else { TURN_OFF });
-        wanted.set(on);
+        platform.host().remember(ORIENTATION_KEY, mode.key());
+        held.set(mode);
     }
 
-    pub(crate) fn measure(self, width: f64, height: f64) {
+    pub(crate) fn measure(self, width: f64, height: f64, angle: u16) {
         let mut viewport = self.viewport;
+        let measured = Viewport { width, height, angle };
 
-        if *viewport.peek() != (width, height) {
-            viewport.set((width, height));
+        if *viewport.peek() != measured {
+            viewport.set(measured);
         }
     }
 
-    pub(crate) fn frame(self) -> (bool, String) {
-        let (width, height) = (self.viewport)();
+    fn rotated(self, angle: u16) {
+        let mut viewport = self.viewport;
+        let held = *viewport.peek();
 
-        ((self.wanted)() && height > width, format!("--turn-width: {height}px; --turn-height: {width}px; --turn-shift: {width}px;"))
+        if held.angle != angle {
+            viewport.set(Viewport { angle, ..held });
+        }
     }
 
-    fn engaged(self) -> Option<f64> {
-        let (width, height) = *self.viewport.peek();
+    pub(crate) fn frame(self) -> (Option<&'static str>, String) {
+        let viewport = (self.viewport)();
+        let (width, height) = (viewport.width, viewport.height);
+        let class = spin((self.mode)(), viewport).map(|spin| match spin {
+            Spin::Clockwise => "turned",
+            Spin::Counter => "turned counter",
+        });
 
-        (*self.wanted.peek() && height > width).then_some(width)
+        (class, format!("--turn-width: {height}px; --turn-height: {width}px; --turn-shift: {width}px; --turn-drop: {height}px;"))
+    }
+
+    fn engaged(self) -> Option<(Spin, Viewport)> {
+        let viewport = *self.viewport.peek();
+
+        spin(*self.mode.peek(), viewport).map(|spin| (spin, viewport))
     }
 
     pub(crate) fn point(self, x: f64, y: f64) -> (f64, f64) {
-        self.engaged().map_or((x, y), |width| (y, width - x))
+        self.engaged().map_or((x, y), |(spin, screen)| match spin {
+            Spin::Clockwise => (y, screen.width - x),
+            Spin::Counter => (screen.height - y, x),
+        })
     }
 
     pub(crate) fn area(self, x: f64, y: f64, width: f64, height: f64) -> Area {
-        self.engaged().map_or(Area { x, y, width, height }, |screen| Area { x: y, y: screen - x - width, width: height, height: width })
+        self.engaged().map_or(Area { x, y, width, height }, |(spin, screen)| match spin {
+            Spin::Clockwise => Area { x: y, y: screen.width - x - width, width: height, height: width },
+            Spin::Counter => Area { x: screen.height - y - height, y: x, width: height, height: width },
+        })
     }
 
     pub(crate) fn extent(self) -> (f64, f64) {
-        let (width, height) = *self.viewport.peek();
+        let viewport = *self.viewport.peek();
 
-        if self.engaged().is_some() { (height, width) } else { (width, height) }
+        if self.engaged().is_some() { (viewport.height, viewport.width) } else { (viewport.width, viewport.height) }
     }
 }

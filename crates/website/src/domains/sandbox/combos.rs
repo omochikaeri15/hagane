@@ -1,3 +1,5 @@
+mod words;
+
 use std::rc::Rc;
 
 use dioxus::prelude::*;
@@ -9,7 +11,7 @@ use crate::platform::Platform;
 use crate::systems::context::Shared;
 use crate::systems::images;
 use crate::systems::picture::Pic;
-use crate::widget::{FitColumn, RowList};
+use crate::widget::{FitColumn, RowList, drawer};
 
 use super::{Cats, Ruled};
 
@@ -37,6 +39,21 @@ const ACTIVE: &str = "Active";
 const INACTIVE: &str = "Inactive";
 const BANNED_NOTE: &str = "Disabled on this stage";
 const SLOT_COUNT: usize = 5;
+const FILTER_SIZE: f32 = 12.0;
+const GLYPH_SHARE: f32 = 0.62;
+const PICK_CHROME: f32 = 40.0;
+const TITLE_WIDTH: f32 = 70.0;
+const SEARCH_FLOOR: f32 = 90.0;
+const HEADER_GAP: f32 = 8.0;
+const PHONE_BLOCK: f32 = 135.0;
+const PHONE_WIDEST: f32 = 320.0;
+const PHONE_PAD: f32 = 4.0;
+const LINE_HEIGHT: f32 = 1.3;
+const BASE_LINES: f32 = 3.0;
+const SAMPLES: usize = 8;
+const SAMPLE_GLYPHS: f32 = 0.52;
+const SAMPLE_NAME: f32 = 16.0;
+const SAMPLE_EFFECT: f32 = 14.0;
 
 #[derive(Clone)]
 pub(crate) struct Held(pub(crate) Rc<Lineup>);
@@ -65,6 +82,12 @@ struct Deck {
     cards: Vec<Card>,
     kinds: Vec<(i32, String)>,
     bands: Vec<(i32, String)>,
+    kind_width: f32,
+    strength_width: f32,
+}
+
+fn widest<'a>(labels: impl Iterator<Item = &'a str>) -> f32 {
+    labels.map(|label| label.chars().count()).max().unwrap_or(0) as f32 * FILTER_SIZE * GLYPH_SHARE + PICK_CHROME
 }
 
 #[derive(Clone)]
@@ -82,6 +105,7 @@ struct Fit {
     slot: (f32, f32),
     block: f32,
     text: f32,
+    scale: f32,
 }
 
 impl Fit {
@@ -94,8 +118,47 @@ impl Fit {
         let slot = (ICON_HEIGHT * SLOT_ASPECT * scale, ICON_HEIGHT * scale);
         let block = (spare - slot.0 * slots - gaps).min(TEXT_WIDTH * scale).max(BLOCK_FLOOR);
 
-        Self { row: ROW_HEIGHT * scale, slot, block, text: scale.max(TEXT_SMALLEST) }
+        Self { row: ROW_HEIGHT * scale, slot, block, text: scale.max(TEXT_SMALLEST), scale }
     }
+
+    fn phone(width: f32) -> Self {
+        let width = if width > 0.0 { width } else { f32::MAX };
+        let slots = SLOT_COUNT as f32;
+        let chrome = ROW_PADDING * 2.0 + BODY_GAP + ICON_GAP * (slots - 1.0) + ICON_HEIGHT * SLOT_ASPECT * slots;
+        let scale = (width / (chrome + PHONE_BLOCK)).clamp(0.0, 1.0);
+        let block = if scale < 1.0 { PHONE_BLOCK * scale } else { (width - chrome).min(PHONE_WIDEST) };
+
+        Self { row: ROW_HEIGHT * scale, slot: (ICON_HEIGHT * SLOT_ASPECT * scale, ICON_HEIGHT * scale), block, text: scale, scale }
+    }
+}
+
+fn estimated_lines(text: &str, size: f32) -> usize {
+    let glyphs: usize = text.chars().map(|glyph| if glyph.is_ascii() { 1 } else { 2 }).sum();
+
+    (glyphs as f32 * size * SAMPLE_GLYPHS / PHONE_BLOCK).ceil() as usize
+}
+
+fn note_of(card: &Card, banned: bool) -> String {
+    if banned { BANNED_NOTE.to_owned() } else { card.combo.restriction.clone().unwrap_or_default() }
+}
+
+fn tallest_looking(deck: &Deck, rules: &Ruled) -> Vec<(String, String, String)> {
+    let weight = |card: &Card| {
+        let lines = estimated_lines(&card.combo.name, SAMPLE_NAME) + estimated_lines(&card.combo.effect, SAMPLE_EFFECT);
+
+        (lines, card.combo.name.chars().count() + card.combo.effect.chars().count())
+    };
+    let noted: Vec<(&Card, String)> = deck.cards.iter().map(|card| (card, note_of(card, rules.0.bans(card.combo.effect_type)))).collect();
+    let (mut with, mut without): (Vec<_>, Vec<_>) = noted.into_iter().partition(|(_, note)| !note.is_empty());
+
+    with.sort_by_key(|(card, _)| std::cmp::Reverse(weight(card)));
+    without.sort_by_key(|(card, _)| std::cmp::Reverse(weight(card)));
+
+    with.into_iter()
+        .take(SAMPLES / 2)
+        .chain(without.into_iter().take(SAMPLES / 2))
+        .map(|(card, note)| (card.combo.name.clone(), card.combo.effect.clone(), note))
+        .collect()
 }
 
 fn build(globals: &Shared, cats: &Cats) -> Deck {
@@ -116,7 +179,10 @@ fn build(globals: &Shared, cats: &Cats) -> Deck {
     kinds.sort_by_key(|(effect, _)| *effect);
     bands.sort_by_key(|(level, _)| *level);
 
-    Deck { cards, kinds, bands }
+    let kind_width = widest(std::iter::once(EVERY_KIND).chain(kinds.iter().map(|(_, label)| label.as_str())));
+    let strength_width = widest([ANY_STRENGTH, ACTIVE, INACTIVE].into_iter().chain(bands.iter().map(|(_, label)| label.as_str())));
+
+    Deck { cards, kinds, bands, kind_width, strength_width }
 }
 
 #[component]
@@ -128,10 +194,20 @@ pub(crate) fn Combos(cats: Cats, globals: Shared, rules: Ruled, lineup: Held, fo
     let mut strength = use_signal(Strength::default);
     let mut clicked: Signal<Option<(usize, f64)>> = use_signal(|| None);
     let mut across = use_signal(|| 0.0f32);
-    let fit = Fit::of(across());
+    let drawers = drawer::drawers();
+    let phone = (drawers.compact)();
+    let clearance = if phone { 0.0 } else { PLAY_CLEARANCE };
+    let fit = if phone { Fit::phone(across()) } else { Fit::of(across()) };
     let shared = globals.clone();
     let deck = use_memo(use_reactive!(|(cats, shared)| Decked(Rc::new(build(&shared, &cats)))));
     let deck = deck();
+    let sampled = deck.clone();
+    let ruling = rules.clone();
+    let samples = use_memo(use_reactive!(|(sampled, ruling)| Rc::new(tallest_looking(&sampled.0, &ruling))));
+    let samples = samples();
+    let mut needs: Signal<[f32; SAMPLES]> = use_signal(|| [0.0; SAMPLES]);
+    let tallest = needs().into_iter().fold(0.0, f32::max);
+    let height = if phone { (BASE_LINES * words::base_line(fit.scale) * LINE_HEIGHT).max(tallest) + PHONE_PAD * fit.scale } else { fit.row };
     let rows = {
         let vault = globals.0.vault();
 
@@ -185,6 +261,9 @@ pub(crate) fn Combos(cats: Cats, globals: Shared, rules: Ruled, lineup: Held, fo
     };
     let kinds = deck.clone();
     let bands = deck.clone();
+    let room = across();
+    let single = room <= 0.0 || room >= TITLE_WIDTH + SEARCH_FLOOR + deck.0.kind_width + deck.0.strength_width + HEADER_GAP * 3.0;
+    let (kind_width, strength_width) = (deck.0.kind_width, deck.0.strength_width);
     let row = Callback::new(move |index: usize| {
         let Some((at, active, banned)) = listed.get(index).copied() else {
             return rsx! {};
@@ -196,22 +275,28 @@ pub(crate) fn Combos(cats: Cats, globals: Shared, rules: Ruled, lineup: Held, fo
             (true, false) => "combo-row active",
             (false, false) => "combo-row",
         };
-        let mut lines = vec![(card.combo.name.clone(), NAME_SIZE * fit.text), (card.combo.effect.clone(), EFFECT_SIZE * fit.text)];
-
-        match (&card.combo.restriction, banned) {
-            (_, true) => lines.push((BANNED_NOTE.to_owned(), RESTRICTION_SIZE * fit.text)),
-            (Some(restriction), false) => lines.push((restriction.clone(), RESTRICTION_SIZE * fit.text)),
-            (None, false) => (),
-        }
-
+        let note = note_of(card, banned);
         let (slot_width, slot_height) = fit.slot;
         let platform = platform.clone();
+        let labels = if phone {
+            rsx! { words::Words { name: card.combo.name.clone(), effect: card.combo.effect.clone(), note, scale: fit.scale, room: fit.block, tall: height } }
+        } else {
+            let mut lines = vec![(card.combo.name.clone(), NAME_SIZE * fit.text), (card.combo.effect.clone(), EFFECT_SIZE * fit.text)];
+
+            if !note.is_empty() {
+                lines.push((note, RESTRICTION_SIZE * fit.text));
+            }
+
+            rsx! { FitColumn { lines, gap: LINE_GAP, floor: FIT_FLOOR, bold_first: true } }
+        };
+        let frame = if phone { format!("height: {height}px; padding: 0 {}px; gap: {}px;", ROW_PADDING * fit.scale, BODY_GAP * fit.scale) } else { format!("height: {height}px;") };
+        let spacing = if phone { format!("gap: {}px;", ICON_GAP * fit.scale) } else { String::new() };
 
         rsx! {
             div {
                 key: "{line}",
                 class: "{class}",
-                style: "height: {fit.row}px;",
+                style: "{frame}",
                 onclick: move |_| {
                     let now = platform.host().now();
                     let doubled = clicked.peek().is_some_and(|(held, at)| held == line && now - at <= DOUBLE_CLICK_MS);
@@ -222,10 +307,8 @@ pub(crate) fn Combos(cats: Cats, globals: Shared, rules: Ruled, lineup: Held, fo
                         onadopt.call(line);
                     }
                 },
-                div { class: "combo-labels", style: "width: {fit.block}px;",
-                    FitColumn { lines, gap: LINE_GAP, floor: FIT_FLOOR, bold_first: true }
-                }
-                div { class: "combo-icons",
+                div { class: "combo-labels", style: "width: {fit.block}px;", {labels} }
+                div { class: "combo-icons", style: "{spacing}",
                     for (slot, member) in card.combo.members.iter().enumerate().take(SLOT_COUNT) {
                         {
                             let icon = member.icon.as_ref().and_then(|source| pictures.trimmed(&source.path));
@@ -247,35 +330,39 @@ pub(crate) fn Combos(cats: Cats, globals: Shared, rules: Ruled, lineup: Held, fo
 
     rsx! {
         div { class: "outlined-card combos-card",
-            div { class: "combos-header",
-                span { class: "bold combos-title", "Combos" }
-                input { class: "input combos-search", r#type: "search", placeholder: "Name...", value: "{query}", oninput: move |event| query.set(event.value()) }
-                select { class: "combo combos-kind", value: "{kind_label}",
-                    onchange: move |event| {
-                        kind.set(kinds.0.kinds.iter().find(|(_, label)| *label == event.value()).map(|(effect, _)| *effect));
-                    },
-                    option { value: "{EVERY_KIND}", selected: kind_now.is_none(), "{EVERY_KIND}" }
-                    for (effect, label) in deck.0.kinds.iter() {
-                        option { value: "{label}", selected: kind_now == Some(*effect), "{label}" }
-                    }
+            div { class: if single { "combos-header single" } else { "combos-header" },
+                div { class: "combos-find",
+                    span { class: "bold combos-title", "Combos" }
+                    input { class: "input combos-search", r#type: "search", placeholder: "Name...", value: "{query}", oninput: move |event| query.set(event.value()) }
                 }
-                select { class: "combo combos-strength", value: "{strength_label}",
-                    onchange: move |event| {
-                        let value = event.value();
-                        let picked = match value.as_str() {
-                            ANY_STRENGTH => Strength::Any,
-                            ACTIVE => Strength::Active,
-                            INACTIVE => Strength::Inactive,
-                            other => bands.0.bands.iter().find(|(_, label)| label == other).map_or(Strength::Any, |(level, _)| Strength::Band(*level)),
-                        };
+                div { class: "combos-filters",
+                    select { class: "combo combos-kind", style: "width: {kind_width}px;", value: "{kind_label}",
+                        onchange: move |event| {
+                            kind.set(kinds.0.kinds.iter().find(|(_, label)| *label == event.value()).map(|(effect, _)| *effect));
+                        },
+                        option { value: "{EVERY_KIND}", selected: kind_now.is_none(), "{EVERY_KIND}" }
+                        for (effect, label) in deck.0.kinds.iter() {
+                            option { value: "{label}", selected: kind_now == Some(*effect), "{label}" }
+                        }
+                    }
+                    select { class: "combo combos-strength", style: "width: {strength_width}px;", value: "{strength_label}",
+                        onchange: move |event| {
+                            let value = event.value();
+                            let picked = match value.as_str() {
+                                ANY_STRENGTH => Strength::Any,
+                                ACTIVE => Strength::Active,
+                                INACTIVE => Strength::Inactive,
+                                other => bands.0.bands.iter().find(|(_, label)| label == other).map_or(Strength::Any, |(level, _)| Strength::Band(*level)),
+                            };
 
-                        strength.set(picked);
-                    },
-                    option { value: "{ANY_STRENGTH}", selected: strength_now == Strength::Any, "{ANY_STRENGTH}" }
-                    option { value: "{ACTIVE}", selected: strength_now == Strength::Active, "{ACTIVE}" }
-                    option { value: "{INACTIVE}", selected: strength_now == Strength::Inactive, "{INACTIVE}" }
-                    for (level, label) in deck.0.bands.iter() {
-                        option { value: "{label}", selected: strength_now == Strength::Band(*level), "{label}" }
+                            strength.set(picked);
+                        },
+                        option { value: "{ANY_STRENGTH}", selected: strength_now == Strength::Any, "{ANY_STRENGTH}" }
+                        option { value: "{ACTIVE}", selected: strength_now == Strength::Active, "{ACTIVE}" }
+                        option { value: "{INACTIVE}", selected: strength_now == Strength::Inactive, "{INACTIVE}" }
+                        for (level, label) in deck.0.bands.iter() {
+                            option { value: "{label}", selected: strength_now == Strength::Band(*level), "{label}" }
+                        }
                     }
                 }
             }
@@ -283,14 +370,35 @@ pub(crate) fn Combos(cats: Cats, globals: Shared, rules: Ruled, lineup: Held, fo
                 count,
                 row,
                 empty: "No Combos Found!",
-                height: fit.row,
-                tail: PLAY_CLEARANCE,
+                height,
+                tail: clearance,
                 buffer: LOOKAHEAD_ROWS,
                 onwidth: move |width: f32| {
                     if *across.peek() != width {
                         across.set(width);
                     }
                 },
+            }
+            if phone {
+                div { class: "words-samples",
+                    for (index, (name, effect, note)) in samples.iter().cloned().enumerate() {
+                        words::Words {
+                            key: "{index}",
+                            name,
+                            effect,
+                            note,
+                            scale: fit.scale,
+                            room: fit.block,
+                            onneeded: move |needed: f32| {
+                                needs.with_mut(|held| {
+                                    if let Some(slot) = held.get_mut(index) {
+                                        *slot = needed;
+                                    }
+                                });
+                            },
+                        }
+                    }
+                }
             }
         }
     }

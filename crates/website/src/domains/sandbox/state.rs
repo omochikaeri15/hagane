@@ -54,8 +54,8 @@ impl fmt::Display for Volume {
 
 #[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Eq, Debug, Default)]
 pub(crate) enum Device {
-    #[default]
     Tablet,
+    #[default]
     Phone,
 }
 

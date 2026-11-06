@@ -110,6 +110,7 @@ export global Sandbox {
 
     in property <[ReplayRow]> replays;
     in-out property <bool> replays-open;
+    in-out property <bool> panels-open;
     in property <bool> replay-latest;
     in property <bool> replay-latest-picked;
     in property <string> replay-title;
@@ -608,21 +609,45 @@ component RosterPanel inherits Panel {
     }
 }
 
+component LineupHeader inherits HorizontalLayout {
+    spacing: 8px;
+    Label { text: Sandbox.lineup-name; font-size: 16px; bold: true; vertical-alignment: center; horizontal-stretch: 1; overflow: elide; }
+    Btn { label: "Lineups"; tone: Tone.neutral; width: 90px; height: 30px; text-size: 13px; clicked => { Sandbox.lineups-open = true; } }
+}
+
 component LineupTab inherits Rectangle {
+    property <bool> wide: root.width > root.height;
+    property <length> side-cell: max(24px, min(110px, (root.height - 208px) / 3 * 110 / 85, (root.width * 0.55 - 48px) / 5));
+    property <length> side-width: root.side-cell * 5 + 48px;
     EdgeGrab { armed: !Sandbox.roster-open && !Shell.nav-open && Sandbox.active == false && !Sandbox.dragging; reach: drawer.panel-width; dragged(fraction) => { drawer.drag(fraction); } dropped => { drawer.release(); }
-        VerticalLayout {
+        if !root.wide: VerticalLayout {
+            width: 100%;
+            height: 100%;
             padding-left: 10px;
             padding-right: 10px;
             padding-top: 6px;
             padding-bottom: 62px;
             spacing: 8px;
-            HorizontalLayout {
-                spacing: 8px;
-                Label { text: Sandbox.lineup-name; font-size: 16px; bold: true; vertical-alignment: center; horizontal-stretch: 1; overflow: elide; }
-                Btn { label: "Lineups"; tone: Tone.neutral; width: 90px; height: 30px; text-size: 13px; clicked => { Sandbox.lineups-open = true; } }
-            }
+            LineupHeader { }
             Deck { avail: root.width - 20px; }
             ComboList { vertical-stretch: 1; }
+        }
+        if root.wide: HorizontalLayout {
+            width: 100%;
+            height: 100%;
+            padding-left: 10px;
+            padding-right: 10px;
+            padding-top: 6px;
+            padding-bottom: 62px;
+            spacing: 8px;
+            VerticalLayout {
+                width: root.side-width;
+                alignment: start;
+                spacing: 8px;
+                LineupHeader { }
+                Deck { avail: root.side-width; }
+            }
+            ComboList { horizontal-stretch: 1; }
         }
     }
     drawer := Drawer {
@@ -666,26 +691,35 @@ component EntryRow inherits HorizontalLayout {
     if !root.enabled: Input { width: 110px; height: 28px; text-size: 13px; enabled: false; placeholder: "Unavailable"; }
 }
 
-component ConfigTab inherits VerticalLayout {
-    padding-left: 10px;
-    padding-right: 10px;
-    padding-top: 6px;
-    spacing: 8px;
-    Rectangle {
-        height: 32px;
-        SwipeGuard { lipped: true; left-wall: strip.content-x >= 0px; right-wall: strip.content-x <= strip.width - strip.content-width; }
-        strip := Flickable { interactive: !Shell.swiping && (Shell.hover-input || !Shell.press-edge);
-            mouse-drag-pan-enabled: true;
-            width: 100%;
-            height: 100%;
-            content-width: tabs.preferred-width;
-            tabs := HorizontalLayout {
-                spacing: 4px;
-                for label[index] in Sandbox.panels: HeaderToggle { label: label; selected: Sandbox.panel == index; available: true; width: max(self.preferred-width, 84px); clicked => { Sandbox.panel-set(index); } }
+component PanelTabs inherits Panel {
+    Flickable {
+        mouse-drag-pan-enabled: true;
+        width: 100%;
+        height: 100%;
+        interactive: (list.preferred-height > self.height) && !Shell.swiping;
+        content-height: list.preferred-height;
+        list := VerticalLayout {
+            x: 0;
+            y: 0;
+            width: parent.width;
+            height: self.preferred-height;
+            padding: 8px;
+            spacing: 4px;
+            for label[index] in Sandbox.panels: Rectangle {
+                height: 36px;
+                border-radius: Theme.radius-sm;
+                background: Sandbox.panel == index ? Theme.primary : (press.pressed ? Theme.bg-strongest : Theme.bg-strong);
+                Text { text: label; color: Sandbox.panel == index ? Theme.white : Theme.text; font-size: 14px; horizontal-alignment: center; vertical-alignment: center; width: parent.width; height: parent.height; }
+                press := Tap { enabled: !Shell.swiping; tapped => { Sandbox.panel-set(index); Sandbox.panels-open = false; } }
             }
         }
     }
-    Rule { }
+}
+
+component ConfigBody inherits VerticalLayout {
+    padding-left: 10px;
+    padding-right: 10px;
+    padding-top: 6px;
     Flickable {
         mouse-drag-pan-enabled: true;
         vertical-stretch: 1;
@@ -753,6 +787,17 @@ component ConfigTab inherits VerticalLayout {
                 for step[index] in Sandbox.tutorials: Toggle { value: step.on; label: step.label; changed(value) => { Sandbox.tutorial-toggled(index, value); } }
             }
         }
+    }
+}
+
+component ConfigTab inherits Rectangle {
+    EdgeGrab { armed: !Sandbox.panels-open && !Shell.nav-open && Sandbox.active == false; reach: drawer.panel-width; dragged(fraction) => { drawer.drag(fraction); } dropped => { drawer.release(); }
+        ConfigBody { width: 100%; height: 100%; }
+    }
+    drawer := Drawer {
+        open <=> Sandbox.panels-open;
+        panel-width: min(160px, root.width * 0.5);
+        PanelTabs { width: 100%; height: 100%; }
     }
 }
 

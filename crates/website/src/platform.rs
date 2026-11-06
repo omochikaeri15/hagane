@@ -145,6 +145,8 @@ pub trait Host {
     fn pick_file(&self, accept: &str, limit: u64) -> Pending<Result<Option<Picked>, Fault>>;
     fn can_film(&self) -> bool;
     fn fullscreen(&self) -> bool;
+    fn screen_angle(&self) -> u16;
+    fn screen_angle_watch(&self, watch: Box<dyn Fn(u16)>);
     fn set_fullscreen(&self, on: bool) -> Result<(), Fault>;
     fn fullscreen_watch(&self, watch: Box<dyn Fn(bool)>);
     fn mods(&self, command: mods::ModCommand, report: Report) -> Pending<Result<mods::ModState, Fault>>;
