@@ -1,11 +1,17 @@
+use std::borrow::Cow;
 #[cfg(any(target_os = "android", target_os = "ios"))]
 use std::cell::Cell;
 use std::cell::RefCell;
 #[cfg(any(target_os = "android", target_os = "ios"))]
 use std::collections::HashMap;
 use std::fs;
+#[cfg(target_os = "android")]
+use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
+use std::sync::atomic::AtomicBool;
+#[cfg(target_os = "android")]
+use std::sync::atomic::Ordering;
 #[cfg(any(target_os = "android", target_os = "ios"))]
 use std::thread;
 
@@ -21,6 +27,7 @@ use tracing::error;
 use tracing::warn;
 
 use foundry::common::dirs;
+use foundry::common::job::{JobEvent, ProgressCounter};
 
 use crate::pages::Context;
 #[cfg(not(any(target_os = "android", target_os = "ios")))]
@@ -30,6 +37,7 @@ use crate::platform;
 use crate::{AppWindow, Picker};
 
 pub type Then = Box<dyn FnOnce(&AppWindow, &Rc<Context>, PathBuf)>;
+pub type Landed = Box<dyn FnOnce(&AppWindow, &Rc<Context>, Source)>;
 #[cfg(any(target_os = "android", target_os = "ios"))]
 pub type Saved = Box<dyn FnOnce(&AppWindow, &Rc<Context>, bool)>;
 
@@ -41,9 +49,31 @@ pub struct State {
 
 pub type Shared = Rc<RefCell<State>>;
 
+#[derive(Clone)]
+pub enum Source {
+    Path(PathBuf),
+    #[cfg(target_os = "android")]
+    Tree(Tree),
+}
+
+#[cfg(target_os = "android")]
+#[derive(Clone)]
+pub struct Tree {
+    uri: String,
+    name: String,
+    into: PathBuf,
+}
+
+pub struct Staged<'a> {
+    path: Cow<'a, Path>,
+    #[cfg(target_os = "android")]
+    owned: Option<&'a Path>,
+}
+
 #[cfg(any(target_os = "android", target_os = "ios"))]
 enum Task {
     Open { then: Then, exts: Vec<String>, many: bool },
+    Folder { then: Landed },
     Save { path: PathBuf, then: Saved },
 }
 
@@ -63,6 +93,14 @@ thread_local! {
 const PICKED: &str = "picked";
 #[cfg(any(target_os = "android", target_os = "ios"))]
 const UNREADABLE: &str = "The picked files could not be read";
+#[cfg(any(target_os = "android", target_os = "ios"))]
+const UNREADABLE_FOLDER: &str = "The picked folder could not be read";
+#[cfg(target_os = "android")]
+const ABORTED: &str = "the copy from the picked folder was aborted";
+#[cfg(target_os = "android")]
+const WALK_NOTE: usize = 5000;
+#[cfg(target_os = "android")]
+const COPY_NOTES: usize = 20;
 #[cfg(any(target_os = "android", target_os = "ios"))]
 const UNAVAILABLE: &str = "The file picker could not be opened";
 #[cfg(any(target_os = "android", target_os = "ios"))]
@@ -134,6 +172,16 @@ pub fn open(ui: &AppWindow, context: &Rc<Context>, title: &str, exts: &[&str], t
     show(ui, context, title, matching(exts), then);
 }
 
+pub fn open_folder(ui: &AppWindow, context: &Rc<Context>, title: &str, then: Landed) {
+    #[cfg(any(target_os = "android", target_os = "ios"))]
+    {
+        let _ = title;
+        request(ui, context, Task::Folder { then });
+    }
+    #[cfg(not(any(target_os = "android", target_os = "ios")))]
+    show(ui, context, title, folders(), Box::new(move |ui, ctx, path| then(ui, ctx, Source::Path(path))));
+}
+
 #[cfg(any(target_os = "android", target_os = "ios"))]
 pub fn save(ui: &AppWindow, context: &Rc<Context>, path: PathBuf, then: Saved) {
     request(ui, context, Task::Save { path, then });
@@ -149,6 +197,7 @@ fn request(ui: &AppWindow, context: &Rc<Context>, task: Task) {
     });
     let opened = match &task {
         Task::Open { many, .. } => platform::pick(ui, *many, id),
+        Task::Folder { .. } => platform::pick_folder(ui, id),
         Task::Save { path, .. } => platform::save(ui, path, crate::delivery::mime(path), id),
     };
 
@@ -159,7 +208,7 @@ fn request(ui: &AppWindow, context: &Rc<Context>, task: Task) {
 
         if let Some(pending) = PENDING.with(|held| held.borrow_mut().remove(&id)) {
             match pending.task {
-                Task::Open { .. } => context.toast(ui, UNAVAILABLE, true),
+                Task::Open { .. } | Task::Folder { .. } => context.toast(ui, UNAVAILABLE, true),
                 Task::Save { then, .. } => then(ui, context, false),
             }
         }
@@ -168,8 +217,8 @@ fn request(ui: &AppWindow, context: &Rc<Context>, task: Task) {
 
 #[cfg(any(target_os = "android", target_os = "ios"))]
 pub fn picked(request: i32, uris: Option<Vec<String>>) {
-    let saving = PENDING.with(|held| held.borrow().get(&request).map(|pending| matches!(pending.task, Task::Save { .. })));
-    let Some(saving) = saving else {
+    let kind = PENDING.with(|held| held.borrow().get(&request).map(|pending| (matches!(pending.task, Task::Save { .. }), matches!(pending.task, Task::Folder { .. }))));
+    let Some((saving, folder)) = kind else {
         return;
     };
 
@@ -211,6 +260,22 @@ pub fn picked(request: i32, uris: Option<Vec<String>>) {
         return;
     }
 
+    if folder {
+        let Some(uri) = uris.into_iter().next() else {
+            return;
+        };
+
+        thread::spawn(move || {
+            let result = landed(uri, request);
+
+            if let Err(err) = slint::invoke_from_event_loop(move || finish_folder(request, result)) {
+                error!("The picked folder could not reach the app: {err}");
+            }
+        });
+
+        return;
+    }
+
     let Some(folder) = picked_dir().map(|dir| dir.join(request.to_string())) else {
         finish_open(request, Err("no cache folder is available for picked documents".to_owned()));
         return;
@@ -229,6 +294,40 @@ pub fn picked(request: i32, uris: Option<Vec<String>>) {
 fn copy_all(uris: &[String], folder: &Path) -> Result<Vec<PathBuf>, String> {
     fs::create_dir_all(folder).map_err(|err| format!("{} could not be created: {err}", folder.display()))?;
     uris.iter().map(|uri| platform::copy_document(uri, folder)).collect()
+}
+
+#[cfg(target_os = "android")]
+fn landed(uri: String, request: i32) -> Result<Source, String> {
+    let into = picked_dir().ok_or("no cache folder is available for picked documents")?.join(request.to_string());
+    let name = platform::tree_name(&uri)?;
+
+    Ok(Source::Tree(Tree { uri, name, into }))
+}
+
+#[cfg(target_os = "ios")]
+fn landed(uri: String, _request: i32) -> Result<Source, String> {
+    Ok(Source::Path(PathBuf::from(uri)))
+}
+
+#[cfg(any(target_os = "android", target_os = "ios"))]
+fn finish_folder(request: i32, result: Result<Source, String>) {
+    let Some(pending) = PENDING.with(|held| held.borrow_mut().remove(&request)) else {
+        return;
+    };
+    let Some(ui) = pending.weak.upgrade() else {
+        return;
+    };
+    let Task::Folder { then } = pending.task else {
+        return;
+    };
+
+    match result {
+        Ok(source) => then(&ui, &pending.ctx, source),
+        Err(err) => {
+            error!("The picked folder could not be read: {err}");
+            pending.ctx.toast(&ui, &format!("{UNREADABLE_FOLDER}: {err}"), true);
+        }
+    }
 }
 
 #[cfg(any(target_os = "android", target_os = "ios"))]
@@ -369,4 +468,97 @@ pub fn label(path: &Path) -> String {
     let tail: String = chars[chars.len() - TAIL..].iter().collect();
 
     format!("{head}\u{2026}{tail}")
+}
+
+impl Source {
+    pub fn label(&self) -> String {
+        match self {
+            Self::Path(path) => label(path),
+            #[cfg(target_os = "android")]
+            Self::Tree(tree) => label(Path::new(&tree.name)),
+        }
+    }
+
+    pub fn stage(&self, emit: &(dyn Fn(JobEvent) + Sync), abort: &AtomicBool, progress: &ProgressCounter) -> Result<Staged<'_>, String> {
+        match self {
+            Self::Path(path) => {
+                let _ = (emit, abort, progress);
+
+                Ok(Staged {
+                    path: Cow::Borrowed(path),
+                    #[cfg(target_os = "android")]
+                    owned: None,
+                })
+            }
+            #[cfg(target_os = "android")]
+            Self::Tree(tree) => tree.stage(emit, abort, progress),
+        }
+    }
+}
+
+impl Staged<'_> {
+    pub fn path(&self) -> &Path {
+        &self.path
+    }
+}
+
+#[cfg(target_os = "android")]
+impl Drop for Staged<'_> {
+    fn drop(&mut self) {
+        if let Some(dir) = self.owned
+            && let Err(err) = fs::remove_dir_all(dir)
+            && err.kind() != ErrorKind::NotFound
+        {
+            warn!(path = %dir.display(), "The copy of the picked folder could not be removed: {err}");
+        }
+    }
+}
+
+#[cfg(target_os = "android")]
+impl Tree {
+    fn stage(&self, emit: &(dyn Fn(JobEvent) + Sync), abort: &AtomicBool, progress: &ProgressCounter) -> Result<Staged<'_>, String> {
+        let staged = Staged { path: Cow::Owned(self.into.join(&self.name)), owned: Some(&self.into) };
+
+        if let Err(err) = fs::remove_dir_all(&self.into)
+            && err.kind() != ErrorKind::NotFound
+        {
+            return Err(format!("{} could not be cleared: {err}", self.into.display()));
+        }
+
+        emit(JobEvent::Log(format!("Reading the folder {}...", self.name)));
+
+        let mut noted = 0;
+        let files = platform::walk_tree(&self.uri, abort, &mut |count| {
+            if count >= noted + WALK_NOTE {
+                noted = count;
+                emit(JobEvent::Log(format!("Found {count} files so far...")));
+            }
+        })?;
+
+        if abort.load(Ordering::Relaxed) {
+            return Err(ABORTED.to_owned());
+        }
+
+        let total = files.len();
+        let step = (total / COPY_NOTES).max(1);
+
+        emit(JobEvent::Log(format!("Copying {total} files from {}...", self.name)));
+        emit(JobEvent::Progress { current: 0, total });
+        progress.reset(total);
+
+        platform::fetch_tree(&self.uri, &files, &staged.path, abort, &|| {
+            let current = progress.advance();
+
+            if current.is_multiple_of(step) || current == total {
+                emit(JobEvent::Progress { current, total });
+                emit(JobEvent::Log(format!("Copied {current} of {total} files...")));
+            }
+        })?;
+
+        if abort.load(Ordering::Relaxed) {
+            return Err(ABORTED.to_owned());
+        }
+
+        Ok(staged)
+    }
 }

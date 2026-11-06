@@ -32,6 +32,7 @@ use crate::AppWindow;
 use crate::settings::Orientation;
 
 const ANY_ITEM: &str = "public.item";
+const FOLDER_ITEM: &str = "public.folder";
 const WINDOW_TRIES: u32 = 25;
 const WINDOW_RETRY: Duration = Duration::from_millis(200);
 const TRANSIENT_BELOW_SECONDS: f64 = 0.03;
@@ -40,6 +41,7 @@ const IMMEDIATELY: f64 = 0.0;
 
 struct Ivars {
     request: i32,
+    folder: bool,
 }
 
 define_class!(
@@ -54,6 +56,10 @@ define_class!(
     unsafe impl UIDocumentPickerDelegate for PickerDelegate {
         #[unsafe(method(documentPicker:didPickDocumentsAtURLs:))]
         fn did_pick(&self, _picker: &UIDocumentPickerViewController, urls: &NSArray<NSURL>) {
+            if self.ivars().folder {
+                hold(urls);
+            }
+
             let paths: Vec<String> = urls.iter().filter_map(|url| url.path().map(|path| path.to_string())).collect();
 
             deliver(self.ivars().request, (!paths.is_empty()).then_some(paths));
@@ -67,8 +73,8 @@ define_class!(
 );
 
 impl PickerDelegate {
-    fn new(mtm: MainThreadMarker, request: i32) -> Retained<Self> {
-        let this = Self::alloc(mtm).set_ivars(Ivars { request });
+    fn new(mtm: MainThreadMarker, request: i32, folder: bool) -> Retained<Self> {
+        let this = Self::alloc(mtm).set_ivars(Ivars { request, folder });
 
         unsafe { msg_send![super(this), init] }
     }
@@ -77,6 +83,19 @@ impl PickerDelegate {
 thread_local! {
     static DELEGATE: RefCell<Option<Retained<PickerDelegate>>> = const { RefCell::new(None) };
     static WINDOW: RefCell<Option<Weak<AppWindow>>> = const { RefCell::new(None) };
+    static SCOPED: RefCell<Vec<Retained<NSURL>>> = const { RefCell::new(Vec::new()) };
+}
+
+fn hold(urls: &NSArray<NSURL>) {
+    SCOPED.with(|held| {
+        let mut held = held.borrow_mut();
+
+        for url in held.drain(..) {
+            unsafe { url.stopAccessingSecurityScopedResource() };
+        }
+
+        held.extend(urls.iter().filter(|url| unsafe { url.startAccessingSecurityScopedResource() }));
+    });
 }
 
 fn deliver(request: i32, paths: Option<Vec<String>>) {
@@ -99,11 +118,19 @@ fn presenter(ui: &AppWindow) -> Result<Retained<UIViewController>, String> {
 }
 
 pub fn pick(ui: &AppWindow, multiple: bool, request: i32) -> Result<(), String> {
+    open_picker(ui, request, ANY_ITEM, multiple, false)
+}
+
+pub fn pick_folder(ui: &AppWindow, request: i32) -> Result<(), String> {
+    open_picker(ui, request, FOLDER_ITEM, false, true)
+}
+
+fn open_picker(ui: &AppWindow, request: i32, kind: &str, multiple: bool, folder: bool) -> Result<(), String> {
     let mtm = MainThreadMarker::new().ok_or("the document picker must open on the main thread")?;
-    let any = UTType::typeWithIdentifier(&NSString::from_str(ANY_ITEM)).ok_or("the generic document type is unknown")?;
-    let types = NSArray::from_retained_slice(&[any]);
-    let picker = UIDocumentPickerViewController::initForOpeningContentTypes_asCopy(mtm.alloc(), &types, true);
-    let delegate = PickerDelegate::new(mtm, request);
+    let wanted = UTType::typeWithIdentifier(&NSString::from_str(kind)).ok_or_else(|| format!("the document type {kind} is unknown"))?;
+    let types = NSArray::from_retained_slice(&[wanted]);
+    let picker = UIDocumentPickerViewController::initForOpeningContentTypes_asCopy(mtm.alloc(), &types, !folder);
+    let delegate = PickerDelegate::new(mtm, request, folder);
 
     picker.setAllowsMultipleSelection(multiple);
     picker.setDelegate(Some(ProtocolObject::from_ref(&*delegate)));
@@ -123,7 +150,7 @@ pub fn save(ui: &AppWindow, path: &Path, request: i32) -> Result<(), String> {
     let url = NSURL::fileURLWithPath(&NSString::from_str(text));
     let urls = NSArray::from_retained_slice(&[url]);
     let picker = UIDocumentPickerViewController::initForExportingURLs_asCopy(mtm.alloc(), &urls, true);
-    let delegate = PickerDelegate::new(mtm, request);
+    let delegate = PickerDelegate::new(mtm, request, false);
 
     picker.setDelegate(Some(ProtocolObject::from_ref(&*delegate)));
     DELEGATE.with(|held| *held.borrow_mut() = Some(delegate));

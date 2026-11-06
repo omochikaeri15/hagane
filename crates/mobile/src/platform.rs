@@ -1,6 +1,8 @@
 use std::path::Path;
 #[cfg(any(target_os = "android", target_os = "ios"))]
 use std::path::PathBuf;
+#[cfg(target_os = "android")]
+use std::sync::atomic::AtomicBool;
 
 #[cfg(not(any(target_os = "android", target_os = "ios")))]
 use tracing::debug;
@@ -116,6 +118,31 @@ pub fn pick(_ui: &AppWindow, multiple: bool, request: i32) -> Result<(), String>
 #[cfg(target_os = "ios")]
 pub fn pick(ui: &AppWindow, multiple: bool, request: i32) -> Result<(), String> {
     crate::ios::pick(ui, multiple, request)
+}
+
+#[cfg(target_os = "android")]
+pub fn pick_folder(_ui: &AppWindow, request: i32) -> Result<(), String> {
+    crate::android::pick_folder(request)
+}
+
+#[cfg(target_os = "ios")]
+pub fn pick_folder(ui: &AppWindow, request: i32) -> Result<(), String> {
+    crate::ios::pick_folder(ui, request)
+}
+
+#[cfg(target_os = "android")]
+pub fn tree_name(tree: &str) -> Result<String, String> {
+    crate::android::tree_name(tree)
+}
+
+#[cfg(target_os = "android")]
+pub fn walk_tree(tree: &str, abort: &AtomicBool, found: &mut dyn FnMut(usize)) -> Result<Vec<(PathBuf, String)>, String> {
+    crate::android::walk_tree(tree, abort, found)
+}
+
+#[cfg(target_os = "android")]
+pub fn fetch_tree(tree: &str, files: &[(PathBuf, String)], into: &Path, abort: &AtomicBool, fetched: &(dyn Fn() + Sync)) -> Result<(), String> {
+    crate::android::fetch_tree(tree, files, into, abort, fetched)
 }
 
 #[cfg(target_os = "android")]

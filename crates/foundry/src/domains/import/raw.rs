@@ -1,15 +1,32 @@
-use std::fs;
-use std::path::{Path, PathBuf};
+use std::fs::{self, File};
+use std::io::{self, BufReader, Read};
+use std::path::{Component, Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use rayon::prelude::*;
+use tracing::{error, warn};
+use zip::ZipArchive;
 
-use crate::common::architecture;
+use crate::common::architecture::{self, Workspace};
 use crate::common::job::{JobEvent, ProgressCounter};
+use crate::common::solid;
 use crate::domains::mining;
 use crate::domains::settings::{ImportConfig, ImportStructure};
 
 use super::engine::{audit, manifest, router, sort};
+
+const ARCHIVE_WORKSPACE: &str = "archive";
+const ARCHIVE_SUFFIXES: [&str; 4] = [".tar.zst", ".tar", ".zst", ".zip"];
+const ARCHIVE_NOTES: usize = 20;
+const TAR_NOTE: usize = 5000;
+const ZIP_MAGIC: [u8; 4] = *b"PK\x03\x04";
+const ABORTED: &str = "The archive extraction was aborted.";
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Transfer {
+    Copy,
+    Move,
+}
 
 pub fn run(
     source_path_string: &str,
@@ -25,6 +42,17 @@ pub fn run(
 
     if !raw_directory_path.exists() {
         let _ = fs::create_dir_all(&raw_directory_path);
+    }
+
+    if source_path.is_file() {
+        let workspace = Workspace::claim(ARCHIVE_WORKSPACE).map_err(|err| failed(format!("The archive workspace could not be prepared: {err}")))?;
+        let root = workspace.path().join(archive_name(source_path));
+
+        emit(JobEvent::Log("Extracting archive...".to_string()));
+        let extracted = unpack(source_path, &root, &emit, abort_flag, progress)?;
+        emit(JobEvent::Log(format!("Extracted {extracted} files from the archive.")));
+
+        return import_loose(&root, Transfer::Move, import_config, &emit, abort_flag, language_priority, progress);
     }
 
     if let Ok(source_canonical) = source_path.canonicalize() {
@@ -44,12 +72,27 @@ pub fn run(
         }
     }
 
+    import_loose(source_path, Transfer::Copy, import_config, &emit, abort_flag, language_priority, progress)
+}
+
+fn import_loose(
+    source_path: &Path,
+    transfer: Transfer,
+    import_config: ImportConfig,
+    emit: &(dyn Fn(JobEvent) + Sync),
+    abort_flag: &AtomicBool,
+    language_priority: &[String],
+    progress: &ProgressCounter,
+) -> Result<(), String> {
+    let game_root_path = Path::new(architecture::GAME);
+    let raw_directory_path = game_root_path.join("raw");
+
     emit(JobEvent::Log("Importing standard raw files...".to_string()));
 
     let mut raw_file_paths = Vec::new();
     collect_files_recursive(source_path, &mut raw_file_paths);
 
-    let files_to_import = sort::process_raw_files(raw_file_paths, source_path_string, language_priority);
+    let files_to_import = sort::process_raw_files(raw_file_paths, &source_path.to_string_lossy(), language_priority);
 
     if files_to_import.is_empty() {
         emit(JobEvent::Log("No files found in source directory after filtering.".to_string()));
@@ -68,7 +111,10 @@ pub fn run(
         }
 
         let destination_path = raw_directory_path.join(&sorted_file.resolved_name);
-        let _ = fs::copy(&sorted_file.original_path, destination_path);
+
+        if transfer == Transfer::Copy || fs::rename(&sorted_file.original_path, &destination_path).is_err() {
+            let _ = fs::copy(&sorted_file.original_path, destination_path);
+        }
 
         let current_count = progress.advance();
         if current_count.is_multiple_of(progress_step) || current_count == total {
@@ -80,7 +126,126 @@ pub fn run(
         }
     });
 
-    sort_raw_folder(&raw_directory_path, game_root_path, import_config.structure, &emit, abort_flag, progress)
+    sort_raw_folder(&raw_directory_path, game_root_path, import_config.structure, emit, abort_flag, progress)
+}
+
+fn archive_name(archive: &Path) -> String {
+    let name = archive.file_name().unwrap_or_default().to_string_lossy();
+    let lowered = name.to_ascii_lowercase();
+    let cut = ARCHIVE_SUFFIXES.iter().find(|suffix| lowered.ends_with(*suffix) && lowered.len() > suffix.len()).map_or(name.len(), |suffix| name.len() - suffix.len());
+
+    name.get(..cut).unwrap_or(&name).to_string()
+}
+
+fn unpack(archive: &Path, root: &Path, emit: &(dyn Fn(JobEvent) + Sync), abort_flag: &AtomicBool, progress: &ProgressCounter) -> Result<usize, String> {
+    let shown = archive.display();
+
+    if solid::sniff(archive) {
+        let reader = solid::open(archive).map_err(|err| failed(format!("{shown} could not be opened: {err}")))?;
+
+        return unpack_tar(reader, root, emit, abort_flag, progress);
+    }
+
+    let mut head = [0u8; ZIP_MAGIC.len()];
+    let zipped = File::open(archive).and_then(|mut file| file.read_exact(&mut head)).is_ok_and(|()| head == ZIP_MAGIC);
+
+    if zipped {
+        return unpack_zip(archive, root, emit, abort_flag, progress);
+    }
+
+    let file = File::open(archive).map_err(|err| failed(format!("{shown} could not be opened: {err}")))?;
+
+    unpack_tar(tar::Archive::new(BufReader::new(file)), root, emit, abort_flag, progress)
+}
+
+fn unpack_zip(archive: &Path, root: &Path, emit: &(dyn Fn(JobEvent) + Sync), abort_flag: &AtomicBool, progress: &ProgressCounter) -> Result<usize, String> {
+    let file = File::open(archive).map_err(|err| failed(format!("{} could not be opened: {err}", archive.display())))?;
+    let mut reader = ZipArchive::new(file).map_err(|err| failed(format!("{} is not a readable zip archive: {err}", archive.display())))?;
+    let total = reader.len();
+    let step = (total / ARCHIVE_NOTES).max(1);
+    let mut extracted = 0;
+
+    emit(JobEvent::Progress { current: 0, total });
+    progress.reset(total);
+
+    for index in 0..total {
+        if abort_flag.load(Ordering::Relaxed) {
+            return Err(ABORTED.to_string());
+        }
+
+        let mut entry = reader.by_index(index).map_err(|err| failed(format!("Entry {index} of the archive could not be read: {err}")))?;
+
+        if entry.is_file() {
+            if let Some(relative) = entry.enclosed_name() {
+                write_entry(&root.join(relative), &mut entry)?;
+                extracted += 1;
+            } else {
+                warn!(entry = entry.name(), "An archive entry that points outside the archive was left out");
+            }
+        }
+
+        let current = progress.advance();
+        if current.is_multiple_of(step) || current == total {
+            emit(JobEvent::Progress { current, total });
+            emit(JobEvent::Log(format!("Extracted {current} of {total} archive entries...")));
+        }
+    }
+
+    Ok(extracted)
+}
+
+fn unpack_tar(mut reader: tar::Archive<impl Read>, root: &Path, emit: &(dyn Fn(JobEvent) + Sync), abort_flag: &AtomicBool, progress: &ProgressCounter) -> Result<usize, String> {
+    let entries = reader.entries().map_err(|err| failed(format!("The archive could not be read: {err}")))?;
+    let mut extracted = 0;
+
+    progress.reset(0);
+
+    for entry in entries {
+        if abort_flag.load(Ordering::Relaxed) {
+            return Err(ABORTED.to_string());
+        }
+
+        let mut entry = entry.map_err(|err| failed(format!("The archive is damaged: {err}")))?;
+
+        if !entry.header().entry_type().is_file() {
+            continue;
+        }
+
+        let relative = entry.path().map_err(|err| failed(format!("An archive entry has an unreadable name: {err}")))?.into_owned();
+
+        if !enclosed(&relative) {
+            warn!(entry = %relative.display(), "An archive entry that points outside the archive was left out");
+            continue;
+        }
+
+        write_entry(&root.join(&relative), &mut entry)?;
+        extracted += 1;
+
+        if extracted % TAR_NOTE == 0 {
+            emit(JobEvent::Log(format!("Extracted {extracted} files...")));
+        }
+    }
+
+    Ok(extracted)
+}
+
+fn enclosed(relative: &Path) -> bool {
+    relative.components().all(|part| matches!(part, Component::Normal(_) | Component::CurDir))
+}
+
+fn write_entry(target: &Path, source: &mut impl Read) -> Result<(), String> {
+    if let Some(parent) = target.parent() {
+        fs::create_dir_all(parent).map_err(|err| failed(format!("{} could not be created: {err}", parent.display())))?;
+    }
+
+    let mut out = File::create(target).map_err(|err| failed(format!("{} could not be created: {err}", target.display())))?;
+
+    io::copy(source, &mut out).map(drop).map_err(|err| failed(format!("{} could not be extracted: {err}", target.display())))
+}
+
+fn failed(message: String) -> String {
+    error!("{message}");
+    message
 }
 
 fn sort_raw_folder(

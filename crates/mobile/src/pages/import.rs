@@ -12,7 +12,6 @@ use tracing::{error, info, warn};
 use foundry::common::job::{JobEvent, JobOutcome, ProgressCounter};
 use foundry::common::region::Region;
 use foundry::domains::import::device::{self, Installed};
-use foundry::common::architecture;
 use foundry::domains::import::{AdbImportType, AdbTarget, ImportMode, pack, raw};
 
 use crate::pages::Context;
@@ -59,8 +58,7 @@ pub struct State {
     pack_region: AdbTarget,
     pack_path: Option<PathBuf>,
     raw_mode: ImportMode,
-    raw_game: bool,
-    raw_path: Option<PathBuf>,
+    raw_source: Option<picker::Source>,
     running: bool,
     aborting: bool,
     log: String,
@@ -116,8 +114,7 @@ impl State {
             pack_region: AdbTarget::Specific(Region::En),
             pack_path: None,
             raw_mode: ImportMode::Folder,
-            raw_game: false,
-            raw_path: None,
+            raw_source: None,
             running: false,
             aborting: false,
             log: String::new(),
@@ -223,8 +220,7 @@ pub fn wire(window: &AppWindow, context: &Rc<Context>) -> Shared {
             let mut state = held.borrow_mut();
 
             state.raw_mode = if index == 1 { ImportMode::Zip } else { ImportMode::Folder };
-            state.raw_game = index == 2;
-            state.raw_path = state.raw_game.then(|| PathBuf::from(architecture::GAME));
+            state.raw_source = None;
         }
 
         if let Some(ui) = weak.upgrade() {
@@ -238,15 +234,15 @@ pub fn wire(window: &AppWindow, context: &Rc<Context>) -> Shared {
             return;
         };
         let landing = Rc::clone(&held);
-        let then: picker::Then = Box::new(move |ui, _, path| {
-            landing.borrow_mut().raw_path = Some(path);
+        let land = move |ui: &AppWindow, source: picker::Source| {
+            landing.borrow_mut().raw_source = Some(source);
             refresh(ui, &landing);
-        });
+        };
+        let mode = held.borrow().raw_mode;
 
-        if held.borrow().raw_mode == ImportMode::Zip {
-            picker::open(&ui, &ctx, "Select an Archive", &["zst", "tar", "zip"], then);
-        } else {
-            picker::open_many(&ui, &ctx, "Select Files", &[], then);
+        match mode {
+            ImportMode::Folder => picker::open_folder(&ui, &ctx, "Select a Folder", Box::new(move |ui, _, source| land(ui, source))),
+            ImportMode::Zip => picker::open(&ui, &ctx, "Select an Archive", &["zst", "tar", "zip"], Box::new(move |ui, _, path| land(ui, picker::Source::Path(path)))),
         }
     });
 
@@ -355,14 +351,14 @@ fn action(ui: &AppWindow, state: &Shared, context: &Rc<Context>) {
             })
         }
         Tab::Raw => {
-            let Some(source) = state.borrow().raw_path.clone() else {
+            let Some(source) = state.borrow().raw_source.clone() else {
                 state.borrow_mut().running = false;
                 return;
             };
             let priority = context.state.settings().general.language_priority.clone();
 
             thread::Builder::new().name("raw_import".to_owned()).spawn(move || {
-                let result = raw::run(&source.to_string_lossy(), import_config, &emit, &abort, &priority, &progress);
+                let result = source.stage(&emit, &abort, &progress).and_then(|staged| raw::run(&staged.path().to_string_lossy(), import_config, &emit, &abort, &priority, &progress));
 
                 emit(JobEvent::Finished(job_outcome(result, &abort)));
             })
@@ -467,19 +463,19 @@ fn refresh(ui: &AppWindow, state: &Shared) {
 
     let pick_many = if platform::SYSTEM_PICKER { "Select Files" } else { "Select Folder" };
     let (pack_label, pack_tone) = held.pack_path.as_deref().map_or((pick_many.to_owned(), Tone::Neutral), |path| (picker::label(path), Tone::Success));
-    let raw_default = if held.raw_mode == ImportMode::Zip { "Select Archive" } else { pick_many };
-    let (raw_label, raw_tone) = held.raw_path.as_deref().map_or((raw_default.to_owned(), Tone::Neutral), |path| (picker::label(path), Tone::Success));
+    let raw_default = if held.raw_mode == ImportMode::Zip { "Select Archive" } else { "Select Folder" };
+    let (raw_label, raw_tone) = held.raw_source.as_ref().map_or((raw_default.to_owned(), Tone::Neutral), |source| (source.label(), Tone::Success));
 
     import.set_pack_label(pack_label.into());
     import.set_pack_tone(pack_tone);
-    import.set_raw_mode(if held.raw_game { 2 } else if held.raw_mode == ImportMode::Zip { 1 } else { 0 });
+    import.set_raw_mode(if held.raw_mode == ImportMode::Zip { 1 } else { 0 });
     import.set_raw_label(raw_label.into());
     import.set_raw_tone(raw_tone);
 
     let can_run = match held.tab {
         Tab::Device => platform::DEVICE_IMPORT,
         Tab::Pack => held.pack_path.is_some(),
-        Tab::Raw => held.raw_path.is_some(),
+        Tab::Raw => held.raw_source.is_some(),
     };
     let (action_label, action_tone, action_enabled) = match (held.banner, held.running, held.aborting) {
         (Some(Banner::Completed), _, _) => ("Job Complete!", Tone::Success, can_run),

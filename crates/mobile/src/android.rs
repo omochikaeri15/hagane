@@ -6,9 +6,12 @@ use std::ffi::c_void;
 use std::fs::File;
 use std::io;
 use std::os::fd::FromRawFd;
-use std::path::{Path, PathBuf};
+use std::num::NonZero;
+use std::path::{Component, Path, PathBuf};
 use std::process;
 use std::sync::OnceLock;
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::thread;
 use std::time::Duration;
 
 use jni::objects::{GlobalRef, JClass, JIntArray, JObject, JObjectArray, JString, JValue};
@@ -16,7 +19,7 @@ use jni::sys::{jboolean, jint};
 use jni::{JNIEnv, JavaVM, NativeMethod};
 use slint::android::AndroidApp;
 use slint::{ComponentHandle, PhysicalSize, Timer, TimerMode};
-use tracing::{debug, error};
+use tracing::{debug, error, warn};
 
 use foundry::domains::import::device::Installed;
 use foundry::domains::mining::Build;
@@ -30,6 +33,10 @@ static GLUE: OnceLock<GlobalRef> = OnceLock::new();
 
 const GLUE_DEX: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/classes.dex"));
 const GLUE_CLASS: &str = "app.omochikaeri.hagane.Glue";
+const LOCAL_FRAME: i32 = 16;
+const FETCH_WORKERS: usize = 4;
+const FOLDER: &str = "d";
+const UNNAMED: &str = "picked";
 
 type ShownHandler = Box<dyn Fn(bool)>;
 
@@ -241,7 +248,7 @@ fn jni<'local, T>(env: &mut JNIEnv<'local>, what: &str, call: impl FnOnce(&mut J
                 .call_method(&thrown, "getStackTrace", "()[Ljava/lang/StackTraceElement;", &[])
                 .and_then(|value| value.l())
                 .ok()
-                .and_then(|array| env.get_object_array_element(&JObjectArray::from(array), 0).ok())
+                .and_then(|array| env.get_object_array_element(JObjectArray::from(array), 0).ok())
                 .filter(|element| !element.is_null())
                 .and_then(|element| text(env, &element));
 
@@ -420,14 +427,155 @@ extern "system" fn picked(mut env: JNIEnv, _class: JClass, request: jint, uris: 
     }
 }
 
-fn with_glue<T>(what: &str, call: impl FnOnce(&mut JNIEnv, &JObject, &JClass) -> jni::errors::Result<T>) -> Result<T, String> {
+fn attached<T>(call: impl FnOnce(&mut JNIEnv, &JObject, &JClass) -> Result<T, String>) -> Result<T, String> {
     let app = APP.get().ok_or("the Android app handle is not set")?;
     let vm = unsafe { JavaVM::from_raw(app.vm_as_ptr().cast()) }.map_err(|err| err.to_string())?;
     let mut env = vm.attach_current_thread().map_err(|err| err.to_string())?;
     let activity = unsafe { JObject::from_raw(app.activity_as_ptr().cast()) };
     let class = glue_class(&mut env, &activity)?;
 
-    jni(&mut env, what, |env| call(env, &activity, &class))
+    call(&mut env, &activity, &class)
+}
+
+fn with_glue<T>(what: &str, call: impl FnOnce(&mut JNIEnv, &JObject, &JClass) -> jni::errors::Result<T>) -> Result<T, String> {
+    attached(|env, activity, class| jni(env, what, |env| call(env, activity, class)))
+}
+
+fn strings(env: &mut JNIEnv, array: &JObjectArray) -> jni::errors::Result<Vec<String>> {
+    let count = env.get_array_length(array)?;
+    let mut read = Vec::with_capacity(usize::try_from(count).unwrap_or(0));
+
+    for index in 0..count {
+        let item = env.get_object_array_element(array, index)?;
+        let item = env.auto_local(JString::from(item));
+
+        read.push(String::from(env.get_string(&item)?));
+    }
+
+    Ok(read)
+}
+
+fn plain(name: &str) -> bool {
+    let mut parts = Path::new(name).components();
+
+    matches!((parts.next(), parts.next()), (Some(Component::Normal(_)), None))
+}
+
+fn children(env: &mut JNIEnv, activity: &JObject, class: &JClass, tree: &str, document: &str) -> Result<Vec<String>, String> {
+    jni(env, "the picked folder could not be listed", |env| {
+        env.with_local_frame(LOCAL_FRAME, |env| {
+            let tree = env.new_string(tree)?;
+            let document = env.new_string(document)?;
+            let listed = env
+                .call_static_method(class, "children", "(Landroid/app/Activity;Ljava/lang/String;Ljava/lang/String;)[Ljava/lang/String;", &[JValue::Object(activity), JValue::Object(&tree), JValue::Object(&document)])
+                .and_then(|value| value.l())?;
+
+            strings(env, &JObjectArray::from(listed))
+        })
+    })
+}
+
+fn fetch(env: &mut JNIEnv, activity: &JObject, class: &JClass, tree: &str, document: &str, target: &Path) -> Result<(), String> {
+    jni(env, "a document in the picked folder could not be copied", |env| {
+        env.with_local_frame(LOCAL_FRAME, |env| {
+            let tree = env.new_string(tree)?;
+            let document = env.new_string(document)?;
+            let target = env.new_string(target.to_string_lossy())?;
+
+            env.call_static_method(
+                class,
+                "fetch",
+                "(Landroid/app/Activity;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)V",
+                &[JValue::Object(activity), JValue::Object(&tree), JValue::Object(&document), JValue::Object(&target)],
+            )
+            .map(drop)
+        })
+    })
+}
+
+pub fn pick_folder(request: i32) -> Result<(), String> {
+    with_glue("the system folder picker could not be opened", |env, activity, class| {
+        env.call_static_method(class, "pickFolder", "(Landroid/app/Activity;I)V", &[JValue::Object(activity), JValue::Int(request)]).map(drop)
+    })
+}
+
+pub fn tree_name(tree: &str) -> Result<String, String> {
+    with_glue("the picked folder could not be named", |env, activity, class| {
+        let tree = env.new_string(tree)?;
+        let name = env.call_static_method(class, "treeName", "(Landroid/app/Activity;Ljava/lang/String;)Ljava/lang/String;", &[JValue::Object(activity), JValue::Object(&tree)]).and_then(|value| value.l())?;
+        let name = JString::from(name);
+
+        env.get_string(&name).map(String::from)
+    })
+    .map(|name| if plain(&name) { name } else { UNNAMED.to_owned() })
+}
+
+pub fn walk_tree(tree: &str, abort: &AtomicBool, found: &mut dyn FnMut(usize)) -> Result<Vec<(PathBuf, String)>, String> {
+    attached(|env, activity, class| {
+        let mut pending = vec![(String::new(), PathBuf::new())];
+        let mut files = Vec::new();
+
+        while let Some((document, folder)) = pending.pop() {
+            if abort.load(Ordering::Relaxed) {
+                break;
+            }
+
+            let mut listed = children(env, activity, class, tree, &document)?.into_iter();
+
+            while let (Some(id), Some(name), Some(kind)) = (listed.next(), listed.next(), listed.next()) {
+                if !plain(&name) {
+                    warn!(name, folder = %folder.display(), "A document with an unusable name was left out of the picked folder");
+                    continue;
+                }
+
+                let path = folder.join(&name);
+
+                if kind == FOLDER {
+                    pending.push((id, path));
+                } else {
+                    files.push((path, id));
+                }
+            }
+
+            found(files.len());
+        }
+
+        Ok(files)
+    })
+}
+
+pub fn fetch_tree(tree: &str, files: &[(PathBuf, String)], into: &Path, abort: &AtomicBool, fetched: &(dyn Fn() + Sync)) -> Result<(), String> {
+    let next = AtomicUsize::new(0);
+    let failed = AtomicBool::new(false);
+    let workers = thread::available_parallelism().map_or(1, NonZero::get).min(FETCH_WORKERS);
+
+    thread::scope(|scope| {
+        let handles: Vec<_> = (0..workers)
+            .map(|_| {
+                scope.spawn(|| {
+                    attached(|env, activity, class| {
+                        while !abort.load(Ordering::Relaxed) && !failed.load(Ordering::Relaxed) {
+                            let Some((path, document)) = files.get(next.fetch_add(1, Ordering::Relaxed)) else {
+                                break;
+                            };
+
+                            if let Err(err) = fetch(env, activity, class, tree, document, &into.join(path)) {
+                                error!(path = %path.display(), "{err}");
+                                failed.store(true, Ordering::Relaxed);
+                                return Err(err);
+                            }
+
+                            fetched();
+                        }
+
+                        Ok(())
+                    })
+                })
+            })
+            .collect();
+
+        handles.into_iter().map(|handle| handle.join().unwrap_or_else(|_| Err("a copying thread panicked".to_owned()))).collect::<Result<Vec<()>, String>>().map(drop)
+    })
 }
 
 pub fn pick(multiple: bool, request: i32) -> Result<(), String> {

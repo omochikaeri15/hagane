@@ -68,9 +68,9 @@ export component ImportPage inherits Rectangle {
         }
         if Import.tab == 2: VerticalLayout {
             spacing: 10px;
-            Label { text: "Sort raw game files, an archive of them, or the game folder itself"; font-size: 14px; wrap: word-wrap; horizontal-alignment: center; }
-            Field { label: "Source"; Combo { width: 120px; height: 30px; text-size: 13px; options: ["Files", "Archive", "Game Folder"]; current: Import.raw-mode; selected(index) => { Import.raw-mode-set(index); } } }
-            Btn { label: Import.raw-label; tone: Import.raw-tone; enabled: !Import.running && Import.raw-mode != 2; height: 32px; text-size: 13px; clicked => { Import.pick-raw(); } }
+            Label { text: "Sort archive or raw files"; font-size: 14px; wrap: word-wrap; horizontal-alignment: center; }
+            Field { label: "Source"; Combo { width: 120px; height: 30px; text-size: 13px; options: ["Folder", "Archive"]; current: Import.raw-mode; selected(index) => { Import.raw-mode-set(index); } } }
+            Btn { label: Import.raw-label; tone: Import.raw-tone; enabled: !Import.running; height: 32px; text-size: 13px; clicked => { Import.pick-raw(); } }
         }
         Rule { }
         Btn { label: Import.action-label; tone: Import.action-tone; enabled: Import.action-enabled; height: 38px; text-size: 16px; clicked => { Import.action(); } }

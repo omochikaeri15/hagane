@@ -28,5 +28,5 @@ pub mod preview;
 #[cfg(feature = "addons")]
 pub mod process;
 pub mod region;
-#[cfg(feature = "mods")]
+#[cfg(any(feature = "mods", feature = "import"))]
 pub mod solid;

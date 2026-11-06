@@ -33,6 +33,7 @@ import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.util.ArrayList;
 import java.util.Arrays;
 
 public class Glue extends Fragment {
@@ -75,6 +76,17 @@ public class Glue extends Fragment {
                 if (multiple) {
                     intent.putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true);
                 }
+                attach(activity).startActivityForResult(intent, request);
+            }
+        });
+    }
+
+    public static void pickFolder(final Activity activity, final int request) {
+        activity.runOnUiThread(new Runnable() {
+            @Override
+            public void run() {
+                Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT_TREE);
+                intent.putExtra(DocumentsContract.EXTRA_INITIAL_URI, DOWNLOADS_ROOT);
                 attach(activity).startActivityForResult(intent, request);
             }
         });
@@ -295,32 +307,84 @@ public class Glue extends Fragment {
     public static String copy(Activity activity, String uri, String folder) throws IOException {
         ContentResolver resolver = activity.getContentResolver();
         Uri parsed = Uri.parse(uri);
-        String name = null;
-        try {
-            Cursor cursor = resolver.query(parsed, new String[] { OpenableColumns.DISPLAY_NAME }, null, null, null);
-            if (cursor != null) {
-                try {
-                    if (cursor.moveToFirst()) {
-                        name = cursor.getString(0);
-                    }
-                } finally {
-                    cursor.close();
-                }
-            }
-        } catch (RuntimeException unnamed) {
-            name = null;
-        }
+        String name = displayName(resolver, parsed);
         if (name == null || name.isEmpty()) {
-            String segment = parsed.getLastPathSegment();
-            if (segment != null) {
-                int cut = Math.max(segment.lastIndexOf('/'), segment.lastIndexOf(':'));
-                name = cut >= 0 ? segment.substring(cut + 1) : segment;
-            }
+            name = lastSegment(parsed);
         }
         if (name == null || name.isEmpty()) {
             name = "picked";
         }
         File target = new File(folder, name.replace('/', '_'));
+        pull(resolver, parsed, target);
+        return target.getAbsolutePath();
+    }
+
+    public static String treeName(Activity activity, String tree) {
+        Uri root = Uri.parse(tree);
+        Uri document = DocumentsContract.buildDocumentUriUsingTree(root, DocumentsContract.getTreeDocumentId(root));
+        String name = displayName(activity.getContentResolver(), document);
+        if (name == null || name.isEmpty()) {
+            name = lastSegment(document);
+        }
+        return name == null || name.isEmpty() ? "picked" : name;
+    }
+
+    public static String[] children(Activity activity, String tree, String document) {
+        Uri root = Uri.parse(tree);
+        String parent = document.isEmpty() ? DocumentsContract.getTreeDocumentId(root) : document;
+        Uri listing = DocumentsContract.buildChildDocumentsUriUsingTree(root, parent);
+        String[] columns = new String[] {
+            DocumentsContract.Document.COLUMN_DOCUMENT_ID,
+            DocumentsContract.Document.COLUMN_DISPLAY_NAME,
+            DocumentsContract.Document.COLUMN_MIME_TYPE
+        };
+        ArrayList<String> found = new ArrayList<>();
+        try (Cursor cursor = activity.getContentResolver().query(listing, columns, null, null, null)) {
+            if (cursor == null) {
+                throw new IllegalStateException(listing + ": the provider returned no listing");
+            }
+            while (cursor.moveToNext()) {
+                String id = cursor.getString(0);
+                String name = cursor.getString(1);
+                found.add(id == null ? "" : id);
+                found.add(name == null ? "" : name);
+                found.add(DocumentsContract.Document.MIME_TYPE_DIR.equals(cursor.getString(2)) ? "d" : "f");
+            }
+        }
+        return found.toArray(new String[0]);
+    }
+
+    public static void fetch(Activity activity, String tree, String document, String path) throws IOException {
+        Uri parsed = DocumentsContract.buildDocumentUriUsingTree(Uri.parse(tree), document);
+        pull(activity.getContentResolver(), parsed, new File(path));
+    }
+
+    private static String displayName(ContentResolver resolver, Uri parsed) {
+        try {
+            Cursor cursor = resolver.query(parsed, new String[] { OpenableColumns.DISPLAY_NAME }, null, null, null);
+            if (cursor == null) {
+                return null;
+            }
+            try {
+                return cursor.moveToFirst() ? cursor.getString(0) : null;
+            } finally {
+                cursor.close();
+            }
+        } catch (RuntimeException unnamed) {
+            return null;
+        }
+    }
+
+    private static String lastSegment(Uri parsed) {
+        String segment = parsed.getLastPathSegment();
+        if (segment == null) {
+            return null;
+        }
+        int cut = Math.max(segment.lastIndexOf('/'), segment.lastIndexOf(':'));
+        return cut >= 0 ? segment.substring(cut + 1) : segment;
+    }
+
+    private static void pull(ContentResolver resolver, Uri parsed, File target) throws IOException {
         File parent = target.getParentFile();
         if (parent != null) {
             parent.mkdirs();
@@ -331,7 +395,6 @@ public class Glue extends Fragment {
         } finally {
             in.close();
         }
-        return target.getAbsolutePath();
     }
 
     private static InputStream open(ContentResolver resolver, Uri parsed) throws IOException {
