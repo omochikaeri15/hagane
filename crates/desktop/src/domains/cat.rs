@@ -28,6 +28,7 @@ use foundry::systems::combat::NameBook;
 use foundry::common::formats::SpriteSheet as CoreSpriteSheet;
 use foundry::domains::cat::animation as cat_animation;
 use foundry::domains::cat::game::stats::{get_final_stats, seeded_level};
+use foundry::domains::cat::level;
 use foundry::domains::cat::scanner::{self, CatEntry};
 use foundry::domains::cat::waiter::unitid;
 use foundry::domains::cat::CatDataState;
@@ -62,10 +63,6 @@ pub(crate) struct CatChanges<'a> {
 }
 
 type StatsMemo = RefCell<Option<(u32, Option<Arc<Vec<Entity>>>)>>;
-
-fn typable_level(value: &str) -> bool {
-    value.chars().all(|glyph| glyph.is_ascii_digit() || glyph == '+')
-}
 
 fn animation_preload(state: &mut animation::State, cat: &CatEntry, form: usize, vfs: &Vfs, anim_state: &AnimState) -> Task<Message> {
     let key = cat_animation::set_id(cat, form);
@@ -321,8 +318,10 @@ impl State {
         self.talent_level_inputs.clear();
         self.talent_levels.clear();
         self.talent_levels.insert(id, talents.clone());
-        self.level_input = level.to_owned();
-        self.current_level = level.split('+').filter_map(|term| term.trim().parse::<i32>().ok()).sum::<i32>().max(1);
+        let caps = self.data.cats.iter().find(|cat| cat.id == id).and_then(|cat| cat.unitbuy.level_caps());
+
+        self.level_input = level::capped(level, caps);
+        self.current_level = level::total(&self.level_input, caps);
         self.animation.clear();
         self.animation.reset_playhead();
     }
@@ -509,6 +508,14 @@ impl State {
         self.filter.refresh_combos(vault);
         self.header_icon_cache.borrow_mut().clear();
         self.list.refresh(&self.data.cats, &self.search_query, &self.filter.filter_state);
+        self.reclamp();
+    }
+
+    fn reclamp(&mut self) {
+        let caps = self.selected_cat.and_then(|id| self.data.cats.iter().find(|cat| cat.id == id)).and_then(|cat| cat.unitbuy.level_caps());
+
+        self.level_input = level::capped(&self.level_input, caps);
+        self.current_level = level::total(&self.level_input, caps);
     }
 
     pub(crate) fn reshare(&mut self, vault: &Vault) {
@@ -522,6 +529,7 @@ impl State {
         let Some(entry) = scanner::scan_single(id, vault, config) else { return; };
 
         self.data.cats[index] = entry;
+        self.reclamp();
     }
 
     pub fn set_indexing(&mut self, hydrating: bool) {
@@ -721,6 +729,7 @@ impl State {
                 self.details.clear_icons();
                 self.details.clear_combos();
                 self.data.cats = cats;
+                self.reclamp();
                 let filter_task = self.filter.refresh_available(*available).map(Message::Filter);
                 let preload_task = match self.selected_cat.and_then(|id| self.data.cats.iter().find(|c| c.id == id)) {
                     Some(cat) => {
@@ -825,15 +834,14 @@ impl State {
                 Task::none()
             }
             Message::LevelInputChanged(input) => {
-                if !typable_level(&input) {
+                if !level::typable(&input) {
                     return Task::none();
                 }
 
-                self.level_input = input;
-                let parsed: i32 = self.level_input.split('+')
-                    .filter_map(|s| s.trim().parse::<i32>().ok())
-                    .sum();
-                self.current_level = if parsed <= 0 { 1 } else { parsed };
+                let caps = self.selected_cat.and_then(|id| self.data.cats.iter().find(|cat| cat.id == id)).and_then(|cat| cat.unitbuy.level_caps());
+
+                self.level_input = level::capped(&input, caps);
+                self.current_level = level::total(&self.level_input, caps);
                 Task::none()
             }
             Message::ChangeTalentLevel(index, level) => {

@@ -366,8 +366,9 @@ impl State {
             .into_iter()
             .flat_map(|lineup| lineup.slots.iter())
             .map(|member| {
-                let (level, plus) = member.levels();
-                let groups = self.lineup.inspector().cat(member.id).and_then(|cat| cat.talent_data.as_ref());
+                let cat = self.lineup.inspector().cat(member.id);
+                let (level, plus) = member.levels(cat.and_then(|cat| cat.unitbuy.level_caps()));
+                let groups = cat.and_then(|cat| cat.talent_data.as_ref());
 
                 SetupUnit {
                     unit: member.id as i32,

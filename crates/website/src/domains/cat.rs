@@ -15,6 +15,7 @@ use dioxus::router::Navigator;
 use codex::combat::Entity;
 use foundry::domains::cat::filter::CatFilterState;
 use foundry::domains::cat::game::stats::seeded_level;
+use foundry::domains::cat::level;
 use foundry::domains::cat::animation as cat_animation;
 use foundry::domains::cat::scanner::CatEntry;
 use foundry::domains::cat::statblock::{self as cat_statblock, Subject};
@@ -104,14 +105,6 @@ pub(crate) fn state() -> CatState {
     use_context::<CatState>()
 }
 
-fn typable_level(value: &str) -> bool {
-    value.chars().all(|glyph| glyph.is_ascii_digit() || glyph == '+')
-}
-
-fn parsed_level(input: &str) -> i32 {
-    input.split('+').filter_map(|term| term.trim().parse::<i32>().ok()).sum::<i32>().max(1)
-}
-
 impl CatState {
     fn clamped(&self, cat: &CatEntry) -> (usize, DetailTab) {
         let max_form = cat.forms.iter().rposition(|&exists| exists).unwrap_or(0);
@@ -162,8 +155,11 @@ impl CatState {
         self.seeded_for.set(Some(cat.id));
         self.talent_inputs.write().clear();
         self.talent_levels.write().insert(cat.id, talents.clone());
-        self.level.set(parsed_level(level));
-        self.level_input.set(level.to_owned());
+        let caps = cat.unitbuy.level_caps().filter(|_| !self.locked);
+        let input = level::capped(level, caps);
+
+        self.level.set(level::total(&input, caps));
+        self.level_input.set(input);
         self.form.set(form.min(cat.forms.len().saturating_sub(1)));
         self.tab.set(DetailTab::Abilities);
         self.ultra_active.set(false);
@@ -184,13 +180,32 @@ impl CatState {
         self.sync_ultra(cat, settings);
     }
 
-    pub(crate) fn set_level_input(&mut self, input: String) {
-        if self.locked || !typable_level(&input) {
+    pub(crate) fn set_level_input(&mut self, input: String, caps: Option<(u32, u32)>) {
+        if self.locked || !level::typable(&input) {
             return;
         }
 
-        self.level.set(parsed_level(&input));
+        let input = level::capped(&input, caps);
+
+        self.level.set(level::total(&input, caps));
         self.level_input.set(input);
+    }
+
+    pub(crate) fn reclamp(&mut self, caps: Option<(u32, u32)>) {
+        if self.locked {
+            return;
+        }
+
+        let input = level::capped(&self.level_input.peek(), caps);
+        let total = level::total(&input, caps);
+
+        if *self.level_input.peek() != input {
+            self.level_input.set(input);
+        }
+
+        if *self.level.peek() != total {
+            self.level.set(total);
+        }
     }
 
     pub(crate) fn levels_for(&self, id: u32) -> HashMap<u8, u8> {
@@ -514,6 +529,13 @@ pub(crate) fn Detail(cat: SelectedCat, globals: Shared, #[props(default)] extra:
     let name = cat.display_name(form);
     let name_size = header((narrow.narrow)());
     let level_input = (state.level_input)();
+    let caps = cat.unitbuy.level_caps();
+
+    use_effect(use_reactive!(|caps| {
+        let mut state = state;
+
+        state.reclamp(caps);
+    }));
     let selected = Rc::new(Selected { cat: (*cat).clone(), stats: stats() });
 
     rsx! {
@@ -543,7 +565,7 @@ pub(crate) fn Detail(cat: SelectedCat, globals: Shared, #[props(default)] extra:
                                 inputmode: "numeric",
                                 value: "{level_input}",
                                 readonly: state.locked,
-                                oninput: move |event| state.set_level_input(event.value()),
+                                oninput: move |event| state.set_level_input(event.value(), caps),
                             }
                         }
                     }

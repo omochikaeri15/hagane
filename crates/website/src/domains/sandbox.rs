@@ -214,8 +214,9 @@ fn build_setup(state: &SandboxState, cats: &[CatEntry], globals: &Shared, entry:
         .into_iter()
         .flat_map(|lineup| lineup.slots.iter())
         .map(|member| {
-            let (level, plus) = member.levels();
-            let groups = cats.iter().find(|cat| cat.id == member.id).and_then(|cat| cat.talent_data.as_ref());
+            let cat = cats.iter().find(|cat| cat.id == member.id);
+            let (level, plus) = member.levels(cat.and_then(|cat| cat.unitbuy.level_caps()));
+            let groups = cat.and_then(|cat| cat.talent_data.as_ref());
             let slots = orb_slots.get(&member.id).copied().unwrap_or(0);
 
             SetupUnit {

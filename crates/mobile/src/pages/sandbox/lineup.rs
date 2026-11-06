@@ -70,7 +70,7 @@ fn price(lineup: &Lineup, cats: &[CatEntry], rules: Option<&Staging>) -> HashMap
         let cat = cats.iter().find(|cat| cat.id == member.id);
         let stats = cat.and_then(|cat| cat.stats.get(member.form).and_then(Option::as_ref));
         let talents = (member.form >= FIRST_TALENT_FORM).then_some(&member.talents);
-        let (level, plus) = member.levels();
+        let (level, plus) = member.levels(cat.and_then(|cat| cat.unitbuy.level_caps()));
         let base = stats.map_or(0, |stats| get_final_stats(stats, cat.and_then(|cat| cat.curve.as_ref()), (level + plus) as i32, cat.and_then(|cat| cat.talent_data.as_ref()), talents, &Bonus::default()).eoc1_cost);
         let rarity = cat.and_then(|cat| usize::try_from(cat.unitbuy.rarity).ok()).unwrap_or(0);
         let cost = rules.map_or(base, |staging| staging.rules.cost(base, rarity));
@@ -661,7 +661,8 @@ fn cell_of(painter: &Painter<'_>, member: Option<&Member>, priced: Priced) -> De
     };
     let vault = context.engine.vault();
     let icon = icon_of(images, context, cats, member.id, member.form);
-    let (level, plus) = match (member.levels(), altar) {
+    let caps = cats.iter().find(|cat| cat.id == member.id).and_then(|cat| cat.unitbuy.level_caps());
+    let (level, plus) = match (member.levels(caps), altar) {
         ((level, _), Some(cap)) => (level.min(cap.saturating_add(1)), 0),
         (levels, None) => levels,
     };

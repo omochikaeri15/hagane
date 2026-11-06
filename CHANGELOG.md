@@ -2,7 +2,8 @@ Changes:
 - Improved scan and loading speeds across all platforms.
 - Web now has more `Current% / Total%` tells for loading, and more verbose loading context.
 - Improved web's mobile UI and behavior, matching the mobile app.
-- Scrollable Config header is now a swipe in sidebar for mobile.
+- Scrollable Sandbox Config header is now a swipe-in sidebar for mobile.
+- Cat levels are now clamped between one and their maximum possible level.
 
 Bug Fixes:
 - Fixed a mobile bug that caused combos to leak off their combo cards under sandbox.

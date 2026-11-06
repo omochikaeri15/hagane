@@ -372,7 +372,7 @@ impl State {
                 None => self.orphans.get(&member.id).and_then(|stats| stats.get(member.form)).and_then(Option::as_ref),
             };
             let talents = (member.form >= FIRST_TALENT_FORM).then_some(&member.talents);
-            let (level, plus) = member.levels();
+            let (level, plus) = member.levels(cat.and_then(|cat| cat.unitbuy.level_caps()));
             let base = stats.map_or(0, |stats| {
                 get_final_stats(stats, cat.and_then(|cat| cat.curve.as_ref()), (level + plus) as i32, cat.and_then(|cat| cat.talent_data.as_ref()), talents, &Bonus::default())
                     .eoc1_cost
@@ -1053,7 +1053,8 @@ impl State {
             |handle| iced_image(handle.clone()).width(width).height(height).into(),
         );
 
-        let (level, plus) = match (member.levels(), self.altar) {
+        let caps = self.inspector.cat(member.id).and_then(|cat| cat.unitbuy.level_caps());
+        let (level, plus) = match (member.levels(caps), self.altar) {
             ((level, _), Some(cap)) => (level.min(cap.saturating_add(1)), 0),
             (levels, None) => levels,
         };

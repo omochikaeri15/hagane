@@ -4,6 +4,7 @@ use codex::cat::unit::{LevelCurve, Talent};
 use codex::combat::Entity;
 
 use crate::domains::cat::game::talents;
+use crate::domains::cat::level;
 use crate::domains::cat::scanner::CatEntry;
 use crate::domains::settings::Settings;
 use crate::systems::treasure::Bonus;
@@ -11,9 +12,15 @@ use crate::systems::treasure::Bonus;
 pub use crate::domains::cat::waiter::unitid;
 
 pub fn seeded_level(cat: &CatEntry, settings: &Settings) -> (i32, String) {
+    let caps = cat.unitbuy.level_caps();
+    let input = level::capped(&seeded_input(cat, settings), caps);
+
+    (level::total(&input, caps), input)
+}
+
+fn seeded_input(cat: &CatEntry, settings: &Settings) -> String {
     if !settings.cat_data.auto_level_calculations {
-        let default_level = settings.cat_data.default_level.max(1);
-        return (default_level, default_level.to_string());
+        return settings.cat_data.default_level.max(1).to_string();
     }
 
     let base_max = cat.unitbuy.level_cap_catseye;
@@ -22,18 +29,17 @@ pub fn seeded_level(cat: &CatEntry, settings: &Settings) -> (i32, String) {
     let is_normal_rare = cat.unitbuy.rarity == 0;
 
     if is_legend_rare {
-        (50, "50".to_string())
+        "50".to_string()
     } else if base_max == 1 || (5..=65).contains(&plus_max) || is_normal_rare {
-        let input = if plus_max > 0 {
+        if plus_max > 0 {
             format!("{}+{}", base_max, plus_max)
         } else {
             base_max.to_string()
-        };
-        (base_max + plus_max, input)
+        }
     } else if base_max > 50 {
-        (50, "50".to_string())
+        "50".to_string()
     } else {
-        (base_max, base_max.to_string())
+        base_max.to_string()
     }
 }
 

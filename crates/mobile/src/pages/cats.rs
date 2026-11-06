@@ -16,6 +16,7 @@ use foundry::domains::cat::combo::{self, ComboEffects};
 use foundry::domains::cat::filter::evaluation::entity_passes_filter;
 use foundry::domains::cat::filter::{ATTACK_TYPE_ICONS, CatFilterState, MatchMode, TalentFilterMode, icons as filter_icons};
 use foundry::domains::cat::game::stats::{get_final_stats, seeded_level};
+use foundry::domains::cat::level;
 use foundry::domains::cat::game::talents as talent_logic;
 use foundry::domains::cat::scanner::CatEntry;
 use foundry::domains::cat::statblock::{self as cat_statblock, Subject};
@@ -112,14 +113,6 @@ pub struct State {
 }
 
 pub type Edited = Rc<dyn Fn(&AppWindow)>;
-
-fn typable_level(value: &str) -> bool {
-    value.chars().all(|glyph| glyph.is_ascii_digit() || glyph == '+')
-}
-
-fn parsed_level(input: &str) -> i32 {
-    input.split('+').filter_map(|term| term.trim().parse::<i32>().ok()).sum::<i32>().max(1)
-}
 
 fn matches(cat: &CatEntry, query: &str) -> bool {
     cat.base_id_str().contains(query) || cat.names.iter().flatten().any(|name| name.to_lowercase().contains(query))
@@ -255,8 +248,10 @@ pub fn seed_member(ui: &AppWindow, state: &Shared, context: &Rc<Context>, seed: 
         held.talent_history.push(cat.id);
         held.talent_levels.insert(cat.id, talents.clone());
         held.form = form.min(cat.forms.len() - 1);
-        held.level = parsed_level(level_input);
-        held.level_input = level_input.to_owned();
+        let caps = cat.unitbuy.level_caps().filter(|_| !locked);
+
+        held.level_input = level::capped(level_input, caps);
+        held.level = level::total(&held.level_input, caps);
         held.ultra_active = false;
         held.saved_level = None;
         held.locked = locked;
@@ -273,12 +268,13 @@ pub fn jump(ui: &AppWindow, state: &Shared, context: &Rc<Context>, id: u32, form
     state.borrow_mut().seeded_for = None;
     select(ui, state, context, id, Some(form));
 
-    if let Some(level_input) = level_input.filter(|value| typable_level(value)) {
+    if let Some(level_input) = level_input.filter(|value| level::typable(value)) {
         {
             let mut held = state.borrow_mut();
+            let caps = held.cat(id).and_then(|cat| cat.unitbuy.level_caps());
 
-            held.level = parsed_level(&level_input);
-            held.level_input = level_input;
+            held.level_input = level::capped(&level_input, caps);
+            held.level = level::total(&held.level_input, caps);
         }
 
         refresh(ui, state, context);
@@ -741,15 +737,16 @@ pub fn wire(window: &AppWindow, context: &Rc<Context>) -> Shared {
             return;
         }
 
-        if !typable_level(&value) {
+        if !level::typable(&value) {
             return;
         }
 
         {
             let mut state = held.borrow_mut();
+            let caps = state.selected.and_then(|id| state.cat(id)).and_then(|cat| cat.unitbuy.level_caps());
 
-            state.level = parsed_level(&value);
-            state.level_input = value.to_string();
+            state.level_input = level::capped(&value, caps);
+            state.level = level::total(&state.level_input, caps);
         }
 
         if let Some(ui) = weak.upgrade() {
@@ -1171,6 +1168,18 @@ pub fn refresh(ui: &AppWindow, state: &Shared, context: &Rc<Context>) {
     };
     let vault = context.engine.vault();
     let images = &context.images;
+
+    {
+        let mut held = state.borrow_mut();
+
+        if !held.locked {
+            let caps = cat.unitbuy.level_caps();
+
+            held.level_input = level::capped(&held.level_input, caps);
+            held.level = level::total(&held.level_input, caps);
+        }
+    }
+
     let (form, tab, level, level_input) = {
         let held = state.borrow();
 

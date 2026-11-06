@@ -96,7 +96,7 @@ fn slot_view(slot: &ResolvedSlot, preset: &CertificationPreset, globals: &Shared
 
                     cat_state.seeded_for.set(Some(unit_id));
                     cat_state.form.set(form);
-                    cat_state.set_level_input(if plus > 0 { format!("{level}+{plus}") } else { level.to_string() });
+                    cat_state.set_level_input(if plus > 0 { format!("{level}+{plus}") } else { level.to_string() }, None);
                     navigator.push(Route::cat_form(unit_id, form));
                 },
                 {image}

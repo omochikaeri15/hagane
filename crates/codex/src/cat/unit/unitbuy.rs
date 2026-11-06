@@ -243,6 +243,12 @@ impl UnitBuy {
         egg_id_evolved                 : 62, Raw, -1;
     };
 
+    pub fn level_caps(&self) -> Option<(u32, u32)> {
+        let base = u32::try_from(self.level_cap_catseye).ok().filter(|cap| *cap >= 1)?;
+
+        Some((base, u32::try_from(self.level_cap_plus).unwrap_or(0)))
+    }
+
     pub fn egg_ids(&self) -> (Option<u16>, Option<u16>) {
         (
             u16::try_from(self.egg_id_normal).ok(),

@@ -239,7 +239,7 @@ fn price(lineup: &Lineup, cats: &[CatEntry], rules: &Ruled) -> HashMap<Cell, Pri
         let cat = cats.iter().find(|cat| cat.id == member.id);
         let stats = cat.and_then(|cat| cat.stats.get(member.form).and_then(Option::as_ref));
         let talents = (member.form >= FIRST_TALENT_FORM).then_some(&member.talents);
-        let (level, plus) = member.levels();
+        let (level, plus) = member.levels(cat.and_then(|cat| cat.unitbuy.level_caps()));
         let base = stats.map_or(0, |stats| {
             get_final_stats(stats, cat.and_then(|cat| cat.curve.as_ref()), (level + plus) as i32, cat.and_then(|cat| cat.talent_data.as_ref()), talents, &Bonus::default()).eoc1_cost
         });
@@ -549,7 +549,8 @@ pub(crate) fn Editor(cats: Cats, globals: Shared, rules: Ruled, altar: Option<u3
             };
         };
         let icon = icon_of(member.id, member.form);
-        let (level, plus) = match (member.levels(), altar) {
+        let caps = recruiter.cats.iter().find(|cat| cat.id == member.id).and_then(|cat| cat.unitbuy.level_caps());
+        let (level, plus) = match (member.levels(caps), altar) {
             ((level, _), Some(cap)) => (level.min(cap.saturating_add(1)), 0),
             (levels, None) => levels,
         };

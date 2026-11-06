@@ -227,8 +227,9 @@ fn build_setup(state: &State, context: &Rc<Context>, entry: StageEntry) -> Setup
         .into_iter()
         .flat_map(|lineup| lineup.slots.iter())
         .map(|member| {
-            let (level, plus) = member.levels();
-            let groups = state.cat(member.id).and_then(|cat| cat.talent_data);
+            let cat = state.cat(member.id);
+            let (level, plus) = member.levels(cat.as_ref().and_then(|cat| cat.unitbuy.level_caps()));
+            let groups = cat.and_then(|cat| cat.talent_data);
             let slots = orb_slots.get(&member.id).copied().unwrap_or(0);
 
             SetupUnit {

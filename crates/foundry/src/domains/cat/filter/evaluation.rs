@@ -7,6 +7,7 @@ use crate::domains::cat::filter::stats::evaluate_stat_ranges;
 use crate::domains::cat::filter::{CatFilterState, FilterCounts, MatchMode, TalentFilterMode};
 use crate::domains::cat::game::stats::apply_level;
 use crate::domains::cat::game::talents::apply_talent_stats;
+use crate::domains::cat::level;
 use crate::domains::cat::scanner::CatEntry;
 
 pub fn entity_passes_filter(cat: &CatEntry, filter: &CatFilterState) -> bool {
@@ -77,7 +78,7 @@ fn evaluate_single_form(
 
     trace!(cat_id = cat.id, form = form_index, "evaluating entity form filter tree");
 
-    let filter_level = filter.level_input.parse::<i32>().unwrap_or(50);
+    let filter_level = level::within(filter.level_input.parse::<i32>().unwrap_or(50), cat.unitbuy.level_caps());
     let base_leveled = apply_level(raw_stats, cat.curve.as_ref(), filter_level, &filter.treasure);
 
     let mut state_normal = base_leveled.clone();

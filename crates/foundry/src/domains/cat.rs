@@ -2,6 +2,7 @@ pub mod animation;
 pub mod combo;
 pub mod filter;
 pub mod game;
+pub mod level;
 pub mod scanner;
 pub mod statblock;
 pub mod files;

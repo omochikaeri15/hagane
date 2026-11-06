@@ -5,6 +5,7 @@ use codex::cat::unit::{Equipment, NyancomboData};
 use serde::{Deserialize, Serialize};
 
 use crate::common::architecture;
+use crate::domains::cat::level;
 use crate::Vfs;
 
 use super::orb;
@@ -41,15 +42,12 @@ pub struct Member {
 }
 
 impl Member {
-    pub fn levels(&self) -> (u32, u32) {
-        let mut terms = self.level.split('+').map(|term| term.trim().parse::<u32>().unwrap_or(0));
-        let base = terms.next().unwrap_or(0).max(1);
-
-        (base, terms.sum())
+    pub fn levels(&self, caps: Option<(u32, u32)>) -> (u32, u32) {
+        level::split(&self.level, caps)
     }
 
     fn ultra_floor(mut self) -> Self {
-        let (base, plus) = self.levels();
+        let (base, plus) = self.levels(None);
 
         if self.form == ULTRA_FORM && base < ULTRA_LEVEL {
             self.level = if plus > 0 { format!("{ULTRA_LEVEL}+{plus}") } else { ULTRA_LEVEL.to_string() };
@@ -964,7 +962,7 @@ mod tests {
 
     #[test]
     fn a_level_with_a_plus_splits_in_two() {
-        assert_eq!(Member { level: "50+30".to_owned(), ..Member::default() }.levels(), (50, 30));
-        assert_eq!(Member { level: String::new(), ..Member::default() }.levels(), (1, 0));
+        assert_eq!(Member { level: "50+30".to_owned(), ..Member::default() }.levels(None), (50, 30));
+        assert_eq!(Member { level: String::new(), ..Member::default() }.levels(None), (1, 0));
     }
 }
