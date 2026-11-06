@@ -16,6 +16,7 @@ use super::state;
 
 const MAP_IMG_HEIGHT: f32 = 50.0;
 const STAGE_IMG_HEIGHT: f32 = 35.0;
+const FALLBACK_SHARE: f32 = 0.62;
 const STAT_COLUMNS: usize = 7;
 const CROWN_GLYPH: &str = "\u{1F732}";
 
@@ -77,7 +78,7 @@ fn banner(globals: &Shared, name: &str, height: f32, fallback: &str) -> Element 
 
             rsx! { Pic { url: sized.url, class: "stage-banner", style: format!("width: {width}px; height: {height}px;"), alt: fallback.to_owned() } }
         }
-        None => rsx! { span { class: "banner-fallback bold", "{fallback}" } },
+        None => rsx! { span { class: "banner-fallback bold", style: format!("height: {height}px; font-size: {}px;", height * FALLBACK_SHARE), "{fallback}" } },
     }
 }
 

@@ -339,7 +339,7 @@ img { user-select: none; -webkit-user-select: none; }
 .vrule.full { height: auto; align-self: stretch; flex-shrink: 0; }
 .stage-info { display: flex; flex-direction: column; gap: 8px; }
 .banner-row { display: flex; align-items: flex-end; gap: 12px; flex-wrap: wrap; }
-.banner-fallback { font-size: 32px; }
+.banner-fallback { display: flex; align-items: flex-end; white-space: nowrap; }
 .crown-row { display: flex; gap: 5px; }
 .crown-btn { width: 50px; height: 30px; min-height: 30px; font-size: 14px; display: inline-flex; align-items: center; justify-content: center; gap: 2px; }
 .drop-tables { display: flex; gap: 15px; flex-wrap: wrap; align-items: flex-start; }
