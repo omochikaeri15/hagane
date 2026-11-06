@@ -96,6 +96,10 @@ pub fn hydrate() -> Option<(u64, Vec<EnemyEntry>)> {
     Some((hash, cached_enemies))
 }
 
+pub fn restore(bytes: &[u8]) -> Option<(u64, Vec<EnemyEntry>)> {
+    cache::decode::<EnemyCache>(bytes)
+}
+
 #[cfg(feature = "disk")]
 pub fn persist(payload: &[u8]) {
     cache::store::<EnemyCache>(payload);

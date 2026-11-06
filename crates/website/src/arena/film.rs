@@ -116,7 +116,7 @@ async fn open(engine: &Rc<Engine>, source: ReplaySource, priority: Vec<String>) 
     let reel = kept.reel();
     let (overlay, frames) = layering(engine, &reel.footage, reel.files, reel.pinned, source);
 
-    worker::warm_frames(engine, frames, false, |_, _| {}).await;
+    worker::warm_frames(engine, frames, false, |_, _, _| {}).await;
 
     let audio = Rc::new(FilmAudio::default());
     let equipment = Equipment {

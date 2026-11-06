@@ -155,6 +155,10 @@ pub fn hydrate() -> Option<(u64, StageBundle)> {
     Some((hash, bundle))
 }
 
+pub fn restore(bytes: &[u8]) -> Option<(u64, StageBundle)> {
+    cache::decode::<StageCache>(bytes)
+}
+
 #[cfg(feature = "disk")]
 pub fn persist(payload: &[u8]) {
     cache::store::<StageCache>(payload);

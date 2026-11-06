@@ -6,19 +6,19 @@ use std::sync::{Arc, Mutex, PoisonError, RwLock};
 
 use image::{ImageFormat, RgbaImage};
 use js_sys::{Array, AsyncIterator, Function, Promise, Reflect, Uint8Array};
-use ruzstd::decoding::StreamingDecoder;
+use structured_zstd::decoding::StreamingDecoder;
 use serde::{Deserialize, Serialize};
 use tracing::{debug, error, info, warn};
 use tracing_wasm::WASMLayerConfigBuilder;
 use wasm_bindgen::closure::Closure;
 use wasm_bindgen::{JsCast, JsValue};
 use futures_channel::oneshot;
-use futures_util::future::join;
-use futures_util::stream::{self, StreamExt};
+use futures_util::future::{self, join};
+use futures_util::stream::{self, FuturesUnordered, StreamExt};
 use wasm_bindgen_futures::{JsFuture, spawn_local};
 use web_sys::{
     DedicatedWorkerGlobalScope, FileSystemDirectoryHandle, FileSystemFileHandle, FileSystemGetDirectoryOptions, FileSystemGetFileOptions,
-    FileSystemReadWriteOptions, FileSystemRemoveOptions, FileSystemSyncAccessHandle, MessageEvent, Request as WebRequest, RequestCache, RequestInit, Response,
+    FileSystemReadWriteOptions, FileSystemRemoveOptions, FileSystemSyncAccessHandle, MessageEvent, ReadableStreamDefaultReader, Request as WebRequest, RequestCache, RequestInit, Response,
     XmlHttpRequest, XmlHttpRequestResponseType,
 };
 
@@ -31,18 +31,32 @@ use foundry::{Lazy, Loader, Vault};
 
 use crate::protocol::{self, Answer, Call, HELLO, PictureKind, Prepared, Reply, Request, RigWire};
 
-const HOST: &str = "https://hagane.cloud";
+pub(crate) const HOST: &str = "https://hagane.cloud";
 const GAME: &str = "game";
 const DECODED_CAP: usize = 256 * 1024 * 1024;
 const PARALLEL: usize = 8;
 const BACKGROUND_PARALLEL: usize = 2;
 const TABLE_POOLS: [&str; 3] = ["csv", "tsv", "json"];
 const HEADS: &str = "heads";
+const TABLES: &str = "Loading the tables...";
 const CAT_POOLS: [&str; 3] = ["roster:banners", "roster:icons", "roster:stats"];
 const ENEMY_POOLS: [&str; 1] = ["roster:enemy-icons"];
 const STAGE_POOLS: [&str; 2] = ["roster:items", "roster:enemy-icons"];
 const STATS_POOL: &str = "roster:stats";
+const STAGE_NEEDS: [&str; 1] = ["preset"];
+const MAANIM: &str = ".maanim";
+const PNG: &str = ".png";
+const ATTACK: &str = "02";
+const ENEMY_ATTACK: &str = "e02";
+const ENEMY_ICON: &str = "enemy_icon_";
+const CAT_FORMS: [char; 5] = ['f', 'c', 's', 'u', 'm'];
+const UNIT_DIGITS: usize = 3;
+const LANGUAGE_CODE: usize = 2;
 const CATS: &str = "cats";
+const CAT_SCAN: &str = "scan-cats.bin";
+const ENEMY_SCAN: &str = "scan-enemies.bin";
+const STAGE_SCAN: &str = "scan-stages.bin";
+const SCANS: [&str; 3] = [CAT_SCAN, ENEMY_SCAN, STAGE_SCAN];
 const ENEMIES: &str = "enemies";
 const INDEX_FILE: &str = "index.bin";
 const UNENCODABLE: &str = "the reply could not be encoded";
@@ -53,8 +67,11 @@ pub(crate) const UPLOADED_FILE: &str = "latest-battle.bcv";
 pub(crate) const UPLOADED_NAME: &str = "latest-battle.name";
 pub(crate) const LATEST_FILES: &str = "latest-battle.files";
 const ETAG: &str = "etag";
+const DONE: &str = "done";
+const VALUE: &str = "value";
 
 type Listener = Closure<dyn FnMut(MessageEvent)>;
+type Kept = (&'static str, Vec<u8>);
 
 #[derive(Default)]
 struct Decoded {
@@ -79,6 +96,7 @@ struct ChunkRef {
 struct SideRef {
     kind: Box<str>,
     address: Box<str>,
+    size: u64,
     raw: u64,
     files: Vec<(Box<str>, u32, u32)>,
 }
@@ -94,6 +112,7 @@ struct Sidefiles {
     index: HashMap<Box<str>, (usize, usize)>,
 }
 
+#[derive(Default)]
 struct Needs {
     frames: Vec<usize>,
     sides: Vec<&'static str>,
@@ -214,7 +233,7 @@ fn snapshot_of(manifest: &Manifest, etag: Box<str>) -> Result<Snapshot, String> 
     }
 
     let mut frames = Vec::new();
-    let mut names = Vec::new();
+    let mut names: Vec<(Box<str>, u32, u32, u32)> = Vec::new();
     let mut pools: HashMap<Box<str>, Vec<u32>> = HashMap::new();
 
     for (at, chunk) in manifest.chunks.iter().enumerate() {
@@ -231,12 +250,15 @@ fn snapshot_of(manifest: &Manifest, etag: Box<str>) -> Result<Snapshot, String> 
         }
     }
 
+    names.sort_unstable_by(|left, right| left.0.cmp(&right.0));
+
     let sidecars = manifest
         .sidecars
         .iter()
         .map(|sidecar| SideRef {
             kind: Box::from(sidecar.kind.as_str()),
             address: Box::from(sidecar.address.as_str()),
+            size: sidecar.size,
             raw: sidecar.raw,
             files: sidecar.files.iter().map(|placed| (Box::from(placed.0.as_str()), placed.1 as u32, placed.2 as u32)).collect(),
         })
@@ -280,21 +302,28 @@ async fn boot(scope: DedicatedWorkerGlobalScope) {
 
     phase("Checking the file index...", 0, 0);
 
-    let (root, etag) = join(JsFuture::from(scope.navigator().storage().get_directory()), fetch_etag(&scope, &url)).await;
-    let root: Option<FileSystemDirectoryHandle> = root.ok().and_then(|value| value.dyn_into().ok());
-    let cached = match (&root, &etag) {
-        (Some(root), Some(etag)) => read_root(root, INDEX_FILE).await.and_then(|bytes| protocol::decode::<Snapshot>(&bytes)).filter(|snapshot| snapshot.etag == *etag),
-        _ => None,
+    let probe = begin_head(&scope, &url);
+    let root: Option<FileSystemDirectoryHandle> = JsFuture::from(scope.navigator().storage().get_directory()).await.ok().and_then(|value| value.dyn_into().ok());
+    let kept = match &root {
+        Some(root) => read_root(root, INDEX_FILE).await.and_then(|bytes| protocol::decode::<Snapshot>(&bytes)),
+        None => None,
     };
-    let (snapshot, fresh) = match cached {
+    let outcome = match kept {
         Some(snapshot) => {
-            info!(ms = (now() - started) as u32, "File index reused from browser storage");
-            (snapshot, false)
+            let etag = finish_head(probe).await;
+
+            if etag.as_deref() == Some(&*snapshot.etag) {
+                info!(ms = (now() - started) as u32, "File index reused from browser storage");
+                Ok((snapshot, false))
+            } else {
+                download_index(&scope, &url, etag).await.map(|snapshot| (snapshot, true))
+            }
         }
-        None => match download_index(&scope, &url, etag).await {
-            Ok(snapshot) => (snapshot, true),
-            Err(reason) => return fail(format!("The file host manifest could not be loaded: {reason}")),
-        },
+        None => download_index(&scope, &url, None).await.map(|snapshot| (snapshot, true)),
+    };
+    let (snapshot, fresh) = match outcome {
+        Ok(held) => held,
+        Err(reason) => return fail(format!("The file host manifest could not be loaded: {reason}")),
     };
     let stored = fresh.then(|| protocol::encode(&snapshot)).flatten();
     let catalog = Arc::new(Catalog {
@@ -304,32 +333,40 @@ async fn boot(scope: DedicatedWorkerGlobalScope) {
     });
     let frames: Vec<Located> = snapshot.frames.iter().map(|&(chunk, offset, size, raw)| Located { chunk: chunk as usize, offset, size, raw }).collect();
     let pools: HashMap<Box<str>, Vec<usize>> = snapshot.pools.into_iter().map(|(pool, held)| (pool, held.into_iter().map(|id| id as usize).collect())).collect();
-    let index: HashMap<Box<str>, Placement> =
-        snapshot.names.into_iter().map(|(name, frame, offset, size)| (name, Placement { frame: frame as usize, offset: offset as usize, size: size as usize })).collect();
+    let mut index: HashMap<Box<str>, Placement> = HashMap::with_capacity(snapshot.names.len());
+    let mut sorted: Vec<Box<str>> = Vec::with_capacity(snapshot.names.len());
+
+    for (name, frame, offset, size) in snapshot.names {
+        index.insert(name.clone(), Placement { frame: frame as usize, offset: offset as usize, size: size as usize });
+        sorted.push(name);
+    }
+
+    if !sorted.is_sorted() {
+        sorted.sort_unstable();
+    }
+
     let indexed = now();
 
     phase("Opening browser storage...", 0, 0);
 
-    let (cache, heads) = join(prepare(root.as_ref(), &catalog, &frames), sidecar(&scope, root.as_ref(), &catalog, HEADS)).await;
-    let cache = match cache {
-        Ok(dir) => Some(dir),
+    let (opened, heads) = join(prepare(root.as_ref(), &catalog, &frames), sidecar(&scope, root.as_ref(), &catalog, HEADS, &|_| {})).await;
+    let (cache, stale) = match opened {
+        Ok((dir, stale)) => (Some(dir), stale),
         Err(err) => {
             warn!("The browser storage could not be opened, chunks will be fetched every visit: {:?}", err);
-            None
+            (None, Vec::new())
         }
     };
-    let names: Vec<Box<str>> = index.keys().cloned().collect();
-    let mut sorted = names.clone();
 
-    sorted.sort_unstable();
-    phase(&format!("Mounting {} files...", grouped(names.len())), 0, 0);
+    phase(&format!("Mounting {} files...", grouped(sorted.len())), 0, 0);
 
-    let loader = Arc::new(ChunkLoader { catalog, frames, index, sorted, pools, heads, sides: Mutex::new(HashMap::new()), layer: RwLock::new(Arc::default()) });
     let vault = Vault::with_priority(&[]);
 
-    if let Err(err) = vault.vfs.create(Lazy { key: GAME, names, withheld: Vec::new() }) {
+    if let Err(err) = vault.vfs.create(Lazy { key: GAME, names: sorted.clone(), withheld: Vec::new() }) {
         return fail(format!("The game mount could not be created: {err}"));
     }
+
+    let loader = Arc::new(ChunkLoader { catalog, frames, index, sorted, pools, heads, sides: Mutex::new(HashMap::new()), layer: RwLock::new(Arc::default()) });
 
     vault.vfs.install(Arc::clone(&loader) as Arc<dyn Loader>);
 
@@ -338,6 +375,7 @@ async fn boot(scope: DedicatedWorkerGlobalScope) {
     ENGINE.with(|slot| *slot.borrow_mut() = Some(Rc::clone(&engine)));
     info!(storage_ms = (now() - indexed) as u32, total_ms = (now() - started) as u32, "Data engine ready");
     drain();
+    spawn_local(warm_tables(Rc::clone(&engine)));
 
     if let (Some(root), Some(bytes)) = (&root, stored)
         && let Err(err) = write_root(root, INDEX_FILE, &bytes).await
@@ -345,11 +383,18 @@ async fn boot(scope: DedicatedWorkerGlobalScope) {
         warn!("The file index could not be stored in browser storage: {:?}", err);
     }
 
-    let tables = engine.loader.pooled(|pool| TABLE_POOLS.contains(&pool));
+    if let Some(root) = &root {
+        sweep(root, &engine.loader.catalog, stale).await;
+    }
+}
 
-    phase("Loading the tables...", 0, tables.len().max(1));
-    warm_frames(&engine, tables, false, |done, total| phase("Loading the tables...", done, total)).await;
-    phase("Loading the tables...", 1, 1);
+async fn warm_tables(engine: Rc<Engine>) {
+    let tables = engine.loader.pooled(|pool| TABLE_POOLS.contains(&pool));
+    let total = tables.len().max(1);
+
+    phase(TABLES, 0, total);
+    warm_frames(&engine, tables, false, |_, done, _| phase(TABLES, done.min(total), total)).await;
+    phase(TABLES, total, total);
 }
 
 fn drain() {
@@ -404,45 +449,163 @@ async fn serve(call: Call) {
     };
     let call = Call { id: call.id, request };
 
-    let needs = wanted(&engine.loader, &call.request);
+    if let Some(reply) = recalled(&engine, &call.request).await {
+        let afterwards = afterwards(&engine.loader, &call.request);
+
+        post(Answer { id: call.id, reply });
+
+        if !afterwards.is_empty() {
+            warm_frames(&engine, afterwards, true, |_, _, _| {}).await;
+        }
+
+        return;
+    }
+
+    let needs = needs(&engine, &call.request);
     let afterwards = afterwards(&engine.loader, &call.request);
+    let scan = matches!(call.request, Request::Cats(_) | Request::Enemies(_) | Request::Stages(_));
+    let total = if scan { outstanding(&engine, &needs) } else { 0 };
+    let done = std::cell::Cell::new(0u64);
+    let id = call.id;
+    let advance = |bytes: u64| {
+        if total > 0 {
+            done.set((done.get() + bytes).min(total));
+            loading(id, done.get(), total);
+        }
+    };
 
-    for kind in needs.sides {
-        ensure_side(&engine, kind).await;
+    if total > 0 {
+        loading(id, 0, total);
     }
 
-    if !needs.frames.is_empty() {
-        warm_frames(&engine, needs.frames, false, |_, _| {}).await;
-    }
+    let sides = async {
+        for kind in &needs.sides {
+            let loaded = engine.loader.sides.lock().unwrap_or_else(PoisonError::into_inner).contains_key(*kind);
+            let streamed = std::cell::Cell::new(0u64);
 
-    let reply = answer(&engine, call.id, call.request);
+            ensure_side(&engine, kind, &|bytes| {
+                streamed.set(streamed.get() + bytes);
+                advance(bytes);
+            })
+            .await;
+
+            if !loaded {
+                advance(engine.loader.side_size(kind).saturating_sub(streamed.get()));
+            }
+        }
+    };
+    let frames = warm_frames(&engine, needs.frames, false, |frame, _, _| advance(engine.loader.frame_size(frame)));
+
+    join(sides, frames).await;
+
+    let (reply, kept) = answer(&engine, call.id, call.request);
 
     post(Answer { id: call.id, reply });
     spawn_local(persist());
 
+    if let Some((name, bytes)) = kept {
+        spawn_local(keep_scan(name, bytes));
+    }
+
     if !afterwards.is_empty() {
-        warm_frames(&engine, afterwards, true, |_, _| {}).await;
+        warm_frames(&engine, afterwards, true, |_, _, _| {}).await;
     }
 }
 
-fn wanted(loader: &ChunkLoader, request: &Request) -> Needs {
-    let frames = match request {
-        Request::Battle(_) | Request::Mods(_) | Request::Names | Request::Stages(_) | Request::Enemies(_) => Vec::new(),
-        Request::Fetch(names) | Request::Warm(names) => loader.frames_of(names.iter().map(Box::as_ref)),
-        Request::Picture { kind, name } => match kind {
-            PictureKind::Cut { sheet, .. } => loader.frames_of([name.as_ref(), sheet.as_ref()]),
-            _ => loader.frames_of([name.as_ref()]),
-        },
-        Request::Rig { png, cut, model } => loader.frames_of([png.as_ref(), cut.as_ref(), model.as_ref()]),
-        Request::Cats(_) => loader.pooled(|pool| pool == STATS_POOL),
-    };
-    let sides = match request {
-        Request::Cats(_) => vec![CATS],
-        Request::Enemies(_) => vec![ENEMIES],
-        _ => Vec::new(),
-    };
+fn outstanding(engine: &Engine, needs: &Needs) -> u64 {
+    let loaded: HashSet<Box<str>> = engine.loader.sides.lock().unwrap_or_else(PoisonError::into_inner).keys().cloned().collect();
+    let sides: u64 = needs.sides.iter().filter(|kind| !loaded.contains(**kind)).map(|kind| engine.loader.side_size(kind)).sum();
+    let frames: u64 = needs.frames.iter().copied().collect::<HashSet<usize>>().into_iter().filter(|frame| !decoded_now(*frame)).map(|frame| engine.loader.frame_size(frame)).sum();
 
-    Needs { frames, sides }
+    sides + frames
+}
+
+fn needs(engine: &Engine, request: &Request) -> Needs {
+    let loader = &engine.loader;
+
+    match request {
+        Request::Battle(_) | Request::Mods(_) | Request::Names => Needs::default(),
+        Request::Fetch(names) | Request::Warm(names) => Needs { frames: loader.frames_of(names.iter().map(Box::as_ref)), sides: Vec::new() },
+        Request::Picture { kind, name } => Needs {
+            frames: match kind {
+                PictureKind::Cut { sheet, .. } => loader.frames_of([name.as_ref(), sheet.as_ref()]),
+                _ => loader.frames_of([name.as_ref()]),
+            },
+            sides: Vec::new(),
+        },
+        Request::Rig { png, cut, model } => Needs { frames: loader.frames_of([png.as_ref(), cut.as_ref(), model.as_ref()]), sides: Vec::new() },
+        Request::Cats(config) => {
+            localize(engine, &config.language_priority);
+
+            let mut frames = loader.pooled(|pool| TABLE_POOLS.contains(&pool) || pool == STATS_POOL);
+
+            frames.extend(foreseen(engine, cat_attack, CATS));
+            Needs { frames, sides: vec![CATS] }
+        }
+        Request::Enemies(config) => {
+            localize(engine, &config.language_priority);
+
+            let mut frames = loader.pooled(|pool| TABLE_POOLS.contains(&pool));
+
+            frames.extend(foreseen(engine, enemy_attack, ENEMIES));
+            frames.extend(foreseen(engine, enemy_icon, HEADS));
+            Needs { frames, sides: vec![ENEMIES] }
+        }
+        Request::Stages(config) => {
+            localize(engine, &config.language_priority);
+
+            Needs { frames: loader.pooled(|pool| TABLE_POOLS.contains(&pool) || STAGE_NEEDS.contains(&pool)), sides: Vec::new() }
+        }
+    }
+}
+
+fn foreseen(engine: &Engine, shape: fn(&str) -> Option<String>, kind: &str) -> Vec<usize> {
+    let covered: HashSet<&str> = engine.loader.catalog.sidecars.iter().filter(|side| *side.kind == *kind).flat_map(|side| side.files.iter().map(|(name, _, _)| name.as_ref())).collect();
+    let bases: HashSet<String> = engine.loader.sorted.iter().filter_map(|name| shape(name)).collect();
+
+    bases
+        .iter()
+        .filter_map(|base| engine.vault.vfs.find(base))
+        .filter_map(|path| path.file_name().and_then(|name| name.to_str()).map(str::to_owned))
+        .filter(|name| !covered.contains(name.as_str()))
+        .filter_map(|name| engine.loader.index.get(name.as_str()).map(|place| place.frame))
+        .collect()
+}
+
+fn unlocalized(stem: &str) -> &str {
+    match stem.rsplit_once('_') {
+        Some((head, tail)) if !tail.is_empty() && tail.len() <= LANGUAGE_CODE && tail.bytes().all(|byte| byte.is_ascii_lowercase()) => head,
+        _ => stem,
+    }
+}
+
+fn numbered(id: &str) -> bool {
+    id.len() == UNIT_DIGITS && id.bytes().all(|byte| byte.is_ascii_digit())
+}
+
+fn cat_attack(name: &str) -> Option<String> {
+    let base = unlocalized(name.strip_suffix(MAANIM)?);
+    let (id, form) = base.split_once('_')?;
+    let shaped = numbered(id) && form.len() == 3 && form.starts_with(CAT_FORMS) && form.ends_with(ATTACK);
+
+    shaped.then(|| format!("{base}{MAANIM}"))
+}
+
+fn enemy_attack(name: &str) -> Option<String> {
+    let base = unlocalized(name.strip_suffix(MAANIM)?);
+    let (id, form) = base.split_once('_')?;
+
+    (numbered(id) && form == ENEMY_ATTACK).then(|| format!("{base}{MAANIM}"))
+}
+
+fn enemy_icon(name: &str) -> Option<String> {
+    let base = unlocalized(name.strip_suffix(PNG)?);
+
+    numbered(base.strip_prefix(ENEMY_ICON)?).then(|| format!("{base}{PNG}"))
+}
+
+fn loading(id: u32, done: u64, total: u64) {
+    post(Answer { id, reply: Reply::Progress { done: done as usize, total: total as usize, scanning: false } });
 }
 
 fn afterwards(loader: &ChunkLoader, request: &Request) -> Vec<usize> {
@@ -454,7 +617,7 @@ fn afterwards(loader: &ChunkLoader, request: &Request) -> Vec<usize> {
     }
 }
 
-async fn ensure_side(engine: &Rc<Engine>, kind: &'static str) {
+async fn ensure_side(engine: &Rc<Engine>, kind: &'static str, advance: &dyn Fn(u64)) {
     if engine.loader.sides.lock().unwrap_or_else(PoisonError::into_inner).contains_key(kind) {
         return;
     }
@@ -480,7 +643,7 @@ async fn ensure_side(engine: &Rc<Engine>, kind: &'static str) {
     let scope = SCOPE.with(|slot| slot.borrow().clone());
 
     if let Some(scope) = scope
-        && let Some(loaded) = sidecar(&scope, engine.root.as_ref(), &engine.loader.catalog, kind).await
+        && let Some(loaded) = sidecar(&scope, engine.root.as_ref(), &engine.loader.catalog, kind, advance).await
     {
         engine.loader.sides.lock().unwrap_or_else(PoisonError::into_inner).insert(Box::from(kind), Arc::new(loaded));
     }
@@ -492,7 +655,7 @@ async fn ensure_side(engine: &Rc<Engine>, kind: &'static str) {
     }
 }
 
-async fn sidecar(scope: &DedicatedWorkerGlobalScope, root: Option<&FileSystemDirectoryHandle>, catalog: &Catalog, kind: &str) -> Option<Sidefiles> {
+async fn sidecar(scope: &DedicatedWorkerGlobalScope, root: Option<&FileSystemDirectoryHandle>, catalog: &Catalog, kind: &str, advance: &dyn Fn(u64)) -> Option<Sidefiles> {
     let side = catalog.sidecars.iter().find(|side| *side.kind == *kind)?;
     let started = now();
     let cached = match root {
@@ -501,7 +664,7 @@ async fn sidecar(scope: &DedicatedWorkerGlobalScope, root: Option<&FileSystemDir
     };
     let (bytes, fresh) = match cached {
         Some(bytes) => (bytes, false),
-        None => match fetch_bytes(scope, &format!("{HOST}/{}", side.address), None, false).await {
+        None => match fetch_streamed(scope, &format!("{HOST}/{}", side.address), side.size, advance).await {
             Ok(bytes) => (bytes, true),
             Err(reason) => {
                 warn!("The {kind} sidecar could not be fetched, scans will read whole files: {}", reason);
@@ -509,7 +672,7 @@ async fn sidecar(scope: &DedicatedWorkerGlobalScope, root: Option<&FileSystemDir
             }
         },
     };
-    let raw = match inflate(&bytes) {
+    let raw = match inflate(&bytes, side.raw) {
         Ok(raw) if raw.len() as u64 == side.raw => raw,
         Ok(raw) => {
             warn!("The {kind} sidecar inflated to {} bytes instead of {}", raw.len(), side.raw);
@@ -531,13 +694,13 @@ async fn sidecar(scope: &DedicatedWorkerGlobalScope, root: Option<&FileSystemDir
     Some(Sidefiles { raw, index })
 }
 
-pub(crate) async fn warm_frames(engine: &Rc<Engine>, frames: Vec<usize>, background: bool, report: impl Fn(usize, usize)) {
+pub(crate) async fn warm_frames(engine: &Rc<Engine>, frames: Vec<usize>, background: bool, report: impl Fn(usize, usize, usize)) {
     let mut waits = Vec::new();
     let mut fresh = Vec::new();
     let mut seen = HashSet::new();
 
     for frame in frames {
-        if !seen.insert(frame) || DECODED.with(|cache| cache.borrow().frames.contains_key(&frame)) {
+        if !seen.insert(frame) || decoded_now(frame) || (background && on_disk(frame)) {
             continue;
         }
 
@@ -546,7 +709,7 @@ pub(crate) async fn warm_frames(engine: &Rc<Engine>, frames: Vec<usize>, backgro
                 let (sender, receiver) = oneshot::channel();
 
                 waiting.get_mut().push(sender);
-                waits.push(receiver);
+                waits.push((frame, receiver));
             }
             std::collections::hash_map::Entry::Vacant(slot) => {
                 slot.insert(Vec::new());
@@ -561,30 +724,44 @@ pub(crate) async fn warm_frames(engine: &Rc<Engine>, frames: Vec<usize>, backgro
 
     let started = now();
     let count = fresh.len();
+    let total = count + waits.len();
     let done = std::cell::Cell::new(0usize);
-    let report = &report;
-    let done = &done;
-
-    stream::iter(fresh)
+    let fetching = stream::iter(fresh)
         .map(|frame| async move {
             engine.loader.acquire(frame, background).await;
             notify(frame);
-            done.set(done.get() + 1);
-            report(done.get(), count);
+            frame
         })
-        .buffer_unordered(if background { BACKGROUND_PARALLEL } else { PARALLEL })
-        .collect::<Vec<()>>()
-        .await;
+        .buffer_unordered(if background { BACKGROUND_PARALLEL } else { PARALLEL });
+    let waiting: FuturesUnordered<_> = waits
+        .into_iter()
+        .map(|(frame, receiver)| async move {
+            let _ = receiver.await;
+            frame
+        })
+        .collect();
 
-    for receiver in waits {
-        let _ = receiver.await;
-    }
+    stream::select(fetching, waiting)
+        .for_each(|frame| {
+            done.set(done.get() + 1);
+            report(frame, done.get(), total);
+            future::ready(())
+        })
+        .await;
 
     if count > 0 {
         debug!(frames = count, ms = (now() - started) as u32, "Frames were warmed in parallel");
     }
 
     spawn_local(persist());
+}
+
+fn decoded_now(frame: usize) -> bool {
+    DECODED.with(|cache| cache.borrow().frames.contains_key(&frame))
+}
+
+fn on_disk(frame: usize) -> bool {
+    CACHED.with(|cached| cached.borrow().contains_key(&frame)) || HANDLES.with(|handles| handles.borrow().contains_key(&frame))
 }
 
 pub(crate) async fn breathe() {
@@ -635,11 +812,14 @@ fn notify(frame: usize) {
     }
 }
 
-fn answer(engine: &Engine, id: u32, request: Request) -> Reply {
+fn answer(engine: &Engine, id: u32, request: Request) -> (Reply, Option<Kept>) {
+    let keep = !engine.loader.layered_now();
+    let kept = |name: &'static str, payload: Option<Vec<u8>>| payload.filter(|_| keep).map(|bytes| (name, bytes));
+
     match request {
-        Request::Battle(_) | Request::Mods(_) | Request::Names => Reply::Names(engine.loader.index.keys().cloned().collect()),
+        Request::Battle(_) | Request::Mods(_) | Request::Names => (Reply::Names { id: engine.loader.catalog.id.clone(), names: engine.loader.sorted.clone() }, None),
         Request::Fetch(names) => {
-            Reply::Files(names.into_iter().filter_map(|name| engine.loader.load(&name).map(|bytes| (name, bytes.to_vec()))).collect())
+            (Reply::Files(names.into_iter().filter_map(|name| engine.loader.load(&name).map(|bytes| (name, bytes.to_vec()))).collect()), None)
         }
         Request::Picture { kind, name } => {
             let started = now();
@@ -647,31 +827,82 @@ fn answer(engine: &Engine, id: u32, request: Request) -> Reply {
 
             debug!(%name, ms = (now() - started) as u32, "A picture was prepared");
 
-            Reply::Picture(prepared)
+            (Reply::Picture(prepared), None)
         }
         Request::Warm(names) => {
             for name in &names {
                 engine.loader.load(name);
             }
 
-            Reply::Warmed
+            (Reply::Warmed, None)
         }
-        Request::Rig { png, cut, model } => Reply::Rig(rig(engine, &png, &cut, &model)),
+        Request::Rig { png, cut, model } => (Reply::Rig(rig(engine, &png, &cut, &model)), None),
         Request::Cats(config) => {
             localize(engine, &config.language_priority);
 
-            Reply::Cats(cat::scanner::load(config, Arc::clone(&engine.vault), move |done, total| progress(id, done, total)).data)
+            let scan = cat::scanner::load(config, Arc::clone(&engine.vault), move |done, total| progress(id, done, total));
+
+            (Reply::Cats(scan.data), kept(CAT_SCAN, scan.payload))
         }
         Request::Enemies(config) => {
             localize(engine, &config.language_priority);
 
-            Reply::Enemies(enemy::scanner::load(config, Arc::clone(&engine.vault), move |done, total| progress(id, done, total)).data)
+            let scan = enemy::scanner::load(config, Arc::clone(&engine.vault), move |done, total| progress(id, done, total));
+
+            (Reply::Enemies(scan.data), kept(ENEMY_SCAN, scan.payload))
         }
         Request::Stages(config) => {
             localize(engine, &config.language_priority);
 
-            Reply::Stages(Box::new(stage::scanner::load(config, Arc::clone(&engine.vault), move |done, total| progress(id, done, total)).data))
+            let scan = stage::scanner::load(config, Arc::clone(&engine.vault), move |done, total| progress(id, done, total));
+
+            (Reply::Stages(Box::new(scan.data)), kept(STAGE_SCAN, scan.payload))
         }
+    }
+}
+
+async fn recalled(engine: &Rc<Engine>, request: &Request) -> Option<Reply> {
+    let (config, name) = match request {
+        Request::Cats(config) => (config, CAT_SCAN),
+        Request::Enemies(config) => (config, ENEMY_SCAN),
+        Request::Stages(config) => (config, STAGE_SCAN),
+        _ => return None,
+    };
+
+    if engine.loader.layered_now() {
+        return None;
+    }
+
+    localize(engine, &config.language_priority);
+
+    let dir = CACHE_DIR.with(|slot| slot.borrow().clone())?;
+    let bytes = read_root(&dir, name).await?;
+    let started = now();
+    let key = engine.vault.key(config);
+    let reply = match request {
+        Request::Cats(_) => {
+            warm_frames(engine, engine.loader.pooled(|pool| TABLE_POOLS.contains(&pool)), false, |_, _, _| {}).await;
+            cat::scanner::restore(&bytes, &engine.vault).filter(|(hash, _)| *hash == key).map(|(_, cats)| Reply::Cats(cats))
+        }
+        Request::Enemies(_) => enemy::scanner::restore(&bytes).filter(|(hash, _)| *hash == key).map(|(_, enemies)| Reply::Enemies(enemies)),
+        _ => stage::scanner::restore(&bytes).filter(|(hash, _)| *hash == key).map(|(_, bundle)| Reply::Stages(Box::new(bundle))),
+    };
+
+    match &reply {
+        Some(_) => info!(name, ms = (now() - started) as u32, "A scan was recalled from browser storage"),
+        None => debug!(name, "A kept scan no longer matches; scanning again"),
+    }
+
+    reply
+}
+
+async fn keep_scan(name: &'static str, bytes: Vec<u8>) {
+    let Some(dir) = CACHE_DIR.with(|slot| slot.borrow().clone()) else {
+        return;
+    };
+
+    if let Err(err) = write_root(&dir, name, &bytes).await {
+        warn!("A scan could not be kept in browser storage: {:?}", err);
     }
 }
 
@@ -692,7 +923,7 @@ fn localize(engine: &Engine, priority: &[String]) {
 }
 
 fn progress(id: u32, done: usize, total: usize) {
-    post(Answer { id, reply: Reply::Progress { done, total } });
+    post(Answer { id, reply: Reply::Progress { done, total, scanning: true } });
 }
 
 pub(crate) fn forget_sheets() {
@@ -879,6 +1110,12 @@ impl ChunkLoader {
         })
     }
 
+    fn layered_now(&self) -> bool {
+        let layer = self.layer();
+
+        !layer.files.is_empty() || !layer.withheld.is_empty()
+    }
+
     pub(crate) fn has(&self, name: &str) -> bool {
         self.layered(name).map_or_else(|| self.has_vanilla(name), |layered| layered.is_some())
     }
@@ -889,6 +1126,14 @@ impl ChunkLoader {
 
         names.extend(layer.files.keys().filter(|name| !self.index.contains_key(*name)).cloned());
         names
+    }
+
+    fn frame_size(&self, frame: usize) -> u64 {
+        self.frames.get(frame).map_or(0, |located| located.size)
+    }
+
+    fn side_size(&self, kind: &str) -> u64 {
+        self.catalog.sidecars.iter().find(|side| *side.kind == *kind).map_or(0, |side| side.size)
     }
 
     pub(crate) fn frames_of<'a>(&self, names: impl IntoIterator<Item = &'a str>) -> Vec<usize> {
@@ -985,7 +1230,7 @@ impl ChunkLoader {
         }
 
         let fetched = now();
-        let raw = match inflate(&bytes) {
+        let raw = match inflate(&bytes, located.raw) {
             Ok(raw) if raw.len() as u64 == located.raw => raw,
             Ok(raw) => {
                 error!("{} frame at {} inflated to {} bytes instead of {}", chunk.name, located.offset, raw.len(), located.raw);
@@ -1016,11 +1261,10 @@ impl ChunkLoader {
     }
 }
 
-fn inflate(bytes: &[u8]) -> Result<Vec<u8>, String> {
-    let mut decoder = StreamingDecoder::new(bytes).map_err(|err| err.to_string())?;
-    let mut raw = Vec::new();
+fn inflate(bytes: &[u8], expected: u64) -> Result<Vec<u8>, String> {
+    let mut raw = Vec::with_capacity(usize::try_from(expected).unwrap_or(0));
 
-    decoder.read_to_end(&mut raw).map_err(|err| err.to_string())?;
+    StreamingDecoder::new(bytes).read_to_end(&mut raw).map_err(|err| err.to_string())?;
 
     Ok(raw)
 }
@@ -1117,14 +1361,54 @@ async fn body(response: &Response, url: &str) -> Result<Vec<u8>, String> {
     Ok(Uint8Array::new(&buffer).to_vec())
 }
 
-async fn fetch_etag(scope: &DedicatedWorkerGlobalScope, url: &str) -> Option<Box<str>> {
-    let response = fetch_response(scope, "HEAD", url, None, Some(RequestCache::NoStore)).await.inspect_err(|reason| debug!("The file index could not be probed: {reason}")).ok()?;
+fn begin_head(scope: &DedicatedWorkerGlobalScope, url: &str) -> Option<JsFuture> {
+    let init = RequestInit::new();
+
+    init.set_method("HEAD");
+    init.set_cache(RequestCache::NoStore);
+
+    let request = WebRequest::new_with_str_and_init(url, &init).inspect_err(|err| debug!("The file index could not be probed: {}", describe(err.clone()))).ok()?;
+
+    Some(JsFuture::from(scope.fetch_with_request(&request)))
+}
+
+async fn finish_head(probe: Option<JsFuture>) -> Option<Box<str>> {
+    let response: Response = probe?.await.inspect_err(|err| debug!("The file index could not be probed: {}", describe(err.clone()))).ok()?.dyn_into().ok()?;
 
     (response.status() == 200).then(|| response.headers().get(ETAG).ok().flatten().map(|held| strong(&held))).flatten()
 }
 
 fn strong(etag: &str) -> Box<str> {
     Box::from(etag.strip_prefix("W/").unwrap_or(etag))
+}
+
+async fn fetch_streamed(scope: &DedicatedWorkerGlobalScope, url: &str, expected: u64, advance: &dyn Fn(u64)) -> Result<Vec<u8>, String> {
+    let response = fetch_response(scope, "GET", url, None, None).await?;
+
+    if response.status() != 200 {
+        return Err(format!("[{}] {url}", response.status()));
+    }
+
+    let Some(stream) = response.body() else {
+        return body(&response, url).await;
+    };
+    let reader: ReadableStreamDefaultReader = stream.get_reader().dyn_into().map_err(|_| format!("{url} could not be read as a stream"))?;
+    let mut bytes = Vec::with_capacity(usize::try_from(expected).unwrap_or(0));
+
+    loop {
+        let chunk = JsFuture::from(reader.read()).await.map_err(|err| format!("{url} body could not be read: {}", describe(err)))?;
+
+        if Reflect::get(&chunk, &JsValue::from_str(DONE)).map_err(describe)?.is_truthy() {
+            return Ok(bytes);
+        }
+
+        let value = Uint8Array::new(&Reflect::get(&chunk, &JsValue::from_str(VALUE)).map_err(describe)?);
+        let start = bytes.len();
+
+        bytes.resize(start + value.length() as usize, 0);
+        value.copy_to(&mut bytes[start..]);
+        advance(u64::from(value.length()));
+    }
 }
 
 pub(crate) async fn fetch_bytes(scope: &DedicatedWorkerGlobalScope, url: &str, range: Option<(u64, u64)>, revalidate: bool) -> Result<Vec<u8>, String> {
@@ -1162,19 +1446,8 @@ fn describe(err: JsValue) -> String {
     err.as_string().unwrap_or_else(|| format!("{err:?}"))
 }
 
-async fn prepare(root: Option<&FileSystemDirectoryHandle>, catalog: &Catalog, frames: &[Located]) -> Result<FileSystemDirectoryHandle, JsValue> {
+async fn prepare(root: Option<&FileSystemDirectoryHandle>, catalog: &Catalog, frames: &[Located]) -> Result<(FileSystemDirectoryHandle, Vec<String>), JsValue> {
     let root = root.ok_or_else(|| JsValue::from_str("the origin private file system is not available"))?;
-
-    for key in keys(root).await? {
-        if key != *catalog.id && key != INDEX_FILE && ![LATEST_FILE, LATEST_FILES, UPLOADED_FILE, UPLOADED_NAME].contains(&key.as_str()) && !crate::mods::STORED.contains(&key.as_str()) && !catalog.sidecars.iter().any(|side| *side.address == *key) {
-            let options = FileSystemRemoveOptions::new();
-
-            options.set_recursive(true);
-            JsFuture::from(root.remove_entry_with_options(&key, &options)).await?;
-            info!(payload = key, "Dropped the cache of a payload that is no longer published");
-        }
-    }
-
     let options = FileSystemGetDirectoryOptions::new();
 
     options.set_create(true);
@@ -1182,15 +1455,15 @@ async fn prepare(root: Option<&FileSystemDirectoryHandle>, catalog: &Catalog, fr
     let dir: FileSystemDirectoryHandle = JsFuture::from(root.get_directory_handle_with_options(&catalog.id, &options)).await?.dyn_into()?;
     let known: HashMap<String, usize> = frames.iter().enumerate().map(|(id, located)| (cache_key(&catalog.chunks[located.chunk].name, located.offset), id)).collect();
     let mut cached = HashMap::new();
+    let mut stale = Vec::new();
 
     for key in keys(&dir).await? {
         match known.get(&key) {
             Some(&id) => {
                 cached.insert(id, Box::from(key.as_str()));
             }
-            None => {
-                JsFuture::from(dir.remove_entry(&key)).await?;
-            }
+            None if SCANS.contains(&key.as_str()) => {}
+            None => stale.push(key),
         }
     }
 
@@ -1198,7 +1471,44 @@ async fn prepare(root: Option<&FileSystemDirectoryHandle>, catalog: &Catalog, fr
     CACHED.with(|slot| *slot.borrow_mut() = cached);
     CACHE_DIR.with(|slot| *slot.borrow_mut() = Some(dir.clone()));
 
-    Ok(dir)
+    Ok((dir, stale))
+}
+
+fn kept(key: &str, catalog: &Catalog) -> bool {
+    key == &*catalog.id
+        || key == INDEX_FILE
+        || [LATEST_FILE, LATEST_FILES, UPLOADED_FILE, UPLOADED_NAME].contains(&key)
+        || crate::mods::STORED.contains(&key)
+        || catalog.sidecars.iter().any(|side| *side.address == *key)
+}
+
+async fn sweep(root: &FileSystemDirectoryHandle, catalog: &Catalog, stale: Vec<String>) {
+    if let Some(dir) = CACHE_DIR.with(|slot| slot.borrow().clone()) {
+        for key in stale {
+            if let Err(err) = JsFuture::from(dir.remove_entry(&key)).await {
+                warn!("A stale cached frame could not be removed: {:?}", err);
+            }
+        }
+    }
+
+    let found = match keys(root).await {
+        Ok(found) => found,
+        Err(err) => {
+            warn!("Browser storage could not be listed for cleanup: {:?}", err);
+            return;
+        }
+    };
+
+    for key in found.into_iter().filter(|key| !kept(key, catalog)) {
+        let options = FileSystemRemoveOptions::new();
+
+        options.set_recursive(true);
+
+        match JsFuture::from(root.remove_entry_with_options(&key, &options)).await {
+            Ok(_) => info!(payload = key, "Dropped the cache of a payload that is no longer published"),
+            Err(err) => warn!("An outdated cache could not be removed: {:?}", err),
+        }
+    }
 }
 
 pub(crate) async fn recall(engine: &Engine, name: &str) -> Option<Vec<u8>> {

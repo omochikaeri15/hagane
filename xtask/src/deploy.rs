@@ -22,6 +22,7 @@ const LIVE: &str = "website-deploy";
 const PID_FILE: &str = "website-deploy.pid";
 const LOG_FILE: &str = "website-deploy.log";
 const HEADERS_FILE: &str = "_headers";
+const DETACH: char = '!';
 const INDEX: &str = "index.html";
 const WASM_FLAGS: &str = "-C target-feature=+simd128";
 const WAIT_STEP: Duration = Duration::from_millis(100);
@@ -154,7 +155,9 @@ fn read_headers(root: &Path) -> Headers {
         }
 
         if line.starts_with(char::is_whitespace) {
-            if let Some(path) = &path {
+            if let Some(path) = &path
+                && !line.trim().starts_with(DETACH)
+            {
                 headers.entry(String::clone(path)).or_default().push(line.trim().to_owned());
             }
         } else {
@@ -282,7 +285,7 @@ mod tests {
         let root = env::temp_dir().join(format!("xtask-headers-{}", process::id()));
 
         fs::create_dir_all(&root).unwrap();
-        fs::write(root.join(HEADERS_FILE), "/assets/sw.js\n  Service-Worker-Allowed: /\n").unwrap();
+        fs::write(root.join(HEADERS_FILE), "/assets/*\n  Cache-Control: immutable\n\n/assets/sw.js\n  ! Cache-Control\n  Service-Worker-Allowed: /\n").unwrap();
 
         let headers = read_headers(&root);
 

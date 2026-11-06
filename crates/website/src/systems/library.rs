@@ -57,6 +57,8 @@ pub(crate) struct Library {
     busy: Signal<bool>,
     data: Signal<u64>,
     phase: Signal<Phase>,
+    payload: Signal<Option<Box<str>>>,
+    modded: Signal<bool>,
 }
 
 const IMAGE_SUFFIXES: [&str; 4] = [".png", ".imgcut", ".mamodel", ".maanim"];
@@ -74,6 +76,8 @@ impl Library {
             busy: Signal::new(false),
             data: Signal::new(0),
             phase: Signal::new(Phase { label: Box::from(STARTING), done: 0, total: 0 }),
+            payload: Signal::new(None),
+            modded: Signal::new(false),
         });
 
         use_hook(move || {
@@ -87,7 +91,7 @@ impl Library {
 
     async fn open(mut self, platform: Platform, nudge: UnboundedSender<()>, mut pulses: UnboundedReceiver<()>) {
         let phase = self.phase;
-        let names = match platform
+        let listing = match platform
             .host()
             .names(Box::new(move |seen| {
                 let mut phase = phase;
@@ -96,13 +100,17 @@ impl Library {
             }))
             .await
         {
-            Ok(names) => names,
+            Ok(listing) => listing,
             Err(fault) => {
                 warn!("The file host could not be reached: {}", fault);
                 self.fault.set(Some(fault));
                 return;
             }
         };
+        let names = listing.names;
+
+        self.payload.set(Some(listing.id));
+
         let vault = Vault::with_priority(&lang::default_priority());
         let deferred = Arc::new(Deferred { missing: Mutex::new(HashSet::new()), nudge });
 
@@ -199,6 +207,7 @@ impl Library {
         let mut touched: Vec<Box<str>> = core.modded.borrow_mut().drain().collect();
 
         core.epoch.set(core.epoch.get() + 1);
+        self.modded.set(mounted.is_some());
         core.vault.vfs.destroy(Lazy { key: MOD, names: Vec::new(), withheld: Vec::new() });
 
         if let Some(mounted) = mounted {
@@ -255,5 +264,13 @@ impl Library {
 
     pub(crate) fn generation(&self) -> u64 {
         (self.generation)()
+    }
+
+    pub(crate) fn payload(&self) -> Option<Box<str>> {
+        self.payload.peek().clone()
+    }
+
+    pub(crate) fn modded(&self) -> bool {
+        *self.modded.peek()
     }
 }

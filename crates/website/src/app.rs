@@ -19,7 +19,7 @@ use crate::theme::{self, AppTheme};
 use crate::widget::{drawer, tip};
 
 static ICON: Asset = asset!("/assets/icon.ico");
-const THEME_KEY: &str = "theme";
+pub(crate) const THEME_KEY: &str = "theme";
 const SETTINGS_KEY: &str = "settings";
 const SEPARATOR: char = '/';
 const FORM_LETTERS: [&str; 4] = ["f", "c", "s", "u"];
@@ -141,7 +141,7 @@ pub fn App() -> Element {
 
     let restored = platform.host().recall(SETTINGS_KEY).and_then(|json| serde_json::from_str::<GameSettings>(&json).ok()).unwrap_or_default();
     let settings = use_context_provider(|| Signal::new(restored));
-    images::provide(&platform);
+    let pictures = images::provide(&platform);
     animation::provide_rigs(&platform);
 
     sandbox::provide(&platform);
@@ -154,7 +154,22 @@ pub fn App() -> Element {
     let angler = platform.clone();
     let library = Library::provide(platform);
 
-    context::provide(library, settings);
+    use_hook(move || {
+        pictures.attach(move || {
+            let payload = library.payload()?;
+
+            (!library.modded()).then(|| images::epoch_of(&payload))
+        });
+    });
+
+    let globals = context::provide(library, settings);
+    let mut fonts_due = use_signal(|| false);
+
+    use_effect(move || {
+        if globals().is_some() && !*fonts_due.peek() {
+            fonts_due.set(true);
+        }
+    });
     catalog::provide();
     export::provide();
     cat::provide();
@@ -165,8 +180,10 @@ pub fn App() -> Element {
 
     rsx! {
         document::Link { rel: "icon", href: ICON }
-        for (family, face) in theme::FONT_FACES {
-            document::Link { key: "{family}", rel: "preload", r#as: "font", r#type: "font/ttf", href: *face, crossorigin: "anonymous" }
+        if fonts_due() {
+            for (family, face, _) in theme::FONT_FACES {
+                link { key: "{family}", rel: "prefetch", r#as: "font", r#type: "font/ttf", href: "{face}", crossorigin: "anonymous", "fetchpriority": "low" }
+            }
         }
         document::Style { {theme::stylesheet()} }
         document::Link { rel: "stylesheet", href: theme::THEME }

@@ -72,8 +72,13 @@ pub static GAME_FONTS: [Asset; 6] = [
     asset!("/assets/fonts/NotoSansThai-Bold.ttf"),
     asset!("/assets/fonts/Miscellaneous-Symbols.ttf"),
 ];
-pub const FONT_FACES: [(&str, &Asset); 4] = [("Noto Sans JP", &NOTO_JP), ("Noto Sans KR", &NOTO_KR), ("Noto Sans TC", &NOTO_TC), ("Noto Sans Thai", &NOTO_TH)];
-pub static THEME: Asset = asset!("/assets/theme.css");
+pub const FONT_FACES: [(&str, &Asset, &str); 4] = [
+    ("Noto Sans JP", &NOTO_JP, "U+3000-30FF, U+3190-319F, U+31F0-31FF, U+3200-33FF, U+3400-4DBF, U+4E00-9FFF, U+F900-FAFF, U+FE30-FE4F, U+FF00-FFEF, U+20000-2FA1F"),
+    ("Noto Sans KR", &NOTO_KR, "U+1100-11FF, U+3000-303F, U+3130-318F, U+3200-32FF, U+3400-4DBF, U+4E00-9FFF, U+A960-A97F, U+AC00-D7AF, U+D7B0-D7FF, U+F900-FAFF, U+FF00-FFEF"),
+    ("Noto Sans TC", &NOTO_TC, "U+2E80-2FDF, U+3000-303F, U+3100-312F, U+31A0-31BF, U+3200-33FF, U+3400-4DBF, U+4E00-9FFF, U+F900-FAFF, U+FE30-FE4F, U+FF00-FFEF, U+20000-2FA1F"),
+    ("Noto Sans Thai", &NOTO_TH, "U+0E00-0E7F"),
+];
+pub static THEME: Asset = asset!("/assets/theme.css", AssetOptions::css().with_static_head(true));
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
 pub enum AppTheme {
@@ -305,8 +310,8 @@ pub fn stylesheet() -> String {
     let _ = writeln!(css, "@font-face {{ font-family: \"Fira Sans\"; src: url(\"{FIRA}\") format(\"truetype\"); font-weight: 400; font-display: block; }}");
     let _ = writeln!(css, "@font-face {{ font-family: \"Fira Sans\"; src: url(\"{FIRA_BOLD}\") format(\"truetype\"); font-weight: 700; font-display: block; }}");
 
-    for (family, face) in FONT_FACES {
-        let _ = writeln!(css, "@font-face {{ font-family: \"{family}\"; src: url(\"{face}\") format(\"truetype\"); font-weight: 400; font-display: block; }}");
+    for (family, face, range) in FONT_FACES {
+        let _ = writeln!(css, "@font-face {{ font-family: \"{family}\"; src: url(\"{face}\") format(\"truetype\"); font-weight: 400; font-display: swap; unicode-range: {range}; }}");
     }
     let _ = writeln!(css, ":root {{");
 
@@ -337,4 +342,20 @@ pub fn stylesheet() -> String {
     css.push_str("}\n");
     css.push_str(RESTING);
     css
+}
+
+#[cfg(test)]
+mod tests {
+    use super::AppTheme;
+
+    // the page paints before any of the app's own styles arrive, so it has to agree with the palette
+    #[test]
+    fn the_page_template_starts_on_the_theme_backgrounds() {
+        let page = include_str!("../index.html");
+
+        assert!(page.contains(&format!("background:{}", AppTheme::Dark.palette().background.css())));
+        assert!(page.contains(&format!("background:{}", AppTheme::Light.palette().background.css())));
+        assert!(page.contains(&format!("getItem(\"{}\")===\"{}\"", crate::app::THEME_KEY, AppTheme::Light.key())));
+        assert!(page.contains(&format!("rel=\"preconnect\" href=\"{}\" crossorigin", crate::worker::HOST)));
+    }
 }

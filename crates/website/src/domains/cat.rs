@@ -379,7 +379,7 @@ fn Browser(selected: Option<u32>, form: Option<usize>) -> Element {
     let (cats, scanning) = match &load {
         Load::Ready(cats) => (Some(Rc::clone(cats)), None),
         Load::Loading(progress) => (None, Some(*progress)),
-        Load::Idle => (None, Some(crate::platform::Progress { done: 0, total: 0 })),
+        Load::Idle => (None, Some(crate::platform::Progress::default())),
         Load::Failed(fault) => {
             return rsx! { Status { title: "Cats could not be loaded", detail: fault.to_string() } };
         }
@@ -391,7 +391,7 @@ fn Browser(selected: Option<u32>, form: Option<usize>) -> Element {
     };
     let Some(cats) = cats else {
         let detail = scanning.and_then(|progress| Library::detail(progress.done, progress.total));
-        let title = if scanning.is_some_and(|progress| progress.total > 0) { "Scanning Cats..." } else { "Loading Cats..." };
+        let title = if scanning.is_some_and(|progress| progress.scanning) { "Scanning Cats..." } else { "Loading Cats..." };
 
         return rsx! { Status { title, detail } };
     };

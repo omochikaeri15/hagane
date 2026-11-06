@@ -68,7 +68,7 @@ pub(crate) struct Answer {
 #[derive(Serialize, Deserialize)]
 pub(crate) enum Reply {
     Ready,
-    Names(Vec<Box<str>>),
+    Names { id: Box<str>, names: Vec<Box<str>> },
     Files(Vec<(Box<str>, Vec<u8>)>),
     Picture(Option<Prepared>),
     Warmed,
@@ -77,7 +77,7 @@ pub(crate) enum Reply {
     Enemies(Vec<EnemyEntry>),
     Stages(Box<StageBundle>),
     Mods(ModState),
-    Progress { done: usize, total: usize },
+    Progress { done: usize, total: usize, scanning: bool },
     Phase { label: Box<str>, done: usize, total: usize },
     Battle(BattleEvent),
     Failed(String),

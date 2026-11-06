@@ -227,7 +227,7 @@ pub(crate) fn Browser(#[props(default)] routed: bool) -> Element {
     let (bundle, scanning) = match &load {
         Load::Ready(bundle) => (Some(Rc::clone(bundle)), None),
         Load::Loading(progress) => (None, Some(*progress)),
-        Load::Idle => (None, Some(crate::platform::Progress { done: 0, total: 0 })),
+        Load::Idle => (None, Some(crate::platform::Progress::default())),
         Load::Failed(fault) => {
             return rsx! { Status { title: "Stages could not be loaded", detail: fault.to_string() } };
         }
@@ -239,7 +239,7 @@ pub(crate) fn Browser(#[props(default)] routed: bool) -> Element {
     };
     let Some(bundle) = bundle else {
         let detail = scanning.and_then(|progress| Library::detail(progress.done, progress.total));
-        let title = if scanning.is_some_and(|progress| progress.total > 0) { "Scanning Stages..." } else { "Loading Stages..." };
+        let title = if scanning.is_some_and(|progress| progress.scanning) { "Scanning Stages..." } else { "Loading Stages..." };
 
         return rsx! { Status { title, detail } };
     };

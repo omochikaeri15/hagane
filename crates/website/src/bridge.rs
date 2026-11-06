@@ -25,7 +25,7 @@ use crate::systems::host::Phase as BattlePhase;
 use crate::platform::battle::{BattleCommand, BattleEvent, BattleWatch};
 use crate::platform::mods::{ModCommand, ModState};
 use crate::platform::{LOGGING_KEY, LOGGING_ON};
-use crate::platform::{Bytes, Fault, Fetched, Host, Pending, Phase, Picked, Picture, Prepared, Progress, Report, RigParts, Script, Surface, Watch};
+use crate::platform::{Bytes, Fault, Fetched, Host, Kept, Listing, Pending, Phase, Picked, Picture, Prepared, Progress, Report, RigParts, Script, Surface, Watch};
 
 use crate::battle::{self, Screen, SharedScreen};
 use crate::film;
@@ -315,9 +315,9 @@ fn received(calls: &Calls, link: &Link, event: MessageEvent) {
         return;
     }
 
-    if let Reply::Progress { done, total } = answer.reply {
+    if let Reply::Progress { done, total, scanning } = answer.reply {
         if let Some(report) = calls.borrow().get(&answer.id).and_then(|waiting| waiting.report.as_ref()) {
-            report(Progress { done, total });
+            report(Progress { done, total, scanning });
         }
 
         return;
@@ -355,6 +355,10 @@ const ADD_LISTENER: &str = "addEventListener";
 const PERSISTED: &str = "persisted";
 const SERVICE_WORKER: Asset = asset!("/assets/sw.js", AssetOptions::builder().with_hash_suffix(false));
 const IMAGE_CACHE: &str = "hagane-images";
+const IMAGE_ROOT: &str = "/images/";
+const DOWNLOADS_ROOT: &str = "/images/downloads/";
+const WIDTH_HEADER: &str = "X-Width";
+const HEIGHT_HEADER: &str = "X-Height";
 
 fn describe(err: JsValue) -> Fault {
     Fault(err.as_string().unwrap_or_else(|| format!("{err:?}")))
@@ -415,7 +419,7 @@ async fn save_attachment(name: &str, bytes: &[u8]) -> Result<(), JsValue> {
 
     let mut payload = bytes.to_vec();
     let response = Response::new_with_opt_u8_array_and_init(Some(&mut payload), &init)?;
-    let path = format!("/images/downloads/{name}");
+    let path = format!("{DOWNLOADS_ROOT}{name}");
 
     JsFuture::from(cache.put_with_str(&path, &response)).await?;
 
@@ -455,14 +459,53 @@ fn controlled() -> bool {
     web_sys::window().is_some_and(|window| window.navigator().service_worker().controller().is_some())
 }
 
-async fn store_image(folder: &str, name: &str, png: &[u8]) -> Result<String, JsValue> {
+async fn image_cache() -> Result<Cache, JsValue> {
     let window = web_sys::window().ok_or_else(|| JsValue::from_str("no window"))?;
-    let caches = window.caches()?;
-    let cache: Cache = JsFuture::from(caches.open(IMAGE_CACHE)).await?.dyn_into()?;
+
+    JsFuture::from(window.caches()?.open(IMAGE_CACHE)).await?.dyn_into()
+}
+
+async fn kept_image(path: String) -> Result<Option<Kept>, JsValue> {
+    let found = JsFuture::from(image_cache().await?.match_with_str(&path)).await?;
+
+    if found.is_undefined() || found.is_null() {
+        return Ok(None);
+    }
+
+    let headers = found.dyn_into::<Response>()?.headers();
+    let size = |name: &str| headers.get(name).ok().flatten().and_then(|held| held.parse::<u32>().ok());
+
+    Ok(size(WIDTH_HEADER).zip(size(HEIGHT_HEADER)).map(|(width, height)| Kept { url: path, width, height }))
+}
+
+async fn prune_images(keep: &str) -> Result<usize, JsValue> {
+    let cache = image_cache().await?;
+    let requests: Array = JsFuture::from(cache.keys()).await?.dyn_into()?;
+    let mut dropped = 0;
+
+    for request in requests.iter() {
+        let request: web_sys::Request = request.dyn_into()?;
+        let path = Url::new(&request.url())?.pathname();
+
+        if path.starts_with(keep) || path.starts_with(DOWNLOADS_ROOT) {
+            continue;
+        }
+
+        JsFuture::from(cache.delete_with_request(&request)).await?;
+        dropped += 1;
+    }
+
+    Ok(dropped)
+}
+
+async fn store_image(folder: &str, name: &str, png: &[u8], size: (u32, u32)) -> Result<String, JsValue> {
+    let cache = image_cache().await?;
     let headers = Headers::new()?;
 
     headers.set("Content-Type", "image/png")?;
     headers.set("Cache-Control", "no-store")?;
+    headers.set(WIDTH_HEADER, &size.0.to_string())?;
+    headers.set(HEIGHT_HEADER, &size.1.to_string())?;
 
     let init = ResponseInit::new();
 
@@ -470,7 +513,7 @@ async fn store_image(folder: &str, name: &str, png: &[u8]) -> Result<String, JsV
 
     let mut body = png.to_vec();
     let response = Response::new_with_opt_u8_array_and_init(Some(&mut body), &init)?;
-    let path = format!("/images/{folder}/{name}");
+    let path = format!("{IMAGE_ROOT}{folder}/{name}");
 
     JsFuture::from(cache.put_with_str(&path, &response)).await?;
 
@@ -648,7 +691,7 @@ impl Host for WebHost {
         controlled()
     }
 
-    fn publish_image(&self, folder: &str, name: &str, png: Bytes) -> Pending<Result<Option<String>, Fault>> {
+    fn publish_image(&self, folder: &str, name: &str, png: Bytes, size: (u32, u32)) -> Pending<Result<Option<String>, Fault>> {
         let (folder, name) = (folder.to_owned(), name.to_owned());
 
         Box::pin(async move {
@@ -656,7 +699,31 @@ impl Host for WebHost {
                 return Ok(None);
             }
 
-            store_image(&folder, &name, &png).await.map(Some).map_err(describe)
+            store_image(&folder, &name, &png, size).await.map(Some).map_err(describe)
+        })
+    }
+
+    fn kept_image(&self, folder: &str, name: &str) -> Pending<Option<Kept>> {
+        let path = format!("{IMAGE_ROOT}{folder}/{name}");
+
+        Box::pin(async move {
+            if !controlled() {
+                return None;
+            }
+
+            kept_image(path).await.inspect_err(|err| warn!("A kept image could not be read: {:?}", err)).ok().flatten()
+        })
+    }
+
+    fn prune_images(&self, keep: &str) -> Pending<()> {
+        let keep = format!("{IMAGE_ROOT}{keep}/");
+
+        Box::pin(async move {
+            match prune_images(&keep).await {
+                Ok(0) => {}
+                Ok(dropped) => info!(dropped, "Pictures kept for another payload or language were dropped"),
+                Err(err) => warn!("Old pictures could not be dropped: {:?}", err),
+            }
         })
     }
 
@@ -680,7 +747,7 @@ impl Host for WebHost {
         Box::pin(async move { viewer::open(&canvas, &overlay).await.map(|surface| Rc::new(surface) as Rc<dyn Surface>) })
     }
 
-    fn names(&self, watch: Watch) -> Pending<Result<Vec<Box<str>>, Fault>> {
+    fn names(&self, watch: Watch) -> Pending<Result<Listing, Fault>> {
         if let Some(link) = &self.link {
             if let Some(phase) = link.phase.borrow().as_ref() {
                 watch(phase.clone());
@@ -693,7 +760,7 @@ impl Host for WebHost {
 
         Box::pin(async move {
             match pending.await? {
-                Reply::Names(names) => Ok(names),
+                Reply::Names { id, names } => Ok(Listing { id, names }),
                 other => Err(unexpected(other)),
             }
         })

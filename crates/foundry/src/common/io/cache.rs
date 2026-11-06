@@ -118,6 +118,13 @@ pub(crate) fn write<C: CacheSpec>(hash: u64, data: &C::Data) {
     store::<C>(&bytes);
 }
 
+pub(crate) fn decode<C: CacheSpec>(bytes: &[u8]) -> Option<(u64, C::Data)> {
+    postcard::from_bytes::<CachePayload<C::Data>>(bytes)
+        .inspect_err(|err| tracing::info!("A {} payload could not be read ({}); it will be rebuilt", C::FILE, err))
+        .ok()
+        .map(|payload| (payload.hash, payload.data))
+}
+
 pub(crate) fn encode<C: CacheSpec>(hash: u64, data: &C::Data) -> Option<Vec<u8>> {
     let payload = CachePayload { build_stamp: BUILD_STAMP.to_string(), hash, data };
 

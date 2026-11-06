@@ -63,16 +63,28 @@ pub enum Script {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Fault(pub String);
 
+pub struct Kept {
+    pub url: String,
+    pub width: u32,
+    pub height: u32,
+}
+
+pub struct Listing {
+    pub id: Box<str>,
+    pub names: Vec<Box<str>>,
+}
+
 impl fmt::Display for Fault {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(&self.0)
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
 pub struct Progress {
     pub done: usize,
     pub total: usize,
+    pub scanning: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -130,7 +142,7 @@ pub trait Host {
     fn frame(&self) -> Pending<f64>;
     fn now(&self) -> f64;
     fn surface(&self, canvas: &str, overlay: &str) -> Pending<Result<Rc<dyn Surface>, Fault>>;
-    fn names(&self, watch: Watch) -> Pending<Result<Vec<Box<str>>, Fault>>;
+    fn names(&self, watch: Watch) -> Pending<Result<Listing, Fault>>;
     fn fetch(&self, names: Vec<Box<str>>) -> Pending<Result<Fetched, Fault>>;
     fn picture(&self, kind: Picture, name: Box<str>) -> Pending<Result<Option<Prepared>, Fault>>;
     fn warm(&self, names: Vec<Box<str>>) -> Pending<()>;
@@ -152,7 +164,9 @@ pub trait Host {
     fn mods(&self, command: mods::ModCommand, report: Report) -> Pending<Result<mods::ModState, Fault>>;
     fn sleep(&self, millis: u32) -> Pending<()>;
     fn can_publish(&self) -> bool;
-    fn publish_image(&self, folder: &str, name: &str, png: Bytes) -> Pending<Result<Option<String>, Fault>>;
+    fn publish_image(&self, folder: &str, name: &str, png: Bytes, size: (u32, u32)) -> Pending<Result<Option<String>, Fault>>;
+    fn kept_image(&self, folder: &str, name: &str) -> Pending<Option<Kept>>;
+    fn prune_images(&self, keep: &str) -> Pending<()>;
     fn cats(&self, config: ScannerConfig, report: Report) -> Pending<Result<Vec<CatEntry>, Fault>>;
     fn enemies(&self, config: ScannerConfig, report: Report) -> Pending<Result<Vec<EnemyEntry>, Fault>>;
     fn stages(&self, config: ScannerConfig, report: Report) -> Pending<Result<StageBundle, Fault>>;

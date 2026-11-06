@@ -253,6 +253,13 @@ pub fn hydrate(vault: &Vault) -> Option<(u64, Vec<CatEntry>)> {
     Some((hash, cats))
 }
 
+pub fn restore(bytes: &[u8], vault: &Vault) -> Option<(u64, Vec<CatEntry>)> {
+    let (hash, mut cats) = cache::decode::<CatCache>(bytes)?;
+
+    reshare(&mut cats, vault);
+    Some((hash, cats))
+}
+
 #[cfg(feature = "disk")]
 pub fn persist(payload: &[u8]) {
     cache::store::<CatCache>(payload);

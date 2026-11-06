@@ -19,6 +19,7 @@ use crate::platform::{Picture, Platform};
 
 const PACE_MS: u32 = 40;
 const PER_PACE: usize = 6;
+const PAYLOAD_PREFIX: usize = 16;
 
 struct Wanted {
     key: String,
@@ -40,6 +41,19 @@ pub(crate) struct Pictures {
     scheduling: Rc<Cell<bool>>,
     bumping: Rc<Cell<bool>>,
     tick: Signal<u32>,
+    epoch: Rc<RefCell<Option<Epoch>>>,
+    pruned: Rc<RefCell<Option<String>>>,
+    session: Rc<Cell<u32>>,
+}
+
+type Epoch = Rc<dyn Fn() -> Option<String>>;
+
+pub(crate) fn epoch_of(payload: &str) -> String {
+    payload.chars().take(PAYLOAD_PREFIX).collect()
+}
+
+fn lasting(kind: &Picture) -> bool {
+    !matches!(kind, Picture::Cut { .. })
 }
 
 pub(crate) struct Sized {
@@ -79,6 +93,9 @@ pub(crate) fn provide(platform: &Platform) -> Pictures {
         scheduling: Rc::default(),
         bumping: Rc::default(),
         tick: Signal::new(0),
+        epoch: Rc::default(),
+        pruned: Rc::default(),
+        session: Rc::default(),
     })
 }
 
@@ -87,7 +104,27 @@ pub(crate) fn pictures() -> Pictures {
 }
 
 impl Pictures {
+    pub(crate) fn attach(&self, epoch: impl Fn() -> Option<String> + 'static) {
+        *self.epoch.borrow_mut() = Some(Rc::new(epoch));
+    }
+
+    fn kept_under(&self) -> Option<String> {
+        let source = self.epoch.borrow().clone()?;
+        let epoch = source()?;
+
+        if self.pruned.borrow().as_deref() != Some(epoch.as_str()) {
+            *self.pruned.borrow_mut() = Some(epoch.clone());
+
+            let pruning = self.platform.host().prune_images(&epoch);
+
+            spawn_forever(pruning);
+        }
+
+        Some(epoch)
+    }
+
     pub(crate) fn forget_all(&self) {
+        self.session.set(self.session.get().wrapping_add(1));
         self.urls.borrow_mut().clear();
         self.sizes.borrow_mut().clear();
         self.sheets.borrow_mut().clear();
@@ -131,10 +168,46 @@ impl Pictures {
             return None;
         }
 
-        self.wanted.borrow_mut().push(Wanted { key, kind, name, folder });
-        self.schedule();
+        let held = Wanted { key, kind, name, folder };
+
+        match self.kept_under().filter(|_| lasting(&held.kind) && self.platform.host().can_publish()) {
+            Some(epoch) => self.recall(held, epoch),
+            None => {
+                self.wanted.borrow_mut().push(held);
+                self.schedule();
+            }
+        }
 
         None
+    }
+
+    fn recall(&self, held: Wanted, epoch: String) {
+        let session = self.session.get();
+        let lookup = self.platform.host().kept_image(&format!("{epoch}/{}", held.folder), &held.name);
+        let pictures = self.clone();
+
+        self.inflight.borrow_mut().insert(held.key.clone());
+        spawn_forever(async move {
+            let kept = lookup.await;
+
+            pictures.inflight.borrow_mut().remove(&held.key);
+
+            if pictures.session.get() != session {
+                return;
+            }
+
+            match kept {
+                Some(kept) => {
+                    pictures.sizes.borrow_mut().insert(held.key.clone(), (kept.width, kept.height));
+                    pictures.urls.borrow_mut().insert(held.key, Rc::from(kept.url));
+                    pictures.bump();
+                }
+                None => {
+                    pictures.wanted.borrow_mut().push(held);
+                    pictures.schedule();
+                }
+            }
+        });
     }
 
     pub(crate) fn unwant(&self, key: &str) {
@@ -166,29 +239,44 @@ impl Pictures {
 
                     pictures.request(held);
                 }
+
+                if pictures.wanted.borrow().is_empty() {
+                    pictures.scheduling.set(false);
+
+                    return;
+                }
             }
         });
     }
 
     fn request(&self, held: Wanted) {
+        let folder = lasting(&held.kind).then(|| self.kept_under()).flatten().map(|epoch| format!("{epoch}/{}", held.folder));
         let pending = self.platform.host().picture(held.kind, held.name.clone());
         let pictures = self.clone();
         let started = self.platform.host().now();
+        let session = self.session.get();
 
         spawn_forever(async move {
-            match pending.await {
+            let outcome = pending.await;
+
+            if pictures.session.get() != session {
+                pictures.inflight.borrow_mut().remove(&held.key);
+
+                return;
+            }
+
+            match outcome {
                 Ok(Some(prepared)) => {
-                    let url = if pictures.platform.host().can_publish() {
-                        match pictures.platform.host().publish_image(&held.folder, &held.name, prepared.png.clone()).await {
+                    let url = match folder.filter(|_| pictures.platform.host().can_publish()) {
+                        Some(folder) => match pictures.platform.host().publish_image(&folder, &held.name, prepared.png.clone(), (prepared.width, prepared.height)).await {
                             Ok(Some(url)) => Rc::from(url),
                             Ok(None) => data_url(&prepared.png),
                             Err(fault) => {
                                 warn!("An image could not be published: {fault}");
                                 data_url(&prepared.png)
                             }
-                        }
-                    } else {
-                        data_url(&prepared.png)
+                        },
+                        None => data_url(&prepared.png),
                     };
 
                     pictures.sizes.borrow_mut().insert(held.key.clone(), (prepared.width, prepared.height));

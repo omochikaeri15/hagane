@@ -178,7 +178,7 @@ fn Browser(selected: Option<u32>) -> Element {
     let (enemies, scanning) = match &load {
         Load::Ready(enemies) => (Some(Rc::clone(enemies)), None),
         Load::Loading(progress) => (None, Some(*progress)),
-        Load::Idle => (None, Some(crate::platform::Progress { done: 0, total: 0 })),
+        Load::Idle => (None, Some(crate::platform::Progress::default())),
         Load::Failed(fault) => {
             return rsx! { Status { title: "Enemies could not be loaded", detail: fault.to_string() } };
         }
@@ -190,7 +190,7 @@ fn Browser(selected: Option<u32>) -> Element {
     };
     let Some(enemies) = enemies else {
         let detail = scanning.and_then(|progress| Library::detail(progress.done, progress.total));
-        let title = if scanning.is_some_and(|progress| progress.total > 0) { "Scanning Enemies..." } else { "Loading Enemies..." };
+        let title = if scanning.is_some_and(|progress| progress.scanning) { "Scanning Enemies..." } else { "Loading Enemies..." };
 
         return rsx! { Status { title, detail } };
     };

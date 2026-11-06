@@ -326,6 +326,12 @@ pub(crate) fn Sandbox() -> Element {
         return rsx! { Status { title: phase.label.to_string(), detail: Library::detail(phase.done, phase.total) } };
     };
 
+    let cats_progress = match &cats {
+        Load::Loading(progress) => Some(*progress),
+        _ => None,
+    };
+    let cats_title = if cats_progress.is_some_and(|progress| progress.scanning) { "Scanning Cats..." } else { "Loading Cats..." };
+    let cats_detail = cats_progress.and_then(|progress| Library::detail(progress.done, progress.total));
     let cats = match &cats {
         Load::Ready(cats) => Some(Cats(Rc::clone(cats))),
         _ => None,
@@ -469,7 +475,7 @@ pub(crate) fn Sandbox() -> Element {
                 match tab {
                     Tab::Lineup => match cats.clone() {
                         Some(cats) => rsx! { lineup::Editor { cats, globals: globals.clone(), rules: Ruled(Rc::clone(&rules)), altar: altar_cap } },
-                        None => rsx! { Status { title: "Loading Cats...", detail: None } },
+                        None => rsx! { Status { title: cats_title, detail: cats_detail.clone() } },
                     },
                     Tab::Stage => rsx! { stage::Browser {} },
                     Tab::Config => rsx! { config::Config { globals: globals.clone(), staged: bundle.clone() } },

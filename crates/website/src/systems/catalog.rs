@@ -34,14 +34,33 @@ pub(crate) fn catalogs() -> Catalogs {
     use_context::<Catalogs>()
 }
 
-fn start<T: 'static>(mut slot: Signal<Load<T>>, generation: Signal<u32>, pending: impl FnOnce(Report) -> Pending<Result<T, Fault>>) {
-    if !matches!(&*slot.peek(), Load::Idle | Load::Failed(_)) {
+fn ahead(progress: Progress, held: Progress) -> bool {
+    match (progress.scanning, held.scanning) {
+        (true, false) => true,
+        (false, true) => false,
+        _ => progress.done >= held.done,
+    }
+}
+
+fn start<T: 'static>(mut slot: Signal<Load<T>>, generation: Signal<u32>, pending: impl FnOnce(Report) -> Pending<Result<T, Fault>>, then: impl FnOnce() + 'static) {
+    let (ready, loading) = {
+        let held = slot.peek();
+
+        (matches!(&*held, Load::Ready(_)), matches!(&*held, Load::Loading(_)))
+    };
+
+    if ready {
+        then();
+        return;
+    }
+
+    if loading {
         return;
     }
 
     let round = *generation.peek();
 
-    slot.set(Load::Loading(Progress { done: 0, total: 0 }));
+    slot.set(Load::Loading(Progress::default()));
 
     let report: Report = Box::new(move |progress| {
         let mut slot = slot;
@@ -51,7 +70,7 @@ fn start<T: 'static>(mut slot: Signal<Load<T>>, generation: Signal<u32>, pending
         }
 
         if let Load::Loading(held) = &mut *slot.write()
-            && progress.done >= held.done
+            && ahead(progress, *held)
         {
             *held = progress;
         }
@@ -66,6 +85,7 @@ fn start<T: 'static>(mut slot: Signal<Load<T>>, generation: Signal<u32>, pending
 
         if *generation.peek() == round {
             slot.set(landed);
+            then();
         }
     });
 }
@@ -84,17 +104,23 @@ impl Catalogs {
     }
 
     pub(crate) fn load_cats(&self, platform: &Platform, config: ScannerConfig) {
-        start(self.cats, self.generation, |report| platform.host().cats(config.clone(), report));
-        start(self.stages, self.generation, |report| platform.host().stages(config, report));
+        let (stages, generation, follower, companion) = (self.stages, self.generation, platform.clone(), config.clone());
+
+        start(self.cats, self.generation, |report| platform.host().cats(config, report), move || {
+            start(stages, generation, |report| follower.host().stages(companion, report), || {});
+        });
     }
 
     pub(crate) fn load_enemies(&self, platform: &Platform, config: ScannerConfig) {
-        start(self.enemies, self.generation, |report| platform.host().enemies(config, report));
+        start(self.enemies, self.generation, |report| platform.host().enemies(config, report), || {});
     }
 
     pub(crate) fn load_stages(&self, platform: &Platform, config: ScannerConfig) {
-        start(self.stages, self.generation, |report| platform.host().stages(config.clone(), report));
-        start(self.cats, self.generation, |report| platform.host().cats(config, report));
+        let (cats, generation, follower, companion) = (self.cats, self.generation, platform.clone(), config.clone());
+
+        start(self.stages, self.generation, |report| platform.host().stages(config, report), move || {
+            start(cats, generation, |report| follower.host().cats(companion, report), || {});
+        });
     }
 
     pub(crate) fn reset(&mut self) {

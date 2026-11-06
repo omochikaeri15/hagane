@@ -5,6 +5,7 @@ use std::collections::{BTreeSet, HashMap, HashSet};
 use std::rc::Rc;
 use std::sync::Arc;
 
+use futures_util::future;
 use tracing::{debug, info, warn};
 use wasm_bindgen::closure::Closure;
 use wasm_bindgen::JsCast;
@@ -299,9 +300,10 @@ pub(crate) async fn prepare(urls: Vec<Box<str>>) {
         return;
     };
     let mut fonts = Vec::with_capacity(urls.len());
+    let fetched = future::join_all(urls.iter().map(|url| worker::fetch_bytes(&scope, url, None, false))).await;
 
-    for url in &urls {
-        match worker::fetch_bytes(&scope, url, None, false).await {
+    for (url, outcome) in urls.iter().zip(fetched) {
+        match outcome {
             Ok(bytes) => fonts.push(Arc::from(bytes)),
             Err(reason) => warn!("A battle font could not be fetched from {url}: {reason}"),
         }
@@ -621,7 +623,7 @@ async fn export(engine: &Rc<Engine>) -> Result<Vec<u8>, String> {
     };
 
     post(BattleEvent::Exporting(0.0));
-    worker::warm_frames(engine, frames, false, |done, total| show(FETCH_SHARE * done as f32 / total.max(1) as f32)).await;
+    worker::warm_frames(engine, frames, false, |_, done, total| show(FETCH_SHARE * done as f32 / total.max(1) as f32)).await;
 
     let (mut packer, missing) = footage.packer(|name| kept.read(engine, name))?;
 
@@ -728,7 +730,7 @@ fn warm(engine: Rc<Engine>, frames: Vec<usize>) {
         let total = frames.len();
 
         post(BattleEvent::Warming { done: 0, total });
-        worker::warm_frames(&engine, frames, false, |done, total| post(BattleEvent::Warming { done, total })).await;
+        worker::warm_frames(&engine, frames, false, |_, done, total| post(BattleEvent::Warming { done, total })).await;
         post(BattleEvent::Warming { done: total, total });
         with(|arena| arena.session.warmed());
     });
