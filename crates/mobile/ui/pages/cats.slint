@@ -436,7 +436,7 @@ component Talents inherits VerticalLayout {
                         HorizontalLayout {
                             spacing: 8px; alignment: start;
                             Label { text: "Level:"; bold: true; color: Theme.white; font-size: 14px; vertical-alignment: center; }
-                            Slider { minimum: 0; maximum: group.max-level; value: group.level; enabled: !Cats.locked; changed(value) => { Cats.talent-level(group.index, value); } }
+                            Slider { minimum: 0; maximum: group.max-level; value: group.level; enabled: !Cats.locked; moving(value) => { Cats.talent-level(group.index, value); } changed(value) => { Cats.talent-level(group.index, value); } }
                             Input { width: 50px; height: 28px; text-size: 13px; text: group.input; placeholder: "0"; read-only: Cats.locked; input-type: InputType.number; edited(value) => { Cats.talent-input(group.index, value); } }
                         }
                         if group.has-shown: Lines { lines: group.shown; color: Theme.white; size: 15px; bold: true; }

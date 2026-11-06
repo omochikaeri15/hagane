@@ -149,14 +149,28 @@ export component Input inherits Rectangle {
     border-color: root.transparent-chrome && !field.has-focus ? transparent : (field.has-focus ? Theme.primary-strong : Theme.bg-strong);
     clip: true;
 
+    property <length> pad: 10px;
+    pure function lined(span: length, room: length) -> length {
+        return root.align == TextHorizontalAlignment.right ? room - span : (root.align == TextHorizontalAlignment.center ? (room - span) / 2 : 0);
+    }
+
     HorizontalLayout {
-        padding-left: 10px;
-        padding-right: 10px;
+        padding-left: root.pad;
+        padding-right: root.pad;
         padding-top: 5px;
         padding-bottom: 5px;
-        Rectangle {
-            Text {
+        box := Rectangle {
+            property <bool> fits: measure.preferred-width + 2px <= self.width + root.pad;
+            property <length> span: !field.has-focus || self.fits ? max(self.width, measure.preferred-width) : self.width;
+            measure := Text {
                 x: 0;
+                y: 0;
+                visible: false;
+                text: root.typed();
+                font-size: root.text-size;
+            }
+            Text {
+                x: root.lined(self.width, parent.width);
                 y: 0;
                 visible: root.text == "" && !field.has-focus;
                 text: root.placeholder;
@@ -164,11 +178,11 @@ export component Input inherits Rectangle {
                 font-size: root.text-size;
                 vertical-alignment: center;
                 horizontal-alignment: root.align;
-                width: parent.width;
+                width: max(parent.width, self.preferred-width);
                 height: parent.height;
             }
             field := TextInput {
-                x: 0;
+                x: root.lined(self.width, parent.width);
                 y: 0;
                 enabled: root.enabled;
                 read-only: root.read-only;
@@ -180,7 +194,7 @@ export component Input inherits Rectangle {
                 input-type: root.input-type;
                 selection-background-color: self.preedit-text != "" ? transparent : Theme.primary-weak;
                 selection-foreground-color: Theme.text;
-                width: parent.width;
+                width: box.span;
                 height: parent.height;
                 edited => { root.tell(); }
                 accepted => { root.accepted(self.text); }
@@ -663,6 +677,7 @@ export component Slider inherits Rectangle {
     in property <bool> enabled: true;
     in property <bool> guarded: true;
     callback changed(int);
+    callback moving(int);
     height: 24px;
     width: 160px;
     property <length> knob: 16px;
@@ -704,8 +719,12 @@ export component Slider inherits Rectangle {
             if event.kind == PointerEventKind.down {
                 root.live = root.at(self.mouse-x);
                 root.tracking = true;
-            } else if event.kind == PointerEventKind.move && root.tracking {
+                if root.live != root.value {
+                    root.moving(root.live);
+                }
+            } else if event.kind == PointerEventKind.move && root.tracking && root.at(self.mouse-x) != root.live {
                 root.live = root.at(self.mouse-x);
+                root.moving(root.live);
             } else if event.kind == PointerEventKind.up && root.tracking {
                 root.live = root.at(self.mouse-x);
                 root.tracking = false;

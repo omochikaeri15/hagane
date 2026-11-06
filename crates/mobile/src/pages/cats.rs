@@ -1392,8 +1392,18 @@ fn refresh_talents(ui: &AppWindow, state: &Shared, globals: &Rc<Globals>, vault:
             }
         })
         .collect();
+    let current = cats.get_talents();
 
-    cats.set_talents(ModelRc::new(VecModel::from(rows)));
+    match current.as_any().downcast_ref::<VecModel<TalentRow>>().filter(|model| model.row_count() == rows.len()) {
+        Some(model) => {
+            for (index, row) in rows.into_iter().enumerate() {
+                if model.row_data(index).as_ref() != Some(&row) {
+                    model.set_row_data(index, row);
+                }
+            }
+        }
+        None => cats.set_talents(ModelRc::new(VecModel::from(rows))),
+    }
 }
 
 fn refresh_details(ui: &AppWindow, globals: &Rc<Globals>, vault: &Arc<Vault>, images: &Images, cat: &CatEntry, form: usize, locked: bool) {
