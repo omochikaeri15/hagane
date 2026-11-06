@@ -105,6 +105,10 @@ pub fn persist(payload: &[u8]) {
     cache::store::<EnemyCache>(payload);
 }
 
+pub fn payload(key: u64, enemies: &[EnemyEntry]) -> Option<Vec<u8>> {
+    cache::encode::<EnemyCache>(key, enemies)
+}
+
 pub fn load(config: ScannerConfig, vault: Arc<Vault>, progress: impl Fn(usize, usize) + Sync) -> Scan<Vec<EnemyEntry>> {
     scan(config, &vault, progress)
 }
@@ -117,7 +121,7 @@ fn scan(config: ScannerConfig, vault: &Vault, progress: impl Fn(usize, usize) + 
 
     if raw_enemies.is_empty() {
         warn!("enemy scan aborted: t_unit table unavailable");
-        return Scan { data: Vec::new(), key: None, payload: None };
+        return Scan { data: Vec::new(), key: None };
     }
 
     let names = vault.vds.enemies.names(vfs);
@@ -146,9 +150,8 @@ fn scan(config: ScannerConfig, vault: &Vault, progress: impl Fn(usize, usize) + 
     parsed_enemies.sort_by_key(|e| e.id);
 
     let key = Some(cache::content_hash(vfs.fingerprint(), &config));
-    let payload = key.and_then(|key| cache::encode::<EnemyCache>(key, &parsed_enemies));
 
-    Scan { data: parsed_enemies, key, payload }
+    Scan { data: parsed_enemies, key }
 }
 
 pub fn touched(enemies: &[EnemyEntry], vault: &Vault, changed: &[&str]) -> HashSet<u32> {
@@ -207,8 +210,7 @@ fn process_enemy_entry(id: u32, vfs: &Vfs, stats: Entity, name: String, descript
     let mut atk_anim_frames = 0;
     if let Some(resolved_atk) = vfs.find(&files::maanim_file(id, 2))
         && let Ok(bytes) = vfs.read(&resolved_atk) {
-        let content = String::from_utf8_lossy(&bytes);
-        atk_anim_frames = Animation::scan_length(content.as_bytes()).unwrap_or(0).max(0);
+        atk_anim_frames = Animation::scan_length(&bytes).unwrap_or(0).max(0);
     }
 
     Some(EnemyEntry { id, name, description, stats, icon_path: resolved_icon, atk_anim_frames })

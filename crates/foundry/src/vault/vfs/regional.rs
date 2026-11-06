@@ -1,3 +1,4 @@
+use std::borrow::Cow;
 use std::ffi::OsStr;
 use std::ops::RangeInclusive;
 use std::path::Path;
@@ -10,7 +11,7 @@ const UDI_BASE_ONLY_IDS: RangeInclusive<u32> = 0..=9;
 pub(super) fn interleaved<'a>(
     filenames: &'a [&'a str],
     priority: &'a [String],
-) -> impl Iterator<Item = String> + 'a {
+) -> impl Iterator<Item = Cow<'a, str>> + 'a {
     priority
         .iter()
         .take_while(|code| code.as_str() != LANG_TERMINATOR)
@@ -35,16 +36,16 @@ pub(super) fn stripped(filename: &str, priority: &[String]) -> Option<String> {
     Some(format!("{}.{}", base, extension))
 }
 
-fn variant(filename: &str, code: &str) -> Option<String> {
+fn variant<'a>(filename: &'a str, code: &str) -> Option<Cow<'a, str>> {
     if code.is_empty() {
-        return Some(filename.to_string());
+        return Some(Cow::Borrowed(filename));
     }
 
     if unlocalized(filename) {
         return None;
     }
 
-    suffixed(filename, code)
+    suffixed(filename, code).map(Cow::Owned)
 }
 
 fn suffixed(filename: &str, code: &str) -> Option<String> {

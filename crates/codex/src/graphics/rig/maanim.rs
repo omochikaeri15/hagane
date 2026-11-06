@@ -1,7 +1,7 @@
 use serde::Serialize;
 
 use crate::common::columns::{self, Column};
-use crate::common::stream::{declared_rows, Reader};
+use crate::common::stream::{declared_rows, Cursor, Reader};
 use crate::graphics::tools::math;
 
 use super::RigError;
@@ -187,43 +187,38 @@ impl Animation {
     }
 
     fn scan_length_inner(bytes: &[u8]) -> Option<i32> {
-        let content = String::from_utf8_lossy(bytes);
-        let mut reader = Reader::new(&content);
+        let mut cursor = Cursor::new(bytes);
 
-        reader.line()?;
+        cursor.line()?;
 
-        reader.row();
-        reader.row();
-        let count = declared_rows(reader.value(0))?;
+        cursor.skip(2);
+        let count = declared_rows(cursor.value(0))?;
 
         let mut longest = 0;
 
         for _ in 0..count {
-            reader.row();
-            let loop_count = reader.value(2);
+            cursor.row();
+            let loop_count = cursor.value(2);
 
             if loop_count == -1 { return Some(-1); }
 
-            reader.row();
-            let keys = declared_rows(reader.value(0))?;
+            cursor.row();
+            let keys = declared_rows(cursor.value(0))?;
 
-            let (mut first, mut last) = (0, 0);
+            if keys == 0 { continue; }
 
-            for index in 0..keys {
-                reader.row();
+            cursor.row();
+            let first = cursor.value(0);
 
-                last = reader.value(0);
-                if index == 0 { first = last; }
-            }
+            cursor.skip(keys - 1);
+            let last = cursor.value(0);
 
-            if keys > 0 {
-                let played = loop_count
-                    .wrapping_sub(1)
-                    .wrapping_mul(last.wrapping_sub(first))
-                    .wrapping_add(last);
+            let played = loop_count
+                .wrapping_sub(1)
+                .wrapping_mul(last.wrapping_sub(first))
+                .wrapping_add(last);
 
-                if played >= longest { longest = played.wrapping_add(1); }
-            }
+            if played >= longest { longest = played.wrapping_add(1); }
         }
 
         Some(longest)

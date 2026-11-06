@@ -566,7 +566,7 @@ impl State {
                 let _ = tx.unbounded_send(Message::ScanProgress(generation, done, total));
             });
 
-            let payload = scan.payload;
+            let payload = scan.key.and_then(|key| scanner::payload(key, &scan.data));
             let available = Box::new(filter::Available::of(&scan.data, &vault));
             let _ = tx.unbounded_send(Message::Loaded(generation, scan.data, scan.key, available));
 

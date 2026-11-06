@@ -200,8 +200,8 @@ impl Catalogs {
                 Kind::Cats => Landed::Cats(cached.then(|| cat_scanner::hydrate(&vault)).flatten().map(|(_, cats)| cats).unwrap_or_else(|| {
                     let scan = cat_scanner::load(config, Arc::clone(&vault), report);
 
-                    if let Some(bytes) = &scan.payload {
-                        cat_scanner::persist(bytes);
+                    if let Some(bytes) = scan.key.and_then(|key| cat_scanner::payload(key, &scan.data)) {
+                        cat_scanner::persist(&bytes);
                     }
 
                     scan.data
@@ -209,8 +209,8 @@ impl Catalogs {
                 Kind::Enemies => Landed::Enemies(cached.then(enemy_scanner::hydrate).flatten().map(|(_, enemies)| enemies).unwrap_or_else(|| {
                     let scan = enemy_scanner::load(config, Arc::clone(&vault), report);
 
-                    if let Some(bytes) = &scan.payload {
-                        enemy_scanner::persist(bytes);
+                    if let Some(bytes) = scan.key.and_then(|key| enemy_scanner::payload(key, &scan.data)) {
+                        enemy_scanner::persist(&bytes);
                     }
 
                     scan.data
@@ -218,8 +218,8 @@ impl Catalogs {
                 Kind::Stages => Landed::Stages(Box::new(cached.then(stage_scanner::hydrate).flatten().map(|(_, bundle)| bundle).unwrap_or_else(|| {
                     let scan = stage_scanner::load(config, Arc::clone(&vault), report);
 
-                    if let Some(bytes) = &scan.payload {
-                        stage_scanner::persist(bytes);
+                    if let Some(bytes) = scan.key.and_then(|key| stage_scanner::payload(key, &scan.data)) {
+                        stage_scanner::persist(&bytes);
                     }
 
                     scan.data

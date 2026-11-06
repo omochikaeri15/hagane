@@ -143,7 +143,7 @@ pub trait Host {
     fn now(&self) -> f64;
     fn surface(&self, canvas: &str, overlay: &str) -> Pending<Result<Rc<dyn Surface>, Fault>>;
     fn names(&self, watch: Watch) -> Pending<Result<Listing, Fault>>;
-    fn fetch(&self, names: Vec<Box<str>>) -> Pending<Result<Fetched, Fault>>;
+    fn fetch(&self, names: Vec<Box<str>>, report: Report) -> Pending<Result<Fetched, Fault>>;
     fn picture(&self, kind: Picture, name: Box<str>) -> Pending<Result<Option<Prepared>, Fault>>;
     fn warm(&self, names: Vec<Box<str>>) -> Pending<()>;
     fn rig(&self, png: Box<str>, cut: Box<str>, model: Box<str>) -> Pending<Result<Option<RigParts>, Fault>>;

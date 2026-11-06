@@ -766,8 +766,8 @@ impl Host for WebHost {
         })
     }
 
-    fn fetch(&self, names: Vec<Box<str>>) -> Pending<Result<Fetched, Fault>> {
-        let pending = self.call(Request::Fetch(names), None);
+    fn fetch(&self, names: Vec<Box<str>>, report: Report) -> Pending<Result<Fetched, Fault>> {
+        let pending = self.call(Request::Fetch(names), Some(report));
 
         Box::pin(async move {
             match pending.await? {

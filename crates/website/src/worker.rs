@@ -1,5 +1,5 @@
 use std::cell::RefCell;
-use std::collections::{HashMap, HashSet, VecDeque};
+use std::collections::{HashMap, HashSet};
 use std::io::{Cursor, Read};
 use std::rc::Rc;
 use std::sync::{Arc, Mutex, PoisonError, RwLock};
@@ -71,12 +71,12 @@ const DONE: &str = "done";
 const VALUE: &str = "value";
 
 type Listener = Closure<dyn FnMut(MessageEvent)>;
-type Kept = (&'static str, Vec<u8>);
+type Kept = (&'static str, u64);
 
 #[derive(Default)]
 struct Decoded {
-    frames: HashMap<usize, Arc<[u8]>>,
-    order: VecDeque<usize>,
+    frames: HashMap<usize, (Arc<[u8]>, u64)>,
+    tick: u64,
     bytes: usize,
 }
 
@@ -463,8 +463,8 @@ async fn serve(call: Call) {
 
     let needs = needs(&engine, &call.request);
     let afterwards = afterwards(&engine.loader, &call.request);
-    let scan = matches!(call.request, Request::Cats(_) | Request::Enemies(_) | Request::Stages(_));
-    let total = if scan { outstanding(&engine, &needs) } else { 0 };
+    let reported = matches!(call.request, Request::Cats(_) | Request::Enemies(_) | Request::Stages(_) | Request::Fetch(_));
+    let total = if reported { outstanding(&engine, &needs) } else { 0 };
     let done = std::cell::Cell::new(0u64);
     let id = call.id;
     let advance = |bytes: u64| {
@@ -499,11 +499,14 @@ async fn serve(call: Call) {
     join(sides, frames).await;
 
     let (reply, kept) = answer(&engine, call.id, call.request);
+    let answered = Answer { id: call.id, reply };
 
-    post(Answer { id: call.id, reply });
+    deliver(&answered);
     spawn_local(persist());
 
-    if let Some((name, bytes)) = kept {
+    if let Some((name, key)) = kept
+        && let Some(bytes) = payload(&answered.reply, key)
+    {
         spawn_local(keep_scan(name, bytes));
     }
 
@@ -814,7 +817,7 @@ fn notify(frame: usize) {
 
 fn answer(engine: &Engine, id: u32, request: Request) -> (Reply, Option<Kept>) {
     let keep = !engine.loader.layered_now();
-    let kept = |name: &'static str, payload: Option<Vec<u8>>| payload.filter(|_| keep).map(|bytes| (name, bytes));
+    let kept = |name: &'static str, key: Option<u64>| key.filter(|_| keep).map(|key| (name, key));
 
     match request {
         Request::Battle(_) | Request::Mods(_) | Request::Names => (Reply::Names { id: engine.loader.catalog.id.clone(), names: engine.loader.sorted.clone() }, None),
@@ -842,22 +845,31 @@ fn answer(engine: &Engine, id: u32, request: Request) -> (Reply, Option<Kept>) {
 
             let scan = cat::scanner::load(config, Arc::clone(&engine.vault), move |done, total| progress(id, done, total));
 
-            (Reply::Cats(scan.data), kept(CAT_SCAN, scan.payload))
+            (Reply::Cats(scan.data), kept(CAT_SCAN, scan.key))
         }
         Request::Enemies(config) => {
             localize(engine, &config.language_priority);
 
             let scan = enemy::scanner::load(config, Arc::clone(&engine.vault), move |done, total| progress(id, done, total));
 
-            (Reply::Enemies(scan.data), kept(ENEMY_SCAN, scan.payload))
+            (Reply::Enemies(scan.data), kept(ENEMY_SCAN, scan.key))
         }
         Request::Stages(config) => {
             localize(engine, &config.language_priority);
 
             let scan = stage::scanner::load(config, Arc::clone(&engine.vault), move |done, total| progress(id, done, total));
 
-            (Reply::Stages(Box::new(scan.data)), kept(STAGE_SCAN, scan.payload))
+            (Reply::Stages(Box::new(scan.data)), kept(STAGE_SCAN, scan.key))
         }
+    }
+}
+
+fn payload(reply: &Reply, key: u64) -> Option<Vec<u8>> {
+    match reply {
+        Reply::Cats(cats) => cat::scanner::payload(key, cats),
+        Reply::Enemies(enemies) => enemy::scanner::payload(key, enemies),
+        Reply::Stages(bundle) => stage::scanner::payload(key, bundle),
+        _ => None,
     }
 }
 
@@ -1012,8 +1024,12 @@ fn picture(engine: &Engine, kind: PictureKind, name: &str) -> Option<Prepared> {
 }
 
 pub(crate) fn post(answer: Answer) {
+    deliver(&answer);
+}
+
+fn deliver(answer: &Answer) {
     let id = answer.id;
-    let Some(bytes) = protocol::encode(&answer).or_else(|| {
+    let Some(bytes) = protocol::encode(answer).or_else(|| {
         error!("A reply to the page could not be encoded");
 
         (id != HELLO).then(|| protocol::encode(&Answer { id, reply: Reply::Failed(UNENCODABLE.to_owned()) })).flatten()
@@ -1272,10 +1288,14 @@ fn inflate(bytes: &[u8], expected: u64) -> Result<Vec<u8>, String> {
 fn decoded(frame: usize) -> Option<Arc<[u8]>> {
     DECODED.with(|cache| {
         let mut cache = cache.borrow_mut();
-        let raw = Arc::clone(cache.frames.get(&frame)?);
+        let tick = cache.tick + 1;
+        let (raw, used) = cache.frames.get_mut(&frame)?;
 
-        cache.order.retain(|held| *held != frame);
-        cache.order.push_back(frame);
+        *used = tick;
+
+        let raw = Arc::clone(raw);
+
+        cache.tick = tick;
 
         Some(raw)
     })
@@ -1288,16 +1308,23 @@ fn remember(frame: usize, raw: Vec<u8>) -> Arc<[u8]> {
     DECODED.with(|cache| {
         let mut cache = cache.borrow_mut();
 
+        if let Some((dropped, _)) = cache.frames.remove(&frame) {
+            cache.bytes -= dropped.len();
+        }
+
         while cache.bytes + size > DECODED_CAP
-            && let Some(oldest) = cache.order.pop_front()
+            && let Some(oldest) = cache.frames.iter().min_by_key(|(_, (_, used))| *used).map(|(held, _)| *held)
         {
-            if let Some(dropped) = cache.frames.remove(&oldest) {
+            if let Some((dropped, _)) = cache.frames.remove(&oldest) {
                 cache.bytes -= dropped.len();
             }
         }
 
-        cache.frames.insert(frame, Arc::clone(&raw));
-        cache.order.push_back(frame);
+        cache.tick += 1;
+
+        let tick = cache.tick;
+
+        cache.frames.insert(frame, (Arc::clone(&raw), tick));
         cache.bytes += size;
     });
 

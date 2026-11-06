@@ -7,6 +7,7 @@ mod walk;
 
 #[cfg(feature = "disk")]
 use std::env;
+use std::borrow::Cow;
 use std::ffi::OsStr;
 use std::hash::{Hash, Hasher};
 #[cfg(feature = "disk")]
@@ -50,6 +51,12 @@ struct MountedDir {
     dirs: FxHashMap<Box<str>, Vec<Box<str>>>,
     folders: FxHashMap<Box<str>, Vec<Box<str>>>,
     conflicts: Vec<Conflict>,
+}
+
+impl MountedDir {
+    fn listing(&self) -> Option<&[MountKey]> {
+        self.lazy.then(|| self.dirs.get(""))?.filter(|listing| listing.len() == self.files.len()).map(Vec::as_slice)
+    }
 }
 
 #[cfg(feature = "disk")]
@@ -425,6 +432,12 @@ impl Vfs {
     }
 
     pub fn source(&self, path: &Path) -> Source {
+        let (blob, deferred) = self.held(path);
+
+        Source { path: path.to_path_buf(), blob, deferred }
+    }
+
+    fn held(&self, path: &Path) -> (Option<Arc<[u8]>>, bool) {
         let held = self.mounts.read().ok().and_then(|mounts| {
             mounts.values().filter(|mount| mount.lazy || !mount.blobs.is_empty()).find_map(|mount| {
                 let name = path.strip_prefix(&mount.root).ok()?.to_str()?;
@@ -433,9 +446,12 @@ impl Vfs {
                 Some((blob, mount.lazy && mount.files.contains_key(name)))
             })
         });
-        let (blob, deferred) = held.map_or((None, false), |(blob, lazy)| (blob.clone(), lazy && blob.is_none()));
 
-        Source { path: path.to_path_buf(), blob, deferred }
+        held.map_or((None, false), |(blob, lazy)| {
+            let deferred = lazy && blob.is_none();
+
+            (blob, deferred)
+        })
     }
 
     pub fn stock(&self, key: &str, files: Vec<(Box<str>, Arc<[u8]>)>) -> bool {
@@ -469,7 +485,7 @@ impl Vfs {
     }
 
     pub fn read(&self, path: &Path) -> std::io::Result<Arc<[u8]>> {
-        self.source(path).read()
+        self.held(path).0.map_or_else(|| read_disk(path), Ok)
     }
 
     pub fn head(&self, path: &Path, len: usize) -> io::Result<Vec<u8>> {
@@ -611,6 +627,10 @@ impl Vfs {
             return None;
         };
 
+        if plain(&mounts) {
+            return regional::interleaved(filenames, &order).find_map(|candidate| vanilla(&mounts, &candidate));
+        }
+
         regional::interleaved(filenames, &order)
             .find_map(|candidate| modded(&mounts, &candidate))
             .or_else(|| regional::interleaved(filenames, &order).find_map(|candidate| fallback(&mounts, &candidate)))
@@ -624,6 +644,13 @@ impl Vfs {
         let Ok(mounts) = self.mounts.read() else {
             return Vec::new();
         };
+
+        if plain(&mounts) {
+            let mut found: Vec<PathBuf> = regional::interleaved(filenames, &order).filter_map(|candidate| vanilla(&mounts, &candidate)).collect();
+
+            found.dedup();
+            return found;
+        }
 
         let mut overrides = Vec::new();
         let mut originals = Vec::new();
@@ -723,7 +750,7 @@ impl Vfs {
 
         let names = [filename];
 
-        regional::interleaved(&names, &order).collect()
+        regional::interleaved(&names, &order).map(Cow::into_owned).collect()
     }
 
     pub fn variants(&self, filename: &str) -> Vec<String> {
@@ -787,11 +814,25 @@ impl Vfs {
             return Arc::from([]);
         };
 
-        let mut names: Vec<MountKey> = mounts.values().flat_map(|indexed| indexed.files.keys()).cloned().collect();
-        names.sort_unstable();
-        names.dedup();
+        let mut names: Vec<&MountKey> = Vec::new();
+        let mut ordered = mounts.len() <= 1;
 
-        let names: Arc<[MountKey]> = Arc::from(names);
+        for indexed in mounts.values() {
+            match indexed.listing() {
+                Some(listing) => names.extend(listing),
+                None => {
+                    names.extend(indexed.files.keys());
+                    ordered = false;
+                }
+            }
+        }
+
+        if !ordered {
+            names.sort_unstable();
+            names.dedup();
+        }
+
+        let names: Arc<[MountKey]> = names.into_iter().cloned().collect();
 
         if let Ok(mut cached) = self.sorted.write() {
             *cached = Some((generation, Arc::clone(&names)));
@@ -854,14 +895,21 @@ impl Vfs {
 
             key.hash(&mut hasher);
 
-            let mut names: Vec<&MountKey> = indexed.files.keys().collect();
-            names.sort_unstable();
+            let names: Vec<&MountKey> = match indexed.listing() {
+                Some(listing) => listing.iter().collect(),
+                None => {
+                    let mut names: Vec<&MountKey> = indexed.files.keys().collect();
+
+                    names.sort_unstable();
+                    names
+                }
+            };
 
             for name in &names {
                 let Some(entry) = indexed.files.get(*name) else { continue };
 
                 name.hash(&mut hasher);
-                entry.path.hash(&mut hasher);
+                entry.path.as_os_str().hash(&mut hasher);
                 entry.mtime.hash(&mut hasher);
                 entry.len.hash(&mut hasher);
             }
@@ -1377,10 +1425,13 @@ fn modded(mounts: &Index, name: &str) -> Option<PathBuf> {
 }
 
 fn vanilla(mounts: &Index, name: &str) -> Option<PathBuf> {
-    mounts
-        .iter()
-        .filter(|(key, _)| key.as_ref() == MOUNT_GAME)
-        .find_map(|(_, mount)| mount.files.get(name).map(|entry| mount.root.join(&entry.path)))
+    let mount = mounts.get(MOUNT_GAME)?;
+
+    mount.files.get(name).map(|entry| mount.root.join(&entry.path))
+}
+
+fn plain(mounts: &Index) -> bool {
+    mounts.keys().all(|key| key.as_ref() == MOUNT_GAME)
 }
 
 #[cfg(feature = "disk")]

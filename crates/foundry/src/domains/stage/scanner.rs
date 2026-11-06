@@ -2,7 +2,7 @@ use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::hash::Hash;
 use std::iter;
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::{Arc, Mutex, RwLock};
+use std::sync::{Arc, Mutex, OnceLock, RwLock};
 
 use codex::cat::unit::UnitBuy;
 use codex::chapter::Category;
@@ -15,7 +15,6 @@ use tracing::{debug, info, instrument, trace, warn};
 
 use crate::common::job::Ticker;
 use crate::common::io::cache::{self, Scan};
-use crate::domains::cat::waiter::unitexplanation;
 use crate::domains::settings::ScannerConfig;
 use crate::{StageStore, Vfs, Vault};
 
@@ -38,15 +37,47 @@ const INVASION: &str = "Invasion";
 const ZOMBIE_INVASION: &str = "_Z_";
 
 type Names = Arc<[Box<str>]>;
+type Grounds = Vec<(u32, Box<str>)>;
+type Grouped = Arc<FxHashMap<u32, Grounds>>;
 
 struct Globs<'a> {
     vfs: &'a Vfs,
     memo: RwLock<FxHashMap<Box<str>, Names>>,
+    grouped: RwLock<FxHashMap<Box<str>, Grouped>>,
+    chapters: OnceLock<Grounds>,
 }
 
 impl<'a> Globs<'a> {
     fn new(vfs: &'a Vfs) -> Self {
-        Self { vfs, memo: RwLock::new(FxHashMap::default()) }
+        Self { vfs, memo: RwLock::new(FxHashMap::default()), grouped: RwLock::new(FxHashMap::default()), chapters: OnceLock::new() }
+    }
+
+    fn chapters(&self) -> &Grounds {
+        self.chapters.get_or_init(|| self.get(STAGE).iter().filter_map(|name| Some((split_chapter_stage(name)?, name.clone()))).collect())
+    }
+
+    fn grouped(&self, prefix: &str) -> Grouped {
+        if let Ok(memo) = self.grouped.read()
+            && let Some(hit) = memo.get(prefix)
+        {
+            return Arc::clone(hit);
+        }
+
+        let mut groups: FxHashMap<u32, Grounds> = FxHashMap::default();
+
+        for name in self.get(&format!("{}{}", STAGE, prefix)).iter() {
+            if let Some((map, stage)) = split_stage(name, prefix) {
+                groups.entry(map).or_default().push((stage, name.clone()));
+            }
+        }
+
+        let groups = Arc::new(groups);
+
+        if let Ok(mut memo) = self.grouped.write() {
+            memo.insert(prefix.into(), Arc::clone(&groups));
+        }
+
+        groups
     }
 
     fn get(&self, prefix: &str) -> Names {
@@ -164,6 +195,10 @@ pub fn persist(payload: &[u8]) {
     cache::store::<StageCache>(payload);
 }
 
+pub fn payload(key: u64, bundle: &StageBundle) -> Option<Vec<u8>> {
+    cache::encode::<StageCache>(key, bundle)
+}
+
 pub fn load(config: ScannerConfig, vault: Arc<Vault>, progress: impl Fn(usize, usize) + Sync) -> Scan<StageBundle> {
     scan(&config, &vault, progress)
 }
@@ -184,9 +219,9 @@ fn build_dictionaries(vault: &Vault) -> StageDictionaries {
     let cat_name_registry: HashMap<u32, Vec<String>> = unit_buy_registry
         .par_iter()
         .map(|(&unit_id, _)| {
-            let names = unitexplanation(vfs, unit_id)
+            let names = vault.vds.cats.explanation(vfs, unit_id)
                 .names
-                .into_iter()
+                .iter()
                 .flatten()
                 .map(|name| name.to_lowercase())
                 .collect();
@@ -214,13 +249,12 @@ fn scan(config: &ScannerConfig, vault: &Vault, progress: impl Fn(usize, usize) +
 
     if bundle.registry.maps.is_empty() {
         warn!("Registry is empty! Skipping cache save to prevent overwriting with blank data.");
-        return Scan { data: bundle, key: None, payload: None };
+        return Scan { data: bundle, key: None };
     }
 
     let key = cache::content_hash(vault.vfs.fingerprint(), config);
-    let payload = cache::encode::<StageCache>(key, &bundle);
 
-    Scan { data: bundle, key: Some(key), payload }
+    Scan { data: bundle, key: Some(key) }
 }
 
 #[instrument(skip_all)]
@@ -427,15 +461,11 @@ fn split_map_data(name: &str) -> Option<(String, u32)> {
     Some((prefix.to_string(), map.parse().ok()?))
 }
 
-fn split_stage(name: &str, prefix: &str, map_id: u32) -> Option<u32> {
+fn split_stage(name: &str, prefix: &str) -> Option<(u32, u32)> {
     let body = name.strip_prefix(STAGE)?.strip_prefix(prefix)?.strip_suffix(CSV)?;
     let (map, stage) = body.split_once('_')?;
 
-    if map.parse::<u32>().ok()? != map_id {
-        return None;
-    }
-
-    stage.parse().ok()
+    Some((map.parse().ok()?, stage.parse().ok()?))
 }
 
 fn split_chapter_stage(name: &str) -> Option<u32> {
@@ -516,15 +546,13 @@ fn battlegrounds(globs: &Globs<'_>, category: &Category, map_id: u32) -> Vec<(u3
 
     for prefix in stage_prefixes(category) {
         if prefix.is_empty() {
-            let names = globs.get(STAGE);
-
-            found.extend(names.iter().filter_map(|name| Some((split_chapter_stage(name)?, name.clone()))));
+            found.extend(globs.chapters().iter().cloned());
             continue;
         }
 
-        let names = globs.get(&format!("{}{}", STAGE, prefix));
-
-        found.extend(names.iter().filter_map(|name| Some((split_stage(name, &prefix, map_id)?, name.clone()))));
+        if let Some(grounds) = globs.grouped(&prefix).get(&map_id) {
+            found.extend(grounds.iter().cloned());
+        }
     }
 
     found.sort_unstable_by_key(|(stage_id, _)| *stage_id);
@@ -970,8 +998,8 @@ mod tests {
     // "stageE" globs both, so the bare prefix must keep refusing the files EX owns.
     #[test]
     fn the_bare_event_prefix_never_claims_an_ex_battleground() {
-        assert_eq!(split_stage("stageEX081_00.csv", "EX", 81), Some(0));
-        assert_eq!(split_stage("stageEX081_00.csv", "E", 81), None);
+        assert_eq!(split_stage("stageEX081_00.csv", "EX"), Some((81, 0)));
+        assert_eq!(split_stage("stageEX081_00.csv", "E"), None);
     }
 
     #[test]

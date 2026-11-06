@@ -76,7 +76,6 @@ fn force_token() -> Option<u128> {
 pub struct Scan<T> {
     pub data: T,
     pub key: Option<u64>,
-    pub payload: Option<Vec<u8>>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -125,7 +124,7 @@ pub(crate) fn decode<C: CacheSpec>(bytes: &[u8]) -> Option<(u64, C::Data)> {
         .map(|payload| (payload.hash, payload.data))
 }
 
-pub(crate) fn encode<C: CacheSpec>(hash: u64, data: &C::Data) -> Option<Vec<u8>> {
+pub(crate) fn encode<C: CacheSpec>(hash: u64, data: &(impl Serialize + ?Sized)) -> Option<Vec<u8>> {
     let payload = CachePayload { build_stamp: BUILD_STAMP.to_string(), hash, data };
 
     postcard::to_allocvec(&payload)

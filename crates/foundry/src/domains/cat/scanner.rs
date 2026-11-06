@@ -17,7 +17,6 @@ use tracing::{trace, warn};
 use crate::common::job::Ticker;
 use crate::common::io::cache::{self, Scan};
 use crate::domains::cat::files;
-use crate::domains::cat::waiter::unitexplanation;
 use crate::domains::settings::ScannerConfig;
 use crate::{Vfs, Vault};
 
@@ -265,6 +264,10 @@ pub fn persist(payload: &[u8]) {
     cache::store::<CatCache>(payload);
 }
 
+pub fn payload(key: u64, cats: &[CatEntry]) -> Option<Vec<u8>> {
+    cache::encode::<CatCache>(key, cats)
+}
+
 pub fn load(config: ScannerConfig, vault: Arc<Vault>, progress: impl Fn(usize, usize) + Sync) -> Scan<Vec<CatEntry>> {
     scan(config, &vault, progress)
 }
@@ -327,7 +330,7 @@ pub fn scan_single(id: u32, vault: &Vault, config: &ScannerConfig) -> Option<Cat
         skill_descriptions: vault.vds.cats.descriptions(vfs),
     };
 
-    process_cat_entry(id, vfs, &tables, config)
+    process_cat_entry(id, vault, &tables, config)
 }
 
 fn scan(config: ScannerConfig, vault: &Vault, progress: impl Fn(usize, usize) + Sync) -> Scan<Vec<CatEntry>> {
@@ -336,7 +339,7 @@ fn scan(config: ScannerConfig, vault: &Vault, progress: impl Fn(usize, usize) + 
 
     if vfs.find(files::UNIT_BUY).is_none() || vfs.find(files::UNIT_LEVEL).is_none() {
         warn!("cat scan aborted: unitbuy/unitlevel tables unavailable");
-        return Scan { data: Vec::new(), key: None, payload: None };
+        return Scan { data: Vec::new(), key: None };
     }
 
     let tables = ScanTables {
@@ -355,7 +358,7 @@ fn scan(config: ScannerConfig, vault: &Vault, progress: impl Fn(usize, usize) + 
     let ticker = Ticker::default();
 
     let mut parsed_cats: Vec<CatEntry> = unit_ids.par_iter().filter_map(|&cat_id| {
-        let cat = process_cat_entry(cat_id, vfs, &tables, &config);
+        let cat = process_cat_entry(cat_id, vault, &tables, &config);
 
         let done = processed_count.fetch_add(1, Ordering::Relaxed) + 1;
 
@@ -369,9 +372,8 @@ fn scan(config: ScannerConfig, vault: &Vault, progress: impl Fn(usize, usize) + 
     parsed_cats.sort_by_key(|cat| cat.id);
 
     let key = Some(cache::content_hash(vfs.fingerprint(), &config));
-    let payload = key.and_then(|key| cache::encode::<CatCache>(key, &parsed_cats));
 
-    Scan { data: parsed_cats, key, payload }
+    Scan { data: parsed_cats, key }
 }
 struct ScanTables {
     level_curves: Arc<HashMap<u32, LevelCurve>>,
@@ -384,11 +386,13 @@ struct ScanTables {
 
 fn process_cat_entry(
     cat_id: u32,
-    vfs: &Vfs,
+    vault: &Vault,
     tables: &ScanTables,
     config: &ScannerConfig
 ) -> Option<CatEntry> {
     trace!(cat_id = cat_id, "processing cat entry data");
+
+    let vfs = &vault.vfs;
 
     let resolved_stats = vfs.find(&files::stats_file(cat_id));
 
@@ -412,8 +416,7 @@ fn process_cat_entry(
 
         if let Some(resolved) = vfs.find(&anim_name)
             && let Ok(bytes) = vfs.read(&resolved) {
-            let content = String::from_utf8_lossy(&bytes);
-            *frames = Animation::scan_length(content.as_bytes()).unwrap_or(0).max(0);
+            *frames = Animation::scan_length(&bytes).unwrap_or(0).max(0);
         }
     }
 
@@ -429,7 +432,7 @@ fn process_cat_entry(
         }
     }
 
-    let explanation = unitexplanation(vfs, cat_id);
+    let explanation = vault.vds.cats.explanation(vfs, cat_id);
 
     let egg_ids_opt = if egg_ids.0 != -1 || egg_ids.1 != -1 {
         Some(egg_ids)
@@ -442,8 +445,8 @@ fn process_cat_entry(
         image_path: images.banner,
         banner_paths: images.banners,
         deploy_icon_paths: images.deploy_icons,
-        names: explanation.names,
-        description: explanation.descriptions,
+        names: explanation.names.clone(),
+        description: explanation.descriptions.clone(),
         forms: images.forms,
         stats: cat_stats,
         curve: tables.level_curves.get(&cat_id).cloned(),

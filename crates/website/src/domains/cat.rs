@@ -410,7 +410,7 @@ fn Browser(selected: Option<u32>, form: Option<usize>) -> Element {
     }
 
     rsx! {
-        Settled {
+        Settled { title: "Loading Cat Files...",
             div { class: "{wide_class}",
                 Drawer { open: roster_open,
                     list::Roster { cats: list::Entries(Rc::clone(&cats)), selected }

@@ -212,7 +212,7 @@ fn parse_inner(bytes: &[u8], separator: Option<Separator>) -> Result<MapStageDat
     let mut has_content = false;
 
     for (stage_index, file_line) in lines_iterator.enumerate() {
-        let trimmed_line = strip_comment(file_line).trim();
+        let trimmed_line = file::uncommented(file_line).trim();
         if trimmed_line.is_empty() {
             continue;
         }
@@ -259,10 +259,6 @@ fn parse_inner(bytes: &[u8], separator: Option<Separator>) -> Result<MapStageDat
     Ok(MapStageData { header, entries })
 }
 
-fn strip_comment(line: &str) -> &str {
-    line.split_once("//").map_or(line, |(before_comment, _)| before_comment)
-}
-
 fn is_terminator(parts: &[&str]) -> bool {
     let mut written = parts.iter().map(|part| part.trim()).filter(|part| !part.is_empty());
 
@@ -277,7 +273,7 @@ fn extract_header(
     let mut header = MapStageDataHeader::default();
 
     if let Some(line) = first_line {
-        let parts: Vec<&str> = strip_comment(line).split(separator_char).collect();
+        let parts: Vec<&str> = file::uncommented(line).split(separator_char).collect();
         let past_table = columns::apply(&parts, MapStageDataHeader::COLUMNS, &mut header);
 
         header.rest = parts
@@ -288,7 +284,7 @@ fn extract_header(
     }
 
     if let Some(line) = second_line
-        && let Some(value) = strip_comment(line)
+        && let Some(value) = file::uncommented(line)
             .split(separator_char)
             .next()
             .and_then(|part| part.trim().parse::<i32>().ok()) {

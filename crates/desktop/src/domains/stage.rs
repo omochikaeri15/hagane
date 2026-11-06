@@ -218,7 +218,7 @@ impl State {
                 let _ = tx.unbounded_send(Message::ScanProgress(generation, done, total));
             });
 
-            let payload = scan.payload;
+            let payload = scan.key.and_then(|key| scanner::payload(key, &scan.data));
             let _ = tx.unbounded_send(Message::Loaded(generation, Box::new(scan.data), scan.key));
 
             if let Some(bytes) = payload {

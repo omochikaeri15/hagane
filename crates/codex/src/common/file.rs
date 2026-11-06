@@ -2,6 +2,10 @@ use serde::{Deserialize, Serialize};
 
 const JAPANESE: &str = "ja";
 
+const MARK_LEAD: u8 = 0xEF;
+
+const COMMENT: &[u8] = b"//";
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum Separator {
     Pipe,
@@ -54,25 +58,32 @@ pub(crate) fn resolve(separator: Option<Separator>, text: &str) -> char {
 pub fn scrub(bytes: &[u8]) -> String {
     let raw_text = String::from_utf8_lossy(bytes);
     let mut clean_text = String::with_capacity(raw_text.len());
-    let mut char_stream = raw_text.chars().peekable();
+    let mut rest: &str = &raw_text;
 
-    while let Some(current) = char_stream.next() {
-        if matches!(current, '\u{feff}' | '\0') {
-            continue;
-        }
+    while let Some(at) = rest.bytes().position(|byte| matches!(byte, b'\r' | b'\0' | MARK_LEAD)) {
+        let (kept, tail) = rest.split_at(at);
+        let mut chars = tail.chars();
+        let current = chars.next();
 
-        if current == '\r' {
-            clean_text.push('\n');
-            if let Some(&'\n') = char_stream.peek() {
-                char_stream.next();
+        clean_text.push_str(kept);
+        rest = chars.as_str();
+
+        match current {
+            Some('\r') => {
+                clean_text.push('\n');
+                rest = rest.strip_prefix('\n').unwrap_or(rest);
             }
-            continue;
+            Some('\u{feff}' | '\0') | None => {}
+            Some(other) => clean_text.push(other),
         }
-
-        clean_text.push(current);
     }
 
+    clean_text.push_str(rest);
     clean_text
+}
+
+pub(crate) fn uncommented(line: &str) -> &str {
+    line.as_bytes().windows(COMMENT.len()).position(|pair| pair == COMMENT).map_or(line, |at| &line[..at])
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -191,6 +202,22 @@ mod tests {
     fn detection_falls_back_to_a_comma() {
         assert_eq!(resolve(None, "one whole name"), ',');
         assert_eq!(Separator::ALL.map(Separator::char), ['|', '\t', ',']);
+    }
+
+    #[test]
+    fn scrubbing_leaves_one_newline_per_break_and_no_marks() {
+        assert_eq!(scrub(b"\xef\xbb\xbfa,b\r\nc\rd\n\0e\r\r\n"), "a,b\nc\nd\ne\n\n");
+        // a fullwidth bang shares the mark's lead byte and has to survive
+        assert_eq!(scrub("\u{ff01}\u{feff}x\r\u{feff}\n".as_bytes()), "\u{ff01}x\n\n");
+        assert_eq!(scrub(b"a\xffb\xef"), "a\u{fffd}b\u{fffd}");
+    }
+
+    #[test]
+    fn a_comment_starts_at_the_first_double_slash() {
+        assert_eq!(uncommented("1,2//note//more"), "1,2");
+        assert_eq!(uncommented("1/2,3/"), "1/2,3/");
+        assert_eq!(uncommented("\u{30cd}\u{30b3}//x"), "\u{30cd}\u{30b3}");
+        assert_eq!(uncommented("//"), "");
     }
 
     #[test]

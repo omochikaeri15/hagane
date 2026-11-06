@@ -144,7 +144,7 @@ fn parse_inner(bytes: &[u8], separator: Option<Separator>) -> Result<Battlegroun
     let separator_char = file::resolve(separator, &file_content);
 
     let mut clean_lines_iterator = file_content.lines().filter_map(|line| {
-        let clean = line.split_once("//").map(|(before, _)| before).unwrap_or(line).trim();
+        let clean = file::uncommented(line).trim();
         if clean.is_empty() { None } else { Some(clean) }
     });
 
@@ -182,8 +182,11 @@ fn parse_inner(bytes: &[u8], separator: Option<Separator>) -> Result<Battlegroun
         ground.max_spawn = ground.min_spawn;
     }
 
+    let mut enemy_parts: Vec<&str> = Vec::new();
+
     for enemy_line in clean_lines_iterator {
-        let enemy_parts: Vec<&str> = enemy_line.split(separator_char).collect();
+        enemy_parts.clear();
+        enemy_parts.extend(enemy_line.split(separator_char));
 
         let raw_enemy_id = read_u32(&enemy_parts, 0);
         if raw_enemy_id == 0 {

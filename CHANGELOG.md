@@ -1,5 +1,6 @@
 Changes:
 - Scrollable Config header is now a swipe in sidebar.
+- Optimized web loading speeds.
 
 Bug Fixes:
 - Fixed a mobile bug that caused combos to leak off their combo cards under sandbox.

@@ -1,11 +1,12 @@
 use dioxus::prelude::*;
 
+use crate::platform::Progress;
 use crate::systems::library::Library;
 
 use super::Status;
 
 #[component]
-pub(crate) fn Settled(children: Element) -> Element {
+pub(crate) fn Settled(title: &'static str, children: Element) -> Element {
     let library = use_context::<Library>();
     let mut revealed = use_signal(|| false);
 
@@ -19,13 +20,14 @@ pub(crate) fn Settled(children: Element) -> Element {
     });
 
     let shown = revealed();
+    let fetching = if shown { Progress::default() } else { library.fetching() };
     let class = if shown { "settled" } else { "settled veiled" };
 
     rsx! {
         div { class: "{class}",
             div { class: "settled-body", {children} }
             if !shown {
-                Status { title: "Loading...", detail: None }
+                Status { title, detail: Library::detail(fetching.done, fetching.total) }
             }
         }
     }

@@ -319,7 +319,7 @@ impl EnemyState {
                 let _ = tx.unbounded_send(Message::ScanProgress(generation, done, total));
             });
 
-            let payload = scan.payload;
+            let payload = scan.key.and_then(|key| scanner::payload(key, &scan.data));
             let available = filter::State::available(&scan.data);
             let _ = tx.unbounded_send(Message::Loaded(generation, scan.data, scan.key, available));
 

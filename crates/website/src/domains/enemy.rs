@@ -201,7 +201,7 @@ fn Browser(selected: Option<u32>) -> Element {
     }
 
     rsx! {
-        Settled {
+        Settled { title: "Loading Enemy Files...",
             div { class: "{class}",
                 Drawer { open: roster_open,
                     list::Roster { enemies: list::Entries(Rc::clone(&enemies)), selected }

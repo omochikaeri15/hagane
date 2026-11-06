@@ -1,9 +1,9 @@
 use std::collections::HashMap;
-use std::sync::Arc;
+use std::sync::{Arc, RwLock};
 
 use codex::cat::unit::{
     Equipment, LevelCurve, NyancomboData, NyancomboFilter, NyancomboParam, SkillDescriptions, Talent, TalentCost,
-    UnitBuy, UnitEvolve,
+    UnitBuy, UnitEvolve, UnitExplanation,
 };
 use serde::{Deserialize, Serialize};
 
@@ -30,6 +30,8 @@ pub struct CatStore {
     combo_params: Slot<Vec<NyancomboParam>>,
     orbs: Slot<Vec<Equipment>>,
     orb_slots: Slot<HashMap<u32, usize>>,
+    #[serde(skip)]
+    explanations: RwLock<HashMap<u32, Arc<UnitExplanation>>>,
 }
 
 impl Clone for CatStore {
@@ -49,6 +51,7 @@ impl Clone for CatStore {
             combo_params: super::snapshot(&self.combo_params),
             orbs: super::snapshot(&self.orbs),
             orb_slots: super::snapshot(&self.orb_slots),
+            explanations: RwLock::new(self.explanations.read().map(|held| held.clone()).unwrap_or_default()),
         }
     }
 }
@@ -162,7 +165,29 @@ impl CatStore {
         super::cached(&self.orb_slots, || waiter::equipmentslot(vfs))
     }
 
+    pub fn explanation(&self, vfs: &Vfs, id: u32) -> Arc<UnitExplanation> {
+        if let Ok(held) = self.explanations.read()
+            && let Some(found) = held.get(&id)
+        {
+            return Arc::clone(found);
+        }
+
+        let found = Arc::new(waiter::unitexplanation(vfs, id));
+
+        if let Ok(mut held) = self.explanations.write() {
+            held.insert(id, Arc::clone(&found));
+        }
+
+        found
+    }
+
     pub(super) fn evict(&self, filename: &str) -> bool {
+        if let Some(id) = files::explanation_id(filename)
+            && let Ok(mut held) = self.explanations.write()
+        {
+            held.remove(&id);
+        }
+
         match filename {
             files::SKILL_ACQUISITION => super::reset(&self.talents),
             files::SKILL_LEVEL => super::reset(&self.talent_costs),
@@ -196,6 +221,10 @@ impl CatStore {
         super::reset(&self.combo_effects);
         super::reset(&self.combo_bands);
         super::reset(&self.combo_filters);
+
+        if let Ok(mut held) = self.explanations.write() {
+            held.clear();
+        }
     }
 }
 

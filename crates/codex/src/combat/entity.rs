@@ -217,7 +217,7 @@ fn trailing_unknowns(cols: &[&str], start: usize) -> i32 {
 }
 
 fn split_row(line: &str, separator: char) -> Vec<&str> {
-    let body = line.split_once("//").map_or(line, |(head, _)| head).trim_end();
+    let body = file::uncommented(line).trim_end();
     let mut cols: Vec<&str> = body.split(separator).collect();
 
     while cols.last().is_some_and(|col| col.trim().is_empty()) {

@@ -56,12 +56,7 @@ fn parse_inner(file_bytes: &[u8], separator: Option<Separator>) -> Result<StageN
     let mut parsed_lines: Vec<(usize, Vec<String>)> = Vec::new();
 
     for (line_index, file_line) in file_content.lines().enumerate() {
-        let mut clean_line = file_line;
-        if let Some((before_comment, _)) = file_line.split_once("//") {
-            clean_line = before_comment;
-        }
-
-        let trimmed_line = clean_line.trim();
+        let trimmed_line = file::uncommented(file_line).trim();
         if trimmed_line.is_empty() {
             continue;
         }

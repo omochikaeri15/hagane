@@ -12,7 +12,7 @@ use foundry::domains::settings::lang;
 use foundry::{Lazy, Loader, Vault};
 
 use crate::platform::mods::Mounted;
-use crate::platform::{Fault, Phase, Platform};
+use crate::platform::{Fault, Phase, Platform, Progress};
 
 const GAME: &str = "game";
 const MOD: &str = "mod";
@@ -59,6 +59,7 @@ pub(crate) struct Library {
     phase: Signal<Phase>,
     payload: Signal<Option<Box<str>>>,
     modded: Signal<bool>,
+    fetching: Signal<Progress>,
 }
 
 const IMAGE_SUFFIXES: [&str; 4] = [".png", ".imgcut", ".mamodel", ".maanim"];
@@ -78,6 +79,7 @@ impl Library {
             phase: Signal::new(Phase { label: Box::from(STARTING), done: 0, total: 0 }),
             payload: Signal::new(None),
             modded: Signal::new(false),
+            fetching: Signal::new(Progress::default()),
         });
 
         use_hook(move || {
@@ -128,17 +130,24 @@ impl Library {
         self.generation += 1;
         self.data += 1;
 
+        let mut spent = 0;
+
         while pulses.next().await.is_some() {
             self.busy.set(true);
-            self.flush(&platform, &core).await;
+            spent = self.flush(&platform, &core, spent).await;
 
             let waiting = !core.deferred.missing.lock().unwrap_or_else(PoisonError::into_inner).is_empty() || !core.pending.borrow().is_empty();
 
             self.busy.set(waiting);
+
+            if !waiting {
+                spent = 0;
+                self.fetching.set(Progress::default());
+            }
         }
     }
 
-    async fn flush(&mut self, platform: &Platform, core: &Core) {
+    async fn flush(&mut self, platform: &Platform, core: &Core, spent: usize) -> usize {
         let wanted: Vec<Box<str>> = {
             let mut missing = core.deferred.missing.lock().unwrap_or_else(PoisonError::into_inner);
             let mut pending = core.pending.borrow_mut();
@@ -147,13 +156,21 @@ impl Library {
         };
 
         if wanted.is_empty() {
-            return;
+            return spent;
         }
 
         debug!(count = wanted.len(), "Fetching files the screens asked for");
 
         let epoch = core.epoch.get();
-        let outcome = platform.host().fetch(wanted.clone()).await;
+        let round = Rc::new(Cell::new(0));
+        let (fetching, measured) = (self.fetching, Rc::clone(&round));
+        let report = Box::new(move |progress: Progress| {
+            let mut fetching = fetching;
+
+            measured.set(progress.total);
+            fetching.set(Progress { done: spent + progress.done, total: spent + progress.total, scanning: false });
+        });
+        let outcome = platform.host().fetch(wanted.clone(), report).await;
 
         {
             let mut pending = core.pending.borrow_mut();
@@ -198,6 +215,8 @@ impl Library {
                 self.fault.set(Some(fault));
             }
         }
+
+        spent + round.get()
     }
 
     pub(crate) fn remount(&mut self, mounted: Option<&Mounted>) {
@@ -256,6 +275,10 @@ impl Library {
 
     pub(crate) fn phase(&self) -> Phase {
         (self.phase)()
+    }
+
+    pub(crate) fn fetching(&self) -> Progress {
+        (self.fetching)()
     }
 
     pub(crate) fn detail(done: usize, total: usize) -> Option<String> {
