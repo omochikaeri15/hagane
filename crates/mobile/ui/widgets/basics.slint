@@ -149,28 +149,17 @@ export component Input inherits Rectangle {
     border-color: root.transparent-chrome && !field.has-focus ? transparent : (field.has-focus ? Theme.primary-strong : Theme.bg-strong);
     clip: true;
 
-    property <length> pad: 10px;
-    pure function lined(span: length, room: length) -> length {
-        return root.align == TextHorizontalAlignment.right ? room - span : (root.align == TextHorizontalAlignment.center ? (room - span) / 2 : 0);
-    }
+    property <length> pad: 6px;
+    property <length> margin: 2px;
 
     HorizontalLayout {
         padding-left: root.pad;
         padding-right: root.pad;
         padding-top: 5px;
         padding-bottom: 5px;
-        box := Rectangle {
-            property <bool> fits: measure.preferred-width + 2px <= self.width + root.pad;
-            property <length> span: !field.has-focus || self.fits ? max(self.width, measure.preferred-width) : self.width;
-            measure := Text {
-                x: 0;
-                y: 0;
-                visible: false;
-                text: root.typed();
-                font-size: root.text-size;
-            }
+        Rectangle {
             Text {
-                x: root.lined(self.width, parent.width);
+                x: 0;
                 y: 0;
                 visible: root.text == "" && !field.has-focus;
                 text: root.placeholder;
@@ -182,7 +171,9 @@ export component Input inherits Rectangle {
                 height: parent.height;
             }
             field := TextInput {
-                x: root.lined(self.width, parent.width);
+                property <length> shift;
+                property <length> reach: parent.width + root.pad - root.margin - self.text-cursor-width;
+                x: min(0px, max(self.reach - self.width, self.shift));
                 y: 0;
                 enabled: root.enabled;
                 read-only: root.read-only;
@@ -194,8 +185,20 @@ export component Input inherits Rectangle {
                 input-type: root.input-type;
                 selection-background-color: self.preedit-text != "" ? transparent : Theme.primary-weak;
                 selection-foreground-color: Theme.text;
-                width: box.span;
+                width: max(parent.width, self.preferred-width);
                 height: parent.height;
+                cursor-position-changed(position) => {
+                    if position.x + self.shift < root.margin - root.pad {
+                        self.shift = root.margin - root.pad - position.x;
+                    } else if position.x + self.shift > self.reach {
+                        self.shift = self.reach - position.x;
+                    }
+                }
+                changed has-focus => {
+                    if !self.has-focus {
+                        self.shift = 0;
+                    }
+                }
                 edited => { root.tell(); }
                 accepted => { root.accepted(self.text); }
                 changed preedit-text => { if self.has-focus { root.tell(); } }

@@ -9,4 +9,4 @@ Bug Fixes:
 - Fixed a mobile bug that caused cat talents to update only when a drag was released.
 - Fixed a mobile bug that caused text to get cut off way too early in text input fields.
 - Fixed a web bug that caused some devices to not detect and use the mobile layout and behavior.
-- Fixed a web & mobile bug that caused combos to be nearly inaccessible.
+- Fixed a web & mobile bug that caused combos to be nearly inaccessible on landscape orientation.
