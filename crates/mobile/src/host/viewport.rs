@@ -18,7 +18,7 @@ const PLAY_HEIGHT: f32 = 720.0;
 const CLEARED: [u8; 4] = [0, 0, 0, 0];
 
 thread_local! {
-    static REPORTED: RefCell<BTreeSet<Box<str>>> = const { RefCell::new(BTreeSet::new()) };
+    static REPORTED: RefCell<BTreeSet<Box<str>>> = RefCell::default();
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]

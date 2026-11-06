@@ -41,8 +41,8 @@ const UNNAMED: &str = "picked";
 type ShownHandler = Box<dyn Fn(bool)>;
 
 thread_local! {
-    static WATCH: RefCell<Option<Timer>> = const { RefCell::new(None) };
-    static SHOWN: RefCell<Option<ShownHandler>> = const { RefCell::new(None) };
+    static WATCH: RefCell<Option<Timer>> = RefCell::default();
+    static SHOWN: RefCell<Option<ShownHandler>> = RefCell::default();
 }
 
 const WATCH_INTERVAL: Duration = Duration::from_millis(250);

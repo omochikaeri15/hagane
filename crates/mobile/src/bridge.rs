@@ -18,7 +18,7 @@ struct Slot {
 thread_local! {
     static SLOTS: RefCell<HashMap<u64, Slot>> = RefCell::new(HashMap::new());
     static REVOKED: RefCell<HashSet<u64>> = RefCell::new(HashSet::new());
-    static NEXT: Cell<u64> = const { Cell::new(1) };
+    static NEXT: Cell<u64> = Cell::default();
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -26,9 +26,9 @@ pub struct Ticket(u64);
 
 fn register(once: bool, call: Call) -> Ticket {
     let id = NEXT.with(|next| {
-        let id = next.get();
+        let id = next.get() + 1;
 
-        next.set(id + 1);
+        next.set(id);
         id
     });
 

@@ -5,7 +5,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 const GAMMA: u64 = 0x9e37_79b9_7f4a_7c15;
 
 thread_local! {
-    static COUNTER: Cell<Option<u64>> = const { Cell::new(None) };
+    static COUNTER: Cell<Option<u64>> = Cell::default();
 }
 
 fn mix(state: u64) -> u64 {

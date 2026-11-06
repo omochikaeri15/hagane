@@ -73,8 +73,8 @@ static AVAILABLE: AtomicBool = AtomicBool::new(false);
 static PRESENTED: AtomicU64 = AtomicU64::new(0);
 
 thread_local! {
-    static PENDING: RefCell<Option<Scene>> = const { RefCell::new(None) };
-    static FORGET: Cell<bool> = const { Cell::new(false) };
+    static PENDING: RefCell<Option<Scene>> = RefCell::default();
+    static FORGET: Cell<bool> = Cell::default();
 }
 
 pub struct SceneSheet {

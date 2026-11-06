@@ -87,7 +87,7 @@ struct Pending {
 #[cfg(any(target_os = "android", target_os = "ios"))]
 thread_local! {
     static PENDING: RefCell<HashMap<i32, Pending>> = RefCell::new(HashMap::new());
-    static NEXT: Cell<i32> = const { Cell::new(1) };
+    static NEXT: Cell<i32> = Cell::default();
 }
 
 const PICKED: &str = "picked";
@@ -190,9 +190,9 @@ pub fn save(ui: &AppWindow, context: &Rc<Context>, path: PathBuf, then: Saved) {
 #[cfg(any(target_os = "android", target_os = "ios"))]
 fn request(ui: &AppWindow, context: &Rc<Context>, task: Task) {
     let id = NEXT.with(|next| {
-        let id = next.get();
+        let id = next.get().wrapping_add(1).max(1);
 
-        next.set(id.wrapping_add(1).max(1));
+        next.set(id);
         id
     });
     let opened = match &task {
