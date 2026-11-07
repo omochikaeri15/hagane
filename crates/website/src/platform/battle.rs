@@ -248,6 +248,7 @@ pub enum BattleCommand {
     Volumes(i32, i32),
     Lag(Lag),
     Presented,
+    Turned(bool),
     Diagnose(bool),
 }
 

@@ -98,6 +98,7 @@ pub(crate) struct Battle {
     pub(crate) job: Signal<Option<Status>>,
     pub(crate) foreign: Signal<Option<String>>,
     pub(crate) cut: Signal<bool>,
+    turning: Signal<Option<bool>>,
     notice_round: Signal<u32>,
     status_round: Signal<u32>,
     cut_round: Signal<u32>,
@@ -246,6 +247,7 @@ pub(crate) fn provide(platform: &Platform) -> Battle {
         job: Signal::new(None),
         foreign: Signal::new(None),
         cut: Signal::new(false),
+        turning: Signal::new(None),
         notice_round: Signal::new(0),
         status_round: Signal::new(0),
         cut_round: Signal::new(0),
@@ -255,8 +257,12 @@ pub(crate) fn provide(platform: &Platform) -> Battle {
         job_round: Signal::new(0),
     });
     let sandbox = state::state();
+    let turn = turn::turn();
     let platform = platform.clone();
 
+    use_drop(move || {
+        turn.hold(None);
+    });
     use_hook(move || {
         let (sender, mut events) = unbounded::<BattleEvent>();
 
@@ -289,6 +295,28 @@ pub(crate) fn provide(platform: &Platform) -> Battle {
                             battle.warming.set(None);
                             battle.diagnostics.set(None);
                             battle.diagnosing.set(false);
+                        }
+
+                        let entering = battle.standing.peek().phase != standing.phase;
+
+                        match standing.phase {
+                            Phase::Loading if entering => {
+                                turn.hold(Some(sandbox.peek().battle_orientation));
+                            }
+                            Phase::Leaving if entering => {
+                                if turn.hold(None) {
+                                    let (width, height) = turn.extent();
+
+                                    battle.turning.set(Some(width > height));
+                                } else {
+                                    platform.host().battle(BattleCommand::Turned(false));
+                                }
+                            }
+                            Phase::Idle => {
+                                turn.hold(None);
+                                battle.turning.set(None);
+                            }
+                            _ => {}
                         }
 
                         battle.standing.set(standing);
@@ -356,6 +384,7 @@ pub(crate) fn Arena() -> Element {
     let mut tapped: Signal<Option<f64>> = use_signal(|| None);
     let drawers = drawer::drawers();
     let turn = turn::turn();
+    let mut turning = battle.turning;
     let detacher = platform.clone();
 
     use_drop(move || detacher.host().battle_canvas(""));
@@ -535,6 +564,11 @@ pub(crate) fn Arena() -> Element {
 
                     size.set((box_size.width as f32, box_size.height as f32));
                     platform.host().battle(BattleCommand::Resize((box_size.width as f32 * ratio).round(), (box_size.height as f32 * ratio).round()));
+
+                    if *turning.peek() == Some(box_size.width > box_size.height) {
+                        turning.set(None);
+                        platform.host().battle(BattleCommand::Turned(true));
+                    }
                 }
             },
             onkeydown: move |event| {

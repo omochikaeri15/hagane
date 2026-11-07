@@ -14,6 +14,7 @@ use crate::domains::settings::{Treasures, Treasury};
 use crate::systems::host::Lag;
 use crate::platform::Platform;
 use crate::systems::context::Shared;
+use crate::systems::turn::Orientation;
 use crate::widget::{Drawer, Tip, Toggle, drawer};
 
 use super::Staged;
@@ -27,6 +28,7 @@ const QUALITY_HINT: &str = "The resolution the battle is drawn at.\nLower draws 
 const SCALING_HINT: &str = "How a battle drawn below 100% quality fills the window.\nStretch: scaled up to fill the window\nPad: shown at its drawn size in the middle of the window";
 const LAG_HINT: &str = "What the battle does when the hardware cannot draw it at full speed.\nCatch-up: keeps the battle at full speed and shows fewer frames\nSlowdown: shows every frame and slows the battle down, as the game does on a slow phone";
 const NATIVE_HINT: &str = "No scaling options for native game size";
+const ORIENTATION_HINT: &str = "How the battle is turned while it plays\nAutomatic follows the browser\nPortrait keeps the battle upright against the device's own top\nLandscape turns it sideways while the screen stands upright, so hold the device with its right side up";
 const VOLUME_HINT: &str = "The four volume steps the battle settings cycle through";
 const PANELS: [(Panel, &str); 8] = [
     (Panel::Settings, "Settings"),
@@ -234,11 +236,12 @@ fn GameSettings(platform: Platform, sandbox: Signal<SandboxState>) -> Element {
     let native = held.native();
     let scaling = held.scaling().to_string();
     let lag = held.lag.to_string();
+    let orientation = held.battle_orientation.to_string();
     let quality = held.quality();
 
     drop(held);
 
-    let p = [platform.clone(), platform.clone(), platform.clone(), platform.clone(), platform.clone(), platform.clone(), platform.clone(), platform.clone()];
+    let p = [platform.clone(), platform.clone(), platform.clone(), platform.clone(), platform.clone(), platform.clone(), platform.clone(), platform.clone(), platform.clone()];
 
     rsx! {
         div { class: "settings-sections",
@@ -258,6 +261,9 @@ fn GameSettings(platform: Platform, sandbox: Signal<SandboxState>) -> Element {
                     ComboRow { label: "Scaling", hint: SCALING_HINT, options: Scaling::ALL.iter().map(ToString::to_string).collect(), selected: scaling, onchange: { let platform = p[5].clone(); move |label: String| if let Some(picked) = Scaling::ALL.into_iter().find(|scaling| scaling.to_string() == label) { state::apply(&platform, sandbox, |next| next.scaling = Some(picked)) } } }
                 }
                 ComboRow { label: "Lag", hint: LAG_HINT, options: Lag::ALL.iter().map(ToString::to_string).collect(), selected: lag, onchange: { let platform = p[6].clone(); move |label: String| if let Some(picked) = Lag::ALL.into_iter().find(|lag| lag.to_string() == label) { state::apply(&platform, sandbox, |next| next.lag = picked) } } }
+                div { class: "touch-only",
+                    ComboRow { label: "Orientation", hint: ORIENTATION_HINT, options: Orientation::ALL.iter().map(ToString::to_string).collect(), selected: orientation, onchange: { let platform = p[8].clone(); move |label: String| if let Some(picked) = Orientation::ALL.into_iter().find(|mode| mode.to_string() == label) { state::apply(&platform, sandbox, |next| next.battle_orientation = picked) } } }
+                }
                 label { class: "setting-row inline",
                     Tip { text: QUALITY_HINT, hover: true, span { "Quality" } }
                     input { class: "slider quality-slider", r#type: "range", min: "{QUALITY_RANGE.start()}", max: "{QUALITY_RANGE.end()}", step: "{QUALITY_STEP}", value: "{quality}",

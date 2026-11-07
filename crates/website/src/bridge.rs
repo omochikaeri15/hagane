@@ -924,7 +924,7 @@ impl Host for WebHost {
         let presenter = Rc::clone(link);
 
         link.screen.borrow_mut().on_painted(Box::new(move || {
-            if matches!(presenter.standing.get(), BattlePhase::Covering | BattlePhase::Loading) {
+            if matches!(presenter.standing.get(), BattlePhase::Covering | BattlePhase::Loading | BattlePhase::Leaving) {
                 post_battle(&presenter, BattleCommand::Presented);
             }
         }));

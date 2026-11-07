@@ -26,6 +26,7 @@ use super::sound::{Backend, Pool};
 use super::text::{Formatter, LABEL_PREFIX};
 
 const CURTAIN_CLOSING: i32 = 1;
+const CURTAIN_TEETH_PERIOD: i32 = 1580;
 const TOUCH_PRESSED: i32 = 0;
 const TOUCH_MOVED: i32 = 1;
 const TOUCH_RELEASED: i32 = 2;
@@ -1292,8 +1293,17 @@ impl Driver {
 
         let top = self.ctx.i32_at(AppContext::LETTERBOX_PAD)?.wrapping_add(self.ctx.i32_at(AppContext::LETTERBOX_SHIFT)?);
 
-        emulator::engine::set_draw_origin(&mut self.ctx, 0, top)?;
-        emulator::engine::draw_screen_transition(&mut self.ctx, CURTAIN_CLOSING)?;
+        let reach = emulator::engine::get_design_height2(&self.ctx);
+        let mut offset = 0;
+
+        while offset < reach {
+            emulator::engine::set_insets_ignored(&mut self.ctx, 1)?;
+            emulator::engine::set_draw_origin(&mut self.ctx, 0, top.wrapping_add(offset))?;
+            emulator::engine::draw_screen_transition(&mut self.ctx, CURTAIN_CLOSING)?;
+            offset += CURTAIN_TEETH_PERIOD;
+        }
+
+        emulator::engine::set_insets_ignored(&mut self.ctx, 0)?;
         emulator::engine::set_draw_origin(&mut self.ctx, 0, 0)?;
 
         let pad = self.ctx.i32_at(AppContext::LETTERBOX_PAD)?;

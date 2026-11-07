@@ -195,6 +195,14 @@ pub fn App() -> Element {
                 }
             },
         }
+        div {
+            class: "touch-probe",
+            onresize: move |event| {
+                if let Ok(size) = event.data().get_border_box_size() {
+                    turn.sense(size.width > LAYOUT_PROBE);
+                }
+            },
+        }
         Router::<Route> {}
     }
 }

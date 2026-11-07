@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 use foundry::domains::sandbox::config::Gimmicks;
 use foundry::domains::sandbox::{Config, Roster};
 
-use crate::systems::host::Lag;
+use crate::systems::{host::Lag, turn::Orientation};
 use crate::platform::Platform;
 
 const STORAGE_KEY: &str = "sandbox";
@@ -131,6 +131,7 @@ pub(crate) struct SandboxState {
     pub(crate) image_quality: Option<u8>,
     pub(crate) scaling: Option<Scaling>,
     pub(crate) lag: Lag,
+    pub(crate) battle_orientation: Orientation,
 }
 
 impl Default for SandboxState {
@@ -150,6 +151,7 @@ impl Default for SandboxState {
             image_quality: None,
             scaling: None,
             lag: Lag::default(),
+            battle_orientation: Orientation::Landscape,
         }
     }
 }

@@ -35,7 +35,7 @@ const COLUMNS: usize = 5;
 const SMALLEST: f32 = 0.45;
 const TEXT_FLOOR: f32 = 0.8;
 const DECK_SHARE: f32 = 0.68;
-const CARD_GAP: f32 = 10.0;
+const CARD_BORDER: f32 = 2.0;
 const SIDE_SHARE: f32 = 0.55;
 const BAR_ROOM: f32 = 38.0;
 const LEVEL_SIZE: f32 = 11.0;
@@ -89,7 +89,7 @@ impl Metrics {
             return Self::FULL;
         }
 
-        let across = (width - CARD_GAP * 2.0) / Self::FULL.deck_width();
+        let across = width / Self::FULL.deck_width();
         let down = height * DECK_SHARE / Self::FULL.deck_height();
 
         Self::at(across.min(down).clamp(SMALLEST, 1.0))
@@ -707,7 +707,7 @@ pub(crate) fn Editor(cats: Cats, globals: Shared, rules: Ruled, altar: Option<u3
                     }
                     div {
                         class: "outlined-card deck-card",
-                        style: "width: {metrics.deck_width()}px; height: {metrics.deck_height()}px; padding: {metrics.pad}px;",
+                        style: "width: {metrics.deck_width()}px; height: {metrics.deck_height()}px; padding: {metrics.pad - CARD_BORDER}px;",
                         onmounted: move |event| deck_mount.set(Some(event)),
                         div { class: "deck-title bold", style: "height: {metrics.header}px; font-size: {metrics.text(16.0)}px;", "Lineup" }
                         div { style: "height: {metrics.header_gap}px;" }

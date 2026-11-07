@@ -376,6 +376,7 @@ pub(crate) fn command(engine: &Rc<Engine>, command: BattleCommand) {
         BattleCommand::Volumes(music, effects) => with(|arena| arena.session.retune(music, effects)),
         BattleCommand::Lag(lag) => with(|arena| arena.session.set_lag(lag)),
         BattleCommand::Presented => with(|arena| arena.session.presented()),
+        BattleCommand::Turned(rotated) => with(|arena| arena.session.turned(rotated)),
         BattleCommand::Diagnose(on) => with(|arena| arena.diagnosing = on),
     }
 }

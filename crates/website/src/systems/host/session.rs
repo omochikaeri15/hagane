@@ -23,6 +23,8 @@ const STEP_MS: f64 = 1000.0 / 30.0;
 const HALF_STEP_MS: f64 = STEP_MS / 2.0;
 const MOST_STEPS: u32 = 4;
 const PRESENT_PATIENCE_MS: f64 = 2000.0;
+const TURN_PATIENCE_MS: f64 = 2000.0;
+const TURN_SETTLE_MS: f64 = 100.0;
 const SLOW_STEP_MS: f64 = 100.0;
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default, Serialize, Deserialize)]
@@ -81,6 +83,8 @@ pub struct Session {
     again: bool,
     presented: bool,
     held: Option<bool>,
+    opens_at: Option<f64>,
+    veiled: bool,
     primed: bool,
     warm: bool,
     reel: Option<Footage>,
@@ -113,6 +117,8 @@ impl Session {
             again: false,
             presented: false,
             held: None,
+            opens_at: None,
+            veiled: false,
             primed: false,
             warm: true,
             reel: None,
@@ -138,7 +144,11 @@ impl Session {
     }
 
     pub fn surfaced(&self) -> bool {
-        matches!(self.phase, Phase::Loading | Phase::Running | Phase::Faulted | Phase::Closing)
+        match self.phase {
+            Phase::Loading | Phase::Running | Phase::Faulted | Phase::Closing => true,
+            Phase::Leaving => self.opens_at.is_some() || self.veiled,
+            Phase::Idle | Phase::Covering => false,
+        }
     }
 
     pub fn covered(&self) -> bool {
@@ -295,6 +305,33 @@ impl Session {
         self.presented = true;
     }
 
+    pub fn turned(&mut self, rotated: bool) {
+        if self.phase != Phase::Leaving || self.opens_at.is_none() {
+            return;
+        }
+
+        let now = self.clock.now_ms();
+
+        if rotated {
+            self.opens_at = Some(now + TURN_SETTLE_MS);
+        } else {
+            self.opens_at = None;
+            self.sweep = CLOSED_FRAME + 1;
+            self.swept = now;
+        }
+    }
+
+    fn leave(&mut self) {
+        let now = self.clock.now_ms();
+
+        self.phase = Phase::Leaving;
+        self.sweep = CLOSED_FRAME;
+        self.started = now;
+        self.swept = now;
+        self.opens_at = Some(now + TURN_PATIENCE_MS);
+        self.veiled = false;
+    }
+
     pub fn warmed(&mut self) {
         self.warm = true;
     }
@@ -315,20 +352,18 @@ impl Session {
                 self.driver.draw_curtain_over(self.sweep);
 
                 if self.sweep >= CLOSED_FRAME {
-                    self.phase = if self.again { Phase::Loading } else { Phase::Leaving };
-
                     if self.driver.watching() {
                         self.driver.end_playback();
                         self.driver.draw_curtain(self.sweep);
                     }
 
-                    self.started = now;
-                    self.swept = now;
-
-                    if self.phase == Phase::Loading {
+                    if self.again {
+                        self.phase = Phase::Loading;
+                        self.started = now;
+                        self.swept = now;
                         self.presented = false;
                     } else {
-                        self.sweep = CLOSED_FRAME + 1;
+                        self.leave();
                     }
                 }
 
@@ -440,10 +475,7 @@ impl Session {
                         self.started = self.clock.now_ms();
                     }
                 } else {
-                    self.phase = Phase::Leaving;
-                    self.started = self.clock.now_ms();
-                    self.swept = self.started;
-                    self.sweep = CLOSED_FRAME + 1;
+                    self.leave();
                     self.driver.end_playback();
                     self.driver.draw_curtain(self.sweep);
                 }
@@ -451,6 +483,31 @@ impl Session {
                 true
             }
             Phase::Leaving => {
+                if let Some(opens) = self.opens_at {
+                    if now < opens {
+                        self.driver.draw_curtain(CLOSED_FRAME);
+
+                        return true;
+                    }
+
+                    self.opens_at = None;
+                    self.veiled = true;
+                    self.presented = false;
+                    self.started = now;
+                }
+
+                if self.veiled {
+                    if !self.presented && now - self.started < PRESENT_PATIENCE_MS {
+                        self.driver.draw_curtain(CLOSED_FRAME);
+
+                        return true;
+                    }
+
+                    self.veiled = false;
+                    self.sweep = CLOSED_FRAME + 1;
+                    self.swept = now;
+                }
+
                 self.paced(now);
 
                 if self.sweep > LAST_FRAME {
@@ -572,10 +629,8 @@ impl Session {
         if self.entered && !self.driver.in_battle() {
             self.entered = false;
             self.driver.silence();
-            self.phase = Phase::Leaving;
-            self.sweep = CLOSED_FRAME;
+            self.leave();
             self.driver.end_playback();
-            self.started = self.clock.now_ms();
             self.driver.draw_curtain(self.sweep);
         }
     }
