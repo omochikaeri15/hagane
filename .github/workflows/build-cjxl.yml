@@ -1,0 +1,207 @@
+name: Build cjxl Addon
+
+on:
+  workflow_dispatch:
+    inputs:
+      libjxl:
+        description: "libjxl tag to build cjxl from"
+        required: true
+        default: "v0.12.0"
+
+jobs:
+  build:
+    name: Build cjxl (${{ matrix.suffix }})
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - suffix: linux_x64
+            runner: ubuntu-22.04
+            binary: build/tools/cjxl
+            cmake: ""
+          - suffix: linux_arm
+            runner: ubuntu-22.04-arm
+            binary: build/tools/cjxl
+            cmake: ""
+          - suffix: mac_arm
+            runner: macos-latest
+            binary: build/tools/cjxl
+            cmake: "-DCMAKE_OSX_ARCHITECTURES=arm64 -DCMAKE_OSX_DEPLOYMENT_TARGET=11.0"
+          - suffix: mac_x64
+            runner: macos-15-intel
+            binary: build/tools/cjxl
+            cmake: "-DCMAKE_OSX_ARCHITECTURES=x86_64 -DCMAKE_OSX_DEPLOYMENT_TARGET=10.15"
+          - suffix: windows_x64
+            runner: windows-latest
+            binary: build/tools/Release/cjxl.exe
+            cmake: "-A x64 -T ClangCL"
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Checkout libjxl
+        uses: actions/checkout@v5
+        with:
+          repository: libjxl/libjxl
+          ref: ${{ inputs.libjxl }}
+          path: libjxl
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Fetch the bundled dependencies
+        run: |
+          git -C libjxl submodule update --init --depth 1 \
+            third_party/brotli \
+            third_party/highway \
+            third_party/skcms \
+            third_party/libpng \
+            third_party/zlib
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Use clang
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang libstdc++-12-dev
+          echo "CC=clang" >> $GITHUB_ENV
+          echo "CXX=clang++" >> $GITHUB_ENV
+
+      - name: Configure
+        run: |
+          cmake -S libjxl -B build ${{ matrix.cmake }} \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DBUILD_TESTING=OFF \
+            -DJPEGXL_STATIC=ON \
+            -DJPEGXL_BUNDLE_LIBPNG=ON \
+            -DJPEGXL_FORCE_SYSTEM_BROTLI=OFF \
+            -DJPEGXL_FORCE_SYSTEM_HWY=OFF \
+            -DJPEGXL_ENABLE_SKCMS=ON \
+            -DJPEGXL_ENABLE_TOOLS=ON \
+            -DJPEGXL_ENABLE_DEVTOOLS=OFF \
+            -DJPEGXL_ENABLE_BENCHMARK=OFF \
+            -DJPEGXL_ENABLE_EXAMPLES=OFF \
+            -DJPEGXL_ENABLE_DOXYGEN=OFF \
+            -DJPEGXL_ENABLE_MANPAGES=OFF \
+            -DJPEGXL_ENABLE_JNI=OFF \
+            -DJPEGXL_ENABLE_SJPEG=OFF \
+            -DJPEGXL_ENABLE_OPENEXR=OFF \
+            -DJPEGXL_ENABLE_VIEWERS=OFF \
+            -DJPEGXL_ENABLE_PLUGINS=OFF \
+            -DJPEGXL_ENABLE_TCMALLOC=OFF \
+            -DJPEGXL_ENABLE_FUZZERS=OFF \
+            -DCMAKE_DISABLE_FIND_PACKAGE_GIF=ON \
+            -DCMAKE_DISABLE_FIND_PACKAGE_JPEG=ON
+
+      - name: Build
+        run: cmake --build build --config Release --target cjxl --parallel 4
+
+      - name: Strip
+        if: runner.os != 'Windows'
+        run: strip ${{ matrix.binary }}
+
+      - name: Check the binary stands alone
+        run: |
+          BIN=${{ matrix.binary }}
+          case "${{ runner.os }}" in
+            Linux)
+              file "$BIN"
+              file "$BIN" | grep -q "statically linked"
+              ;;
+            macOS)
+              lipo -archs "$BIN"
+              otool -L "$BIN"
+              if otool -L "$BIN" | tail -n +2 | grep -v -E "^[[:space:]]+/(usr/lib|System)/"; then
+                echo "cjxl links a library outside the system"
+                exit 1
+              fi
+              ;;
+          esac
+          "$BIN" --version
+
+      - name: Write a two-frame APNG
+        shell: python
+        run: |
+          import struct, zlib
+
+          def chunk(kind, data):
+              body = kind + data
+              return struct.pack(">I", len(data)) + body + struct.pack(">I", zlib.crc32(body) & 0xFFFFFFFF)
+
+          def pixels(value):
+              row = b"\0" + bytes([value, 255 - value, 64, 200]) * 8
+              return zlib.compress(row * 8)
+
+          def control(sequence):
+              return struct.pack(">IIIIIHHBB", sequence, 8, 8, 0, 0, 1, 10, 0, 0)
+
+          apng = b"\x89PNG\r\n\x1a\n"
+          apng += chunk(b"IHDR", struct.pack(">IIBBBBB", 8, 8, 8, 6, 0, 0, 0))
+          apng += chunk(b"acTL", struct.pack(">II", 2, 0))
+          apng += chunk(b"fcTL", control(0))
+          apng += chunk(b"IDAT", pixels(0))
+          apng += chunk(b"fcTL", control(1))
+          apng += chunk(b"fdAT", struct.pack(">I", 2) + pixels(255))
+          apng += chunk(b"IEND", b"")
+
+          with open("smoke.png", "wb") as file:
+              file.write(apng)
+
+      - name: Encode the APNG
+        run: |
+          ${{ matrix.binary }} smoke.png smoke.jxl -d 0
+          test -s smoke.jxl
+
+      - name: Zip cjxl_${{ matrix.suffix }}.zip
+        shell: python
+        run: |
+          import os, zipfile
+
+          binary = "${{ matrix.binary }}"
+          licenses = {
+              "LICENSE.libjxl": "libjxl/LICENSE",
+              "LICENSE.apngdis": "libjxl/lib/extras/LICENSE.apngdis",
+              "LICENSE.brotli": "libjxl/third_party/brotli/LICENSE",
+              "LICENSE.highway": "libjxl/third_party/highway/LICENSE",
+              "LICENSE.skcms": "libjxl/third_party/skcms/LICENSE",
+              "LICENSE.libpng": "libjxl/third_party/libpng/LICENSE",
+              "LICENSE.zlib": "libjxl/third_party/zlib/LICENSE",
+          }
+
+          with zipfile.ZipFile("cjxl_${{ matrix.suffix }}.zip", "w", zipfile.ZIP_DEFLATED, compresslevel=9) as archive:
+              archive.write(binary, os.path.basename(binary))
+              for name, source in licenses.items():
+                  archive.write(source, name)
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: cjxl_${{ matrix.suffix }}
+          path: cjxl_${{ matrix.suffix }}.zip
+          retention-days: 1
+
+  bundle:
+    name: Bundle the addon zips
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: cjxl_*
+          merge-multiple: true
+          path: addons
+
+      - name: Zip every platform together
+        run: |
+          ls -la addons
+          test "$(ls addons/cjxl_*.zip | wc -l)" -eq 5
+          cd addons
+          zip -9 ../cjxl-addons.zip cjxl_*.zip
+
+      - uses: actions/upload-artifact@v7
+        with:
+          path: cjxl-addons.zip
+          archive: false
+          retention-days: 7
