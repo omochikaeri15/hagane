@@ -36,7 +36,7 @@ jobs:
           - suffix: windows_x64
             runner: windows-latest
             binary: build/tools/Release/cjxl.exe
-            cmake: "-A x64 -T ClangCL"
+            cmake: '-A x64 -T ClangCL "-DCMAKE_IGNORE_PATH=C:/Program Files/Git/usr/bin;C:/msys64/usr/bin"'
     defaults:
       run:
         shell: bash
