@@ -28,7 +28,7 @@ use super::overlay::Region;
 
 const MODE_OPTIONS: [&str; 3] = ["Manual", "Loop", "Showcase"];
 const PLAIN_MODE_OPTIONS: [&str; 2] = ["Manual", "Loop"];
-const FORMAT_OPTIONS: [&str; 8] = ["GIF", "WebP", "AVIF", "PNG", "MP4", "MKV", "WebM", "ZIP"];
+const FORMAT_OPTIONS: [&str; 9] = ["GIF", "WebP", "AVIF", "JXL", "PNG", "MP4", "MKV", "WebM", "ZIP"];
 
 const CONTENT_PADDING: f32 = 20.0;
 const SECTION_SPACING: f32 = 14.0;
@@ -1091,6 +1091,7 @@ impl State {
 
     fn content_view(&self) -> Element<'_, Message> {
         let is_avif_missing = paths::avifenc_status() != Presence::Installed;
+        let is_cjxl_missing = paths::cjxl_status() != Presence::Installed;
         let is_ffmpeg_missing = paths::ffmpeg_status() != Presence::Installed;
         let current_job = self.synced_key.as_ref().and_then(|key| self.jobs.get(key));
         let job_active = matches!(
@@ -1141,6 +1142,7 @@ impl State {
             ExportFormat::Gif => "GIF",
             ExportFormat::WebP => "WebP",
             ExportFormat::Avif => "AVIF",
+            ExportFormat::Jxl => "JXL",
             ExportFormat::Png => "PNG",
             ExportFormat::Mp4 => "MP4",
             ExportFormat::Mkv => "MKV",
@@ -1151,6 +1153,7 @@ impl State {
         let format_options: Vec<&str> = FORMAT_OPTIONS.iter().copied().filter(|format| {
             match *format {
                 "AVIF" => !is_avif_missing,
+                "JXL" => !is_cjxl_missing,
                 "MP4" | "MKV" | "WebM" | "PNG" => !is_ffmpeg_missing,
                 _ => true,
             }
@@ -1162,6 +1165,7 @@ impl State {
                 Message::SetFormat(match selected {
                     "WebP" => ExportFormat::WebP,
                     "AVIF" => ExportFormat::Avif,
+                    "JXL" => ExportFormat::Jxl,
                     "PNG" => ExportFormat::Png,
                     "MP4" => ExportFormat::Mp4,
                     "MKV" => ExportFormat::Mkv,
@@ -1332,6 +1336,7 @@ impl State {
                 text("Tools that enhance the Exporter\nManage through Settings > Add-Ons").size(CONTROL_TEXT_SIZE),
                 addon_badge("FFMPEG", !is_ffmpeg_missing),
                 addon_badge("AVIFENC", !is_avif_missing),
+                addon_badge("CJXL", !is_cjxl_missing),
             ].spacing(FIELD_SPACING),
         );
 

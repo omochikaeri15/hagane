@@ -12,6 +12,7 @@ use tracing::error;
 use foundry::systems::addons::adb::AdbManager;
 use foundry::systems::addons::apkeditor::ApkeditorManager;
 use foundry::systems::addons::avifenc::AvifManager;
+use foundry::systems::addons::cjxl::CjxlManager;
 use foundry::systems::addons::ffmpeg::FfmpegManager;
 #[cfg(target_os = "windows")]
 use foundry::systems::addons::oem::{OemDriver, OemManager};
@@ -26,6 +27,7 @@ pub enum Addon {
     Apkeditor,
     Ffmpeg,
     Avif,
+    Cjxl,
 }
 
 impl Addon {
@@ -35,6 +37,7 @@ impl Addon {
             Self::Apkeditor => "APKEditor",
             Self::Ffmpeg => "FFMPEG",
             Self::Avif => "AVIFENC",
+            Self::Cjxl => "CJXL",
         }
     }
 }
@@ -56,6 +59,7 @@ pub struct State {
     adb: AdbManager,
     apkeditor: ApkeditorManager,
     avif: AvifManager,
+    cjxl: CjxlManager,
     ffmpeg: FfmpegManager,
     #[cfg(target_os = "windows")]
     oem: OemManager,
@@ -71,6 +75,7 @@ impl State {
                     Addon::Apkeditor => self.apkeditor.install(),
                     Addon::Ffmpeg => self.ffmpeg.install(),
                     Addon::Avif => self.avif.install(),
+                    Addon::Cjxl => self.cjxl.install(),
                 };
 
                 let (tx, rx) = mpsc::unbounded();
@@ -98,6 +103,7 @@ impl State {
                     Addon::Apkeditor => &mut self.apkeditor.status,
                     Addon::Ffmpeg => &mut self.ffmpeg.status,
                     Addon::Avif => &mut self.avif.status,
+                    Addon::Cjxl => &mut self.cjxl.status,
                 };
                 *slot = status;
                 Task::none()
@@ -116,6 +122,7 @@ impl State {
                     Addon::Apkeditor => self.apkeditor.uninstall(),
                     Addon::Ffmpeg => self.ffmpeg.uninstall(),
                     Addon::Avif => self.avif.uninstall(),
+                    Addon::Cjxl => self.cjxl.uninstall(),
                 }
 
                 Task::none()
@@ -217,6 +224,10 @@ impl State {
         content = content.push(self.addon_section(
             Addon::Avif, &self.avif.status,
             "Optimizes encoding for the AVIF format specifically.\nEnables AVIF export format."
+        ));
+        content = content.push(self.addon_section(
+            Addon::Cjxl, &self.cjxl.status,
+            "Encodes the JPEG XL format, lossless at 100% quality.\nEnables JXL export format."
         ));
 
         content.into()

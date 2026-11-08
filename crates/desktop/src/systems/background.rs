@@ -39,6 +39,7 @@ const REPLAY_CEILING: i32 = 100_000;
 const EMPTY_NOTICE: &str = "Enter a Background ID to load a background";
 const FFMPEG_MISSING_HINT: &str = "FFMPEG Addon missing, so file formats and export speeds may be limited";
 const AVIFENC_MISSING_HINT: &str = "AVIFENC Addon missing, so AVIF file format is unavailable";
+const CJXL_MISSING_HINT: &str = "CJXL Addon missing, so JXL file format is unavailable";
 const ADDONS_HINT: &str = "Download and manage Addons under Settings > Addons";
 
 fn frame_border<'a>() -> Element<'a, Message> {
@@ -98,19 +99,20 @@ fn percentage(input: &str, empty: i32) -> Option<(i32, String)> {
     Some((clamped, text))
 }
 
-fn available_formats(ffmpeg: bool, avif: bool) -> Vec<&'static str> {
+fn available_formats(ffmpeg: bool, avif: bool, cjxl: bool) -> Vec<&'static str> {
     controls::FORMAT_OPTIONS
         .iter()
         .copied()
         .filter(|format| match *format {
             "AVIF" => avif,
+            "JXL" => cjxl,
             "MP4" | "MKV" | "WebM" | "PNG" => ffmpeg,
             _ => true,
         })
         .collect()
 }
 
-fn addon_hint(ffmpeg: bool, avif: bool) -> String {
+fn addon_hint(ffmpeg: bool, avif: bool, cjxl: bool) -> String {
     let mut lines = Vec::new();
 
     if !ffmpeg {
@@ -119,6 +121,10 @@ fn addon_hint(ffmpeg: bool, avif: bool) -> String {
 
     if !avif {
         lines.push(AVIFENC_MISSING_HINT);
+    }
+
+    if !cjxl {
+        lines.push(CJXL_MISSING_HINT);
     }
 
     if !lines.is_empty() {
@@ -147,9 +153,10 @@ impl State {
     fn refresh_addons(&mut self) {
         let ffmpeg = paths::ffmpeg_status() == Presence::Installed;
         let avif = paths::avifenc_status() == Presence::Installed;
+        let cjxl = paths::cjxl_status() == Presence::Installed;
 
-        self.formats = available_formats(ffmpeg, avif);
-        self.format_hint = addon_hint(ffmpeg, avif);
+        self.formats = available_formats(ffmpeg, avif, cjxl);
+        self.format_hint = addon_hint(ffmpeg, avif, cjxl);
     }
 
     pub fn clear(&mut self) {

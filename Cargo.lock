@@ -2947,6 +2947,7 @@ dependencies = [
  "byteorder",
  "codex",
  "directories",
+ "flate2",
  "gif",
  "hex",
  "image",

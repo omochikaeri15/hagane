@@ -52,6 +52,7 @@ pub fn build_config(request: &ExportRequest) -> ExportConfig {
         ExportFormat::Gif => Some("gif"),
         ExportFormat::WebP => Some("webp"),
         ExportFormat::Avif => Some("avif"),
+        ExportFormat::Jxl => Some("jxl"),
         ExportFormat::Png => Some("png"),
         ExportFormat::Mp4 => Some("mp4"),
         ExportFormat::Mkv => Some("mkv"),

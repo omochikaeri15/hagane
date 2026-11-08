@@ -18,6 +18,11 @@ pub(crate) const AVIF_BIN: &str = "avifenc.exe";
 pub(crate) const AVIF_BIN: &str = "avifenc";
 
 #[cfg(target_os = "windows")]
+pub(crate) const CJXL_BIN: &str = "cjxl.exe";
+#[cfg(not(target_os = "windows"))]
+pub(crate) const CJXL_BIN: &str = "cjxl";
+
+#[cfg(target_os = "windows")]
 pub(crate) const FFMPEG_BIN: &str = "ffmpeg.exe";
 #[cfg(not(target_os = "windows"))]
 pub(crate) const FFMPEG_BIN: &str = "ffmpeg";
@@ -48,6 +53,10 @@ pub fn adb_status() -> Presence {
 
 pub fn avifenc_status() -> Presence {
     if get_tools_dir().join("avifenc").join(AVIF_BIN).exists() { Presence::Installed } else { Presence::Missing }
+}
+
+pub fn cjxl_status() -> Presence {
+    if get_tools_dir().join("cjxl").join(CJXL_BIN).exists() { Presence::Installed } else { Presence::Missing }
 }
 
 pub fn ffmpeg_status() -> Presence {

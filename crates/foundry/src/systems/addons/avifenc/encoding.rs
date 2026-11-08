@@ -1,6 +1,6 @@
 use std::fs;
 use std::io::Write;
-use std::path::Path;
+use std::path::{self, Path};
 use std::process::Stdio;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc;
@@ -18,6 +18,8 @@ use crate::systems::animation::export::encoding::prepare_image;
 
 use super::get_avif_path;
 
+const LOSSLESS_QUALITY: u32 = 95;
+
 pub(crate) fn encode(
     config: ExportConfig,
     receiver: mpsc::Receiver<EncoderMessage>,
@@ -25,7 +27,10 @@ pub(crate) fn encode(
     temp_path: &Path,
     abort_signal: &AtomicBool
 ) -> bool {
-    if paths::ffmpeg_status() == Presence::Installed {
+    if config.quality_percent >= LOSSLESS_QUALITY {
+        info!("Quality at {}%. Starting lossless AVIF encoding via folder/temp files.", config.quality_percent);
+        encode_via_folder(config, receiver, emit, temp_path, abort_signal)
+    } else if paths::ffmpeg_status() == Presence::Installed {
         info!("FFmpeg detected. Starting AVIF encoding via pipe stream.");
         encode_via_pipe(config, receiver, emit, temp_path, abort_signal)
     } else {
@@ -203,7 +208,7 @@ fn encode_via_folder(
     }
 
     let mut frames_processed = 0;
-    let mut frame_paths = Vec::new();
+    let mut frame_names = Vec::new();
 
     debug!("Writing raw frames to disk at {:?}", work_directory);
     while let Ok(message) = receiver.recv() {
@@ -215,20 +220,20 @@ fn encode_via_folder(
         match message {
             EncoderMessage::Frame(raw_pixels, w, h, _) => {
                 let image_data = prepare_image(raw_pixels, w, h, config.background);
-                let current_frame_path = work_directory.join(format!("frame_{:05}.png", frames_processed));
-                if image_data.save(&current_frame_path).is_ok() {
-                    frame_paths.push(current_frame_path);
+                let frame_name = format!("frame_{:05}.png", frames_processed);
+                if image_data.save(work_directory.join(&frame_name)).is_ok() {
+                    frame_names.push(frame_name);
                     frames_processed += 1;
                     emit(EncoderStatus::Progress(frames_processed));
                 } else {
-                    error!("Failed to save frame_{:05}.png to disk.", frames_processed);
+                    error!("Failed to save {} to disk.", frame_name);
                 }
             },
             EncoderMessage::Finish => break,
         }
     }
 
-    if frame_paths.is_empty() {
+    if frame_names.is_empty() {
         error!("No frames saved to disk. Aborting encode.");
         let _ = fs::remove_dir_all(&work_directory);
         return false;
@@ -236,22 +241,30 @@ fn encode_via_folder(
 
     let speed_value = 10 - (config.compression_percent / 10).clamp(0, 10);
     let quality_value = config.quality_percent.clamp(0, 100) as u8;
+    let output_path = path::absolute(temp_path).unwrap_or_else(|_| temp_path.to_path_buf());
 
     let mut arguments = vec![
         "--speed".to_string(), speed_value.to_string(),
-        "-o".to_string(), temp_path.to_string_lossy().to_string(),
-        "-q".to_string(), quality_value.to_string(),
-        "--qalpha".to_string(), quality_value.to_string(),
-        "--yuv".to_string(), "444".to_string()
+        "--timescale".to_string(), config.fps.max(1).to_string(),
+        "-o".to_string(), output_path.to_string_lossy().to_string(),
     ];
 
-    for frame_path in &frame_paths {
-        arguments.push(frame_path.to_string_lossy().to_string());
+    if config.quality_percent >= LOSSLESS_QUALITY {
+        arguments.push("--lossless".to_string());
+    } else {
+        arguments.extend([
+            "-q".to_string(), quality_value.to_string(),
+            "--qalpha".to_string(), quality_value.to_string(),
+            "--yuv".to_string(), "444".to_string(),
+        ]);
     }
+
+    arguments.extend(frame_names);
 
     let mut avif_command_builder = process::command(&avifenc_path);
 
     let Ok(mut child_process) = avif_command_builder.args(&arguments)
+        .current_dir(&work_directory)
         .stdout(Stdio::null())
         .stderr(Stdio::null())
         .spawn() else {

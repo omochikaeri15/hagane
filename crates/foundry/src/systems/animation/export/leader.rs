@@ -18,6 +18,7 @@ fn delegate(
     abort_signal: &AtomicBool,
 ) -> bool {
     use crate::systems::addons::avifenc::encoding as avifenc;
+    use crate::systems::addons::cjxl::encoding as cjxl;
     use crate::systems::addons::ffmpeg::encoding as ffmpeg;
     use crate::systems::addons::paths::{self, Presence};
 
@@ -25,6 +26,11 @@ fn delegate(
         ExportFormat::Avif if paths::avifenc_status() == Presence::Installed => {
             info!("Delegating to external AVIF encoder");
             avifenc::encode(config.clone(), receiver, emit, temporary_path, abort_signal)
+        },
+
+        ExportFormat::Jxl if paths::cjxl_status() == Presence::Installed => {
+            info!("Delegating to external JXL encoder");
+            cjxl::encode(config.clone(), receiver, emit, temporary_path, abort_signal)
         },
 
         ExportFormat::Gif | ExportFormat::WebP | ExportFormat::Png | ExportFormat::Mp4 | ExportFormat::Mkv | ExportFormat::Webm | ExportFormat::Avif
@@ -69,6 +75,7 @@ pub fn run(
         ExportFormat::Gif => "gif",
         ExportFormat::WebP => "webp",
         ExportFormat::Avif => "avif",
+        ExportFormat::Jxl => "jxl",
         ExportFormat::Png => "png",
         ExportFormat::Mp4 => "mp4",
         ExportFormat::Mkv => "mkv",

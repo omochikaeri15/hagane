@@ -81,6 +81,7 @@ pub enum ExportFormat {
     Gif,
     WebP,
     Avif,
+    Jxl,
     Png,
     Mp4,
     Mkv,

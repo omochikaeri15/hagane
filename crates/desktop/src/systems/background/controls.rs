@@ -47,7 +47,7 @@ const DISABLED_ALPHA: f32 = 0.5;
 const PLAY_GLYPH: &str = "\u{25B6}";
 const PAUSE_GLYPH: &str = "\u{25AE}\u{25AE}";
 
-pub(super) const FORMAT_OPTIONS: [&str; 8] = ["GIF", "WebP", "AVIF", "PNG", "MP4", "MKV", "WebM", "ZIP"];
+pub(super) const FORMAT_OPTIONS: [&str; 9] = ["GIF", "WebP", "AVIF", "JXL", "PNG", "MP4", "MKV", "WebM", "ZIP"];
 
 pub(super) const COPY_IDLE: &str = "Copy";
 pub(super) const COPY_BUSY: &str = "Copying...";
@@ -119,6 +119,7 @@ pub(super) fn format_label(format: &ExportFormat) -> &'static str {
         ExportFormat::Gif => "GIF",
         ExportFormat::WebP => "WebP",
         ExportFormat::Avif => "AVIF",
+        ExportFormat::Jxl => "JXL",
         ExportFormat::Png => "PNG",
         ExportFormat::Mp4 => "MP4",
         ExportFormat::Mkv => "MKV",
@@ -131,6 +132,7 @@ pub(super) fn format_of(label: &str) -> ExportFormat {
     match label {
         "WebP" => ExportFormat::WebP,
         "AVIF" => ExportFormat::Avif,
+        "JXL" => ExportFormat::Jxl,
         "PNG" => ExportFormat::Png,
         "MP4" => ExportFormat::Mp4,
         "MKV" => ExportFormat::Mkv,
