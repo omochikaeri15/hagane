@@ -2095,7 +2095,8 @@ impl HaganeApp {
         let war_funds = special_rules.is_some_and(|rules| rules.draws_war_funds());
         let expenses = special_rules.is_some_and(|rules| rules.draws_expenses());
 
-        let jailbreak = global.map(|map_id| (map_id, i32::from(self.stage_state.selected_crown), self.vault.vfs.fingerprint(), self.cat_state.data.cats.len()));
+        let roamed = data.selected_map.as_ref().and_then(|map| i32::try_from(data.registry.addresses.get(map)?.global?).ok());
+        let jailbreak = global.or(roamed).map(|map_id| (map_id, i32::from(self.stage_state.selected_crown), self.vault.vfs.fingerprint(), self.cat_state.data.cats.len()));
 
         let run = if self.sandbox_state.jailbreak_key() == jailbreak {
             Task::none()

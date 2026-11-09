@@ -1,11 +1,11 @@
 use std::collections::HashMap;
 use std::rc::Rc;
-use slint::{ComponentHandle, ModelRc, VecModel};
+use slint::{ComponentHandle, Model, ModelRc, VecModel};
 
 use emulator::runtime::{RoguelikePicks, RosterPick, SetupUnit};
 use foundry::domains::cat::filter::evaluation::entity_passes_filter;
 use foundry::domains::cat::scanner::{self, CatEntry};
-use foundry::domains::sandbox::jailbreak::{Board, Grants, Run, Runs};
+use foundry::domains::sandbox::jailbreak::{Board, Grants, Run, Runs, is_challenge_map};
 use foundry::domains::sandbox::{BENCH_SLOTS, Cell, Edge, LINEUP_SLOTS, Member};
 use foundry::systems::combat::registry::AbilityIcon;
 
@@ -18,10 +18,18 @@ use super::{Shared, Staging, lineup, refresh};
 
 pub type Key = (i32, i32, u64, usize);
 
+fn roamed(state: &Shared, context: &Rc<Context>) -> Option<(i32, i32)> {
+    let (map, crown) = context.pages()?.stages.borrow().roamed()?;
+    let global = i32::try_from(state.borrow().bundle.as_ref()?.registry.addresses.get(&map)?.global?).ok()?;
+
+    is_challenge_map(&context.engine.vault().vfs, global).then_some((global, i32::from(crown)))
+}
+
 pub fn board(state: &Shared, context: &Rc<Context>, staging: Option<&Staging>) -> Option<Rc<Board>> {
     let cats = state.borrow().cats.clone();
     let vault = context.engine.vault();
-    let key: Option<Key> = staging.and_then(|staging| staging.jail).map(|(map_id, crown)| (map_id, crown, vault.vfs.fingerprint(), cats.as_ref().map_or(0, |cats| cats.len())));
+    let jail = staging.map_or_else(|| roamed(state, context), |staging| staging.jail);
+    let key: Option<Key> = jail.map(|(map_id, crown)| (map_id, crown, vault.vfs.fingerprint(), cats.as_ref().map_or(0, |cats| cats.len())));
 
     if let Some((held, board)) = state.borrow().jail.as_ref()
         && Some(*held) == key
@@ -292,8 +300,27 @@ pub fn sync(ui: &AppWindow, state: &Shared, context: &Rc<Context>, staging: Opti
 
     if bonuses_open {
         let query = sandbox.get_jail_search().to_string();
+        let rows = bonuses(context, &board, &run, &query, global);
+        let shown = state.borrow().jail_rows.clone();
+        let same = shown.as_ref().is_some_and(|held| held.row_count() == rows.len() && held.iter().zip(&rows).all(|(old, new)| old.id == new.id));
 
-        sandbox.set_jail_bonuses(ModelRc::new(VecModel::from(bonuses(context, &board, &run, &query, global))));
+        match shown.filter(|_| same) {
+            Some(held) => {
+                for (index, row) in rows.into_iter().enumerate() {
+                    if held.row_data(index).as_ref() != Some(&row) {
+                        held.set_row_data(index, row);
+                    }
+                }
+            }
+            None => {
+                let held = Rc::new(VecModel::from(rows));
+
+                sandbox.set_jail_bonuses(ModelRc::from(Rc::clone(&held)));
+                state.borrow_mut().jail_rows = Some(held);
+            }
+        }
+    } else {
+        state.borrow_mut().jail_rows = None;
     }
 }
 

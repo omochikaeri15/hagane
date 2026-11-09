@@ -766,6 +766,10 @@ impl State {
         self.matching = Some(Matching { active: compiled.is_active(), hash, stages, maps, categories });
     }
 
+    pub fn roamed(&self) -> Option<(GlobalMapId, u8)> {
+        self.map.clone().map(|map| (map, self.crown))
+    }
+
     pub fn picked(&self) -> Option<(GlobalStageId, u8)> {
         let id = self.stage.clone()?;
         let registry = &self.data.as_ref()?.registry;

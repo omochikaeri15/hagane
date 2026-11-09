@@ -725,8 +725,8 @@ impl State {
         };
         let plan = self.plan.as_ref();
         let actions = row![
-            self.action(rules::GLOBAL_LABEL, rules::GLOBAL_HINT, Message::OpenGlobal),
-            self.action(rules::CAT_LABEL, rules::CAT_HINT, Message::OpenCat),
+            self.action(rules::GLOBAL_LABEL, Message::OpenGlobal),
+            self.action(rules::CAT_LABEL, Message::OpenCat),
         ]
             .spacing(self.metrics.gap);
         let deck = deck_card(self.metrics, rules::BENCH_NOTE, Some(actions.into()), |cell| {
@@ -789,15 +789,15 @@ impl State {
         self.board.as_ref().and_then(|_| self.inspector.filter_popup_view(window, names)).map(|view| view.map(Message::Cat))
     }
 
-    fn action<'a>(&self, label: &'a str, hint: &'a str, on_press: Message) -> Element<'a, Message> {
+    fn action<'a>(&self, label: &'a str, on_press: Message) -> Element<'a, Message> {
         let scale = self.metrics.scale;
-        let pressed = button(theme::centered_text(label).size(self.metrics.text(ACTION_SIZE)).width(Length::Fill))
+
+        button(theme::centered_text(label).size(self.metrics.text(ACTION_SIZE)).width(Length::Fill))
             .width(Length::Fixed(ACTION_WIDTH * scale))
             .height(Length::Fixed(ACTION_HEIGHT * scale))
             .style(theme::primary_button)
-            .on_press(on_press);
-
-        hover_hint(pressed, hint)
+            .on_press(on_press)
+            .into()
     }
 
     fn view_saved(&self) -> Element<'_, Message> {

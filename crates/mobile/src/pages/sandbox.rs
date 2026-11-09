@@ -11,7 +11,7 @@ use std::collections::HashSet;
 use std::rc::Rc;
 use std::time::Duration;
 
-use slint::{ComponentHandle, Timer, TimerMode};
+use slint::{ComponentHandle, Timer, TimerMode, VecModel};
 use tracing::info;
 
 use codex::chapter::Category;
@@ -34,7 +34,7 @@ use crate::images::Images;
 use crate::pages::Context;
 use crate::platform;
 use crate::roster::Roster;
-use crate::{AppWindow, DeckCell, Page, Sandbox, Shell, bridge};
+use crate::{AppWindow, DeckCell, JailBonus, Page, Sandbox, Shell, bridge};
 
 use self::orbs::Book;
 use self::state::{Device, Saved, Store, Tab, Volume};
@@ -84,6 +84,7 @@ pub struct State {
     pub jail_viewing: Option<u32>,
     pub jail_shown: Option<(Member, Rc<Grants>)>,
     pub jail_global: bool,
+    pub jail_rows: Option<Rc<VecModel<JailBonus>>>,
     pub jail_listed: Vec<(usize, usize)>,
 }
 
@@ -121,6 +122,7 @@ impl State {
             jail_viewing: None,
             jail_shown: None,
             jail_global: false,
+            jail_rows: None,
             jail_listed: Vec::new(),
         }
     }

@@ -377,7 +377,9 @@ component Deck inherits OutlinedCard {
     property <length> cell-height: self.cell-width * 85 / 110;
     property <length> grid-width: self.cell-width * 5 + self.gap * 4;
     property <length> left: 12px + (root.avail - 24px - self.grid-width) / 2;
-    property <length> slots-top: Sandbox.jail-ready ? 74px : 40px;
+    property <float> shrink: min(1.0, root.cell-width / 110px);
+    property <length> action-height: Sandbox.jail-ready ? max(20px, 28px * root.shrink) : 0px;
+    property <length> slots-top: Sandbox.jail-ready ? 46px + root.action-height : 40px;
     property <length> bench-title-top: self.slots-top + self.cell-height * 2 + self.gap * 2 + 2px;
     property <length> bench-top: self.bench-title-top + 36px;
     property <int> drag-from: -1;
@@ -431,11 +433,11 @@ component Deck inherits OutlinedCard {
         x: 12px;
         y: 38px;
         width: root.avail - 24px;
-        height: 28px;
+        height: root.action-height;
         alignment: center;
         spacing: 6px;
-        Btn { label: "Global Bonus"; width: 110px; height: 28px; text-size: 12px; clicked => { Sandbox.jail-open-bonuses(true); } }
-        Btn { label: "Cat Bonus"; width: 110px; height: 28px; text-size: 12px; clicked => { Sandbox.jail-open-bonuses(false); } }
+        Btn { label: "Global Bonus"; width: min(110px, (root.grid-width - 6px) / 2); height: root.action-height; text-size: max(9px, 12px * root.shrink); pad-y: 0px; clicked => { Sandbox.jail-open-bonuses(true); } }
+        Btn { label: "Cat Bonus"; width: min(110px, (root.grid-width - 6px) / 2); height: root.action-height; text-size: max(9px, 12px * root.shrink); pad-y: 0px; clicked => { Sandbox.jail-open-bonuses(false); } }
     }
     Label { x: 12px; y: root.bench-title-top; width: root.avail - 24px; text: "Bench"; bold: true; font-size: 14px; horizontal-alignment: center; }
     Label { x: 12px; y: root.bench-title-top + 18px; width: root.avail - 24px; text: root.bench-note; weak: true; font-size: 11px; horizontal-alignment: center; }
@@ -1215,7 +1217,7 @@ component JailBonusDialog inherits Dialog {
                             if row.has-icon: Image { source: row.icon; width: 36px; height: 36px; image-fit: contain; }
                             if !row.has-icon: Label { text: row.fallback; font-size: 10px; width: 36px; height: 36px; horizontal-alignment: center; vertical-alignment: center; }
                         }
-                        Slider { x: 54px; y: row.permanent ? 8px : 14px; width: parent.width - 54px - 52px; maximum: row.limit; value: row.level; guarded: false; changed(level) => { Sandbox.jail-raise(row.id, level); } }
+                        Slider { x: 54px; y: row.permanent ? 8px : 14px; width: parent.width - 54px - 52px; maximum: row.limit; value: row.level; guarded: false; moving(level) => { Sandbox.jail-raise(row.id, level); } changed(level) => { Sandbox.jail-raise(row.id, level); } }
                         Label { x: parent.width - 46px; y: row.permanent ? 8px : 14px; width: 38px; height: 24px; text: row.level + "/" + row.limit; font-size: 13px; horizontal-alignment: right; vertical-alignment: center; }
                         if row.permanent: Label { x: 54px; y: 30px; height: 14px; text: "Permanent"; weak: true; font-size: 11px; vertical-alignment: center; }
                         told := Label { x: 8px; y: 48px; width: parent.width - 16px; text: row.detail; weak: true; font-size: 12px; }

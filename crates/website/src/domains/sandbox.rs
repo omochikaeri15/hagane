@@ -176,7 +176,7 @@ pub(crate) struct Ruling {
     pub(crate) challenge: Option<(i32, i32)>,
 }
 
-fn ruling(globals: &Shared, registry: &StageRegistry, picked: Option<&Picked>) -> Ruling {
+fn ruling(globals: &Shared, registry: &StageRegistry, picked: Option<&Picked>, roamed: Option<(&GlobalMapId, u8)>) -> Ruling {
     let stage = picked.and_then(|picked| registry.stages.get(&picked.stage));
     let map_key = picked.map(|picked| GlobalMapId { category: picked.stage.category.clone(), map: picked.stage.map });
     let rules = stage.zip(picked).map(|(stage, picked)| Rules::of(stage, map_key.as_ref().and_then(|key| registry.maps.get(key)), picked.crown as i8)).unwrap_or_default();
@@ -190,9 +190,12 @@ fn ruling(globals: &Shared, registry: &StageRegistry, picked: Option<&Picked>) -
     let special_rules = map_key.as_ref().and_then(|key| registry.maps.get(key)).and_then(|map| map.special_rules.as_ref());
     let war_funds = special_rules.is_some_and(|rules| rules.draws_war_funds());
     let expenses = special_rules.is_some_and(|rules| rules.draws_expenses());
+    let wandered = roamed.and_then(|(map, crown)| Some((i32::try_from(registry.addresses.get(map)?.global?).ok()?, crown)));
     let challenge = global
-        .filter(|map_id| foundry::domains::sandbox::jailbreak::is_challenge_map(&globals.0.vault().vfs, *map_id))
-        .zip(picked.map(|picked| i32::from(picked.crown)));
+        .zip(picked.map(|picked| picked.crown))
+        .or(wandered)
+        .filter(|(map_id, _)| foundry::domains::sandbox::jailbreak::is_challenge_map(&globals.0.vault().vfs, *map_id))
+        .map(|(map_id, crown)| (map_id, i32::from(crown)));
 
     Ruling { rules, usable, castle, war_funds, expenses, challenge }
 }
@@ -371,7 +374,8 @@ pub(crate) fn Sandbox() -> Element {
         let held = sandbox.read();
         let registry = bundle.as_ref().map(|bundle| &bundle.0.registry);
         let entry = registry.zip(picked.as_ref()).and_then(|(registry, picked)| staged_entry(&shared, registry, picked, &held));
-        let ruled = registry.map(|registry| ruling(&shared, registry, picked.as_ref()));
+        let roamed = (stage_state.map)().map(|map| (map, (stage_state.crown)()));
+        let ruled = registry.map(|registry| ruling(&shared, registry, picked.as_ref(), roamed.as_ref().map(|(map, crown)| (map, *crown))));
         let altar_level = held.config.altar();
         let altars = Altars::load(&shared.0.vault().vfs);
         let castle = ruled.as_ref().and_then(|ruled| ruled.castle);
