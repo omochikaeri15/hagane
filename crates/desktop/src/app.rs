@@ -497,7 +497,7 @@ impl Default for HaganeApp {
     fn default() -> Self {
         Self {
             current_page: Page::Home,
-            sidebar_open: true,
+            sidebar_open: false,
             window_size: Size::new(800.0, 600.0),
             window_measured: false,
             backends_listed: false,

@@ -56,6 +56,17 @@ pub fn placement(name: &str) -> Option<(String, bool)> {
     (!is_download_tsv && !is_junk).then(|| (format!("{LOOSE}/{file}"), false))
 }
 
+pub fn kept_placement(name: &str) -> Option<(String, bool)> {
+    placement(name).or_else(|| {
+        let mut parts = Path::new(name).components();
+
+        match (parts.next(), parts.next()) {
+            (Some(Component::Normal(file)), None) => Some((file.to_string_lossy().into_owned(), false)),
+            _ => None,
+        }
+    })
+}
+
 fn default_source() -> String {
     "Hagane".to_string()
 }
@@ -87,3 +98,27 @@ impl Default for ModMetadata {
     }
 }
 
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // A modder drops sprites and animations straight into the mod's folder, and the exporter packs
+    // them at the top of the BCM. They have to come back out of it.
+    #[test]
+    fn a_file_at_the_top_of_a_bcm_survives_the_round_trip() {
+        assert_eq!(kept_placement("269_c.maanim"), Some(("269_c.maanim".to_owned(), false)));
+        assert_eq!(kept_placement("patch/udi038_f.png"), Some(("patch/udi038_f.png".to_owned(), false)));
+        assert_eq!(kept_placement("metadata.json"), Some(("patch/metadata.json".to_owned(), false)));
+        assert_eq!(kept_placement("../escape.png"), None);
+        assert_eq!(kept_placement("other/udi038_f.png"), None);
+    }
+
+    // An APK is a zip with its own files at the top, and none of those are mod files.
+    #[test]
+    fn the_top_of_an_apk_is_not_mod_content() {
+        assert_eq!(placement("classes.dex"), None);
+        assert_eq!(placement("AndroidManifest.xml"), None);
+        assert_eq!(placement("assets/udi038_f.png"), Some(("loose/udi038_f.png".to_owned(), false)));
+    }
+}

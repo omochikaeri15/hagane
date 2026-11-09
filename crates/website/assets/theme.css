@@ -142,6 +142,7 @@ input, select, textarea { font: inherit; color: inherit; }
 .info-banner { background: var(--hint-bg); border: 1px solid var(--info-border); border-top: none; border-radius: 0 0 var(--radius-lg) var(--radius-lg); }
 .notice-banner { background: var(--notice-bg); color: #fff; border: 1px solid var(--danger); border-top: none; border-radius: 0 0 var(--radius-lg) var(--radius-lg); }
 .toast .detail { font-size: 12px; color: var(--weak-text); }
+.app-toast { z-index: 80; }
 .headline { font-size: 28px; padding: calc(var(--toast-overhang) + 8px) 32px 12px; }
 
 .content::-webkit-scrollbar, .scroll::-webkit-scrollbar { width: 10px; height: 10px; }
@@ -280,8 +281,8 @@ img { user-select: none; -webkit-user-select: none; }
 .combo-jump { display: block; }
 .scrim.modal { background: rgba(0, 0, 0, 0.55); }
 .scrim { position: fixed; inset: 0; background: transparent; display: flex; align-items: center; justify-content: center; z-index: 50; padding: 16px; }
-.popup { width: 100%; max-height: 90cqh; display: flex; flex-direction: column; background: var(--bg); border: 3px solid var(--popup-chrome); border-radius: var(--radius-md); overflow: hidden; box-shadow: 0 8px 30px rgba(0,0,0,0.35); }
-.popup-header { display: flex; align-items: center; height: 28px; padding: 0 6px 0 10px; background: var(--popup-chrome); font-size: 14px; flex-shrink: 0; }
+.popup { position: relative; width: 100%; max-height: 90cqh; display: flex; flex-direction: column; background: var(--bg); border: 3px solid var(--popup-chrome); border-radius: var(--radius-md); overflow: hidden; box-shadow: 0 8px 30px rgba(0,0,0,0.35); }
+.popup-header { touch-action: none; cursor: grab; display: flex; align-items: center; height: 28px; padding: 0 6px 0 10px; background: var(--popup-chrome); font-size: 14px; flex-shrink: 0; }
 .popup-title { flex: 1; text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding-left: 28px; }
 .popup-close { width: 28px; height: 28px; display: flex; align-items: center; justify-content: center; font-size: 18px; }
 .popup-body { flex: 1; min-height: 0; overflow-y: auto; }

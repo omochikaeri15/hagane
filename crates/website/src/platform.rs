@@ -19,6 +19,8 @@ pub const LOGGING_ON: &str = "on";
 pub const URL_TYPE_KEY: &str = "url-type";
 pub const URL_DOMAIN: &str = "domain";
 pub const URL_FOLLOWING: &str = "following";
+pub const FILE_CHECK_KEY: &str = "file-check";
+pub const FILE_CHECK_DEFAULT: &str = "120";
 
 pub type Pending<T> = Pin<Box<dyn Future<Output = T>>>;
 pub type Bytes = Arc<[u8]>;
@@ -161,6 +163,8 @@ pub trait Host {
     fn screen_angle_watch(&self, watch: Box<dyn Fn(u16)>);
     fn set_fullscreen(&self, on: bool) -> Result<(), Fault>;
     fn fullscreen_watch(&self, watch: Box<dyn Fn(bool)>);
+    fn outdated_watch(&self, watch: Box<dyn Fn()>);
+    fn file_check(&self, seconds: Option<u32>);
     fn mods(&self, command: mods::ModCommand, report: Report) -> Pending<Result<mods::ModState, Fault>>;
     fn sleep(&self, millis: u32) -> Pending<()>;
     fn can_publish(&self) -> bool;

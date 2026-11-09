@@ -994,11 +994,11 @@ pub fn get_display_def(identity: Identity) -> AbilityDisplayDef {
             },
         },
         Identity::RechargeCut => AbilityDisplayDef {
-            name: "Recharge Cut",
-            fallback: "RchCut",
+            name: "Shortened Cooldown",
+            fallback: "ShortCD",
             icon: AbilityIcon::Standard(img015::ICON_RECHARGE_CUT),
             group: DisplayGroup::Body2,
-            formatter: |ctx| format!("{}% {} every second deploy", finite(ctx.value), named(ctx, Identity::RechargeCut)),
+            formatter: |ctx| format!("{} by {}% every second deploy", named(ctx, Identity::RechargeCut), finite(ctx.value)),
         },
         Identity::CatCombo => AbilityDisplayDef {
             name: "Cat Combo",

@@ -67,6 +67,9 @@ pub(crate) const UPLOADED_FILE: &str = "latest-battle.bcv";
 pub(crate) const UPLOADED_NAME: &str = "latest-battle.name";
 pub(crate) const LATEST_FILES: &str = "latest-battle.files";
 const ETAG: &str = "etag";
+const RECHECK_SECONDS: u32 = 120;
+const RECHECK_FLOOR: u32 = 10;
+const SUSPECT_MS: i32 = 5_000;
 const DONE: &str = "done";
 const VALUE: &str = "value";
 
@@ -182,6 +185,8 @@ thread_local! {
     static PENDING: RefCell<HashMap<usize, Vec<oneshot::Sender<()>>>> = RefCell::new(HashMap::new());
     static SIDE_PENDING: RefCell<HashMap<Box<str>, Vec<oneshot::Sender<()>>>> = RefCell::new(HashMap::new());
     static FOREGROUND: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+    static SUSPECT: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+    static RECHECK: std::cell::Cell<Option<u32>> = const { std::cell::Cell::new(Some(RECHECK_SECONDS)) };
     static IDLE: RefCell<Vec<oneshot::Sender<()>>> = const { RefCell::new(Vec::new()) };
 }
 
@@ -326,6 +331,7 @@ async fn boot(scope: DedicatedWorkerGlobalScope) {
         Err(reason) => return fail(format!("The file host manifest could not be loaded: {reason}")),
     };
     let stored = fresh.then(|| protocol::encode(&snapshot)).flatten();
+    let held = snapshot.etag.clone();
     let catalog = Arc::new(Catalog {
         id: snapshot.id,
         chunks: snapshot.chunks.into_iter().map(|(name, address)| ChunkRef { name, address }).collect(),
@@ -376,6 +382,7 @@ async fn boot(scope: DedicatedWorkerGlobalScope) {
     info!(storage_ms = (now() - indexed) as u32, total_ms = (now() - started) as u32, "Data engine ready");
     drain();
     spawn_local(warm_tables(Rc::clone(&engine)));
+    spawn_local(watch_index(scope.clone(), url, held));
 
     if let (Some(root), Some(bytes)) = (&root, stored)
         && let Err(err) = write_root(root, INDEX_FILE, &bytes).await
@@ -411,6 +418,13 @@ fn received(event: MessageEvent) {
         warn!("A message from the page could not be decoded");
         return;
     };
+
+    if let Request::Recheck(seconds) = call.request {
+        RECHECK.with(|held| held.set(seconds));
+
+        return;
+    }
+
     let ready = ENGINE.with(|slot| slot.borrow().is_some()) || FAULT.with(|slot| slot.borrow().is_some());
 
     if !ready {
@@ -527,7 +541,7 @@ fn needs(engine: &Engine, request: &Request) -> Needs {
     let loader = &engine.loader;
 
     match request {
-        Request::Battle(_) | Request::Mods(_) | Request::Names => Needs::default(),
+        Request::Battle(_) | Request::Mods(_) | Request::Recheck(_) | Request::Names => Needs::default(),
         Request::Fetch(names) | Request::Warm(names) => Needs { frames: loader.frames_of(names.iter().map(Box::as_ref)), sides: Vec::new() },
         Request::Picture { kind, name } => Needs {
             frames: match kind {
@@ -767,6 +781,50 @@ fn on_disk(frame: usize) -> bool {
     CACHED.with(|cached| cached.borrow().contains_key(&frame)) || HANDLES.with(|handles| handles.borrow().contains_key(&frame))
 }
 
+async fn pause(scope: &DedicatedWorkerGlobalScope, millis: i32) {
+    let promise = Promise::new(&mut |resolve: Function, _reject: Function| {
+        if scope.set_timeout_with_callback_and_timeout_and_arguments_0(&resolve, millis).is_err() {
+            let _ = resolve.call0(&JsValue::NULL);
+        }
+    });
+
+    let _ = JsFuture::from(promise).await;
+}
+
+async fn watch_index(scope: DedicatedWorkerGlobalScope, url: String, held: Box<str>) {
+    if held.is_empty() {
+        return;
+    }
+
+    let mut waited = 0;
+
+    loop {
+        pause(&scope, SUSPECT_MS).await;
+
+        let suspected = SUSPECT.with(|flag| flag.replace(false));
+        let Some(seconds) = RECHECK.with(std::cell::Cell::get) else {
+            waited = 0;
+
+            continue;
+        };
+
+        waited += SUSPECT_MS;
+
+        if !suspected && i64::from(waited) < i64::from(seconds.max(RECHECK_FLOOR)) * 1000 {
+            continue;
+        }
+
+        waited = 0;
+
+        if finish_head(begin_head(&scope, &url)).await.is_some_and(|etag| *etag != *held) {
+            info!("The file host holds a newer payload than this session loaded");
+            post(Answer { id: HELLO, reply: Reply::Outdated });
+
+            return;
+        }
+    }
+}
+
 pub(crate) async fn breathe() {
     let Some(scope) = SCOPE.with(|slot| slot.borrow().clone()) else {
         return;
@@ -820,7 +878,7 @@ fn answer(engine: &Engine, id: u32, request: Request) -> (Reply, Option<Kept>) {
     let kept = |name: &'static str, key: Option<u64>| key.filter(|_| keep).map(|key| (name, key));
 
     match request {
-        Request::Battle(_) | Request::Mods(_) | Request::Names => (Reply::Names { id: engine.loader.catalog.id.clone(), names: engine.loader.sorted.clone() }, None),
+        Request::Battle(_) | Request::Mods(_) | Request::Recheck(_) | Request::Names => (Reply::Names { id: engine.loader.catalog.id.clone(), names: engine.loader.sorted.clone() }, None),
         Request::Fetch(names) => {
             (Reply::Files(names.into_iter().filter_map(|name| engine.loader.load(&name).map(|bytes| (name, bytes.to_vec()))).collect()), None)
         }
@@ -1446,7 +1504,11 @@ pub(crate) async fn fetch_bytes(scope: &DedicatedWorkerGlobalScope, url: &str, r
     match (range, status) {
         (None, 200) | (Some(_), 206) => Ok(bytes),
         (Some((offset, size)), 200) => bytes.get(offset as usize..(offset + size) as usize).map(<[u8]>::to_vec).ok_or_else(|| format!("{url} ignored the range and is too short")),
-        (_, other) => Err(format!("[{other}] {url}")),
+        (_, other) => {
+            SUSPECT.with(|flag| flag.set(true));
+
+            Err(format!("[{other}] {url}"))
+        }
     }
 }
 
@@ -1465,7 +1527,11 @@ fn xhr_range(url: &str, offset: u64, size: u64) -> Result<Vec<u8>, String> {
     match status {
         206 => Ok(bytes),
         200 => bytes.get(offset as usize..(offset + size) as usize).map(<[u8]>::to_vec).ok_or_else(|| format!("{url} ignored the range and is too short")),
-        other => Err(format!("[{other}] {url}")),
+        other => {
+            SUSPECT.with(|flag| flag.set(true));
+
+            Err(format!("[{other}] {url}"))
+        }
     }
 }
 

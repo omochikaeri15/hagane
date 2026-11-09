@@ -1,5 +1,5 @@
 use codex::cat::unit::TalentGroup;
-use codex::combat::{get_ability, get_talent, targets_traits, AttrUnit, AttrValue, Entity, Faction, Identity, REGISTRY};
+use codex::combat::{get_talent, targets_traits, AttrUnit, AttrValue, Entity, Faction, Identity, REGISTRY};
 use codex::files::img015;
 use tracing::trace;
 
@@ -41,7 +41,7 @@ pub fn collect_ability_data(ctx: &RenderContext<'_>) -> AbilityGroups {
         let attrs = (pure_def.attributes)(ctx.final_stats);
 
         if attrs.is_empty() || !leveled(pure_def.identity, ctx.final_stats) { continue; }
-        if pure_def.identity.effect_base().is_some_and(|base| held(ctx.final_stats, base)) { continue; }
+        if pure_def.identity.effect_base().is_some() { continue; }
 
         let boost = pure_def.identity.effect_up().map(|(_, up)| up).filter(|_| ctx.final_stats.effect_up(pure_def.identity) > 0);
         let icon = boost.map_or(display_def.icon, |up| registry::get_display_def(up).icon);
@@ -156,10 +156,6 @@ fn custom_icon(icon: AbilityIcon) -> CustomIcon {
         AbilityIcon::Custom(custom) => custom,
         AbilityIcon::Standard(_) | AbilityIcon::None => CustomIcon::None,
     }
-}
-
-fn held(stats: &Entity, identity: Identity) -> bool {
-    get_ability(identity).is_some_and(|ability| !(ability.attributes)(stats).is_empty())
 }
 
 fn run_border(ctx: &RenderContext<'_>, identity: Identity) -> Option<usize> {

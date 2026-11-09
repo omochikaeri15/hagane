@@ -1,6 +1,6 @@
 use std::fs;
 use std::io::{self, Read};
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use tracing::{error, info, trace};
 use zip::ZipArchive;
@@ -68,7 +68,7 @@ pub(crate) fn run_archive(archive_path: &Path, workspace_dir: &Path, emit_log: &
         if file_in_zip.is_dir() { continue; }
 
         let name = file_in_zip.name().to_string();
-        let Some((out_path, pack_part)) = destination(&name, workspace_dir) else { continue };
+        let Some((out_path, pack_part)) = mods::placement(&name).map(|(relative, pack)| (workspace_dir.join(relative), pack)) else { continue };
 
         has_pack_data |= pack_part;
 
@@ -109,7 +109,7 @@ pub(crate) fn run_solid(archive_path: &Path, workspace_dir: &Path, emit_log: &(d
         if !entry.header().entry_type().is_file() { continue; }
 
         let Some(name) = entry.path().ok().map(|path| path.to_string_lossy().replace('\\', "/")) else { continue };
-        let Some((out_path, pack_part)) = destination(&name, workspace_dir) else { continue };
+        let Some((out_path, pack_part)) = mods::kept_placement(&name).map(|(relative, pack)| (workspace_dir.join(relative), pack)) else { continue };
 
         has_pack_data |= pack_part;
 
@@ -125,10 +125,6 @@ pub(crate) fn run_solid(archive_path: &Path, workspace_dir: &Path, emit_log: &(d
     emit_log(format!("Extracted {} Files", extracted_count));
 
     finish_pack(has_pack_data, workspace_dir, emit_log, user_keys)
-}
-
-fn destination(name: &str, workspace_dir: &Path) -> Option<(PathBuf, bool)> {
-    mods::placement(name).map(|(relative, pack)| (workspace_dir.join(relative), pack))
 }
 
 fn write_out(out_path: &Path, source: &mut impl Read) -> bool {

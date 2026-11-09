@@ -48,6 +48,8 @@ struct Link {
     phase: RefCell<Option<Phase>>,
     screen: SharedScreen,
     battle_watch: RefCell<Option<BattleWatch>>,
+    outdated: Cell<bool>,
+    outdated_watch: RefCell<Option<Box<dyn Fn()>>>,
     standing: Cell<BattlePhase>,
     next: Cell<u32>,
     painting: Cell<bool>,
@@ -183,6 +185,8 @@ impl WebHost {
                     phase: RefCell::new(None),
                     screen: Rc::new(RefCell::new(Screen::default())),
                     battle_watch: RefCell::new(None),
+                    outdated: Cell::new(false),
+                    outdated_watch: RefCell::new(None),
                     standing: Cell::new(BattlePhase::Idle),
                     next: Cell::new(HELLO + 1),
                     painting: Cell::new(false),
@@ -283,6 +287,13 @@ fn received(calls: &Calls, link: &Link, event: MessageEvent) {
     if answer.id == HELLO {
         match answer.reply {
             Reply::Ready => link.flush(),
+            Reply::Outdated => {
+                link.outdated.set(true);
+
+                if let Some(watch) = link.outdated_watch.borrow().as_ref() {
+                    watch();
+                }
+            }
             Reply::Phase { label, done, total } => {
                 let phase = Phase { label, done, total };
 
@@ -900,6 +911,35 @@ impl Host for WebHost {
 
     fn fullscreen_watch(&self, watch: Box<dyn Fn(bool)>) {
         *self.fullscreen.borrow_mut() = Some(watch);
+    }
+
+    fn outdated_watch(&self, watch: Box<dyn Fn()>) {
+        let Some(link) = &self.link else {
+            return;
+        };
+
+        if link.outdated.get() {
+            watch();
+        }
+
+        *link.outdated_watch.borrow_mut() = Some(watch);
+    }
+
+    fn file_check(&self, seconds: Option<u32>) {
+        let Some(link) = &self.link else {
+            return;
+        };
+        let id = link.next.get();
+
+        link.next.set(id.wrapping_add(1).max(HELLO + 1));
+
+        let posted = protocol::encode(&Call { id, request: Request::Recheck(seconds) })
+            .ok_or_else(|| Fault("the file check interval could not be encoded".to_owned()))
+            .and_then(|bytes| link.post(Uint8Array::from(&bytes[..]).buffer()));
+
+        if let Err(fault) = posted {
+            warn!("The file check interval could not be posted: {fault}");
+        }
     }
 
     fn battle_watch(&self, watch: BattleWatch) {

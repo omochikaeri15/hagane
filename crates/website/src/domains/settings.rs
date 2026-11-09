@@ -12,7 +12,7 @@ use foundry::domains::settings::{ReplaySource, SidebarBehavior, lang};
 use foundry::systems::treasure::{ARCS, Catalog, Config as TreasureConfig, FULL_PERCENT};
 
 use crate::app::{Route, remember_settings};
-use crate::platform::{LOGGING_KEY, LOGGING_ON, Platform, URL_DOMAIN, URL_FOLLOWING, URL_TYPE_KEY};
+use crate::platform::{FILE_CHECK_DEFAULT, FILE_CHECK_KEY, LOGGING_KEY, LOGGING_ON, Platform, URL_DOMAIN, URL_FOLLOWING, URL_TYPE_KEY};
 use crate::systems::animation::{self, Rigs};
 use crate::systems::catalog;
 use crate::systems::context::{self, Shared};
@@ -84,6 +84,9 @@ enum Tab {
 
 const TABS: [(Tab, &str); 6] = [(Tab::General, "General"), (Tab::Cats, "Cats"), (Tab::Enemies, "Enemies"), (Tab::Stages, "Stages"), (Tab::Sandbox, "Sandbox"), (Tab::About, "About")];
 const FULLSCREEN_HINT: &str = "Fills the whole screen with the app\nF11 switches this at any time";
+const FILE_CHECK_HINT: &str = "How often, in seconds, the site looks for new game files on the file host\nLeave it empty to never look";
+const FILE_CHECK_OFF: &str = "Off";
+const FILE_CHECK_DIGITS: usize = 5;
 const ORIENTATION_HINT: &str = "Automatic follows the browser\nPortrait keeps the app upright against the device's own top\nLandscape turns it sideways while the screen stands upright, so hold the device with its right side up";
 const LOGGING_HINT: &str = "Enables logs for easy debugging\nDisable to improve performance\nDevs may refuse to debug without logs";
 const LOGGING_OFF: &str = "off";
@@ -115,6 +118,18 @@ pub(crate) fn provide_fullscreen(platform: &Platform) -> Fullscreen {
     });
 
     held
+}
+
+fn file_check_text(platform: &Platform) -> String {
+    platform.host().recall(FILE_CHECK_KEY).unwrap_or_else(|| FILE_CHECK_DEFAULT.to_owned())
+}
+
+fn file_check_seconds(text: &str) -> Option<u32> {
+    text.trim().parse::<u32>().ok().filter(|seconds| *seconds > 0)
+}
+
+pub(crate) fn apply_file_check(platform: &Platform) {
+    platform.host().file_check(file_check_seconds(&file_check_text(platform)));
 }
 
 pub(crate) fn provide_logging(platform: &Platform) -> Logging {
@@ -257,6 +272,7 @@ fn General(platform: Platform, settings: Signal<GameSettings>, globals: Option<S
     let addressed = platform.host().has_address_bar();
     let mut url_type = use_signal(|| platform.host().recall(URL_TYPE_KEY).filter(|kept| kept == URL_FOLLOWING).map_or(URL_DOMAIN, |_| URL_FOLLOWING));
     let url_label = URL_TYPES.iter().find(|(key, _)| *key == url_type()).map_or(URL_TYPES[0].1, |(_, label)| label);
+    let mut file_check = use_signal(|| file_check_text(&platform));
     let held = settings.read();
     let saved = held.general.language_priority.clone();
     let priority = working.read().clone().unwrap_or_else(|| saved.clone());
@@ -355,6 +371,25 @@ fn General(platform: Platform, settings: Signal<GameSettings>, globals: Option<S
                             }
                         }
                     }
+                }
+                label { class: "setting-row inline", title: FILE_CHECK_HINT,
+                    span { "File Check Interval" }
+                    input { class: "input entry-input", r#type: "text", inputmode: "numeric", placeholder: "{FILE_CHECK_OFF}", value: "{file_check}",
+                        oninput: {
+                            let platform = platform.clone();
+
+                            move |event: FormEvent| {
+                                let entry = event.value();
+
+                                if entry.len() > FILE_CHECK_DIGITS || !entry.chars().all(|glyph| glyph.is_ascii_digit()) {
+                                    return;
+                                }
+
+                                platform.host().remember(FILE_CHECK_KEY, &entry);
+                                platform.host().file_check(file_check_seconds(&entry));
+                                file_check.set(entry);
+                            }
+                        } }
                 }
                 Toggle {
                     value: fullscreen,

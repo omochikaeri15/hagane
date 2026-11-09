@@ -57,6 +57,7 @@ pub(crate) enum Request {
     Enemies(ScannerConfig),
     Stages(ScannerConfig),
     Mods(ModCommand),
+    Recheck(Option<u32>),
 }
 
 #[derive(Serialize, Deserialize)]
@@ -80,6 +81,7 @@ pub(crate) enum Reply {
     Progress { done: usize, total: usize, scanning: bool },
     Phase { label: Box<str>, done: usize, total: usize },
     Battle(BattleEvent),
+    Outdated,
     Failed(String),
 }
 

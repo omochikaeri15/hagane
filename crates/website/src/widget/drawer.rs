@@ -51,7 +51,7 @@ pub(crate) fn provide() -> Drawers {
     use_context_provider(|| Drawers {
         compact: Signal::new(false),
         narrow: Signal::new(false),
-        nav: Signal::new(true),
+        nav: Signal::new(false),
         hosted: Signal::new(None),
         pull: Signal::new(None),
         swipe: Signal::new(None),

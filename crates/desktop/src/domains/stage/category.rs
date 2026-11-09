@@ -32,7 +32,7 @@ impl CategoryExt for Category {
             Self::ZeroLegends          => "Zero Legends",
             Self::OtherworldColosseum  => "Otherworld Colosseum",
             Self::CatclawChampionships => "Catclaw Championships",
-            Self::FeverRush            => "Fever Rush",
+            Self::FeverRush            => "Point Events",
             Self::Unknown(prefix)      => {
                 if prefix == "PT" {
                     "Legacy Princess Punt"

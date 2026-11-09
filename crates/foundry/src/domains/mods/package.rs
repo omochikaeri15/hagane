@@ -8,7 +8,7 @@ use tracing::warn;
 
 use crate::common::counted::Counted;
 
-use super::{METADATA, ModMetadata, placement};
+use super::{METADATA, ModMetadata, kept_placement};
 
 const ZSTD_MAGIC: [u8; 4] = [0x28, 0xb5, 0x2f, 0xfd];
 
@@ -35,7 +35,7 @@ impl Package {
             }
 
             let name = entry.path().map_err(|error| format!("the mod is damaged: {error}"))?.to_string_lossy().replace('\\', "/");
-            let Some((relative, pack)) = placement(&name) else {
+            let Some((relative, pack)) = kept_placement(&name) else {
                 continue;
             };
 

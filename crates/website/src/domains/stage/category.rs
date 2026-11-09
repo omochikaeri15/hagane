@@ -26,7 +26,7 @@ pub(crate) fn display_name(category: &Category) -> &str {
         Category::ZeroLegends => "Zero Legends",
         Category::OtherworldColosseum => "Otherworld Colosseum",
         Category::CatclawChampionships => "Catclaw Championships",
-        Category::FeverRush => "Fever Rush",
+        Category::FeverRush => "Point Events",
         Category::Unknown(prefix) => {
             if prefix == "PT" {
                 "Legacy Princess Punt"

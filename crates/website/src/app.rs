@@ -26,6 +26,8 @@ const FORM_LETTERS: [&str; 4] = ["f", "c", "s", "u"];
 const OPEN_ARROW: &str = "\u{25b6}";
 const CLOSED_ARROW: &str = "\u{25c0}";
 const LAYOUT_PROBE: f64 = 1.5;
+const OUTDATED_TITLE: &str = "New files available";
+const OUTDATED_DETAIL: &str = "Please refresh the page";
 
 #[derive(Clone, Debug, PartialEq, Routable)]
 #[rustfmt::skip]
@@ -256,6 +258,18 @@ fn Shell() -> Element {
         }
     });
 
+    let outdated = use_signal(|| false);
+    let watcher = platform.clone();
+
+    use_hook(move || {
+        settings::apply_file_check(&watcher);
+        watcher.host().outdated_watch(Box::new(move || {
+            let mut outdated = outdated;
+
+            outdated.set(true);
+        }));
+    });
+
     let presser = platform.clone();
     let follower = platform;
 
@@ -296,6 +310,12 @@ fn Shell() -> Element {
             }
             div { class: "content", Outlet::<Route> {} }
             Nav { route: route.tab_name() }
+            div { class: "toast-slot app-toast",
+                div { class: if outdated() { "toast notice-banner" } else { "toast notice-banner hidden" },
+                    div { "{OUTDATED_TITLE}" }
+                    div { "{OUTDATED_DETAIL}" }
+                }
+            }
         }
     }
 }
