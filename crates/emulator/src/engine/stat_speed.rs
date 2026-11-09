@@ -20,7 +20,7 @@ pub fn stat_speed(
             .wrapping_add(base);
 
         ops::div_100(
-            get_cat_combo_bonus(ctx, &ctx.combo_store, 2, unit_id)?
+            get_cat_combo_bonus(ctx, 2, unit_id)?
                 .wrapping_add(0x64)
                 .wrapping_mul(boosted),
         )

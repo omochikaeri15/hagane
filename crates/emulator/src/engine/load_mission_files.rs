@@ -81,7 +81,7 @@ pub fn load_mission_files(ctx: &mut AppContext) -> Result<(), Fault> {
         read_csv_row(stm);
 
         while read_csv_row(stm) {
-            let mut row = [0i32; 10];
+            let mut row = [0i32; 11];
 
             parse_mission_unlock_row(&mut row, stm);
 
@@ -233,6 +233,27 @@ pub fn load_mission_files(ctx: &mut AppContext) -> Result<(), Fault> {
         ctx.mission_max_type2 = max_type2;
         ctx.mission_max_type1 = max_type1;
         ctx.mission_max_type0 = max_type0;
+    }
+
+    if let Some(bytes) = open_asset_stream(ctx, b"Mission_designation.csv", 0, 0)? {
+        let stm = &mut AssetStream::new(&bytes, b'\n');
+
+        while read_csv_row(stm) {
+            let id = read_csv_cell(stm, 0) as i32;
+
+            if let Some(entry) = ctx.mission_data.get_mut(&id) {
+                entry.designation = read_csv_cell(stm, 1) as i32;
+
+                let designation = read_csv_cell(stm, 1) as i32;
+                let highest = ctx.mission_max_designation;
+
+                ctx.mission_max_designation = if designation > highest {
+                    designation
+                } else {
+                    highest
+                };
+            }
+        }
     }
 
     load_mission_monthly_files(ctx)?;

@@ -69,7 +69,7 @@ pub fn compute_attack(
             ops::div_100(treasure.wrapping_mul(leveled)).wrapping_add(leveled);
 
         let combo =
-            get_cat_combo_bonus(ctx, &ctx.combo_store, 0, unit_id)?.wrapping_add(0x64) as i64;
+            get_cat_combo_bonus(ctx, 0, unit_id)?.wrapping_add(0x64) as i64;
         let mut hp = ops::div_100(combo.wrapping_mul(with_treasure));
 
         let mut boost = get_talent_value(ctx, faction, unit_id, form, 0x1f, 0)?;

@@ -1,4 +1,4 @@
-use crate::Fault;
+use crate::{Fault, ops};
 
 use super::{AppContext, CatStats, get_talent_value, max_i32, read_flag};
 
@@ -15,5 +15,8 @@ pub fn stat_cooldown(
     let base = ctx.i32_at(AppContext::cat_stat(unit_id, form, CatStats::COOLDOWN))?;
     let reduction = get_talent_value(ctx, faction, unit_id, form, 0x1a, 0)?;
 
-    Ok(max_i32(base.wrapping_sub(reduction), 0))
+    let frames = max_i32(base.wrapping_sub(reduction), 0);
+    let cut = get_talent_value(ctx, faction, unit_id, form, 0x3f5, 0)?;
+
+    Ok(ops::div_100(0x64i32.wrapping_sub(cut).wrapping_mul(frames)))
 }

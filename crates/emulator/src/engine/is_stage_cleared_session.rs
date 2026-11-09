@@ -1,8 +1,8 @@
 use crate::Fault;
 
 use super::{
-    AppContext, get_stage_record, is_conditioned_map, map_index_of_map_id, map_type_of_map_id,
-    stage_condition_met,
+    AppContext, get_stage_record, is_conditioned_map, is_roguelike_map, map_index_of_map_id,
+    map_type_of_map_id, stage_condition_met,
 };
 
 pub fn is_stage_cleared_session(
@@ -12,8 +12,12 @@ pub fn is_stage_cleared_session(
     variant: i32,
 ) -> Result<bool, Fault> {
     if map_type_of_map_id(map) == -11
-        && stage_condition_met(ctx, -11, map_index_of_map_id(map), stage)?
+        && stage_condition_met(ctx, -11, map_index_of_map_id(map), stage, 0)?
     {
+        return Ok(true);
+    }
+
+    if is_roguelike_map(ctx, map, 0)? {
         return Ok(true);
     }
 
@@ -63,6 +67,7 @@ pub fn is_stage_cleared_session(
             map_type_of_map_id(map),
             map_index_of_map_id(map),
             stage,
+            0,
         )?
     {
         return Ok(true);

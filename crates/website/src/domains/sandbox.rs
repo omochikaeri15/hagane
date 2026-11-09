@@ -1,6 +1,7 @@
 mod arena;
 mod combos;
 mod config;
+mod jailbreak;
 mod lineup;
 mod orbs;
 mod replay;
@@ -14,6 +15,7 @@ use dioxus::prelude::*;
 use codex::chapter::Category;
 use emulator::runtime::{CASTLE_PART, CatGod as EngineGod, Setup, SetupUnit, StageEntry, StageVariant, TechLevel, TutorialFlags, offers_cat_god, usable_items};
 use foundry::domains::cat::scanner::CatEntry;
+use foundry::domains::sandbox::jailbreak::Board;
 use foundry::domains::sandbox::altar::Altars;
 use foundry::domains::sandbox::base::Parts;
 use foundry::domains::sandbox::config::{self as sandbox_config, CatGod, Gimmicks};
@@ -36,6 +38,7 @@ use crate::widget::{Popup, Status};
 pub(crate) use state::{SandboxState, provide};
 
 use self::arena::Battle;
+use self::jailbreak::Held;
 use self::state::{Device, Tab, Volume};
 
 const ACKNOWLEDGMENT_INTRO: [&str; 2] = [
@@ -101,6 +104,7 @@ struct Staging {
     rules: Rc<Rules>,
     altar: Option<u32>,
     gimmicks: Gimmicks,
+    jail: Option<(i32, i32)>,
 }
 
 pub(crate) struct Picked {
@@ -169,6 +173,7 @@ pub(crate) struct Ruling {
     pub(crate) castle: Option<i32>,
     pub(crate) war_funds: bool,
     pub(crate) expenses: bool,
+    pub(crate) challenge: Option<(i32, i32)>,
 }
 
 fn ruling(globals: &Shared, registry: &StageRegistry, picked: Option<&Picked>) -> Ruling {
@@ -185,11 +190,14 @@ fn ruling(globals: &Shared, registry: &StageRegistry, picked: Option<&Picked>) -
     let special_rules = map_key.as_ref().and_then(|key| registry.maps.get(key)).and_then(|map| map.special_rules.as_ref());
     let war_funds = special_rules.is_some_and(|rules| rules.draws_war_funds());
     let expenses = special_rules.is_some_and(|rules| rules.draws_expenses());
+    let challenge = global
+        .filter(|map_id| foundry::domains::sandbox::jailbreak::is_challenge_map(&globals.0.vault().vfs, *map_id))
+        .zip(picked.map(|picked| i32::from(picked.crown)));
 
-    Ruling { rules, usable, castle, war_funds, expenses }
+    Ruling { rules, usable, castle, war_funds, expenses, challenge }
 }
 
-fn build_setup(state: &SandboxState, cats: &[CatEntry], globals: &Shared, entry: StageEntry) -> Setup {
+fn build_setup(state: &SandboxState, cats: &[CatEntry], globals: &Shared, entry: StageEntry, board: Option<&Board>) -> Setup {
     let vault = globals.0.vault();
     let vfs = &vault.vfs;
     let parts = Parts::load(vfs);
@@ -280,6 +288,13 @@ fn build_setup(state: &SandboxState, cats: &[CatEntry], globals: &Shared, entry:
         levels.cannon = levels.cannon.max(1);
     }
 
+    if let Some(board) = board {
+        let (picks, fielded) = jailbreak::picks(state, board);
+
+        setup.roguelike = picks;
+        setup.lineup = fielded;
+    }
+
     setup
 }
 
@@ -366,7 +381,9 @@ pub(crate) fn Sandbox() -> Element {
             altar: castle.is_some_and(|castle| altars.seals(castle)),
             war_funds: ruled.as_ref().is_some_and(|ruled| ruled.war_funds),
             expenses: ruled.as_ref().is_some_and(|ruled| ruled.expenses),
+            jailbreak: ruled.as_ref().is_some_and(|ruled| ruled.challenge.is_some()),
         };
+        let jail = ruled.as_ref().and_then(|ruled| ruled.challenge);
 
         Staging {
             entry,
@@ -374,10 +391,29 @@ pub(crate) fn Sandbox() -> Element {
             rules: Rc::new(ruled.map(|ruled| ruled.rules).unwrap_or_default()),
             altar,
             gimmicks,
+            jail,
         }
     }));
     let staging = staging();
-    let playable = staging.entry.is_some() && fielded && cats.is_some();
+    let jailed = staging.jail;
+    let jail_cats = cats.clone();
+    let jail_shared = globals.clone();
+    let board = use_memo(use_reactive!(|(jailed, jail_cats, jail_shared)| {
+        let (map_id, crown) = jailed?;
+        let cats = jail_cats?;
+
+        Board::load(jail_shared.0.context(), &cats.0, map_id, crown).map(|board| Held(Rc::new(board)))
+    }));
+    let board = board();
+    let jail = state::jail();
+
+    if *jail.0.peek() != board {
+        let mut jail = jail;
+
+        jail.0.set(board.clone());
+    }
+
+    let playable = staging.entry.is_some() && (fielded || board.is_some()) && cats.is_some();
     let usable = state::usable();
 
     if *usable.0.peek() != staging.usable {
@@ -402,6 +438,7 @@ pub(crate) fn Sandbox() -> Element {
     let play_globals = globals.clone();
     let play_cats = cats.clone();
     let play_bundle = bundle.clone();
+    let play_board = board.clone();
     let play = move |_| {
         let (Some(cats), Some(bundle)) = (&play_cats, &play_bundle) else {
             return;
@@ -413,7 +450,7 @@ pub(crate) fn Sandbox() -> Element {
         let Some(entry) = staged_entry(&play_globals, &bundle.0.registry, &picked, &held) else {
             return;
         };
-        let setup = build_setup(&held, &cats.0, &play_globals, entry);
+        let setup = build_setup(&held, &cats.0, &play_globals, entry, play_board.as_ref().map(|board| &*board.0));
         let warmth = warm::collect(&setup, &bundle.0.registry, &picked, &cats.0);
         let ratio = play_platform.host().pixel_ratio();
         let (width, height) = size();
@@ -475,7 +512,10 @@ pub(crate) fn Sandbox() -> Element {
             div { class: "sandbox-body",
                 match tab {
                     Tab::Lineup => match cats.clone() {
-                        Some(cats) => rsx! { lineup::Editor { cats, globals: globals.clone(), rules: Ruled(Rc::clone(&rules)), altar: altar_cap } },
+                        Some(cats) => match board.clone() {
+                            Some(board) => rsx! { jailbreak::Editor { board, cats, globals: globals.clone(), ruled: Ruled(Rc::clone(&rules)) } },
+                            None => rsx! { lineup::Editor { cats, globals: globals.clone(), rules: Ruled(Rc::clone(&rules)), altar: altar_cap } },
+                        },
                         None => rsx! { Status { title: cats_title, detail: cats_detail.clone() } },
                     },
                     Tab::Stage => rsx! { stage::Browser {} },

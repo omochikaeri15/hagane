@@ -3,17 +3,17 @@ use crate::{Fault, ops};
 use super::{
     AppContext, CAT_STATS, CAT_STATS_FORM_STRIDE, CAT_STATS_UNIT_STRIDE, CatStats,
     add_medal_progress, add_money, award_event_points, conjurer_on_field, deck_slot_filled,
-    deploy_count_condition,
-    get_altar_level_cap, get_button_unit_form, get_button_unit_id, get_button_unit_row,
-    get_castle_enemy_row, get_deck_cooldown, get_effective_deploy_cost, get_global_map_id,
-    get_money, get_orb_value_max, get_pos_x, get_recharge_cut, get_setting, get_slot_unit_id, get_special_rule,
-    get_special_rule_params, get_standing_range, get_unit_max_level, get_unit_rarity,
-    get_unit_recharge, has_fixed_lineup, is_deploy_blocked, is_score_stage, level_cell_plus,
-    level_cell_base, max_i32, min_i32, orb_deploy_condition, play_sound, set_attack_end_mode,
+    deploy_count_condition, get_altar_level_cap, get_button_unit_form, get_button_unit_id,
+    get_button_unit_row, get_castle_enemy_row, get_deck_cooldown, get_effective_deploy_cost,
+    get_global_map_id, get_money, get_orb_value_max, get_pos_x, get_recharge_cut, get_setting,
+    get_slot_unit_id, get_special_rule, get_special_rule_params, get_standing_range,
+    get_talent_value, get_unit_max_level, get_unit_rarity, get_unit_recharge, has_fixed_lineup,
+    is_deploy_blocked, is_roguelike_map, is_score_stage, level_cell_base, level_cell_plus,
+    max_i32, min_i32, orb_deploy_condition, play_sound, roguelike_progress, set_attack_end_mode,
     set_attacks_remaining, set_boss_wave_immune, set_conjure_deck_slot, set_deck_cooldown,
     set_dodge_chance, set_dodge_duration, set_entity_state, set_paid_cost, set_pos_x,
-    slot_conjure_ready, slot_deploy_permitted, slot_occupied, spawn_entity,
-    stage_not_sealed, stat_conjure_unit_id,
+    slot_conjure_ready, slot_deploy_permitted, slot_occupied, spawn_entity, stage_not_sealed,
+    stat_conjure_unit_id,
 };
 
 pub fn deploy_unit(
@@ -113,6 +113,29 @@ pub fn deploy_unit(
                 );
                 let mut level = plus.wrapping_add(base);
                 let mut last = level;
+
+                if is_roguelike_map(ctx, -1, -1)? {
+                    if let Some(progress) = roguelike_progress(ctx, -1, -1)? {
+                        let progress = progress.borrow();
+                        let mut listed = 0usize;
+
+                        while listed < progress.roster.len() {
+                            let chara = progress.roster[listed];
+
+                            if chara.unit_id == get_button_unit_id(ctx, faction, slot)? {
+                                let base = min_i32(chara.level, base_cap);
+
+                                level = min_i32(chara.plus_level, plus_cap).wrapping_add(base);
+
+                                break;
+                            }
+
+                            listed += 1;
+                        }
+                    } else {
+                        level = 0;
+                    }
+                }
 
                 if level
                     >= get_unit_max_level(ctx, get_button_unit_id(ctx, faction, spirit_button)?)?
@@ -226,25 +249,46 @@ pub fn deploy_unit(
             );
             let mut level = plus.wrapping_add(base);
 
-            if has_fixed_lineup(ctx, -1, -1, -1)? && !ctx.fixed_lineup_store.units.is_empty() {
-                let mut listed = 0usize;
+            if has_fixed_lineup(ctx, -1, -1, -1)? {
+                if !ctx.fixed_lineup_store.units.is_empty() {
+                    let mut listed = 0usize;
 
-                while listed < ctx.fixed_lineup_store.units.len() {
-                    let unit =
-                        ctx.fixed_lineup_store
-                            .units
-                            .get(listed)
-                            .ok_or(Fault::index_out_of_range(listed as i64, 0))?;
-                    let (unit_id, fixed_level) =
-                        (unit.unit_id, unit.plus_level.wrapping_add(unit.level));
+                    while listed < ctx.fixed_lineup_store.units.len() {
+                        let unit =
+                            ctx.fixed_lineup_store
+                                .units
+                                .get(listed)
+                                .ok_or(Fault::index_out_of_range(listed as i64, 0))?;
+                        let (unit_id, fixed_level) =
+                            (unit.unit_id, unit.plus_level.wrapping_add(unit.level));
 
-                    if unit_id == get_button_unit_id(ctx, faction, slot)? {
-                        level = fixed_level;
+                        if unit_id == get_button_unit_id(ctx, faction, slot)? {
+                            level = fixed_level;
 
-                        break;
+                            break;
+                        }
+
+                        listed += 1;
                     }
+                }
+            } else if is_roguelike_map(ctx, -1, -1)? {
+                if let Some(progress) = roguelike_progress(ctx, -1, -1)? {
+                    let progress = progress.borrow();
+                    let mut listed = 0usize;
 
-                    listed += 1;
+                    while listed < progress.roster.len() {
+                        let chara = progress.roster[listed];
+
+                        if chara.unit_id == get_button_unit_id(ctx, faction, slot)? {
+                            level = chara.plus_level.wrapping_add(chara.level);
+
+                            break;
+                        }
+
+                        listed += 1;
+                    }
+                } else {
+                    level = 0;
                 }
             }
 
@@ -293,6 +337,29 @@ pub fn deploy_unit(
                                 ((gap.wrapping_mul(queued) as u32 as u64) << 0x20)
                                     .wrapping_add(slot as u32 as u64),
                             );
+                        }
+                    }
+                } else {
+                    let unit_id = get_button_unit_id(ctx, 0, slot)?;
+                    let form = get_button_unit_form(ctx, 0, slot)?;
+                    let extra = get_talent_value(ctx, 0, unit_id, form, 0x3f1, 0)?;
+
+                    if extra > 0 {
+                        let mut queued = 1i32;
+
+                        loop {
+                            let gap = get_talent_value(ctx, 0, unit_id, form, 0x3f1, 1)?;
+
+                            ctx.deploy_queue.push(
+                                ((gap.wrapping_mul(queued) as u32 as u64) << 0x20)
+                                    .wrapping_add(slot as u32 as u64),
+                            );
+
+                            if queued == extra {
+                                break;
+                            }
+
+                            queued = queued.wrapping_add(1);
                         }
                     }
                 }

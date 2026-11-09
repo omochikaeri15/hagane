@@ -2,16 +2,18 @@ use crate::{Fault, ops};
 
 use super::{
     AppContext, ENTITY_BASE, ENTITY_STRIDE, Entity, Rect, ad_prepare, add_resource,
-    add_stage_record, breadcrumb, call_rng, check_medals, commit_stage_score, defeat_counter_bump,
-    entry_find_by_id, event_unit_slot, get_bottom_inset_logical, get_drawable_width,
-    get_global_map_id, get_map_index, get_map_type, get_point_cap, get_point_id, get_point_rewards,
-    get_point_total, get_release_point_cap, get_stage_best_score, get_stage_index, get_stage_record,
-    get_stage_score, is_reward_claimed, is_score_stage, labyrinth_active, log_analytics_event,
+    add_stage_record, breadcrumb, call_rng, check_medals, commit_stage_score,
+    defeat_counter_bump, entry_find_by_id, event_unit_slot, get_bottom_inset_logical,
+    get_drawable_width, get_global_map_id, get_map_index, get_map_type, get_point_cap,
+    get_point_id, get_point_rewards, get_point_total, get_release_point_cap,
+    get_stage_best_score, get_stage_index, get_stage_record, get_stage_score, has_point_rule,
+    is_reward_claimed, is_roguelike_map, is_score_stage, labyrinth_active, log_analytics_event,
     map_type_base_id, map_uses_item_cost, mission_progress, play_sound, point_reward_analytics,
-    record_stage_played, scored_map_pays_money, set_auto_camera_mode, set_battle_status,
-    set_fever_fade_out, set_reward_claimed, set_stage_record, sound_manager, stage_stamina_cost, stop_audio,
-    treasure_gauge_add, treasure_gauge_full, treasure_gauge_unlocked, validate_map_type,
-    vibration_reset, web_popup_request,
+    record_stage_played, roguelike_add_bonus, roguelike_mark_lost, scored_map_pays_money,
+    set_auto_camera_mode, set_battle_status, set_fever_fade_out, set_reward_claimed,
+    set_stage_record, sound_manager, stage_stamina_cost, stop_audio, treasure_gauge_add,
+    treasure_gauge_full, treasure_gauge_unlocked, validate_map_type, vibration_reset,
+    web_popup_request,
 };
 
 pub fn on_battle_lost(ctx: &mut AppContext) -> Result<(), Fault> {
@@ -178,6 +180,11 @@ pub fn on_battle_lost(ctx: &mut AppContext) -> Result<(), Fault> {
     }
 
     set_battle_status(ctx, 2)?;
+
+    if is_roguelike_map(ctx, -1, -1)? {
+        roguelike_mark_lost(ctx)?;
+    }
+
     ctx.deploy_queue.clear();
     ctx.set_i32_at(AppContext::LOSE_TIP_SHOWN, 0)?;
 
@@ -279,7 +286,9 @@ pub fn on_battle_lost(ctx: &mut AppContext) -> Result<(), Fault> {
                 ctx.set_i32_at(AppContext::NEW_BEST_SCORE, 1)?;
             }
         }
-    } else if is_score_stage(ctx.event_items.as_ref()) {
+    } else if is_score_stage(ctx.event_items.as_ref())
+        && has_point_rule(ctx.event_items.as_ref(), -1)?
+    {
         set_battle_status(ctx, 7)?;
         record_stage_played(ctx)?;
 
@@ -326,6 +335,8 @@ pub fn on_battle_lost(ctx: &mut AppContext) -> Result<(), Fault> {
                     )?;
                 }
                 0 => add_resource(ctx, target, amount, 0)?,
+                2 => roguelike_add_bonus(ctx, 1, target, amount, -1, -1)?,
+                3 => roguelike_add_bonus(ctx, 0, target, amount, -1, -1)?,
                 _ => {}
             }
 

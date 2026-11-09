@@ -2,7 +2,7 @@ use crate::Fault;
 
 use super::{
     AppContext, get_built_deck_stage_key, get_cannon_part_id, get_foundation_part_id, get_map_type,
-    get_style_part_id, is_ex_option_target,
+    get_style_part_id, is_ex_option_target, is_roguelike_map,
 };
 
 #[derive(Clone, Copy, Default, PartialEq, Eq)]
@@ -25,6 +25,10 @@ pub fn record_stage_lineup(ctx: &mut AppContext) -> Result<(), Fault> {
         if kind == 0x11 && !is_ex_option_target(ctx)? {
             return Ok(());
         }
+    }
+
+    if is_roguelike_map(ctx, -1, -1)? {
+        return Ok(());
     }
 
     let cannon = get_cannon_part_id(ctx)? as u8;

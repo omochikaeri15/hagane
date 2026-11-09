@@ -322,7 +322,7 @@ pub fn get_ability_icon_set(
     }
 
     if !icons.values().any(|shown| *shown) {
-        icons.insert(0x58, true);
+        icons.insert(0x59, true);
     }
 
     Ok(icons)

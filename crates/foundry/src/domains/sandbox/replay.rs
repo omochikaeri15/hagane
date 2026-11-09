@@ -16,7 +16,7 @@ pub use disk::{Bundle, Recording, delete, export, index, inspect_bundle, inspect
 #[cfg(all(feature = "disk", feature = "mods"))]
 pub use shelf::{Shelf, ShelfRow, delete_folder, rebased, rename_folder, saved_bundle};
 pub use footage::{Footage, Opened, Packer};
-pub use save::{God, Insets, Level, Options, Parts, Save, Screen, Seeds, Setup, Stage, Tutorial, Unit, Variant};
+pub use save::{God, Insets, Jailbreak, Level, Options, Parts, Save, Screen, Seeds, Setup, Stage, Tutorial, Unit, Variant};
 pub use tape::{Cue, Key, format_frame, parse};
 
 pub const EXTENSION: &str = "bcv";

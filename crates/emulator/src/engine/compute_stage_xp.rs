@@ -62,7 +62,7 @@ pub fn compute_stage_xp(ctx: &mut AppContext) -> Result<i32, Fault> {
         .wrapping_add(0x64);
     let treasure = if treasure > 0 { treasure } else { 0 };
     let mut value = ops::div_100(treasure.wrapping_mul(xp));
-    let combo = get_cat_combo_bonus(ctx, &ctx.combo_store, 0xd, -1)?;
+    let combo = get_cat_combo_bonus(ctx, 0xd, -1)?;
 
     value = ops::div_100(combo.wrapping_add(0x64).wrapping_mul(value));
 

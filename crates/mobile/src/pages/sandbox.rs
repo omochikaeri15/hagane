@@ -1,5 +1,6 @@
 mod battle;
 mod config;
+mod jailbreak;
 mod lineup;
 mod orbs;
 mod replay;
@@ -19,9 +20,10 @@ use foundry::domains::cat::scanner::CatEntry;
 use foundry::domains::sandbox::altar::Altars;
 use foundry::domains::sandbox::base::Parts;
 use foundry::domains::sandbox::config::{self as sandbox_config, CatGod, Gimmicks};
+use foundry::domains::sandbox::jailbreak::{Board, Grants};
 use foundry::domains::sandbox::replay::VANILLA_APP;
 use foundry::domains::sandbox::rules::Rules;
-use foundry::domains::sandbox::{Arrangement, Cell, TECHS, scored};
+use foundry::domains::sandbox::{Arrangement, Cell, Member, TECHS, scored};
 use foundry::domains::stage::lottery::Lottery;
 use foundry::domains::stage::scanner::StageBundle;
 use foundry::domains::stage::{GlobalMapId, GlobalStageId, StageRegistry, navigate};
@@ -49,6 +51,7 @@ pub struct Staging {
     pub rules: Rules,
     pub altar: Option<u32>,
     pub gimmicks: Gimmicks,
+    pub jail: Option<(i32, i32)>,
     pub map: String,
     pub stage: String,
 }
@@ -76,6 +79,12 @@ pub struct State {
     pub timer: Timer,
     pub delete_timer: Timer,
     pub entered: bool,
+    pub jail: Option<(jailbreak::Key, Option<Rc<Board>>)>,
+    pub jail_lineup: bool,
+    pub jail_viewing: Option<u32>,
+    pub jail_shown: Option<(Member, Rc<Grants>)>,
+    pub jail_global: bool,
+    pub jail_listed: Vec<(usize, usize)>,
 }
 
 pub type Shared = Rc<RefCell<State>>;
@@ -107,6 +116,12 @@ impl State {
             timer: Timer::default(),
             delete_timer: Timer::default(),
             entered: false,
+            jail: None,
+            jail_lineup: false,
+            jail_viewing: None,
+            jail_shown: None,
+            jail_global: false,
+            jail_listed: Vec::new(),
         }
     }
 
@@ -195,10 +210,12 @@ pub fn staging(state: &State, context: &Rc<Context>) -> Option<Staging> {
         altar: castle.is_some_and(|castle| altars.seals(castle)),
         war_funds: special_rules.is_some_and(|rules| rules.draws_war_funds()),
         expenses: special_rules.is_some_and(|rules| rules.draws_expenses()),
+        jailbreak: global.is_some_and(|map_id| foundry::domains::sandbox::jailbreak::is_challenge_map(&vault.vfs, map_id)),
     };
+    let jail = global.filter(|_| gimmicks.jailbreak).map(|map_id| (map_id, i32::from(crown)));
     let (map, stage) = label(registry, &picked, &saved);
 
-    Some(Staging { entry, usable, rules, altar, gimmicks, map, stage })
+    Some(Staging { entry, usable, rules, altar, gimmicks, jail, map, stage })
 }
 
 fn build_setup(state: &State, context: &Rc<Context>, entry: StageEntry) -> Setup {
@@ -291,6 +308,13 @@ fn build_setup(state: &State, context: &Rc<Context>, entry: StageEntry) -> Setup
 
     for levels in setup.parts.values_mut() {
         levels.cannon = levels.cannon.max(1);
+    }
+
+    if let Some(board) = state.jail.as_ref().and_then(|(_, board)| board.as_ref()).filter(|board| board.map_id == entry.map_id) {
+        let (picks, fielded) = jailbreak::picks(&saved, board);
+
+        setup.roguelike = picks;
+        setup.lineup = fielded;
     }
 
     setup
@@ -387,6 +411,7 @@ pub fn wire(window: &AppWindow, context: &Rc<Context>) -> Shared {
     });
 
     lineup::wire(window, &state, context);
+    jailbreak::wire(window, &state, context);
     config::wire(window, &state, context);
     replay::wire(window, &state, context);
     battle::wire(window, &state, context);
@@ -591,7 +616,12 @@ pub fn refresh(ui: &AppWindow, state: &Shared, context: &Rc<Context>) {
     sandbox.set_tab(tab.index());
     sandbox.set_agreed(agreed);
     sandbox.set_status(state.borrow().status.as_str().into());
-    sandbox.set_playable(ready && fielded && staged.is_some() && state.borrow().battle.standing == Standing::default());
+    sandbox.set_lineup_note(staged.as_ref().and_then(|staged| staged.rules.deck().note()).unwrap_or_default().into());
+    jailbreak::sync(ui, state, context, staged.as_ref());
+
+    let jailed = state.borrow().jail.as_ref().is_some_and(|(_, board)| board.is_some());
+
+    sandbox.set_playable(ready && (fielded || jailed) && staged.is_some() && state.borrow().battle.standing == Standing::default());
 
     match tab {
         Tab::Lineup => lineup::sync(ui, state, context, staged.as_ref()),

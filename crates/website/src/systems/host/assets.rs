@@ -264,7 +264,8 @@ impl Assets {
     }
 
     fn backfill(&self, name: &str, own: Vec<u8>) -> Vec<u8> {
-        let Some((head, extension)) = stripped(name).filter(|(_, extension)| TABLE_KINDS.contains(extension)) else {
+        let keyed = name.rsplit_once('.').filter(|(head, _)| KEYED_TABLES.contains(head));
+        let Some((head, extension)) = stripped(name).or(keyed).filter(|(_, extension)| TABLE_KINDS.contains(extension)) else {
             return own;
         };
 
@@ -485,5 +486,41 @@ impl AssetSource for Assets {
 
     fn pack_entry(&mut self, _name: &[u8]) -> Vec<u8> {
         Vec::new()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    struct Shelf(BTreeMap<&'static str, &'static str>);
+
+    impl Files for Shelf {
+        fn read(&self, name: &str) -> Option<Vec<u8>> {
+            self.0.get(name).map(|text| text.as_bytes().to_vec())
+        }
+
+        fn contains(&self, name: &str) -> bool {
+            self.0.contains_key(name)
+        }
+
+        fn names(&self) -> Vec<Box<str>> {
+            self.0.keys().map(|name| Box::from(*name)).collect()
+        }
+    }
+
+    // An English install has no text for a Japan-only event, so the key itself reached the screen.
+    #[test]
+    fn the_bare_text_table_borrows_the_keys_another_language_has() {
+        let files = Shelf(BTreeMap::from([("localizable_en.tsv", "greeting\tHello\n"), ("localizable_ja.tsv", "greeting\tOhayo\nrun_text\tDatsugoku\n")]));
+        let ledger = SharedLedger::default();
+
+        ledger.borrow_mut().arm();
+
+        let mut assets = Assets::new(Rc::new(files), Rc::default(), Rc::clone(&ledger), &["en".to_owned()]);
+        let served = assets.open(b"localizable.tsv", 0, 0).map(|bytes| String::from_utf8_lossy(&bytes).into_owned());
+
+        assert_eq!(served.as_deref(), Some("greeting\tHello\nrun_text\tDatsugoku\n"), "its own wording wins, the missing key is borrowed");
+        assert!(ledger.borrow_mut().drain().iter().any(|(name, _)| name.as_ref() == "localizable_ja.tsv"), "a replay has to carry the donor too");
     }
 }

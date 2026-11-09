@@ -13,6 +13,7 @@ pub struct PointRule {
     pub headline_labels: Vec<Vec<u8>>,
     pub explanation_labels: Vec<Vec<u8>>,
     pub explanation_types: Vec<i32>,
+    pub image_labels: Vec<Vec<u8>>,
     pub detail: Option<PointRuleDetail>,
 }
 

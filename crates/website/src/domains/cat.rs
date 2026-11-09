@@ -20,6 +20,7 @@ use foundry::domains::cat::animation as cat_animation;
 use foundry::domains::cat::scanner::CatEntry;
 use foundry::domains::cat::statblock::{self as cat_statblock, Subject};
 use foundry::domains::cat::waiter::unitid;
+use foundry::domains::sandbox::jailbreak::Grants;
 use foundry::domains::settings::Settings;
 
 use crate::app::{self, Route};
@@ -68,6 +69,7 @@ pub(crate) struct CatState {
     pub(crate) conjure_expanded: Signal<HashMap<u32, bool>>,
     pub(crate) seeded_for: Signal<Option<u32>>,
     pub(crate) locked: bool,
+    pub(crate) granted: Signal<Option<Rc<Grants>>>,
     ultra_active: Signal<bool>,
     saved_level: Signal<Option<(i32, String)>>,
 }
@@ -96,6 +98,7 @@ fn provided(locked: bool) -> CatState {
         conjure_expanded: Signal::new(HashMap::new()),
         seeded_for: Signal::new(None),
         locked,
+        granted: Signal::new(None),
         ultra_active: Signal::new(false),
         saved_level: Signal::new(None),
     })
@@ -149,6 +152,14 @@ impl CatState {
         self.ultra_active.set(false);
         self.saved_level.set(None);
         self.sync_ultra(cat, settings);
+    }
+
+    pub(crate) fn talented(&self, form: usize) -> bool {
+        self.granted.read().is_some() || form >= 2
+    }
+
+    fn tabbed(&self, form: usize) -> bool {
+        self.granted.read().is_none() && form >= 2
     }
 
     pub(crate) fn seed(&mut self, cat: &CatEntry, form: usize, level: &str, talents: &HashMap<u8, u8>) {
@@ -446,7 +457,8 @@ fn statblock_request(cat: Rc<CatEntry>, globals: Shared, settings: Signal<Settin
     Callback::new(move |()| {
         let form = *state.form.peek();
         let level_input = state.level_input.peek().clone();
-        let talent_levels = (form >= 2).then(|| state.levels_for(cat.id));
+        let granted = state.granted.peek().clone();
+        let talent_levels = (granted.is_some() || form >= 2).then(|| state.levels_for(cat.id));
         let is_conjure_expanded = state.conjure_expanded.peek().get(&cat.id).copied().unwrap_or(settings.peek().cat_data.expand_spirit_details);
         let data = cat_statblock::build(Subject {
             cat: &cat,
@@ -456,6 +468,7 @@ fn statblock_request(cat: Rc<CatEntry>, globals: Shared, settings: Signal<Settin
             talent_levels: talent_levels.as_ref(),
             is_conjure_expanded,
             global: globals.0.context(),
+            grants: granted.as_deref(),
         })?;
 
         Some(Statblock { data, sheets: icons::sheets(&pictures, &globals, icons::IMG015), priority: settings.peek().general.language_priority.clone() })
@@ -512,7 +525,7 @@ pub(crate) fn Detail(cat: SelectedCat, globals: Shared, #[props(default)] extra:
     });
     let tab_buttons = TABS.iter().map(|(which, label)| {
         let which = *which;
-        let available = which != DetailTab::Talents || (form >= 2 && cat.talent_data.is_some());
+        let available = which != DetailTab::Talents || (state.tabbed(form) && cat.talent_data.is_some());
         let class = header_class(tab == which, available, false);
 
         rsx! {

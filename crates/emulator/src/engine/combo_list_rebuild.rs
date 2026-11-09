@@ -3,8 +3,8 @@ use std::cmp::Ordering;
 use crate::Fault;
 
 use super::{
-    AppContext, NyancomboRecord, combo_sort_less, combo_unlocked, page_list_set_count,
-    page_list_set_page,
+    AppContext, NyancomboRecord, combo_sort_less, combo_unlocked, has_roguelike_chara,
+    is_roguelike_map, page_list_set_count, page_list_set_page, roguelike_progress,
 };
 
 pub fn combo_list_rebuild(
@@ -123,11 +123,42 @@ pub fn combo_list_rebuild(
                 .combo_store
                 .records
                 .last()
+                .cloned()
                 .ok_or(Fault::null_pointer())?;
 
-            if !combo_unlocked(ctx, record)? {
+            if !combo_unlocked(ctx, &record)? {
                 ctx.combo_store.records.pop();
                 break;
+            }
+
+            if is_roguelike_map(ctx, -1, -1)? {
+                if let Some(progress) = roguelike_progress(ctx, -1, -1)? {
+                    let progress = progress.borrow();
+                    let mut missing = false;
+
+                    for member in 0..5 {
+                        if record.unit[member] != -1
+                            && !has_roguelike_chara(&progress, record.unit[member])
+                        {
+                            missing = true;
+                            break;
+                        }
+                    }
+
+                    if missing {
+                        ctx.combo_store.records.pop();
+                        break;
+                    }
+                }
+
+                let record = ctx
+                    .combo_store
+                    .records
+                    .last_mut()
+                    .ok_or(Fault::null_pointer())?;
+
+                record.revealed = 0;
+                record.reveal_badge = 0;
             }
 
             if record.state == 1 {
@@ -142,6 +173,11 @@ pub fn combo_list_rebuild(
                     .states
                     .get_mut(definition)
                     .ok_or(Fault::index_out_of_range(definition as i64, 0))? = 0;
+
+                if is_roguelike_map(ctx, -1, -1)? {
+                    break;
+                }
+
                 ctx.combo_store.unlock_notices.insert(definition as i32, 1);
                 ctx.combo_store.revealed.insert(definition as i32, 1);
 

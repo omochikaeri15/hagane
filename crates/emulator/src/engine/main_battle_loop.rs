@@ -41,6 +41,7 @@ use super::{
     is_boss, is_score_stage, is_scored_stage, is_touchable_thunk, is_zombie, latch_battle_event,
     load_conjure_desc_textures, log_analytics_event, maanim_get_max_keyframe, map_uses_item_cost,
     max_i32, message_layer_clear, message_layer_set, metal_killer_vfx_tick, mission_progress,
+    mission_progress_list, has_point_rule, is_roguelike_map, roguelike_progress,
     no_more_attacks, on_battle_lost, option_menu_open, option_window_update, pinch_update,
     play_sound, play_sound_in_battle, point_decay_full, point_lose_update, powerup_available,
     proc_update, query_localizable, record_stage_lineup, record_stage_played,
@@ -1479,14 +1480,18 @@ pub fn main_battle_loop(ctx: &mut AppContext) -> Result<bool, Fault> {
                     }
                 }
 
-                if is_score_stage(ctx.event_items.as_ref()) {
+                if is_score_stage(ctx.event_items.as_ref())
+                    && has_point_rule(ctx.event_items.as_ref(), -1)?
+                {
                     fever_fade_tick(ctx)?;
                 }
                 let mut step = 0i32;
 
                 while step < ctx.i32_at(AppContext::SPEED)? {
                     'substep: {
-                        if get_battle_status(ctx)? == 0 && is_score_stage(ctx.event_items.as_ref())
+                        if get_battle_status(ctx)? == 0
+                            && is_score_stage(ctx.event_items.as_ref())
+                            && has_point_rule(ctx.event_items.as_ref(), -1)?
                         {
                             let points = ctx.event_items.as_ref().map_or(0, get_stage_score);
 
@@ -1512,12 +1517,37 @@ pub fn main_battle_loop(ctx: &mut AppContext) -> Result<bool, Fault> {
                                     }
                                 } else {
                                     let unit_id = get_button_unit_id(ctx, 0, button)?;
-                                    let level = get_tech_level(
+                                    let mut level = get_tech_level(
                                         ctx,
                                         AppContext::UNIT_LEVELS.wrapping_add(
                                             (unit_id as i64 as usize).wrapping_mul(8),
                                         ),
                                     )?;
+
+                                    if is_roguelike_map(ctx, -1, -1)? {
+                                        if let Some(progress) = roguelike_progress(ctx, -1, -1)? {
+                                            let progress = progress.borrow();
+                                            let mut listed = 0usize;
+
+                                            while listed < progress.roster.len() {
+                                                let chara = progress.roster[listed];
+
+                                                if chara.unit_id
+                                                    == get_button_unit_id(ctx, 0, button)?
+                                                {
+                                                    level =
+                                                        chara.plus_level.wrapping_add(chara.level);
+
+                                                    break;
+                                                }
+
+                                                listed += 1;
+                                            }
+                                        } else {
+                                            level = 0;
+                                        }
+                                    }
+
                                     let counter = AppContext::faction_flags(0)
                                         .wrapping_add(AppContext::WALLET_DEPLOY_COUNTS)
                                         .wrapping_add((button as i64 as usize).wrapping_mul(4));
@@ -1643,6 +1673,14 @@ pub fn main_battle_loop(ctx: &mut AppContext) -> Result<bool, Fault> {
                                         ctx.i32_at(AppContext::STAGE_ROW)?.wrapping_add(stage_key);
 
                                     mission_progress(ctx, 1, row, 1, 0, 0)?;
+
+                                    let cleared = [
+                                        map_id,
+                                        ctx.i32_at(AppContext::STAGE_ROW)?,
+                                        ctx.i32_at(AppContext::CROWN_LEVEL)?,
+                                    ];
+
+                                    mission_progress_list(ctx, 0x22, &cleared, 1)?;
                                     mission_progress(ctx, 9, ops::div_1000(map_id), 1, 0, 0)?;
 
                                     let row =
@@ -1703,6 +1741,7 @@ pub fn main_battle_loop(ctx: &mut AppContext) -> Result<bool, Fault> {
 
                             if get_battle_status(ctx)? != 0
                                 || !is_score_stage(ctx.event_items.as_ref())
+                                || !has_point_rule(ctx.event_items.as_ref(), -1)?
                             {
                                 break 'finish;
                             }

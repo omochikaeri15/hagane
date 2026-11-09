@@ -640,7 +640,7 @@ pub fn spawn_entity(
         }
     }
 
-    if faction == 0 && get_cat_combo_bonus(ctx, &ctx.combo_store, 0x1a, unit_id)? > 0 {
+    if faction == 0 && get_cat_combo_bonus(ctx, 0x1a, unit_id)? > 0 {
         wave = wave.wrapping_add(0x64);
     }
 
@@ -704,7 +704,7 @@ pub fn spawn_entity(
         }
     }
 
-    if faction == 0 && get_cat_combo_bonus(ctx, &ctx.combo_store, 0x1c, unit_id)? > 0 {
+    if faction == 0 && get_cat_combo_bonus(ctx, 0x1c, unit_id)? > 0 {
         surge = surge.wrapping_add(0x64);
     }
 

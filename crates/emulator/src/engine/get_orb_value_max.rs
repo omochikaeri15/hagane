@@ -2,7 +2,7 @@ use std::collections::BTreeMap;
 
 use crate::Fault;
 
-use super::{AppContext, OrbGradeRow, OrbSlotRow, get_equipped_orb, has_fixed_lineup};
+use super::{AppContext, OrbGradeRow, OrbSlotRow, get_equipped_orb, has_fixed_lineup, is_roguelike_map};
 
 #[derive(Clone, Default, PartialEq, Eq, Debug)]
 pub struct OrbDef {
@@ -35,6 +35,10 @@ pub fn get_orb_value_max(
     let mut value = dflt;
 
     if has_fixed_lineup(ctx, -1, -1, -1)? {
+        return Ok(value);
+    }
+
+    if is_roguelike_map(ctx, -1, -1)? {
         return Ok(value);
     }
 

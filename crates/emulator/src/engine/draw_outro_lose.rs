@@ -69,6 +69,10 @@ pub fn draw_outro_lose(ctx: &mut AppContext) -> Result<(), Fault> {
             return Ok(());
         }
 
+        if ctx.i32_at(AppContext::REWARD_POP_COUNTER)? < 0 {
+            return Ok(());
+        }
+
         let popup = ctx.scene_img005_sheet.clone();
         let popup = popup.as_deref().ok_or(Fault::null_pointer())?;
         let center = ops::div_2(get_drawable_width(ctx)?);

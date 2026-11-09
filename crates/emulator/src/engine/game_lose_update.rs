@@ -3,17 +3,18 @@ use std::rc::Rc;
 use crate::{Fault, ops};
 
 use super::{
-    AppContext, Entity, Rect, app_on_draw, back_pressed, battle_check_login_bonus, battle_continue,
-    bc_log_defeated, button_bank_busy, button_bank_find, dialog_show_alt, dialog_top,
-    feature_enabled, game_lose_update_lambda_0, game_lose_update_lambda_1, get_auto_camera_mode,
+    AppContext, Entity, Rect, app_on_draw, back_pressed, battle_check_login_bonus,
+    battle_continue, bc_log_defeated, button_bank_busy, button_bank_find, dialog_show,
+    dialog_show_alt, dialog_top, feature_enabled, game_lose_update_lambda_0,
+    game_lose_update_lambda_1, game_lose_update_lambda_2, get_auto_camera_mode,
     get_design_height2, get_drawable_width, get_global_map_id, get_hp, get_stage_record,
     get_text_texture, hit_test_rect, imgcut_get_sprite_cut, is_aku_realm_map, is_boss,
-    is_network_available, new_button_register, new_button_set_touchable, now_seconds,
-    obf_value_read, pick_lose_tip, play_sound, query_localizable, record_stage_played,
-    request_save_data, reward_ad_ready, server_config_int, set_bgm_duck, sound_manager,
-    std_string_append, string_format_boss_hp, string_format_boss_hp_line, text_texture_cache,
-    touch_is_down, touch_released, ui_node_set_anchor, ui_node_set_sprite, web_popup_clear,
-    web_popup_open, web_popup_pending,
+    is_network_available, is_roguelike_map, new_button_register, new_button_set_touchable,
+    now_seconds, obf_value_read, pick_lose_tip, play_sound, query_localizable,
+    record_stage_played, request_save_data, reward_ad_ready, server_config_int, set_bgm_duck,
+    sound_manager, std_string_append, string_format_boss_hp, string_format_boss_hp_line,
+    text_texture_cache, touch_is_down, touch_released, ui_node_set_anchor, ui_node_set_sprite,
+    web_popup_clear, web_popup_open, web_popup_pending,
 };
 
 pub fn game_lose_update(ctx: &mut AppContext) -> Result<bool, Fault> {
@@ -34,6 +35,11 @@ pub fn game_lose_update(ctx: &mut AppContext) -> Result<bool, Fault> {
                 ctx.set_i32_at(AppContext::BATTLE_RESUMED, 0)?;
                 ctx.set_i32_at(AppContext::BATTLE_CONTINUED, 0)?;
                 record_stage_played(ctx)?;
+
+                if ctx.i32_at(AppContext::STAGE_NO_CONTINUES)? == 1 && is_roguelike_map(ctx, -1, -1)? {
+                    ctx.set_i32_at(AppContext::REWARD_POP_COUNTER, -0xa)?;
+                }
+
                 request_save_data(ctx)?;
             }
 
@@ -378,6 +384,10 @@ pub fn game_lose_update(ctx: &mut AppContext) -> Result<bool, Fault> {
                 ctx.set_i32_at(AppContext::OUTRO_PHASE, 4)?;
                 ctx.set_i32_at(AppContext::REWARD_POP_COUNTER, 0)?;
 
+                if is_roguelike_map(ctx, -1, -1)? {
+                    ctx.set_i32_at(AppContext::REWARD_POP_COUNTER, -0xa)?;
+                }
+
                 if ctx.i32_at(AppContext::CHAPTER_MODE)? != 0
                     && ctx.i32_at(AppContext::STAGE_ROW)? != 0
                     && ctx.i32_at(AppContext::LOSE_RECORDED)? == 0
@@ -606,7 +616,27 @@ pub fn game_lose_update(ctx: &mut AppContext) -> Result<bool, Fault> {
             Ok(true)
         }
         _ => {
+            let roguelike = is_roguelike_map(ctx, -1, -1)?;
             let shown = ctx.i32_at(AppContext::REWARD_POP_COUNTER)?;
+
+            if roguelike && !ctx.roguelike.lose_tutorial_seen {
+                if shown == -9 {
+                    return Ok(true);
+                }
+
+                if shown == -0xa {
+                    let text = query_localizable(ctx, b"Roguelike_TutorialText_007");
+
+                    dialog_show(ctx, &text, 0, 0, 4, Some(game_lose_update_lambda_2))?;
+                    ctx.set_i32_at(
+                        AppContext::REWARD_POP_COUNTER,
+                        ctx.i32_at(AppContext::REWARD_POP_COUNTER)?.wrapping_add(1),
+                    )?;
+
+                    return Ok(true);
+                }
+            }
+
             let mut counter = shown.wrapping_add(1);
 
             ctx.set_i32_at(AppContext::REWARD_POP_COUNTER, counter)?;

@@ -127,7 +127,7 @@ pub fn dialog_draw(ctx: &mut AppContext, dialog: u64, is_top: u8) -> Result<(), 
 
         let mut bounce = 0i32;
 
-        if ids[slot] == this.button {
+        if this.enabled[slot] != 0 && ids[slot] == this.button {
             bounce = *BUTTON_PRESS_BOUNCE.get(this.timer as i64 as usize).ok_or(
                 Fault::index_out_of_range(this.timer as i64, BUTTON_PRESS_BOUNCE.len() as i64),
             )?;
@@ -196,7 +196,7 @@ pub fn dialog_draw(ctx: &mut AppContext, dialog: u64, is_top: u8) -> Result<(), 
             (hit_test_rect(ctx, rect[0], rect[1], rect[2], rect[3])? as u8) & is_top != 0
         };
 
-        if highlighted {
+        if highlighted && this.enabled[slot] != 0 {
             let half = ops::div_2(this.tick);
             let blink = half.wrapping_sub(ops::div_2(half).wrapping_mul(2));
             let border_x = imgcut_get_sprite_cut(&sheet, 9)?[0]

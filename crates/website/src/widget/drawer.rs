@@ -216,11 +216,12 @@ pub(crate) fn styled(base: &str, open: bool, pull: Option<f64>) -> (String, Stri
 pub(crate) fn Drawer(open: Signal<bool>, children: Element) -> Element {
     let drawers = drawers();
     let mut hosted = drawers.hosted;
+    let before = use_hook(|| *hosted.peek());
 
     use_effect(move || hosted.set(Some(open)));
     use_drop(move || {
         if *hosted.peek() == Some(open) {
-            hosted.set(None);
+            hosted.set(before.filter(|held| *held != open));
         }
     });
 

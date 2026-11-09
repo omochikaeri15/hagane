@@ -1,13 +1,17 @@
+use std::rc::Rc;
+
 use crate::{Fault, ops};
 
 use super::{
-    AppContext, Rect, app_on_draw, back_pressed, button_bank_busy, button_bank_find, check_medals,
-    dialog_set_back_button, dialog_set_on_update, dialog_show, dialog_show_alt, dialog_top,
-    get_auto_camera_mode, get_bottom_inset_logical, get_cat_name, get_drawable_width, get_item_name,
-    handle_battle_swipe_pinch, hit_test_rect, is_score_stage, labyrinth_active,
-    labyrinth_result_ready, new_button_set_touchable, play_sound, point_lose_update_lambda_0,
-    point_lose_update_lambda_1, point_lose_update_lambda_2, query_localizable, record_stage_played,
-    request_save_data, reward_def_lookup, substitute_tokens, touch_is_down,
+    AppContext, Rect, app_on_draw, back_pressed, button_bank_busy, button_bank_find,
+    check_medals, dialog_set_back_button, dialog_set_on_update, dialog_show, dialog_show_alt,
+    dialog_top, find_roguelike_chara, get_auto_camera_mode, get_bottom_inset_logical,
+    get_cat_name, get_drawable_width, get_item_name, handle_battle_swipe_pinch, hit_test_rect,
+    is_roguelike_map, is_score_stage, labyrinth_active, labyrinth_result_ready,
+    new_button_set_touchable, play_sound, point_lose_update_lambda_0,
+    point_lose_update_lambda_1, point_lose_update_lambda_2, query_localizable,
+    record_stage_played, request_save_data, reward_def_lookup, roguelike_bonus_explanation,
+    roguelike_bonus_tutorial, roguelike_progress, substitute_tokens, touch_is_down,
     touch_released, xor_row46_get,
 };
 
@@ -157,10 +161,43 @@ pub fn point_lose_update(ctx: &mut AppContext) -> Result<bool, Fault> {
                         &[(b"itemName", &name), (b"itemNum", &amount)],
                     )?;
                 }
+                2 => {
+                    let master = Rc::clone(&ctx.roguelike.master);
+                    let buff = master.buffs.get(&reward.id).ok_or(Fault::null_pointer())?;
+                    let mut form = 0i32;
+
+                    if buff.target_chara != -1
+                        && let Some(progress) = roguelike_progress(ctx, -1, -1)?
+                    {
+                        let progress = progress.borrow();
+
+                        if let Some(chara) = find_roguelike_chara(&progress, buff.target_chara) {
+                            form = progress.roster[chara].form;
+                        }
+                    }
+
+                    let name = roguelike_bonus_explanation(ctx, reward.id, form)?;
+                    let text = query_localizable(ctx, &reward.label0);
+
+                    message = substitute_tokens(ctx, &text, &[(b"bonusName", &name)])?;
+                }
+                3 => {
+                    let master = Rc::clone(&ctx.roguelike.master);
+                    let unit =
+                        master.charas.get(&reward.id).ok_or(Fault::null_pointer())?.chara_id;
+                    let text = query_localizable(ctx, &reward.label0);
+                    let name = get_cat_name(ctx, unit, 0);
+
+                    message = substitute_tokens(ctx, &text, &[(b"charaName", &name)])?;
+                }
                 _ => {}
             }
 
             dialog_show_alt(ctx, &message, 0, 0x191, 1, Some(point_lose_update_lambda_2))?;
+
+            if is_roguelike_map(ctx, -1, -1)? && reward.kind as u32 <= 3 && reward.kind & !1 == 2 {
+                roguelike_bonus_tutorial(ctx)?;
+            }
 
             let low = {
                 let row = AppContext::MAP_STAGE_ROWS.wrapping_add(

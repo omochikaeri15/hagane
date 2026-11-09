@@ -21,7 +21,7 @@ pub fn find_item_index(ctx: &AppContext, item_id: i32) -> Result<i32, Fault> {
 
         index += 1;
 
-        if index == 0x113 {
+        if index == 0x114 {
             return Ok(-1);
         }
     }

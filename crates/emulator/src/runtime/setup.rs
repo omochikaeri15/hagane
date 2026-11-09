@@ -101,6 +101,19 @@ pub enum CatGod {
     Discounted,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum RosterPick {
+    Starter(i32),
+    Recruit(i32),
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct RoguelikePicks {
+    pub roster: Vec<RosterPick>,
+    pub buffs: Vec<(i32, i32)>,
+    pub cannon: i32,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Setup {
     pub stage: StageEntry,
@@ -118,6 +131,7 @@ pub struct Setup {
     pub tutorial: TutorialFlags,
     pub war_funds: i32,
     pub expenses: i32,
+    pub roguelike: RoguelikePicks,
 }
 
 impl Default for Setup {
@@ -138,6 +152,7 @@ impl Default for Setup {
             tutorial: TutorialFlags::default(),
             war_funds: 0,
             expenses: 0,
+            roguelike: RoguelikePicks::default(),
         }
     }
 }

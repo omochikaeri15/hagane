@@ -1,9 +1,9 @@
 use crate::Fault;
 
-use super::{AppContext, CatStats, read_flag};
+use super::{AppContext, CatStats, has_talent, read_flag};
 
 pub fn stat_insanely_tough(
-    ctx: &AppContext,
+    ctx: &mut AppContext,
     faction: i32,
     unit_id: i32,
     form: i32,
@@ -12,9 +12,9 @@ pub fn stat_insanely_tough(
         return Ok(false);
     }
 
-    Ok(ctx.i32_at(AppContext::cat_stat(
-        unit_id,
-        form,
-        CatStats::INSANELY_TOUGH,
-    ))? != 0)
+    if ctx.i32_at(AppContext::cat_stat(unit_id, form, CatStats::INSANELY_TOUGH))? != 0 {
+        return Ok(true);
+    }
+
+    has_talent(ctx, faction, unit_id, form, 0x3f3)
 }

@@ -946,7 +946,10 @@ impl Driver {
 
                 unlock_dummy_combos(&mut self.ctx);
 
-                fill_dummy_talents(&mut self.ctx, &self.setup);
+                if let Err(fault) = fill_dummy_talents(&mut self.ctx, &self.setup) {
+                    warn!("emu: talents failed to apply: {fault}");
+                }
+
                 fill_dummy_cannon_parts(&mut self.ctx, &self.setup);
 
                 if let Err(fault) = emulator::engine::img_dialog_context_init(&mut self.ctx) {
@@ -990,6 +993,12 @@ impl Driver {
 
         if let Err(fault) = emulator::runtime::seed_stage_variant(&mut self.ctx, self.setup.stage) {
             warn!("emu: stage variant could not be seeded: {fault}");
+
+            return false;
+        }
+
+        if let Err(fault) = emulator::runtime::seed_roguelike_run(&mut self.ctx, &self.setup) {
+            warn!("emu: challenge run could not be seeded: {fault}");
 
             return false;
         }

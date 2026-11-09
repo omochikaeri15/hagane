@@ -18,6 +18,7 @@ pub struct MapOption {
     pub cost_multipliers: BTreeMap<i32, i32>,
     pub no_energy_maps: Vec<i32>,
     pub conditioned_maps: Vec<i32>,
+    pub cap_extension_maps: Vec<i32>,
 }
 
 pub fn get_map_max_crown(store: &MapOption, map_id: i32) -> i32 {

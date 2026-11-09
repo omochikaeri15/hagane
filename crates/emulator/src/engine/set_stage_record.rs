@@ -1,6 +1,8 @@
 use crate::Fault;
 
-use super::{AppContext, StageRecordRow, map_type_as_index, map_type_base_id};
+use super::{
+    AppContext, StageRecordRow, is_cap_extension_map, map_type_as_index, map_type_base_id,
+};
 
 pub fn set_stage_record(
     ctx: &mut AppContext,
@@ -24,6 +26,14 @@ pub fn set_stage_record(
             .ok_or(Fault::index_out_of_range(crown as i64, 4))?;
 
         *record = value as i16;
+
+        return Ok(());
+    }
+
+    let map_id = map_type_base_id(map_type, map_idx);
+
+    if is_cap_extension_map(&ctx.map_options, map_id) {
+        *ctx.keyed_stage_records.entry((map_id, stage, crown)).or_insert(0) = value as i16;
 
         return Ok(());
     }

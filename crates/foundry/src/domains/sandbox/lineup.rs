@@ -1,7 +1,7 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::hash::{BuildHasher, RandomState};
 
-use codex::cat::unit::{Equipment, NyancomboData};
+use codex::cat::unit::{Equipment, NyancomboData, Talent};
 use serde::{Deserialize, Serialize};
 
 use crate::common::architecture;
@@ -17,7 +17,7 @@ pub const TOP_ROW: usize = 5;
 const FIRST_TALENT_FORM: usize = 2;
 const ULTRA_FORM: usize = 3;
 const ULTRA_LEVEL: u32 = 60;
-const UNNAMED: &str = "New Lineup";
+pub(crate) const UNNAMED: &str = "New Lineup";
 const MOD_HISTORIES: usize = 3;
 const MOUNT_JOIN: &str = "+";
 
@@ -344,6 +344,25 @@ impl Lineup {
             })
     }
 
+    pub fn unlocked(&self, talents: &HashMap<u32, Talent>) -> HashSet<usize> {
+        self.slots
+            .iter()
+            .filter(|member| member.form >= FIRST_TALENT_FORM)
+            .filter_map(|member| Some((member, talents.get(&member.id)?)))
+            .flat_map(|(member, talent)| {
+                talent.groups.iter().enumerate().filter_map(|(index, group)| {
+                    let leveled = u8::try_from(index).ok().and_then(|index| member.talents.get(&index)).is_some_and(|level| *level > 0);
+
+                    group.combo_line().filter(|_| leveled)
+                })
+            })
+            .collect()
+    }
+
+    pub fn powers(&self, line: usize, row: &NyancomboData, unlocked: &HashSet<usize>) -> bool {
+        self.active(row) && (!row.needs_talent() || unlocked.contains(&line))
+    }
+
     pub fn adopt(&mut self, row: &NyancomboData, recruit: impl Fn(u32, usize) -> Member) {
         let wanted: Vec<(u32, usize)> = row
             .members()
@@ -554,6 +573,8 @@ impl Roster {
 
 #[cfg(test)]
 mod tests {
+    use codex::cat::unit::TalentGroup;
+
     use super::*;
 
     const GAME: &str = architecture::GAME;
@@ -904,6 +925,24 @@ mod tests {
 
         lineup.slots[0].form = 2;
         assert!(lineup.active(&row));
+    }
+
+    // A combo in the talent series stays off until the unit that teaches it has the talent.
+    #[test]
+    fn a_talent_combo_waits_for_its_talent() {
+        let mut lineup = Lineup::default();
+        let mut row = combo(&[(5, 2)]);
+        let teaches = TalentGroup { ability_id: TalentGroup::COMBO_TALENT, min_1: 9, ..TalentGroup::default() };
+        let talents = HashMap::from([(5, Talent { id: 5, type_id: 0, groups: vec![TalentGroup::default(), teaches] })]);
+
+        row.series = NyancomboData::TALENT_SERIES;
+        lineup.add(Member { form: 2, ..unit(5) });
+        assert!(lineup.active(&row));
+        assert!(!lineup.powers(9, &row, &lineup.unlocked(&talents)));
+
+        lineup.slots[0].talents.insert(1, 1);
+        assert!(lineup.powers(9, &row, &lineup.unlocked(&talents)));
+        assert!(!lineup.powers(8, &row, &lineup.unlocked(&talents)), "the talent names one row, not the series");
     }
 
     #[test]

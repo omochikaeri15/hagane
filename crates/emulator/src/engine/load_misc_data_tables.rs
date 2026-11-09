@@ -3,10 +3,11 @@ use crate::Fault;
 use super::{
     AppContext, AssetStream, ItemShopRow, JsonNode, MatatabiRow, format_localized,
     get_column_count, item_shop_entry, json_container_as_int, json_container_as_string,
-    json_parse_object_document, json_source_from_string, json_string_as_int, json_string_as_string,
-    json_value_as_int, json_value_as_string, load_cat_drops_csv, load_clear_count_reward_json,
-    load_drop_item_csv, load_gamatoto_files, load_gift_and_limit_tables, load_god_texts,
-    load_localizable_tsv, load_map_stage_shortcut_csv, load_mission_files, load_nyancombo_files,
+    json_parse_object_document, json_source_from_string, json_string_as_int,
+    json_string_as_string, json_value_as_int, json_value_as_string, load_cat_drops_csv,
+    load_clear_count_reward_json, load_drop_item_csv, load_gamatoto_files,
+    load_gift_and_limit_tables, load_god_texts, load_localizable_tsv, load_map_option_csv,
+    load_map_stage_shortcut_csv, load_mission_files, load_nyancombo_files,
     load_opening_ending_texts, load_picture_book_files, load_stage_name_files,
     load_unlock_popup_tsv, load_zombie_lottery_csv, matatabi_row_init, normalize_search_text,
     obfuscate_value, open_asset_stream, query_localizable, read_cell_stream, read_csv_cell,
@@ -51,6 +52,7 @@ pub fn load_misc_data_tables(ctx: &mut AppContext) -> Result<(), Fault> {
     load_drop_item_csv(ctx)?;
     load_zombie_lottery_csv(ctx)?;
     load_gift_and_limit_tables(ctx)?;
+    load_map_option_csv(ctx)?;
     load_gamatoto_files(ctx)?;
     load_stage_name_files(ctx)?;
     load_opening_ending_texts(ctx)?;
@@ -116,7 +118,7 @@ pub fn load_misc_data_tables(ctx: &mut AppContext) -> Result<(), Fault> {
 
         let mut slot = 0i32;
 
-        while slot != 275 {
+        while slot != 276 {
             read_stream_row(stm, b',');
             ctx.item_names.push(read_cell_stream(stm, 0).to_vec());
             ctx.item_descriptions.push([

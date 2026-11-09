@@ -25,7 +25,7 @@ pub fn compute_event_points(store: &EventItemStore, kind: i32, args: &[i32]) -> 
         let second = args[1];
         let cap = store.progress_cap;
 
-        if cap == -1 {
+        if cap == 0 {
             let base = get_kill_point_base(rule);
 
             return Ok(

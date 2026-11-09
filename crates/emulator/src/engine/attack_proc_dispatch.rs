@@ -1,19 +1,20 @@
 use crate::{Fault, ops};
 
 use super::{
-    AppContext, add_drain_pct, add_score_hit_mask, score_bonus_active, call_rng,
-    count_target_traits, get_cannon_effect, get_cat_combo_bonus, get_curse_duration,
+    AppContext, add_drain_pct, add_score_hit_mask, call_rng, count_target_traits,
+    get_button_unit_form, get_cannon_effect, get_cat_combo_bonus, get_curse_duration,
     get_curse_immune, get_curse_resist_pct, get_drain_immune, get_drain_percent,
-    get_freeze_duration, get_freeze_immune, get_freeze_resist_pct, get_knockback_immune,
-    get_resist_part_rec, get_score_bonus, get_setting, get_slot_unit_id, get_slow_duration,
-    get_slow_immune, get_slow_resist_pct, get_style_part_id, get_style_part_level,
-    get_treasure_capped, get_warp_anchor, get_warp_distance, get_warp_duration, get_warp_immune,
-    get_warp_resist_pct, get_warp_span, get_weaken_duration, get_weaken_immune, get_weaken_pct,
-    get_weaken_resist_pct, has_fixed_lineup, has_sage_slayer, is_sage, read_flag,
-    scored_map_pays_money, set_curse_length, set_curse_timer, set_freeze_length, set_freeze_timer,
-    set_kb_proc_hit, set_sage_kb_resist_pct, set_slow_length, set_slow_timer, set_warp_distance,
-    set_warp_timer, set_weaken_active, set_weaken_active_pct, set_weaken_timer, slot_occupied,
-    start_immune_vfx, turn_on_proc_badge,
+    get_entity_button, get_freeze_duration, get_freeze_immune, get_freeze_resist_pct,
+    get_knockback_immune, get_resist_part_rec, get_score_bonus, get_setting, get_slot_unit_id,
+    get_slow_duration, get_slow_immune, get_slow_resist_pct, get_style_part_id,
+    get_style_part_level, get_talent_value, get_treasure_capped, get_warp_anchor,
+    get_warp_distance, get_warp_duration, get_warp_immune, get_warp_resist_pct, get_warp_span,
+    get_weaken_duration, get_weaken_immune, get_weaken_pct, get_weaken_resist_pct,
+    has_fixed_lineup, has_sage_slayer, is_sage, read_flag, score_bonus_active,
+    scored_map_pays_money, set_curse_length, set_curse_timer, set_freeze_length,
+    set_freeze_timer, set_kb_proc_hit, set_sage_kb_resist_pct, set_slow_length, set_slow_timer,
+    set_warp_distance, set_warp_timer, set_weaken_active, set_weaken_active_pct,
+    set_weaken_timer, slot_occupied, start_immune_vfx, turn_on_proc_badge,
 };
 
 pub fn attack_proc_dispatch(
@@ -34,6 +35,8 @@ pub fn attack_proc_dispatch(
     let part_id = get_style_part_id(ctx)?;
     let part_level = get_style_part_level(ctx, part_id)?.wrapping_add(1);
     let unit_id = get_slot_unit_id(ctx, faction, attacker)?;
+    let button = get_entity_button(ctx, faction, attacker)?;
+    let form = get_button_unit_form(ctx, faction, button)?;
     let fixed_lineup = has_fixed_lineup(ctx, -1, -1, -1)?;
     let mut level = 1;
 
@@ -130,12 +133,14 @@ pub fn attack_proc_dispatch(
                 }
             } else {
                 duration = ops::div_1500(duration.wrapping_mul(treasure.wrapping_add(0x5dc)));
+                let combo = get_cat_combo_bonus(ctx, 0x13, unit_id)?;
+
                 duration = ops::div_100(
-                    get_cat_combo_bonus(ctx, &ctx.combo_store, 0x13, unit_id)?
+                    get_talent_value(ctx, faction, unit_id, form, 0x3ee, 0)?
+                        .wrapping_add(combo)
                         .wrapping_add(100)
                         .wrapping_mul(duration),
                 );
-                get_cat_combo_bonus(ctx, &ctx.combo_store, 0x13, unit_id)?;
 
                 if !has_sage_slayer(ctx, faction, attacker)? && is_sage(ctx, other, target)? {
                     let resist = get_setting(&ctx.settings, b"battle_super_sage_freeze", 0x32)?;
@@ -200,12 +205,14 @@ pub fn attack_proc_dispatch(
                 }
             } else {
                 duration = ops::div_1500(duration.wrapping_mul(treasure.wrapping_add(0x5dc)));
+                let combo = get_cat_combo_bonus(ctx, 0x12, unit_id)?;
+
                 duration = ops::div_100(
-                    get_cat_combo_bonus(ctx, &ctx.combo_store, 0x12, unit_id)?
+                    get_talent_value(ctx, faction, unit_id, form, 0x3ed, 0)?
+                        .wrapping_add(combo)
                         .wrapping_add(100)
                         .wrapping_mul(duration),
                 );
-                get_cat_combo_bonus(ctx, &ctx.combo_store, 0x12, unit_id)?;
 
                 if !has_sage_slayer(ctx, faction, attacker)? && is_sage(ctx, other, target)? {
                     let resist = get_setting(&ctx.settings, b"battle_super_sage_slow", 0x32)?;
@@ -270,12 +277,14 @@ pub fn attack_proc_dispatch(
                 }
             } else {
                 duration = ops::div_1500(duration.wrapping_mul(treasure.wrapping_add(0x5dc)));
+                let combo = get_cat_combo_bonus(ctx, 0x14, unit_id)?;
+
                 duration = ops::div_100(
-                    get_cat_combo_bonus(ctx, &ctx.combo_store, 0x14, unit_id)?
+                    get_talent_value(ctx, faction, unit_id, form, 0x3ef, 0)?
+                        .wrapping_add(combo)
                         .wrapping_add(100)
                         .wrapping_mul(duration),
                 );
-                get_cat_combo_bonus(ctx, &ctx.combo_store, 0x14, unit_id)?;
 
                 if !has_sage_slayer(ctx, faction, attacker)? && is_sage(ctx, other, target)? {
                     let resist = get_setting(&ctx.settings, b"battle_super_sage_weaken", 0x32)?;

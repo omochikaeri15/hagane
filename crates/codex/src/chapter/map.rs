@@ -6,6 +6,8 @@ mod lockskipdata;
 mod map_name;
 mod map_option;
 mod redirect;
+mod roguelikebonus;
+mod roguelikemapsettings;
 mod scorebonusmap;
 mod specialrulesmap;
 mod specialrulesmapoption;
@@ -22,6 +24,11 @@ pub use lockskipdata::{LockSkipData, LockSkipDataEntry, LockSkipDataError};
 pub use map_name::{MapName, MapNameError};
 pub use map_option::{MapOption, MapOptionEntry, MapOptionError, ResetType};
 pub use redirect::redirect_map_id;
+pub use roguelikebonus::{
+    roguelike_form, roguelike_grant, RoguelikeBonusBuff, RoguelikeBonusBuffSkill, RoguelikeBonusBuffSkills, RoguelikeBonusBuffs, RoguelikeBonusChara, RoguelikeBonusCharas, RoguelikeBonusDraw, RoguelikeBonusEffect,
+    RoguelikeBonusEffectAbilities, RoguelikeBonusEffectAbility, RoguelikeBonusError, RoguelikeBonusLotteryGroup, RoguelikeBonusLotteryGroups, RoguelikeBonusMapStageLottery, RoguelikeBonusPermanent, RoguelikeBonusTokens,
+};
+pub use roguelikemapsettings::{RoguelikeEvent, RoguelikeMapEntry, RoguelikeMapSettings, RoguelikeMapSettingsError};
 pub use scorebonusmap::{BonusType, ScoreBonusMap, ScoreBonusMapEntry, ScoreBonusMapError};
 pub use specialrulesmap::{RuleType, SpecialRulesMap, SpecialRulesMapEntry, SpecialRulesMapError};
 pub use specialrulesmapoption::{SpecialRulesMapOption, SpecialRulesMapOptionEntry, SpecialRulesMapOptionError};

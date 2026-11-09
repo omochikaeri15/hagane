@@ -22,6 +22,7 @@ pub fn load_map_option_csv(ctx: &mut AppContext) -> Result<(), Fault> {
     ctx.map_options.cost_multipliers.clear();
     ctx.map_options.no_energy_maps.clear();
     ctx.map_options.conditioned_maps.clear();
+    ctx.map_options.cap_extension_maps.clear();
 
     let Some(bytes) = open_asset_stream(ctx, b"Map_option.csv", 0, 0)? else {
         return Ok(());
@@ -119,6 +120,13 @@ pub fn load_map_option_csv(ctx: &mut AppContext) -> Result<(), Fault> {
             && read_csv_cell(stm, 0x12) != 0
         {
             ctx.map_options.conditioned_maps.push(map_id);
+        }
+
+        if 0x13 < get_column_count(stm) as i32
+            && cell_is_int(stm, 0x13)
+            && read_csv_cell(stm, 0x13) as i32 > 0
+        {
+            ctx.map_options.cap_extension_maps.push(map_id);
         }
     }
 

@@ -1,41 +1,33 @@
 use crate::{Fault, ops};
 
 use super::{
-    ability_icon_is_absent, draw_context, draw_cut, get_equipped_orb, get_orb_def, get_orb_slot_count, get_scene_id, get_talent_max_level, get_talent_trait_set,
-    has_fixed_lineup, image_sprite_draw, orb_applies_to_unit, orb_trait_color, set_alpha, set_color, ui_node_add_child, ui_node_get_child, ui_node_set_alpha,
-    ui_node_set_anchor, ui_node_set_color, ui_node_set_sprite, ui_node_set_zoom, AppContext,
+    AppContext, ability_icon_is_absent, draw_context, draw_cut, get_equipped_orb, get_orb_def,
+    get_orb_slot_count, get_scene_id, get_talent_max_level, get_talent_trait_set,
+    has_fixed_lineup, image_sprite_draw, is_roguelike_map, orb_applies_to_unit, orb_trait_color,
+    set_alpha, set_color, ui_node_add_child, ui_node_get_child, ui_node_set_alpha,
+    ui_node_set_anchor, ui_node_set_color, ui_node_set_sprite, ui_node_set_zoom,
+    unit_panel_icon_table, unit_panel_narrow_icons, unit_panel_wide_icons,
 };
 
 const TRAIT_KEYS: [i32; 10] = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9];
 
 pub fn draw_unit_info_panel(ctx: &mut AppContext, unit_id: i32, form: i32, panel_x: i32, panel_y: i32) -> Result<(), Fault> {
-    let fixed = get_scene_id(ctx)? == 0x12c && has_fixed_lineup(ctx, -1, -1, -1)?;
+    let fixed = (get_scene_id(ctx)? == 0x12c && has_fixed_lineup(ctx, -1, -1, -1)?)
+        || is_roguelike_map(ctx, -1, -1)?;
+    let wide_icons = unit_panel_wide_icons(ctx, unit_id)?;
+    let narrow_icons = unit_panel_narrow_icons(ctx, unit_id)?;
     let mut all_traits = false;
 
-    for key in TRAIT_KEYS {
-        if !ctx.trait_icons.get(&key).copied().unwrap_or(false) {
-            all_traits = true;
+    if wide_icons.is_empty() {
+        for key in TRAIT_KEYS {
+            if !ctx.trait_icons.get(&key).copied().unwrap_or(false) {
+                all_traits = true;
+            }
         }
     }
 
-    let mut wide = 0i32;
-    let mut narrow = 0i32;
-
-    for icon in 0..0x58 {
-        let Some(row) = ctx.picture_book_abilities.iter().position(|columns| columns[0] == icon) else {
-            continue;
-        };
-
-        if !ctx.ability_icons.get(&(row as i32)).copied().unwrap_or(false) {
-            continue;
-        }
-
-        match ctx.picture_book_abilities[row][1] {
-            0 => wide += 1,
-            1 => narrow += 1,
-            _ => {}
-        }
-    }
+    let wide = wide_icons.len() as i32;
+    let narrow = narrow_icons.len() as i32;
 
     let mut orbs = 0i32;
 
@@ -109,18 +101,12 @@ pub fn draw_unit_info_panel(ctx: &mut AppContext, unit_id: i32, form: i32, panel
 
         draw_cut(draw_context(&mut ctx.draw)?, sheet, panel_x.wrapping_add(0x71), panel_y.wrapping_add(1), 0xf9);
 
+        let mut table = unit_panel_icon_table(ctx)?;
         let mut column = 0i32;
 
-        for icon in 0..0x58 {
-            let Some(row) = ctx.picture_book_abilities.iter().position(|columns| columns[0] == icon) else {
-                continue;
-            };
-
-            if !ctx.ability_icons.get(&(row as i32)).copied().unwrap_or(false) || ctx.picture_book_abilities[row][1] != 0 {
-                continue;
-            }
-
-            let cut = ctx.picture_book_abilities[row][4];
+        for row in wide_icons.iter().copied() {
+            let cells = table.entry(row).or_default();
+            let cut = *cells.get(4).ok_or(Fault::index_out_of_range(4, cells.len() as i64))?;
             let sheet = ctx.img015_sheet.clone();
             let sheet = sheet.as_deref().ok_or(Fault::null_pointer())?;
             let x = column.wrapping_mul(0x2a).wrapping_add(panel_x.wrapping_add(0xbd));
@@ -129,11 +115,17 @@ pub fn draw_unit_info_panel(ctx: &mut AppContext, unit_id: i32, form: i32, panel
 
             column = column.wrapping_add(1);
 
-            if form < 2 || ctx.picture_book_abilities[row][2] == 0 || fixed {
+            if is_roguelike_map(ctx, -1, -1)? || form < 2 {
                 continue;
             }
 
-            let ability = ctx.picture_book_abilities[row][2];
+            let cells = table.entry(row).or_default();
+            let ability = *cells.get(2).ok_or(Fault::index_out_of_range(2, cells.len() as i64))?;
+
+            if ability == 0 || !fixed {
+                continue;
+            }
+
             let level = *ctx.talent_levels.entry(unit_id).or_default().entry(ability).or_default();
 
             if level <= 0 {
@@ -167,20 +159,13 @@ pub fn draw_unit_info_panel(ctx: &mut AppContext, unit_id: i32, form: i32, panel
 
         let mut column = 0i32;
 
-        for icon in 0..0x58 {
-            let Some(row) = ctx.picture_book_abilities.iter().position(|columns| columns[0] == icon) else {
-                continue;
-            };
-
-            if !ctx.ability_icons.get(&(row as i32)).copied().unwrap_or(false) || ctx.picture_book_abilities[row][1] != 1 {
+        for row in narrow_icons.iter().copied() {
+            if !is_roguelike_map(ctx, -1, -1)? && ability_icon_is_absent(ctx, row, unit_id, form)? {
                 continue;
             }
 
-            if ability_icon_is_absent(ctx, row as i32, unit_id, form)? {
-                continue;
-            }
-
-            let cut = ctx.picture_book_abilities[row][4];
+            let cells = table.entry(row).or_default();
+            let cut = *cells.get(4).ok_or(Fault::index_out_of_range(4, cells.len() as i64))?;
             let sheet = ctx.img015_sheet.clone();
             let sheet = sheet.as_deref().ok_or(Fault::null_pointer())?;
             let x = column.wrapping_mul(0x2a).wrapping_add(row_x);
@@ -189,11 +174,19 @@ pub fn draw_unit_info_panel(ctx: &mut AppContext, unit_id: i32, form: i32, panel
 
             column = column.wrapping_add(1);
 
-            if form < 2 || ctx.picture_book_abilities[row][2] == 0 || fixed {
+            let roguelike = is_roguelike_map(ctx, -1, -1)?;
+
+            if form < 2 || roguelike {
                 continue;
             }
 
-            let ability = ctx.picture_book_abilities[row][2];
+            let cells = table.entry(row).or_default();
+            let ability = *cells.get(2).ok_or(Fault::index_out_of_range(2, cells.len() as i64))?;
+
+            if ability == 0 || fixed {
+                continue;
+            }
+
             let level = *ctx.talent_levels.entry(unit_id).or_default().entry(ability).or_default();
 
             if level <= 0 {
@@ -315,22 +308,16 @@ pub fn draw_unit_info_panel(ctx: &mut AppContext, unit_id: i32, form: i32, panel
     let mark_y = baseline.wrapping_add(-3);
     let row_x = base.wrapping_sub(half).wrapping_add(left).wrapping_add(0xb6);
 
+    let mut table = unit_panel_icon_table(ctx)?;
     let mut column = 0i32;
 
-    for icon in 0..0x58 {
-        let Some(row) = ctx.picture_book_abilities.iter().position(|columns| columns[0] == icon) else {
-            continue;
-        };
-
-        if !ctx.ability_icons.get(&(row as i32)).copied().unwrap_or(false) || ctx.picture_book_abilities[row][1] != 1 {
+    for row in narrow_icons.iter().copied() {
+        if !is_roguelike_map(ctx, -1, -1)? && ability_icon_is_absent(ctx, row, unit_id, form)? {
             continue;
         }
 
-        if ability_icon_is_absent(ctx, row as i32, unit_id, form)? {
-            continue;
-        }
-
-        let cut = ctx.picture_book_abilities[row][4];
+        let cells = table.entry(row).or_default();
+        let cut = *cells.get(4).ok_or(Fault::index_out_of_range(4, cells.len() as i64))?;
         let sheet = ctx.img015_sheet.clone();
         let sheet = sheet.as_deref().ok_or(Fault::null_pointer())?;
         let x = column.wrapping_mul(0x2a).wrapping_add(row_x);
@@ -339,11 +326,19 @@ pub fn draw_unit_info_panel(ctx: &mut AppContext, unit_id: i32, form: i32, panel
 
         column = column.wrapping_add(1);
 
-        if form < 2 || ctx.picture_book_abilities[row][2] == 0 || fixed {
+        let roguelike = is_roguelike_map(ctx, -1, -1)?;
+
+        if form < 2 || roguelike {
             continue;
         }
 
-        let ability = ctx.picture_book_abilities[row][2];
+        let cells = table.entry(row).or_default();
+        let ability = *cells.get(2).ok_or(Fault::index_out_of_range(2, cells.len() as i64))?;
+
+        if ability == 0 || fixed {
+            continue;
+        }
+
         let level = *ctx.talent_levels.entry(unit_id).or_default().entry(ability).or_default();
 
         if level <= 0 {
@@ -366,10 +361,6 @@ pub fn draw_unit_info_panel(ctx: &mut AppContext, unit_id: i32, form: i32, panel
     let sheet = sheet.as_deref().ok_or(Fault::null_pointer())?;
 
     draw_cut(draw_context(&mut ctx.draw)?, sheet, plate_x, panel_y.wrapping_add(0x38), 0x122);
-
-    if get_orb_slot_count(&ctx.orb_store, unit_id)? <= 0 {
-        return Ok(());
-    }
 
     let orb_x = plate_x.wrapping_add(0x71);
     let orb_y = panel_y.wrapping_add(0x4c);

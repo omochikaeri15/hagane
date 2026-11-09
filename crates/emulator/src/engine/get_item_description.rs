@@ -3,7 +3,7 @@ use super::AppContext;
 pub fn get_item_description(ctx: &AppContext, item: i32) -> Vec<Vec<u8>> {
     let mut lines = Vec::new();
 
-    if (0..=0x112).contains(&item) {
+    if (0..=0x113).contains(&item) {
         let record = ctx
             .item_descriptions
             .get(item as usize)

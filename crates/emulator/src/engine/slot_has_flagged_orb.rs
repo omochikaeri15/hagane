@@ -2,10 +2,14 @@ use crate::Fault;
 
 use super::{
     AppContext, get_button_unit_id, get_equipped_orb, get_global_map_id, get_orb_def,
-    get_orb_slot_count, get_special_rule, orb_ability_flag,
+    get_orb_slot_count, get_special_rule, is_roguelike_map, orb_ability_flag,
 };
 
 pub fn slot_has_flagged_orb(ctx: &mut AppContext, faction: i32, slot: i32) -> Result<bool, Fault> {
+    if is_roguelike_map(ctx, -1, -1)? {
+        return Ok(false);
+    }
+
     let unit_id = get_button_unit_id(ctx, faction, slot)?;
     let mut orb_slot = 0;
 

@@ -1,6 +1,6 @@
 use crate::{
     Fault,
-    engine::{AppContext, is_score_stage, map_type_of_map_id, obfuscate_value},
+    engine::{AppContext, is_score_stage, map_type_of_map_id, obfuscate_value, unlock_combo_series},
 };
 
 use super::{BATTLE_ITEMS, DECK_SLOTS, Setup, setup::SCORE_MODE_TYPES};
@@ -23,6 +23,7 @@ const TALENT_ABILITY: usize = 1;
 const TALENT_MAX_LEVEL: usize = 2;
 const SINGLE_LEVEL: i32 = 1;
 const ITEM_STOCK: u32 = 1;
+const TALENT_SERIES: i32 = 7;
 
 pub fn fill_dummy_lineup(ctx: &mut AppContext, setup: &Setup) -> Result<(), Fault> {
     for slot in 0..DECK_SLOTS {
@@ -57,7 +58,7 @@ pub fn fill_dummy_lineup(ctx: &mut AppContext, setup: &Setup) -> Result<(), Faul
     Ok(())
 }
 
-pub fn fill_dummy_talents(ctx: &mut AppContext, setup: &Setup) {
+pub fn fill_dummy_talents(ctx: &mut AppContext, setup: &Setup) -> Result<(), Fault> {
     for member in setup.lineup.iter().take(DECK_SLOTS) {
         if member.form < TRUE_FORM {
             continue;
@@ -86,6 +87,10 @@ pub fn fill_dummy_talents(ctx: &mut AppContext, setup: &Setup) {
             levels.insert(*ability, (*level).min(highest));
         }
     }
+
+    unlock_combo_series(ctx, TALENT_SERIES)?;
+
+    Ok(())
 }
 
 pub fn usable_items(map_id: i32, scored: bool) -> [bool; BATTLE_ITEMS] {

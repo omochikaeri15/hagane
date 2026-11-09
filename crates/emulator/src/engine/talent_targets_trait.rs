@@ -1,7 +1,8 @@
 use crate::Fault;
 
 use super::{
-    AppContext, get_scene_id, has_fixed_lineup, has_talent, std_map_int_int_from_list,
+    AppContext, get_scene_id, has_fixed_lineup, has_talent, is_roguelike_map, roguelike_talent_values,
+    std_map_int_int_from_list,
 };
 
 pub fn talent_targets_trait(
@@ -11,15 +12,7 @@ pub fn talent_targets_trait(
     form: i32,
     trait_bit: i32,
 ) -> Result<bool, Fault> {
-    if !ctx.talent_definitions.contains_key(&unit_id) {
-        return Ok(false);
-    }
-
-    if form < 2 {
-        return Ok(false);
-    }
-
-    if get_scene_id(ctx)? == 0x12c && has_fixed_lineup(ctx, -1, -1, -1)? {
+    if faction != 0 {
         return Ok(false);
     }
 
@@ -38,10 +31,32 @@ pub fn talent_targets_trait(
         (0x800, 0x39),
     ]);
 
+    if is_roguelike_map(ctx, -1, -1)? {
+        if !target_talents.contains_key(&trait_bit) {
+            return Ok(false);
+        }
+
+        let ability = *target_talents.entry(trait_bit).or_default();
+
+        return Ok(roguelike_talent_values(ctx, unit_id, ability, -1, -1)?.is_some());
+    }
+
+    if !ctx.talent_definitions.contains_key(&unit_id) {
+        return Ok(false);
+    }
+
+    if form < 2 {
+        return Ok(false);
+    }
+
+    if get_scene_id(ctx)? == 0x12c && has_fixed_lineup(ctx, -1, -1, -1)? {
+        return Ok(false);
+    }
+
     if target_talents.contains_key(&trait_bit) {
         let ability = *target_talents.entry(trait_bit).or_default();
 
-        if has_talent(ctx, faction, unit_id, form, ability)? {
+        if has_talent(ctx, 0, unit_id, form, ability)? {
             return Ok(true);
         }
     }

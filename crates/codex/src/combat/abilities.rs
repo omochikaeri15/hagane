@@ -139,6 +139,16 @@ pub enum Identity {
     Survive,
     Dodge,
     RechargeCut,
+    CatCombo,
+    ExtraSpawn,
+    KillAttackUp,
+    StrongUp,
+    MassiveUp,
+    ResistUp,
+    KnockbackUp,
+    SlowUp,
+    FreezeUp,
+    WeakenUp,
     Weaken,
     Freeze,
     Slow,
@@ -186,6 +196,30 @@ pub enum Identity {
     TimeBeforeDeath,
 }
 
+const EFFECT_UPS: [(Identity, Identity); 7] = [
+    (Identity::StrongAgainst, Identity::StrongUp),
+    (Identity::MassiveDamage, Identity::MassiveUp),
+    (Identity::Resist, Identity::ResistUp),
+    (Identity::Knockback, Identity::KnockbackUp),
+    (Identity::Slow, Identity::SlowUp),
+    (Identity::Freeze, Identity::FreezeUp),
+    (Identity::Weaken, Identity::WeakenUp),
+];
+
+impl Identity {
+    pub fn effect_up(self) -> Option<(usize, Self)> {
+        EFFECT_UPS.iter().enumerate().find(|(_, (base, _))| *base == self).map(|(index, (_, up))| (index, *up))
+    }
+
+    pub fn effect_base(self) -> Option<Self> {
+        EFFECT_UPS.iter().find(|(_, up)| *up == self).map(|(base, _)| *base)
+    }
+
+    pub fn effect_up_at(index: usize) -> Option<Self> {
+        EFFECT_UPS.get(index).map(|(_, up)| *up)
+    }
+}
+
 pub struct Ability {
     pub identity: Identity,
     pub talent_id: Option<u8>,
@@ -206,6 +240,10 @@ fn boosted(value: i32, percent: i32) -> i32 {
 
 fn active() -> Vec<Attribute> {
     vec![("Active", AttrValue::Finite(1), AttrUnit::None)]
+}
+
+fn raised(percent: i32) -> Vec<Attribute> {
+    if percent > 0 { vec![("Effect", AttrValue::Finite(percent), AttrUnit::Percent)] } else { Vec::new() }
 }
 
 fn flag(raw: i32) -> Vec<Attribute> {
@@ -1209,6 +1247,142 @@ pub static REGISTRY: &[Ability] = &[
         apply_talent: Some(|stats, percent, _, _| stats.recharge_cut += percent),
     },
     Ability {
+        identity: Identity::CatCombo,
+        talent_id: Some(TalentGroup::COMBO_TALENT),
+        icon_id: Some(img015::ICON_CAT_COMBO),
+        cat_glossary: None,
+        enemy_glossary: None,
+        orb_trait: None,
+        dictionary_id: Some(88),
+        schema: &[],
+        talent_values: &[],
+        attributes: |_| Vec::new(),
+        apply_talent: None,
+    },
+    Ability {
+        identity: Identity::ExtraSpawn,
+        talent_id: None,
+        icon_id: Some(img015::ICON_EXTRA_SPAWN),
+        cat_glossary: None,
+        enemy_glossary: None,
+        orb_trait: None,
+        dictionary_id: None,
+        schema: &[("Count", AttrUnit::None), ("Delay", AttrUnit::Frames)],
+        talent_values: &[],
+        attributes: |stats| {
+            if stats.extra_spawn > 0 {
+                vec![("Count", AttrValue::Finite(stats.extra_spawn), AttrUnit::None), ("Delay", AttrValue::Finite(stats.extra_spawn_delay), AttrUnit::Frames)]
+            } else {
+                Vec::new()
+            }
+        },
+        apply_talent: None,
+    },
+    Ability {
+        identity: Identity::KillAttackUp,
+        talent_id: None,
+        icon_id: Some(img015::ICON_KILL_ATTACK_UP),
+        cat_glossary: None,
+        enemy_glossary: None,
+        orb_trait: None,
+        dictionary_id: None,
+        schema: &[("Attack", AttrUnit::Percent)],
+        talent_values: &[],
+        attributes: |stats| if stats.kill_attack_up > 0 { vec![("Attack", AttrValue::Finite(stats.kill_attack_up), AttrUnit::Percent)] } else { Vec::new() },
+        apply_talent: None,
+    },
+    Ability {
+        identity: Identity::StrongUp,
+        talent_id: None,
+        icon_id: Some(img015::ICON_STRONG_AGAINST_UP),
+        cat_glossary: None,
+        enemy_glossary: None,
+        orb_trait: None,
+        dictionary_id: None,
+        schema: &[("Effect", AttrUnit::Percent)],
+        talent_values: &[],
+        attributes: |stats| raised(stats.effect_ups[0]),
+        apply_talent: None,
+    },
+    Ability {
+        identity: Identity::MassiveUp,
+        talent_id: None,
+        icon_id: Some(img015::ICON_MASSIVE_DAMAGE_UP),
+        cat_glossary: None,
+        enemy_glossary: None,
+        orb_trait: None,
+        dictionary_id: None,
+        schema: &[("Effect", AttrUnit::Percent)],
+        talent_values: &[],
+        attributes: |stats| raised(stats.effect_ups[1]),
+        apply_talent: None,
+    },
+    Ability {
+        identity: Identity::ResistUp,
+        talent_id: None,
+        icon_id: Some(img015::ICON_RESIST_UP),
+        cat_glossary: None,
+        enemy_glossary: None,
+        orb_trait: None,
+        dictionary_id: None,
+        schema: &[("Effect", AttrUnit::Percent)],
+        talent_values: &[],
+        attributes: |stats| raised(stats.effect_ups[2]),
+        apply_talent: None,
+    },
+    Ability {
+        identity: Identity::KnockbackUp,
+        talent_id: None,
+        icon_id: Some(img015::ICON_KNOCKBACK_UP),
+        cat_glossary: None,
+        enemy_glossary: None,
+        orb_trait: None,
+        dictionary_id: None,
+        schema: &[("Effect", AttrUnit::Percent)],
+        talent_values: &[],
+        attributes: |stats| raised(stats.effect_ups[3]),
+        apply_talent: None,
+    },
+    Ability {
+        identity: Identity::SlowUp,
+        talent_id: None,
+        icon_id: Some(img015::ICON_SLOW_UP),
+        cat_glossary: None,
+        enemy_glossary: None,
+        orb_trait: None,
+        dictionary_id: None,
+        schema: &[("Effect", AttrUnit::Percent)],
+        talent_values: &[],
+        attributes: |stats| raised(stats.effect_ups[4]),
+        apply_talent: None,
+    },
+    Ability {
+        identity: Identity::FreezeUp,
+        talent_id: None,
+        icon_id: Some(img015::ICON_FREEZE_UP),
+        cat_glossary: None,
+        enemy_glossary: None,
+        orb_trait: None,
+        dictionary_id: None,
+        schema: &[("Effect", AttrUnit::Percent)],
+        talent_values: &[],
+        attributes: |stats| raised(stats.effect_ups[5]),
+        apply_talent: None,
+    },
+    Ability {
+        identity: Identity::WeakenUp,
+        talent_id: None,
+        icon_id: Some(img015::ICON_WEAKEN_UP),
+        cat_glossary: None,
+        enemy_glossary: None,
+        orb_trait: None,
+        dictionary_id: None,
+        schema: &[("Effect", AttrUnit::Percent)],
+        talent_values: &[],
+        attributes: |stats| raised(stats.effect_ups[6]),
+        apply_talent: None,
+    },
+    Ability {
         identity: Identity::Weaken,
         talent_id: Some(1),
         icon_id: Some(img015::ICON_WEAKEN),
@@ -1325,7 +1499,12 @@ pub static REGISTRY: &[Ability] = &[
         orb_trait: None,
         dictionary_id: Some(31),
         schema: &[("Chance", AttrUnit::Percent), ("Duration", AttrUnit::Frames), ("Min Distance", AttrUnit::Range), ("Max Distance", AttrUnit::Range)],
-        talent_values: &[],
+        talent_values: &[
+            TalentValue::new("Chance", AttrUnit::Percent),
+            TalentValue::new("Duration", AttrUnit::Frames),
+            TalentValue::new("Min Distance", AttrUnit::Range).minimum().scaled(Scale::Quarter),
+            TalentValue::new("Max Distance", AttrUnit::Range).minimum().scaled(Scale::Quarter),
+        ],
         attributes: |stats| {
             if stats.warp_chance > 0 {
                 vec![
@@ -1336,7 +1515,12 @@ pub static REGISTRY: &[Ability] = &[
                 ]
             } else { Vec::new() }
         },
-        apply_talent: None,
+        apply_talent: Some(|stats, chance, duration, group_data| {
+            stats.warp_chance += chance;
+            stats.warp_duration += duration;
+            stats.warp_distance_anchor += group_data.min_3 as i32 / 4;
+            stats.warp_distance_span += group_data.min_4 as i32 / 4;
+        }),
     },
     Ability {
         identity: Identity::Unknown,
@@ -1996,6 +2180,23 @@ mod tests {
         assert!(!anchor.interpolated);
         assert_eq!(anchor.scale, Scale::Quarter);
         assert_eq!(stats.surge_spawn_anchor, anchor.scale.apply(i32::from(group.min_3)));
+    }
+
+    // No cat talent grants Warp, but a Jailbreak bonus does, through the same four pairs.
+    #[test]
+    fn a_granted_warp_fills_all_four_of_its_stats() {
+        let Some(warp) = get_talent(9) else {
+            panic!("talent 9 grants no ability");
+        };
+
+        let group = TalentGroup { min_3: 1200, max_3: 1200, min_4: 2000, max_4: 2000, ..Default::default() };
+        let mut stats = Entity::default();
+        if let Some(apply) = warp.apply_talent {
+            apply(&mut stats, 50, 30, &group);
+        }
+
+        assert_eq!((stats.warp_chance, stats.warp_duration, stats.warp_distance_anchor, stats.warp_distance_span), (50, 30, 300, 500));
+        assert_eq!((warp.attributes)(&stats).len(), 4, "a warp that applies is a warp that shows");
     }
 
     #[test]

@@ -49,6 +49,7 @@ pub struct Dialog {
     pub dimmable: [u8; 3],
     pub grayed: [u8; 3],
     pub audible: [u8; 3],
+    pub enabled: [u8; 3],
     pub close_hover: u8,
     pub button: i32,
     pub back_button: i32,
@@ -307,6 +308,7 @@ pub fn dialog_new(
     this.timer = 0;
     this.button_widths = [0xa8; 3];
     this.button_heights = [0x48; 3];
+    this.enabled = [1; 3];
     this.audible = [1; 3];
     this.visible = [1; 3];
     this.lit = [1; 3];

@@ -6,6 +6,8 @@ use serde::{Deserialize, Serialize};
 use crate::common::columns;
 use crate::common::file::{self, Separator};
 
+use super::Identity;
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum EntityError {
@@ -176,9 +178,23 @@ pub struct Entity {
     pub drain_immune: i32,
     pub recharge_cut: i32,
     pub has_unknown_abilities: i32,
+    #[serde(skip)]
+    pub extra_spawn: i32,
+    #[serde(skip)]
+    pub extra_spawn_delay: i32,
+    #[serde(skip)]
+    pub kill_attack_up: i32,
+    #[serde(skip)]
+    pub effect_ups: [i32; 7],
+    #[serde(skip)]
+    pub run_marks: Vec<(Identity, bool)>,
 }
 
 impl Entity {
+    pub fn effect_up(&self, identity: Identity) -> i32 {
+        identity.effect_up().and_then(|(index, _)| self.effect_ups.get(index).copied()).unwrap_or(0)
+    }
+
     pub fn attack_cycle(&self, frames: i32) -> i32 {
         let mut effective_foreswing = self.time_until_attack_1;
 

@@ -23,5 +23,5 @@ pub fn stat_critical_chance(
         return Ok(chance);
     }
 
-    Ok(chance.wrapping_add(get_cat_combo_bonus(ctx, &ctx.combo_store, 0x18, unit_id)?))
+    Ok(chance.wrapping_add(get_cat_combo_bonus(ctx, 0x18, unit_id)?))
 }

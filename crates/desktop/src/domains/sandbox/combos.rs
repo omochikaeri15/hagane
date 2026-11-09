@@ -183,10 +183,12 @@ impl State {
 
     pub fn refresh(&mut self, ctx: GlobalContext<'_>, lineup: Option<&Lineup>) {
         let rows = ctx.vault.vds.cats.combos(&ctx.vault.vfs);
+        let unlocked = lineup.map(|lineup| lineup.unlocked(&ctx.vault.vds.cats.talents(&ctx.vault.vfs))).unwrap_or_default();
 
         for card in &mut self.cards {
             card.banned = self.rules.bans(card.combo.effect_type);
-            card.active = !card.banned && lineup.is_some_and(|lineup| rows.get(card.combo.line).is_some_and(|row| lineup.active(row)));
+            card.active = !card.banned
+                && lineup.is_some_and(|lineup| rows.get(card.combo.line).is_some_and(|row| lineup.powers(card.combo.line, row, &unlocked)));
         }
 
         self.sift();

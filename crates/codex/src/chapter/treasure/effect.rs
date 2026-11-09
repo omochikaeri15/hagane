@@ -111,20 +111,20 @@ impl TreasureEffect {
 pub struct TraitBonus(pub i32);
 
 impl TraitBonus {
-    pub fn strong_dealt(self) -> f64 {
-        f64::from(1500 + self.0) / 1000.0
+    pub fn strong_dealt(self, raise: i32) -> f64 {
+        f64::from(1500 + self.0 + raise * 10) / 1000.0
     }
 
-    pub fn strong_taken(self) -> f64 {
-        f64::from(1500 - self.0) / 3000.0
+    pub fn strong_taken(self, raise: i32) -> f64 {
+        f64::from(1500 - self.0) / 3000.0 * f64::from(100 - raise) / 100.0
     }
 
-    pub fn resist_taken(self) -> f64 {
-        f64::from(1500 - self.0) / 6000.0
+    pub fn resist_taken(self, raise: i32) -> f64 {
+        f64::from(1500 - self.0) / 6000.0 * f64::from(100 - raise) / 100.0
     }
 
-    pub fn massive_dealt(self) -> f64 {
-        f64::from(900 + self.0) / 300.0
+    pub fn massive_dealt(self, raise: i32) -> f64 {
+        f64::from(900 + self.0 + raise * 3) / 300.0
     }
 
     pub fn insane_dealt(self) -> f64 {
@@ -139,8 +139,10 @@ impl TraitBonus {
         f64::from(1500 + self.0) / 1500.0
     }
 
-    pub fn scale_duration(self, frames: i32) -> i32 {
-        (i64::from(frames) * i64::from(1500 + self.0) / 1500) as i32
+    pub fn scale_duration(self, frames: i32, raise: i32) -> i32 {
+        let fruited = i64::from(frames) * i64::from(1500 + self.0) / 1500;
+
+        (fruited * i64::from(100 + raise) / 100) as i32
     }
 }
 
@@ -173,17 +175,29 @@ mod tests {
     fn a_full_set_of_fruit_lands_on_the_familiar_multipliers() {
         let bonus = TraitBonus(300);
 
-        assert_eq!(bonus.strong_dealt(), 1.8);
-        assert_eq!(bonus.massive_dealt(), 4.0);
-        assert_eq!(bonus.resist_taken(), 0.2);
+        assert_eq!(bonus.strong_dealt(0), 1.8);
+        assert_eq!(bonus.massive_dealt(0), 4.0);
+        assert_eq!(bonus.resist_taken(0), 0.2);
         assert_eq!(TraitBonus(0).insanely_tough_taken(), 1.0 / 6.0);
     }
 
     #[test]
     fn a_duration_truncates_the_way_the_engine_does() {
-        assert_eq!(TraitBonus(300).scale_duration(150), 180);
-        assert_eq!(TraitBonus(300).scale_duration(38), 45);
-        assert_eq!(TraitBonus(0).scale_duration(38), 38);
+        assert_eq!(TraitBonus(300).scale_duration(150, 0), 180);
+        assert_eq!(TraitBonus(300).scale_duration(38, 0), 45);
+        assert_eq!(TraitBonus(0).scale_duration(38, 0), 38);
+    }
+
+    // A run's effect boost stacks on the fruit: added to what is dealt, taken off what is left to take.
+    #[test]
+    fn a_run_boost_rides_on_top_of_the_fruit() {
+        let bonus = TraitBonus(300);
+
+        assert_eq!(bonus.strong_dealt(20), 2.0);
+        assert_eq!(bonus.massive_dealt(100), 5.0);
+        assert_eq!(bonus.strong_taken(50), 0.2);
+        assert_eq!(bonus.resist_taken(50), 0.1);
+        assert_eq!(bonus.scale_duration(38, 50), 67, "the fruit truncates first, then the boost");
     }
 
     #[test]

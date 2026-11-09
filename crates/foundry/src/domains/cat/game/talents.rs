@@ -11,6 +11,20 @@ use crate::systems::combat::registry::{get_display_def, StatContext, CAT_STATS_R
 use crate::systems::treasure::Bonus;
 
 const FRUIT_SCALED: [Identity; 5] = [Identity::Freeze, Identity::Slow, Identity::Weaken, Identity::Curse, Identity::Dodge];
+const NO_DESCRIPTION: &str = "No skill description found";
+const NAME_SLOT: &str = "%s";
+
+pub fn describe(group: &TalentGroup, descriptions: &[String], combos: &[Option<String>]) -> String {
+    let Some(text) = descriptions.get(usize::from(group.text_id)) else {
+        return NO_DESCRIPTION.to_owned();
+    };
+    let Some(line) = group.combo_line() else {
+        return text.to_owned();
+    };
+    let name = combos.get(line).and_then(Option::as_deref).map_or_else(|| format!("Combo {line}"), str::to_owned);
+
+    text.replacen(NAME_SLOT, &name, 1)
+}
 
 pub(crate) fn calculate_talent_value(minimum: u16, maximum: u16, level: u8, max_level: u8) -> i32 {
     TalentGroup::calculate_value(minimum, maximum, level, max_level)
@@ -205,7 +219,7 @@ fn process_generic_attributes(
         new: &new_attributes,
         min: &min_attributes,
         max: maximum_attributes,
-        scale: FrameScale { treasure, stats: traits, fruit: FRUIT_SCALED.contains(&pure_definition.identity) },
+        scale: FrameScale { treasure, stats: traits, fruit: FRUIT_SCALED.contains(&pure_definition.identity), raise: traits.effect_up(pure_definition.identity) },
     };
 
     for &(attribute_key, attribute_unit) in pure_definition.schema {
@@ -242,11 +256,12 @@ struct FrameScale<'a> {
     treasure: &'a Bonus,
     stats: &'a Entity,
     fruit: bool,
+    raise: i32,
 }
 
 impl FrameScale<'_> {
     fn frames(&self, value: i32) -> (i32, i32) {
-        if self.fruit { self.treasure.fruit_frames(self.stats, value) } else { (value, value) }
+        if self.fruit { self.treasure.fruit_frames(self.stats, value, self.raise) } else { (value, value) }
     }
 }
 
@@ -458,6 +473,19 @@ pub fn get_total_np_cost(talent_data: &Talent, talent_levels: &HashMap<u8, u8>, 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // The combo talent's description carries a slot for the name of the combo it teaches.
+    #[test]
+    fn a_combo_talent_names_its_combo() {
+        let group = TalentGroup { ability_id: TalentGroup::COMBO_TALENT, min_1: 1, text_id: 1, ..TalentGroup::default() };
+        let plain = TalentGroup { ability_id: 1, min_1: 1, text_id: 1, ..TalentGroup::default() };
+        let descriptions = ["first".to_owned(), "Unlocks %s".to_owned()];
+        let combos = [None, Some("Bony Bone".to_owned())];
+
+        assert_eq!(describe(&group, &descriptions, &combos), "Unlocks Bony Bone");
+        assert_eq!(describe(&plain, &descriptions, &combos), "Unlocks %s");
+        assert_eq!(describe(&group, &descriptions, &[]), "Unlocks Combo 1");
+    }
 
     fn boost(ability_id: u8, percent: u16) -> TalentGroup {
         TalentGroup { ability_id, max_level: 1, min_1: percent, max_1: percent, name_id: -1, ..TalentGroup::default() }

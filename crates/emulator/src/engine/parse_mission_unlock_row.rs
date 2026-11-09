@@ -1,6 +1,6 @@
 use super::{AssetStream, read_csv_cell};
 
-pub fn parse_mission_unlock_row(row: &mut [i32; 10], stm: &AssetStream<'_>) {
+pub fn parse_mission_unlock_row(row: &mut [i32; 11], stm: &AssetStream<'_>) {
     row[0] = read_csv_cell(stm, 0) as i32;
     row[1] = read_csv_cell(stm, 1) as i32;
     row[2] = read_csv_cell(stm, 2) as i32;
@@ -11,4 +11,5 @@ pub fn parse_mission_unlock_row(row: &mut [i32; 10], stm: &AssetStream<'_>) {
     row[7] = read_csv_cell(stm, 7) as i32;
     row[8] = read_csv_cell(stm, 8) as i32;
     row[9] = read_csv_cell(stm, 9) as i32;
+    row[10] = read_csv_cell(stm, 0xa) as i32;
 }

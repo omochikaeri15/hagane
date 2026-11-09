@@ -10,42 +10,46 @@ use super::{
     calculate_treasure_percentages, call_rng, cannon_start_countdown, clear_barrier_vfx_slot,
     clear_base_guard_notice, clear_cannon_shot, clear_crit_vfx_slot, clear_debris,
     clear_effect_slot, clear_shield_vfx_slot, clear_wave_sprite, clear_zkill_vfx_slot,
-    collect_rule_id_list, combo_banner_pending, compute_base_health, compute_base_level,
-    deploy_limit_reset, evaluate_active_combos, ex_redirect_check_a, ex_redirect_check_b,
-    ex_redirect_check_c, ex_replacement_pending, fever_clear_gauge, fever_clear_state,
-    find_fixed_lineup, get_background_id, get_base_max_hp, get_battle_status, get_bg_model_id,
-    get_bottom_inset_logical, get_built_deck_rows, get_built_deck_stage_key, get_button_unit_id,
-    get_button_unit_row, get_cannon_base_damage, get_cannon_charge_frames, get_cannon_decor_id,
-    get_cannon_effect, get_cannon_foundation_id, get_cannon_id, get_cannon_part_id,
-    get_cannon_part_rec, get_cannon_power, get_cannon_recharge, get_castle_enemy_row,
-    get_cat_combo_bonus, get_crown_level, get_drawable_width, get_effect_part_level,
-    get_ex_option_target, get_foundation_part_id, get_global_map_id, get_item_selected,
-    get_left_inset_logical, get_map_index, get_map_rules, get_map_type, get_max_money, get_max_zoom,
-    get_powerup, get_powerup_available, get_right_inset_logical, get_setting, get_special_rule,
-    get_special_rule_params, get_stage_index, get_stage_record, get_style_part_id, get_text_texture,
-    get_top_inset_offset, get_unit_guide_order, get_unit_recharge, has_built_deck, has_castle_enemy,
-    has_fixed_lineup, invasion_available, invasion_z_available, is_aku_final_map, is_ex_map_68,
-    is_ex_option_target, is_score_stage, item_pass_active, labyrinth_active, labyrinth_roll_floor,
-    load_base_models, load_battle_assets, load_lineup_preset, load_map_stage_csv, load_stage_csv,
-    log_analytics_event, maanim_load, mamodel_load, mamodel_set_single_sheet, map_index_of_map_id,
-    map_records_entry, min_i32, obf_value_add, open_asset_stream, option_window_init, play_sound,
-    powerup_available, powerup_disabled, powerup_granted, query_localizable, read_csv_cell,
-    read_csv_row, replay_mode, reset_point_state, save_battle_snapshot, scene_background_setup,
+    collect_rule_id_list, combo_banner_pending, combo_lock_unmet, compute_base_health,
+    compute_base_level, deploy_limit_reset, evaluate_active_combos, ex_redirect_check_a,
+    ex_redirect_check_b, ex_redirect_check_c, ex_replacement_pending, fever_clear_gauge,
+    fever_clear_state, find_fixed_lineup, find_roguelike_map_entry, get_background_id,
+    get_base_max_hp, get_battle_status, get_bg_model_id, get_bottom_inset_logical,
+    get_built_deck_rows, get_built_deck_stage_key, get_button_unit_id, get_button_unit_row,
+    get_cannon_base_damage, get_cannon_charge_frames, get_cannon_decor_id, get_cannon_effect,
+    get_cannon_foundation_id, get_cannon_id, get_cannon_part_id, get_cannon_part_rec,
+    get_cannon_power, get_cannon_recharge, get_castle_enemy_row, get_cat_combo_bonus,
+    get_crown_level, get_drawable_width, get_effect_part_level, get_ex_option_target,
+    get_foundation_part_id, get_global_map_id, get_item_selected, get_left_inset_logical,
+    get_map_index, get_map_rules, get_map_type, get_max_money, get_max_zoom, get_powerup,
+    get_powerup_available, get_right_inset_logical, get_setting, get_special_rule,
+    get_special_rule_params, get_stage_index, get_stage_record, get_style_part_id,
+    get_text_texture, get_top_inset_offset, get_unit_guide_order, get_unit_recharge,
+    has_built_deck, has_castle_enemy, has_fixed_lineup, invasion_available,
+    invasion_z_available, is_aku_final_map, is_ex_map_68, is_ex_option_target, is_roguelike_map,
+    is_score_stage, item_pass_active, labyrinth_active, labyrinth_roll_floor, load_base_models,
+    load_battle_assets, load_lineup_preset, load_map_stage_csv, load_stage_csv,
+    log_analytics_event, maanim_load, mamodel_load, mamodel_set_single_sheet,
+    map_index_of_map_id, map_records_entry, min_i32, obf_value_add, open_asset_stream,
+    option_window_init, play_sound, powerup_available, powerup_disabled, powerup_granted,
+    query_localizable, read_csv_cell, read_csv_row, replay_mode, reset_point_state,
+    roguelike_cannon_levels, roguelike_progress, save_battle_snapshot, scene_background_setup,
     select_point_map, set_auto_camera_mode, set_base_curse_chance, set_base_curse_duration,
-    set_base_entity_frame, set_base_freeze_chance, set_base_freeze_duration, set_base_hitbox_pos,
-    set_base_hitbox_width, set_base_hp, set_base_level, set_base_max_hp, set_base_occupant,
-    set_base_pos_x, set_base_pos_y, set_base_slow_chance, set_base_slow_duration,
-    set_base_soulstrike, set_base_state, set_battle_status, set_bgm_duck, set_cannon_base_damage,
-    set_cannon_burrowed_permille, set_cannon_countdown, set_cannon_damage, set_cannon_hp_mode,
-    set_cannon_makes_wave, set_cannon_metal_permille, set_cannon_nonmetal_permille,
-    set_cannon_nonzombie_permille, set_cannon_parts, set_cannon_ready_vfx, set_cannon_recharge,
-    set_cannon_recoil, set_cannon_shot_id, set_cannon_strike_width, set_cannon_type,
-    set_cannon_unit_id, set_cannon_wall_hp_pct, set_cannon_wall_lifetime, set_cannon_wall_offset,
-    set_cannon_zombie_permille, set_castle_anim_frame, set_castle_anim_state,
-    set_combo_banner_pending, set_deck_cooldown, set_item_selected, set_money, set_point_stage,
-    set_powerup, set_stage_unlock, set_worker_level, setup_bg_color, sound_manager,
-    set_sound_kind, spawn_entity, spawn_state_init, stage_entry_row, stage_entry_start_frame,
-    stage_entry_z_max, stage_entry_z_min, stage_not_sealed, std_string_from_cstr, stop_audio, string_format_int,
+    set_base_entity_frame, set_base_freeze_chance, set_base_freeze_duration,
+    set_base_hitbox_pos, set_base_hitbox_width, set_base_hp, set_base_level, set_base_max_hp,
+    set_base_occupant, set_base_pos_x, set_base_pos_y, set_base_slow_chance,
+    set_base_slow_duration, set_base_soulstrike, set_base_state, set_battle_status,
+    set_bgm_duck, set_cannon_base_damage, set_cannon_burrowed_permille, set_cannon_countdown,
+    set_cannon_damage, set_cannon_hp_mode, set_cannon_makes_wave, set_cannon_metal_permille,
+    set_cannon_nonmetal_permille, set_cannon_nonzombie_permille, set_cannon_parts,
+    set_cannon_ready_vfx, set_cannon_recharge, set_cannon_recoil, set_cannon_shot_id,
+    set_cannon_strike_width, set_cannon_type, set_cannon_unit_id, set_cannon_wall_hp_pct,
+    set_cannon_wall_lifetime, set_cannon_wall_offset, set_cannon_zombie_permille,
+    set_castle_anim_frame, set_castle_anim_state, set_combo_banner_pending, set_deck_cooldown,
+    set_item_selected, set_money, set_point_stage, set_powerup, set_sound_kind,
+    set_stage_unlock, set_worker_level, setup_bg_color, sound_manager, spawn_entity,
+    spawn_state_init, stage_entry_row, stage_entry_start_frame, stage_entry_z_max,
+    stage_entry_z_min, stage_not_sealed, std_string_from_cstr, stop_audio, string_format_int,
     string_format_int2, string_format_int2_text, text_texture_cache, validate_map_type,
     vibration_clear,
 };
@@ -384,7 +388,7 @@ pub fn stage_initialize(ctx: &mut AppContext) -> Result<(), Fault> {
     breadcrumb_with(ctx, 0x45, &pairs)?;
 
     if let Some(preset) = find_fixed_lineup(ctx, -1, -1, -1)? {
-        load_lineup_preset(ctx, preset.as_bytes())?;
+        load_lineup_preset(ctx, false, preset.as_bytes())?;
 
         let key = ctx.i32_at(AppContext::BATTLE_DECK_KEY)?;
 
@@ -408,6 +412,20 @@ pub fn stage_initialize(ctx: &mut AppContext) -> Result<(), Fault> {
             )?;
         }
     } else {
+        if is_roguelike_map(ctx, -1, -1)?
+            && let Some((event_id, entry)) = find_roguelike_map_entry(ctx, -1, -1)?
+        {
+            let name = ctx
+                .roguelike
+                .settings
+                .get(&event_id)
+                .and_then(|event| event.entries.get(entry))
+                .map(|entry| entry.preset_file_name.to_vec())
+                .ok_or(Fault::null_pointer())?;
+
+            load_lineup_preset(ctx, true, &name)?;
+        }
+
         let stage_key = get_built_deck_stage_key(ctx)?;
 
         ctx.set_i32_at(AppContext::BUILT_DECK_EX_STAGE_KEY, stage_key)?;
@@ -603,6 +621,23 @@ pub fn stage_initialize(ctx: &mut AppContext) -> Result<(), Fault> {
         }
     }
 
+    if is_roguelike_map(ctx, -1, -1)? {
+        let mut definition = 0usize;
+
+        while definition < ctx.combo_store.states.len() {
+            let row = ctx
+                .combo_definitions
+                .get(definition)
+                .ok_or(Fault::index_out_of_range(definition as i64, ctx.combo_definitions.len() as i64))?;
+            let series = *row.get(1).ok_or(Fault::index_out_of_range(1, row.len() as i64))?;
+
+            ctx.combo_store.states[definition] = (series == 7) as i32 + 1;
+            definition += 1;
+        }
+
+        combo_lock_unmet(ctx)?;
+    }
+
     evaluate_active_combos(ctx)?;
     ctx.set_block_at::<0x14>(AppContext::COMBO_BANNER_UNITS, [0xff; 0x14])?;
     ctx.set_i32_at(
@@ -761,6 +796,15 @@ pub fn stage_initialize(ctx: &mut AppContext) -> Result<(), Fault> {
             for (slot, form) in forms.iter().enumerate() {
                 ctx.set_i32_at(AppContext::BUTTON_UNIT_FORMS + slot * 4, *form)?;
             }
+        } else if is_roguelike_map(ctx, -1, -1)? {
+            if let Some(progress) = roguelike_progress(ctx, -1, -1)? {
+                let forms: Vec<i32> =
+                    progress.borrow().roster.iter().map(|chara| chara.form).collect();
+
+                for (slot, form) in forms.iter().enumerate() {
+                    ctx.set_i32_at(AppContext::BUTTON_UNIT_FORMS + slot * 4, *form)?;
+                }
+            }
         } else if ctx.i32_at(AppContext::BATTLE_RESUMED)? == 0 {
             for slot in 0..10i32 {
                 let form = if get_button_unit_id(ctx, 0, slot)? < 0 {
@@ -805,17 +849,19 @@ pub fn stage_initialize(ctx: &mut AppContext) -> Result<(), Fault> {
         ctx.set_block_at::<0x10>(AppContext::BLINK_COUNTER, [0; 0x10])?;
         calculate_treasure_percentages(ctx)?;
 
-        if has_fixed_lineup(ctx, -1, -1, -1)? {
-            let flags: Vec<(i32, bool)> = ctx
-                .fixed_lineup_store
-                .treasure_flags
-                .iter()
-                .map(|(chapter, flag)| (*chapter, *flag))
-                .collect();
+        let fixed = has_fixed_lineup(ctx, -1, -1, -1)?;
+        let roguelike = is_roguelike_map(ctx, -1, -1)?;
 
-            for (chapter, flag) in flags {
-                let value = if flag { 100 } else { 0 };
+        if fixed || roguelike {
+            let source = if fixed {
+                &ctx.fixed_lineup_store.treasure_values
+            } else {
+                &ctx.roguelike.lineup.treasure_values
+            };
+            let values: Vec<(i32, i32)> =
+                source.iter().map(|(chapter, value)| (*chapter, *value)).collect();
 
+            for (chapter, value) in values {
                 for group in 0..0xbusize {
                     if chapter == 3 {
                         continue;
@@ -1028,8 +1074,8 @@ pub fn stage_initialize(ctx: &mut AppContext) -> Result<(), Fault> {
 
             if get_special_rule(ctx, &ctx.special_rules, map_id, 0)? {
                 7
-            } else if get_cat_combo_bonus(ctx, &ctx.combo_store, 4, -1)? > 0 {
-                get_cat_combo_bonus(ctx, &ctx.combo_store, 4, -1)?
+            } else if get_cat_combo_bonus(ctx, 4, -1)? > 0 {
+                get_cat_combo_bonus(ctx, 4, -1)?
             } else {
                 0
             }
@@ -1037,7 +1083,7 @@ pub fn stage_initialize(ctx: &mut AppContext) -> Result<(), Fault> {
 
         set_worker_level(ctx, wallet, worker)?;
 
-        let money = get_cat_combo_bonus(ctx, &ctx.combo_store, 5, -1)?.wrapping_mul(100);
+        let money = get_cat_combo_bonus(ctx, 5, -1)?.wrapping_mul(100);
 
         set_money(ctx, wallet, money)?;
 
@@ -1111,12 +1157,23 @@ pub fn stage_initialize(ctx: &mut AppContext) -> Result<(), Fault> {
         let saved = get_effect_part_level(ctx, part)?;
         let fixed = has_fixed_lineup(ctx, -1, -1, -1)?;
         let preset = ctx.i32_at(AppContext::LINEUP_CANNON_LEVEL)?;
-        let level = if preset == -1 || !fixed {
+        let mut level = if preset == -1 || !fixed {
             saved
         } else {
             preset
         }
         .wrapping_add(1);
+
+        if (preset == -1 || !fixed)
+            && is_roguelike_map(ctx, -1, -1)?
+            && let Some(progress) = roguelike_progress(ctx, -1, -1)?
+        {
+            let mut levels = roguelike_cannon_levels(ctx, &progress.borrow());
+            let cannon = get_cannon_part_rec(ctx)?.kind;
+
+            level = *levels.entry(cannon).or_insert(0);
+        }
+
         let cannon_id = get_cannon_part_id(ctx)?;
         let style_id = get_style_part_id(ctx)?;
         let foundation_id = get_foundation_part_id(ctx)?;

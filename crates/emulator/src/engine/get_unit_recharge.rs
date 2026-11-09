@@ -17,7 +17,7 @@ pub fn get_unit_recharge(ctx: &mut AppContext, faction: i32, button: i32) -> Res
     let cooldown = stat_cooldown(ctx, 0, unit_id, form)?;
     let upgrade = get_base_upgrade(ctx, 7)?.wrapping_mul(3);
     let treasure = get_treasure_value(ctx, &ctx.treasure_store, 0xb)?;
-    let combo = get_cat_combo_bonus(ctx, &ctx.combo_store, 0xb, unit_id)?;
+    let combo = get_cat_combo_bonus(ctx, 0xb, unit_id)?;
     let reduction = treasure.wrapping_add(upgrade.wrapping_mul(2));
     let reduced = ops::div_neg_100(combo.wrapping_mul(reduction))
         .wrapping_add(cooldown.wrapping_sub(reduction));

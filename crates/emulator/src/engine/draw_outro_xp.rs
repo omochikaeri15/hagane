@@ -7,7 +7,7 @@ use super::{
     get_bottom_inset_logical, get_design_height2, get_drawable_width, get_labyrinth_floor_best,
     get_labyrinth_floor_reached, get_labyrinth_map_id, get_map_type, get_stage_count,
     get_stage_score, glow_set, has_point_decay, hit_test_rect, imgcut_get_sprite_cut,
-    is_score_stage, labyrinth_active, labyrinth_result_ready, map_index_of_map_id, max_i32, min_i32,
+    has_point_rule, is_score_stage, labyrinth_active, labyrinth_result_ready, map_index_of_map_id, max_i32, min_i32,
     new_button_draw, set_tint, text_block_draw, touch_is_down, xor_row46_get,
 };
 
@@ -96,7 +96,9 @@ pub fn draw_outro_xp(ctx: &mut AppContext, hidden: u8) -> Result<(), Fault> {
             glow_set(draw_context(&mut ctx.draw)?, 2);
             set_tint(draw_context(&mut ctx.draw)?, 0x28, 0x28, 0x4d, 0xff);
 
-            let bar = if is_score_stage(ctx.event_items.as_ref()) {
+            let bar = if is_score_stage(ctx.event_items.as_ref())
+                && has_point_rule(ctx.event_items.as_ref(), -1)?
+            {
                 *OUTRO_SLIDE_TABLE.get(0xc).ok_or(Fault::index_out_of_range(0xc, OUTRO_SLIDE_TABLE.len() as i64))?
             } else {
                 0i32.wrapping_sub(slide)
@@ -129,7 +131,9 @@ pub fn draw_outro_xp(ctx: &mut AppContext, hidden: u8) -> Result<(), Fault> {
 
                     draw_cut(draw_context(&mut ctx.draw)?, banner, x, 0x12c, blink as i32);
                 }
-            } else if is_score_stage(ctx.event_items.as_ref()) {
+            } else if is_score_stage(ctx.event_items.as_ref())
+                && has_point_rule(ctx.event_items.as_ref(), -1)?
+            {
                 let value = get_stage_score(ctx.event_items.as_ref().ok_or(Fault::null_pointer())?);
                 let offset = imgcut_get_sprite_cut(banner, 5)?[2].wrapping_add(0x14);
                 let lead = imgcut_get_sprite_cut(banner, 4)?[2].wrapping_add(0x14);

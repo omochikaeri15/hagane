@@ -4,6 +4,8 @@ pub mod altar;
 pub mod base;
 #[cfg(feature = "sandbox")]
 pub mod config;
+#[cfg(feature = "sandbox")]
+pub mod jailbreak;
 pub mod keybind;
 #[cfg(feature = "sandbox")]
 pub mod lineup;

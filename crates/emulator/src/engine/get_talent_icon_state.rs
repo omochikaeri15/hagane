@@ -1,14 +1,18 @@
 use crate::Fault;
 
-use super::{AppContext, get_scene_id, has_fixed_lineup};
+use super::{AppContext, get_scene_id, has_fixed_lineup, is_roguelike_map, roguelike_talent_values};
 
 pub fn get_talent_icon_state(
     ctx: &mut AppContext,
-    _faction: i32,
+    faction: i32,
     unit_id: i32,
     form: i32,
     ability: i32,
 ) -> Result<i32, Fault> {
+    if faction != 0 {
+        return Ok(0);
+    }
+
     if !ctx.talent_definitions.contains_key(&unit_id) {
         return Ok(0);
     }
@@ -19,6 +23,10 @@ pub fn get_talent_icon_state(
 
     if get_scene_id(ctx)? == 0x12c && has_fixed_lineup(ctx, -1, -1, -1)? {
         return Ok(0);
+    }
+
+    if is_roguelike_map(ctx, -1, -1)? {
+        return Ok(roguelike_talent_values(ctx, unit_id, ability, -1, -1)?.is_some() as i32);
     }
 
     let mut talent_slot = 0;

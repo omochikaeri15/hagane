@@ -26,7 +26,17 @@ pub struct FixedLineupStore {
     pub rows: Vec<FixedLineupRow>,
     pub hints: Vec<FixedLineupRow>,
     pub ability_levels: BTreeMap<i32, i32>,
-    pub treasure_flags: BTreeMap<i32, bool>,
+    pub treasure_values: BTreeMap<i32, i32>,
+}
+
+#[derive(Clone, Default, PartialEq, Eq, Debug)]
+pub struct LineupPreset {
+    pub units: Vec<FixedLineupUnit>,
+    pub ability_levels: BTreeMap<i32, i32>,
+    pub cannon_type: i32,
+    pub cannon_level: i32,
+    pub base_level: i32,
+    pub treasure_values: BTreeMap<i32, i32>,
 }
 
 pub fn has_fixed_lineup(

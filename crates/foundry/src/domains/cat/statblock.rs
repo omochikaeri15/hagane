@@ -7,6 +7,7 @@ use crate::systems::combat::RenderContext;
 use crate::systems::statblock::{SpiritData, StatCell, StatblockData};
 
 use super::game::stats::get_final_stats;
+use super::grants::Grants;
 use super::scanner::CatEntry;
 use super::waiter::unitid;
 
@@ -18,6 +19,7 @@ pub struct Subject<'a> {
     pub talent_levels: Option<&'a HashMap<u8, u8>>,
     pub is_conjure_expanded: bool,
     pub global: GlobalContext<'a>,
+    pub grants: Option<&'a Grants>,
 }
 
 pub fn build(subject: Subject<'_>) -> Option<StatblockData> {
@@ -25,10 +27,14 @@ pub fn build(subject: Subject<'_>) -> Option<StatblockData> {
     let dynamic_stats = unitid(&subject.global.vault.vfs, cat.id as i32);
     let base_stats = dynamic_stats.as_ref().and_then(|forms| forms.get(subject.form))?;
 
-    let form_allows_talents = subject.form >= 2;
+    let form_allows_talents = subject.grants.is_some() || subject.form >= 2;
     let talent_data = if form_allows_talents { cat.talent_data.as_ref() } else { None };
     let talent_levels = if form_allows_talents { subject.talent_levels } else { None };
-    let final_stats = get_final_stats(base_stats, cat.curve.as_ref(), subject.current_level, talent_data, talent_levels, subject.global.treasure);
+    let mut final_stats = get_final_stats(base_stats, cat.curve.as_ref(), subject.current_level, talent_data, talent_levels, subject.global.treasure);
+
+    if let Some(grants) = subject.grants {
+        grants.apply(&mut final_stats);
+    }
 
     let ctx = RenderContext {
         global: subject.global,

@@ -3,7 +3,7 @@ use std::rc::Rc;
 use crate::{Fault, ops};
 
 use super::{
-    AppContext, ENTITY_BASE, ENTITY_STRIDE, Entity, FACTION_STRIDE, FormatArg, StageRecordRow, stop_audio,
+    AppContext, ENTITY_BASE, ENTITY_STRIDE, Entity, FACTION_STRIDE, FormatArg, StageRecordRow,
     TreasureRow, UNIT_BUY, UNIT_BUY_STRIDE, ad_prepare, add_resource, add_stage_record,
     add_stage_unlock, add_stages_cleared, aku_timer_set, altar_stage_value, analytics_named,
     analytics_nekokan_get, battle_init_win_lambda_0, breadcrumb, breadcrumb_with,
@@ -12,26 +12,28 @@ use super::{
     compute_stage_xp, config_json_int, dialog_top, enigma_active_at, enigma_active_count,
     enigma_add_stamina, enigma_group_at, enigma_medal_count, enigma_prune, enigma_roll,
     event_reward_received, event_reward_set, event_unit_slot, ex_redirect_check_a,
-    ex_stage_credits_gauge, feature_enabled, find_item_by_kind, find_item_index, get_aku_stage_list,
-    get_cleared_count, get_crown_level, get_drawable_width, get_entity_base_idx, get_global_map_id,
-    get_item_count, get_map_count, get_map_index, get_map_type, get_point_cap, get_point_id,
-    get_point_rewards, get_point_total, get_powerup, get_release_point_cap, get_slot_unit_id,
-    get_stage_best_score, get_stage_count, get_stage_index, get_stage_record, get_stage_score,
-    get_stage_set_size, get_stages_cleared, get_trait_dojo, grant_stage_reward, has_point_decay,
-    invasion_available, invasion_z_available, is_aku_final_map, is_ex_option_target,
-    is_network_available, is_reward_claimed, is_score_stage, labyrinth_active,
+    ex_stage_credits_gauge, feature_enabled, find_item_by_kind, find_item_index,
+    get_aku_stage_list, get_cleared_count, get_crown_level, get_drawable_width,
+    get_entity_base_idx, get_global_map_id, get_item_count, get_map_count, get_map_index,
+    get_map_type, get_point_cap, get_point_id, get_point_rewards, get_point_total, get_powerup,
+    get_ranking_best_score, get_release_point_cap, get_slot_unit_id, get_stage_best_score,
+    get_stage_count, get_stage_index, get_stage_record, get_stage_score, get_stage_set_size,
+    get_stages_cleared, get_trait_dojo, grant_stage_reward, has_point_decay, invasion_available,
+    invasion_z_available, is_aku_final_map, is_ex_option_target, is_network_available,
+    is_reward_claimed, is_roguelike_map, is_score_stage, labyrinth_active,
     labyrinth_result_ready, labyrinth_roll_floor, labyrinth_submit, labyrinth_unit_count,
     log_analytics_event, map_guerrilla_set, map_index_of_map_id, map_interval, map_one_time,
     map_type_base_id, map_type_of_map_id, map_uses_item_cost, map_xp_ad, max_i32, mission_mark,
     mission_progress, mission_progress_list, new_button_register, new_button_set_touchable,
-    notification_schedule, now_seconds, obf_value_add, obf_value_read, obf_value_set, orb_def_count,
-    orb_inventory_count, play_sound, point_reward_analytics, record_stage_lineup,
+    notification_schedule, now_seconds, obf_value_add, obf_value_read, obf_value_set,
+    orb_def_count, orb_inventory_count, play_sound, point_reward_analytics, record_stage_lineup,
     record_stage_played, replay_mode, request_save_data, reward_ad_ready, reward_owned,
-    reward_unit_id, roll_drop_item_counts, roll_filibuster_stage, server_config_int,
-    set_auto_camera_mode, set_battle_status, set_entity_state, set_fever_fade_out, set_map_open,
+    reward_unit_id, roguelike_add_bonus, roguelike_progress, roll_drop_item_counts,
+    roll_filibuster_stage, server_config_int, set_auto_camera_mode, set_battle_status,
+    set_entity_state, set_fever_fade_out, set_map_open, set_ranking_best_score,
     set_reward_claimed, set_stage_record, set_stage_unlock, shop_offer_start, sound_manager,
     stage_pair_progress, stage_pair_progress_set, stage_pair_record, stage_reward_item,
-    stage_reward_kind, stage_reward_taken, stage_stamina_cost, string_format_int,
+    stage_reward_kind, stage_reward_taken, stage_stamina_cost, stop_audio, string_format_int,
     treasure_area_match, treasure_festival_active, treasure_gauge_add, treasure_gauge_full,
     treasure_gauge_reset, treasure_gauge_unlocked, treasure_group_at, treasure_group_cleared,
     treasure_group_of_stage, ui_node_add_child, ui_node_set_anchor, ui_node_set_panel,
@@ -59,7 +61,7 @@ pub fn battle_init_win(ctx: &mut AppContext, cleared: u8) -> Result<(), Fault> {
     ctx.set_block_at::<2>(AppContext::OUTRO_VIDEO_BUTTON, [0; 2])?;
     ctx.item_possession.clear();
 
-    for item in 0..0x113 {
+    for item in 0..0x114 {
         let count = get_item_count(ctx, item)?;
 
         *ctx.item_possession.entry(item).or_insert(0) = count;
@@ -369,6 +371,10 @@ pub fn battle_init_win(ctx: &mut AppContext, cleared: u8) -> Result<(), Fault> {
             cleared as i32,
             0,
         )?;
+
+        let crown = ctx.i32_at(AppContext::CROWN_LEVEL)?;
+
+        mission_progress_list(ctx, 0x22, &[pair_map, pair_stage, crown], 1)?;
         mission_progress(ctx, 9, ops::div_1000(pair_map), 1, cleared as i32, 0)?;
 
         if get_map_type(ctx, 0)? == -0x17 {
@@ -670,13 +676,13 @@ pub fn battle_init_win(ctx: &mut AppContext, cleared: u8) -> Result<(), Fault> {
                 )?;
                 chapter = ctx.i32_at(AppContext::CHAPTER_MODE)?;
 
-                let cleared_stage = ctx.i32_at(AppContext::OUTRO_STAGE_CLEARED)?;
+                let pending_stage = ctx.i32_at(AppContext::OUTRO_STAGE_CLEARED)?;
 
                 for unit in 0..ctx.limits.units as usize {
                     let row = ctx.bytes_from(UNIT_BUY + unit * UNIT_BUY_STRIDE)?;
 
                     if unit_buy_field(row, 0xf)? == chapter
-                        && unit_buy_field(row, 0)? == cleared_stage
+                        && unit_buy_field(row, 0)? == pending_stage
                         && unit_buy_field(row, 1)? == 0
                     {
                         ctx.set_i32_at(AppContext::OUTRO_NEW_UNLOCK, unit as i32)?;
@@ -884,6 +890,26 @@ pub fn battle_init_win(ctx: &mut AppContext, cleared: u8) -> Result<(), Fault> {
             .other_stage;
 
         stage_pair_progress_set(ctx, map_key, pair_stage, other);
+    }
+
+    if is_roguelike_map(ctx, -1, -1)?
+        && let Some(progress) = roguelike_progress(ctx, -1, -1)?
+    {
+        let next = pair_stage.wrapping_add(1);
+
+        progress.borrow_mut().pending_stage = pair_stage;
+        progress.borrow_mut().stage_index = next;
+
+        let map_type = get_map_type(ctx, 0)?;
+        let map_index = get_map_index(ctx, 0)?;
+
+        if pair_stage < get_stage_count(ctx, map_type, map_index)?.wrapping_sub(1) {
+            let map_type = get_map_type(ctx, 0)?;
+            let map_index = get_map_index(ctx, 0)?;
+            let crown = get_crown_level(ctx)?;
+
+            set_stage_unlock(ctx, map_type, map_index, crown, next, 0)?;
+        }
     }
 
     let crown = ctx.i32_at(AppContext::CROWN_LEVEL)?;
@@ -1314,15 +1340,10 @@ pub fn battle_init_win(ctx: &mut AppContext, cleared: u8) -> Result<(), Fault> {
                 } else if ranking == -1 {
                     0
                 } else {
-                    let crown = ctx.i32_at(AppContext::CROWN_LEVEL)? as i64;
+                    let stage = ctx.i32_at(AppContext::STAGE_ROW)?;
+                    let crown = ctx.i32_at(AppContext::CROWN_LEVEL)?;
 
-                    ctx.i32_at(
-                        (stage_row * 0x10
-                            + ranking as i64 * 0xf0
-                            + crown * 4
-                            + AppContext::RANKING_BEST_SCORES as i64)
-                            as usize,
-                    )?
+                    get_ranking_best_score(ctx, ranking, stage, crown)?
                 };
                 let frames = ctx.i32_at(AppContext::PLAY_FRAMES)?;
                 let score = if frames > 0x2328 {
@@ -1392,18 +1413,13 @@ pub fn battle_init_win(ctx: &mut AppContext, cleared: u8) -> Result<(), Fault> {
                     if (group as u32) > 2 {
                         let ranking = ctx.i32_at(AppContext::RANKING_ID)?;
 
-                        if ranking != -1 {
-                            let stage_row = ctx.i32_at(AppContext::STAGE_ROW)? as i64;
-                            let crown = ctx.i32_at(AppContext::CROWN_LEVEL)? as i64;
+                        let score = ctx.i32_at(AppContext::STAGE_SCORE)?;
 
-                            ctx.set_i32_at(
-                                (stage_row * 0x10
-                                    + ranking as i64 * 0xf0
-                                    + crown * 4
-                                    + AppContext::RANKING_BEST_SCORES as i64)
-                                    as usize,
-                                ctx.i32_at(AppContext::STAGE_SCORE)?,
-                            )?;
+                        if ranking != -1 {
+                            let stage = ctx.i32_at(AppContext::STAGE_ROW)?;
+                            let crown = ctx.i32_at(AppContext::CROWN_LEVEL)?;
+
+                            set_ranking_best_score(ctx, ranking, stage, crown, score)?;
                         }
                     } else {
                         let stage_row = ctx.i32_at(AppContext::STAGE_ROW)? as i64;
@@ -1959,10 +1975,24 @@ pub fn battle_init_win(ctx: &mut AppContext, cleared: u8) -> Result<(), Fault> {
                     )?;
                 }
                 0 => add_resource(ctx, target, amount, 0)?,
+                2 => roguelike_add_bonus(ctx, 1, target, amount, -1, -1)?,
+                3 => roguelike_add_bonus(ctx, 0, target, amount, -1, -1)?,
                 _ => {}
             }
 
             point_reward_analytics(ctx, point_id, id, (cap <= total) as i32)?;
+        }
+    }
+
+    if is_roguelike_map(ctx, -1, -1)? {
+        let stage = get_stage_index(ctx)?;
+        let map_type = get_map_type(ctx, 0)?;
+        let map_index = get_map_index(ctx, 0)?;
+
+        if stage == get_stage_count(ctx, map_type, map_index)?.wrapping_sub(1)
+            && !ctx.roguelike.clear_tutorial_seen
+        {
+            ctx.reward_queue.push(vec![0x12]);
         }
     }
 

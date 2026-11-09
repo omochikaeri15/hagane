@@ -16,6 +16,7 @@ use foundry::domains::cat::combo::{self, ComboEffects};
 use foundry::domains::cat::filter::evaluation::entity_passes_filter;
 use foundry::domains::cat::filter::{ATTACK_TYPE_ICONS, CatFilterState, MatchMode, TalentFilterMode, icons as filter_icons};
 use foundry::domains::cat::game::stats::{get_final_stats, seeded_level};
+use foundry::domains::sandbox::jailbreak::Grants;
 use foundry::domains::cat::level;
 use foundry::domains::cat::game::talents as talent_logic;
 use foundry::domains::cat::scanner::CatEntry;
@@ -110,6 +111,7 @@ pub struct State {
     exporting: bool,
     edited: Option<Edited>,
     locked: bool,
+    granted: Option<Rc<Grants>>,
 }
 
 pub type Edited = Rc<dyn Fn(&AppWindow)>;
@@ -233,10 +235,11 @@ pub struct Seed<'a> {
     pub level: &'a str,
     pub talents: &'a HashMap<u8, u8>,
     pub locked: bool,
+    pub grants: Option<Rc<Grants>>,
 }
 
 pub fn seed_member(ui: &AppWindow, state: &Shared, context: &Rc<Context>, seed: Seed<'_>) {
-    let Seed { cat, form, level: level_input, talents, locked } = seed;
+    let Seed { cat, form, level: level_input, talents, locked, grants } = seed;
 
     {
         let mut held = state.borrow_mut();
@@ -255,8 +258,9 @@ pub fn seed_member(ui: &AppWindow, state: &Shared, context: &Rc<Context>, seed: 
         held.ultra_active = false;
         held.saved_level = None;
         held.locked = locked;
+        held.granted = grants;
 
-        if held.tab == Tab::Talents && held.form < 2 {
+        if held.tab == Tab::Talents && !held.tabbed(held.form) {
             held.tab = Tab::Abilities;
         }
     }
@@ -477,11 +481,26 @@ impl State {
             exporting: false,
             edited: None,
             locked: false,
+            granted: None,
         }
     }
 
     pub fn cat(&self, id: u32) -> Option<CatEntry> {
-        self.cats.as_ref()?.iter().find(|cat| cat.id == id).cloned()
+        let mut cat = self.cats.as_ref()?.iter().find(|cat| cat.id == id).cloned()?;
+
+        if let Some(grants) = self.granted.as_ref().filter(|_| self.selected == Some(id)) {
+            cat.talent_data = (!grants.talent.groups.is_empty()).then(|| grants.talent.clone());
+        }
+
+        Some(cat)
+    }
+
+    fn talented(&self, form: usize) -> bool {
+        self.granted.is_some() || form >= 2
+    }
+
+    fn tabbed(&self, form: usize) -> bool {
+        self.granted.is_none() && form >= 2
     }
 
     fn clamped(&self, cat: &CatEntry) -> (usize, Tab) {
@@ -1088,6 +1107,7 @@ fn apply(state: &Shared, context: &Rc<Context>, cat: &CatEntry, form: Option<usi
 
     held.selected = Some(cat.id);
     held.locked = false;
+    held.granted = None;
     held.seed(cat, &context.state.settings());
 
     if let Some(form) = form.filter(|form| cat.forms.get(*form).copied().unwrap_or(false)) {
@@ -1192,7 +1212,7 @@ pub fn refresh(ui: &AppWindow, state: &Shared, context: &Rc<Context>) {
     cats.set_level_input(level_input.as_str().into());
     cats.set_forms(ModelRc::new(VecModel::from(FORM_LABELS.iter().enumerate().map(|(index, label)| HeaderBtn { label: (*label).into(), available: cat.forms.get(index).copied().unwrap_or(false) }).collect::<Vec<_>>())));
     cats.set_tabs(ModelRc::new(VecModel::from(
-        TAB_LABELS.iter().enumerate().map(|(index, label)| HeaderBtn { label: (*label).into(), available: index != 1 || (form >= 2 && cat.talent_data.is_some()) }).collect::<Vec<_>>(),
+        TAB_LABELS.iter().enumerate().map(|(index, label)| HeaderBtn { label: (*label).into(), available: index != 1 || (state.borrow().tabbed(form) && cat.talent_data.is_some()) }).collect::<Vec<_>>(),
     )));
 
     let name = cat.display_name(form);
@@ -1220,7 +1240,7 @@ pub fn refresh(ui: &AppWindow, state: &Shared, context: &Rc<Context>) {
         crate::viewer::hide(context);
     }
 
-    cats.set_has_talents(cat.talent_data.is_some() && form >= 2);
+    cats.set_has_talents(cat.talent_data.is_some() && state.borrow().tabbed(form));
     cats.set_locked(state.borrow().locked);
 
     let edited = state.borrow().edited.clone();
@@ -1241,10 +1261,14 @@ fn refresh_abilities(ui: &AppWindow, state: &Shared, context: &Rc<Context>, glob
 
     cats.set_stats_missing(false);
 
-    let allows_talents = form >= 2;
+    let allows_talents = state.borrow().talented(form);
     let talent_data = if allows_talents { cat.talent_data.as_ref() } else { None };
     let levels = allows_talents.then(|| state.borrow().levels_for(cat.id));
-    let final_stats = get_final_stats(base, cat.curve.as_ref(), level, talent_data, levels.as_ref(), &globals.treasure);
+    let mut final_stats = get_final_stats(base, cat.curve.as_ref(), level, talent_data, levels.as_ref(), &globals.treasure);
+
+    if let Some(grants) = state.borrow().granted.as_ref() {
+        grants.apply(&mut final_stats);
+    }
     let ctx = RenderContext {
         global: globals.context(vault),
         base_stats: base,
@@ -1349,6 +1373,7 @@ fn refresh_talents(ui: &AppWindow, state: &Shared, globals: &Rc<Globals>, vault:
     let levels = state.borrow().levels_for(cat.id);
     let costs = &cat.talent_costs;
     let descriptions = &cat.skill_descriptions;
+    let combos = vault.vds.cats.combo_names(&vault.vfs);
     let total = talent_logic::get_total_np_cost(talent_data, &levels, costs);
     let availability = toggle_availability(talent_data, Some(&levels));
     let np_icon = images.cut(vault, IMG022, img022::ICON_NP_COST);
@@ -1370,7 +1395,7 @@ fn refresh_talents(ui: &AppWindow, state: &Shared, globals: &Rc<Globals>, vault:
         .map(|(index, group)| {
             let current = levels.get(&(index as u8)).copied().unwrap_or(0);
             let np_cost = talent_logic::get_talent_np_cost(group.cost_id, current, costs);
-            let description = descriptions.get(usize::from(group.text_id)).cloned().unwrap_or_else(|| "No skill description found".to_owned());
+            let description = talent_logic::describe(group, descriptions, &combos);
             let input = inputs.get(&(index as u8)).cloned().unwrap_or_else(|| current.to_string());
             let shown = base.and_then(|stats| {
                 let traits = traits.as_ref().unwrap_or(stats);
@@ -1659,11 +1684,11 @@ fn export(ui: &AppWindow, state: &Shared, context: &Rc<Context>) {
         return;
     };
     let vault = context.engine.vault();
-    let (form, level, level_input, talent_levels, conjure) = {
+    let (form, level, level_input, talent_levels, conjure, granted) = {
         let held = state.borrow();
-        let talents = (held.form >= 2).then(|| held.levels_for(cat.id));
+        let talents = held.talented(held.form).then(|| held.levels_for(cat.id));
 
-        (held.form, held.level, held.level_input.clone(), talents, held.conjure_expanded.get(&cat.id).copied().unwrap_or(context.state.settings().cat_data.expand_spirit_details))
+        (held.form, held.level, held.level_input.clone(), talents, held.conjure_expanded.get(&cat.id).copied().unwrap_or(context.state.settings().cat_data.expand_spirit_details), held.granted.clone())
     };
     let Some(data) = cat_statblock::build(Subject {
         cat: &cat,
@@ -1673,6 +1698,7 @@ fn export(ui: &AppWindow, state: &Shared, context: &Rc<Context>) {
         talent_levels: talent_levels.as_ref(),
         is_conjure_expanded: conjure,
         global: globals.context(&vault),
+        grants: granted.as_deref(),
     }) else {
         context.toast(ui, "The statblock could not be built", true);
         return;

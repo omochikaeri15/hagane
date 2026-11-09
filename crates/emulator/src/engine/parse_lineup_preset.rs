@@ -3,13 +3,17 @@ use std::collections::BTreeMap;
 use crate::Fault;
 
 use super::{
-    AppContext, FixedLineupUnit, JsonNode, TechMax, get_unit_form_count, get_unit_guide_order,
+    AppContext, FixedLineupUnit, JsonNode, LineupPreset, TechMax, get_unit_form_count, get_unit_guide_order,
     get_unit_max_level, get_unit_max_plus_level, is_unit_available, json_container_as_bool,
     json_container_as_int, json_string_as_bool, json_string_as_int, json_value_as_bool,
     json_value_as_int, string_to_int,
 };
 
-pub fn parse_lineup_preset(ctx: &mut AppContext, root: Option<&JsonNode>) -> Result<bool, Fault> {
+pub fn parse_lineup_preset(
+    ctx: &mut AppContext,
+    preset: &mut LineupPreset,
+    root: Option<&JsonNode>,
+) -> Result<bool, Fault> {
     let Some(root) = root else {
         return Ok(false);
     };
@@ -44,8 +48,7 @@ pub fn parse_lineup_preset(ctx: &mut AppContext, root: Option<&JsonNode>) -> Res
                     break;
                 }
 
-                ctx.fixed_lineup_store
-                    .units
+                preset.units
                     .push(FixedLineupUnit::default());
 
                 let node = &chara[index];
@@ -54,9 +57,7 @@ pub fn parse_lineup_preset(ctx: &mut AppContext, root: Option<&JsonNode>) -> Res
                     JsonNode::Array(_) | JsonNode::Object(_) => json_container_as_int(),
                     _ => json_value_as_int(node),
                 } as i32;
-                let unit = ctx
-                    .fixed_lineup_store
-                    .units
+                let unit = preset.units
                     .last_mut()
                     .ok_or(Fault::null_pointer())?;
 
@@ -73,9 +74,9 @@ pub fn parse_lineup_preset(ctx: &mut AppContext, root: Option<&JsonNode>) -> Res
                         _ => json_value_as_int(node),
                     } as i32;
 
-                    ctx.set_i32_at(AppContext::LINEUP_CANNON_TYPE, cannon)?;
+                    preset.cannon_type = cannon;
                 }
-                None => ctx.set_i32_at(AppContext::LINEUP_CANNON_TYPE, -1)?,
+                None => preset.cannon_type = -1,
             }
         }
     }
@@ -113,8 +114,7 @@ pub fn parse_lineup_preset(ctx: &mut AppContext, root: Option<&JsonNode>) -> Res
 
                 let index = *unit_index.entry(unit_id).or_insert(0);
 
-                ctx.fixed_lineup_store
-                    .units
+                preset.units
                     .get_mut(index as usize)
                     .ok_or(Fault::index_out_of_range(index as i64, 0))?
                     .form = evolution.wrapping_sub(1);
@@ -133,8 +133,7 @@ pub fn parse_lineup_preset(ctx: &mut AppContext, root: Option<&JsonNode>) -> Res
 
                 let index = *unit_index.entry(unit_id).or_insert(0);
 
-                ctx.fixed_lineup_store
-                    .units
+                preset.units
                     .get_mut(index as usize)
                     .ok_or(Fault::index_out_of_range(index as i64, 0))?
                     .level = level.wrapping_sub(1);
@@ -153,8 +152,7 @@ pub fn parse_lineup_preset(ctx: &mut AppContext, root: Option<&JsonNode>) -> Res
 
                 let index = *unit_index.entry(unit_id).or_insert(0);
 
-                ctx.fixed_lineup_store
-                    .units
+                preset.units
                     .get_mut(index as usize)
                     .ok_or(Fault::index_out_of_range(index as i64, 0))?
                     .plus_level = plus;
@@ -204,8 +202,7 @@ pub fn parse_lineup_preset(ctx: &mut AppContext, root: Option<&JsonNode>) -> Res
                 return Ok(false);
             }
 
-            ctx.fixed_lineup_store
-                .ability_levels
+            preset.ability_levels
                 .insert(kind, level.wrapping_add(plus).wrapping_sub(1));
         }
     }
@@ -230,13 +227,13 @@ pub fn parse_lineup_preset(ctx: &mut AppContext, root: Option<&JsonNode>) -> Res
                 .wrapping_sub(1);
 
             if part == 0 {
-                ctx.set_i32_at(AppContext::LINEUP_BASE_LEVEL, level)?;
-                ctx.set_i32_at(AppContext::LINEUP_CANNON_LEVEL, level)?;
+                preset.base_level = level;
+                preset.cannon_level = level;
             } else {
-                let cannon_type = ctx.i32_at(AppContext::LINEUP_CANNON_TYPE)?;
+                let cannon_type = preset.cannon_type;
 
                 if cannon_type != -1 && part == cannon_type {
-                    ctx.set_i32_at(AppContext::LINEUP_CANNON_LEVEL, level)?;
+                    preset.cannon_level = level;
                 }
             }
         }
@@ -260,7 +257,7 @@ pub fn parse_lineup_preset(ctx: &mut AppContext, root: Option<&JsonNode>) -> Res
 
         if none {
             for chapter in 0..10 {
-                ctx.fixed_lineup_store.treasure_flags.insert(chapter, false);
+                preset.treasure_values.insert(chapter, 0);
             }
         }
     }
@@ -282,14 +279,32 @@ pub fn parse_lineup_preset(ctx: &mut AppContext, root: Option<&JsonNode>) -> Res
         let Some(JsonNode::Array(count)) = value.get(b"count".as_slice()) else {
             return Err(Fault::null_pointer());
         };
-        let full = count.len() >= 3
-            && match &count[2] {
-                JsonNode::String(text) => json_string_as_int(text)?,
-                JsonNode::Array(_) | JsonNode::Object(_) => json_container_as_int(),
-                node => json_value_as_int(node),
-            } == 0x30;
+        let mut value = 0i32;
 
-        ctx.fixed_lineup_store.treasure_flags.insert(chapter, full);
+        if count.len() * 8 >= 0x11 {
+            let mut cell = 2usize;
+
+            loop {
+                let found = match &count[cell] {
+                    JsonNode::String(text) => json_string_as_int(text)?,
+                    JsonNode::Array(_) | JsonNode::Object(_) => json_container_as_int(),
+                    node => json_value_as_int(node),
+                };
+
+                if found == 0x30 {
+                    value = [0x21, 0x42, 0x64][cell];
+                    break;
+                }
+
+                if cell == 0 {
+                    break;
+                }
+
+                cell -= 1;
+            }
+        }
+
+        preset.treasure_values.insert(chapter, value);
     }
 
     Ok(true)

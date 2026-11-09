@@ -286,11 +286,16 @@ enum ActivePopup {
     SandboxDiagnostics,
     SandboxLineupExport,
     SandboxReplayExport,
+    SandboxJailbreakGlobal,
+    SandboxJailbreakCat,
+    SandboxJailbreakUnit,
+    SandboxJailbreakExport,
+    SandboxJailbreakFilter,
 }
 
 impl ActivePopup {
     #[cfg(test)]
-    const ALL: [Self; 33] = [
+    const ALL: [Self; 38] = [
         Self::InitErrors,
         Self::Updater,
         Self::VersionNotice,
@@ -324,6 +329,11 @@ impl ActivePopup {
         Self::SandboxDiagnostics,
         Self::SandboxLineupExport,
         Self::SandboxReplayExport,
+        Self::SandboxJailbreakGlobal,
+        Self::SandboxJailbreakCat,
+        Self::SandboxJailbreakUnit,
+        Self::SandboxJailbreakExport,
+        Self::SandboxJailbreakFilter,
     ];
 
     fn kind(self) -> popup::Kind {
@@ -361,6 +371,11 @@ impl ActivePopup {
             Self::SandboxDiagnostics => popup::Kind::Diagnostics,
             Self::SandboxLineupExport => popup::Kind::SandboxAnimationExport,
             Self::SandboxReplayExport => popup::Kind::ReplayAnimationExport,
+            Self::SandboxJailbreakGlobal => popup::Kind::SandboxJailbreakGlobal,
+            Self::SandboxJailbreakCat => popup::Kind::SandboxJailbreakCat,
+            Self::SandboxJailbreakUnit => popup::Kind::SandboxJailbreakUnit,
+            Self::SandboxJailbreakExport => popup::Kind::JailbreakAnimationExport,
+            Self::SandboxJailbreakFilter => popup::Kind::JailbreakFilter,
         }
     }
 }
@@ -1587,7 +1602,8 @@ impl HaganeApp {
 
                 self.sync_popup(ActivePopup::StageAttributes, self.stage_state.attributes_popup_open());
                 self.sync_editor(stages_loaded);
-                self.sync_sandbox_rules();
+
+                let task = Task::batch([task, self.sync_sandbox_rules()]);
 
                 if stages_loaded {
                     self.sandbox_state.set_invadable(&self.stage_state.data.registry);
@@ -1827,7 +1843,8 @@ impl HaganeApp {
                     self.refresh_sandbox_treasure();
                 }
 
-                self.sync_sandbox_rules();
+                let task = Task::batch([task, self.sync_sandbox_rules()]);
+
                 self.sync_sandbox_popups();
                 self.sync_editor(false);
 
@@ -1959,7 +1976,7 @@ impl HaganeApp {
                 let staged = (self.app_state.sandbox.tab == crate::app::state::SandboxTab::Stage).then(|| {
                     self.stage_state.view(&self.settings, GlobalContext { param: &self.param, localizable: &self.localizable, vault: &self.vault, treasure: &self.sandbox_treasure, names: &self.names })
                 });
-                let playable = sandbox::State::playable(&self.app_state, self.staged_entry().is_some());
+                let playable = self.sandbox_state.playable(&self.app_state, self.staged_entry().is_some());
 
                 self.sandbox_state.view(&self.app_state, staged, playable, &self.treasure_catalog).map(Message::Sandbox)
             }
@@ -2039,7 +2056,7 @@ impl HaganeApp {
         )
     }
 
-    fn sync_sandbox_rules(&mut self) {
+    fn sync_sandbox_rules(&mut self) -> Task<Message> {
         let data = &self.stage_state.data;
         let rules = data.selected_stage.as_ref().and_then(|picked| {
             let stage = data.registry.stages.get(picked)?;
@@ -2078,9 +2095,22 @@ impl HaganeApp {
         let war_funds = special_rules.is_some_and(|rules| rules.draws_war_funds());
         let expenses = special_rules.is_some_and(|rules| rules.draws_expenses());
 
-        self.sandbox_state.set_stage_gimmicks(cat_god, war_funds, expenses);
+        let jailbreak = global.map(|map_id| (map_id, i32::from(self.stage_state.selected_crown), self.vault.vfs.fingerprint(), self.cat_state.data.cats.len()));
+
+        let run = if self.sandbox_state.jailbreak_key() == jailbreak {
+            Task::none()
+        } else {
+            let global_ctx = GlobalContext { param: &self.param, localizable: &self.localizable, vault: &self.vault, treasure: &self.sandbox_treasure, names: &self.names };
+            let board = jailbreak.and_then(|(map_id, crown, ..)| foundry::domains::sandbox::jailbreak::Board::load(global_ctx, &self.cat_state.data.cats, map_id, crown));
+
+            self.sandbox_state.set_jailbreak(jailbreak, board, &self.app_state, global_ctx).map(Message::Sandbox)
+        };
+
+        self.sandbox_state.set_stage_gimmicks(cat_god, war_funds, expenses, self.sandbox_state.jailbreak_ready());
         self.sandbox_state.set_rules(rules.unwrap_or_default(), &self.app_state);
         self.sandbox_state.set_castle(castle, &self.app_state);
+
+        run
     }
 
     fn replay_label(&self) -> host::Label {
@@ -2177,6 +2207,11 @@ impl HaganeApp {
         self.sync_popup(ActivePopup::SandboxReplayUnit, self.sandbox_state.replay_unit_open());
         self.sync_popup(ActivePopup::SandboxLineupExport, self.sandbox_state.lineup_export_open());
         self.sync_popup(ActivePopup::SandboxReplayExport, self.sandbox_state.replay_export_open());
+        self.sync_popup(ActivePopup::SandboxJailbreakGlobal, self.sandbox_state.jailbreak_global_open());
+        self.sync_popup(ActivePopup::SandboxJailbreakCat, self.sandbox_state.jailbreak_cat_open());
+        self.sync_popup(ActivePopup::SandboxJailbreakUnit, self.sandbox_state.jailbreak_unit_open());
+        self.sync_popup(ActivePopup::SandboxJailbreakExport, self.sandbox_state.jailbreak_export_open());
+        self.sync_popup(ActivePopup::SandboxJailbreakFilter, self.sandbox_state.jailbreak_filter_open());
     }
 
     fn adopt_sandbox_cats(&mut self) -> Task<Message> {
@@ -2408,6 +2443,48 @@ impl HaganeApp {
                         }
 
                         self.sandbox_state.replay_export_view(self.window_size).map(|view| view.map(Message::Sandbox))
+                    }
+                    ActivePopup::SandboxJailbreakGlobal => {
+                        if !matches!(self.current_page, Page::Sandbox) || self.app_state.sandbox.tab != crate::app::state::SandboxTab::Lineup || !self.sandbox_state.jailbreak_ready() {
+                            return None;
+                        }
+
+                        self.sandbox_state.jailbreak_global_view(self.window_size).map(|view| view.map(Message::Sandbox))
+                    }
+                    ActivePopup::SandboxJailbreakCat => {
+                        if !matches!(self.current_page, Page::Sandbox) || self.app_state.sandbox.tab != crate::app::state::SandboxTab::Lineup || !self.sandbox_state.jailbreak_ready() {
+                            return None;
+                        }
+
+                        self.sandbox_state.jailbreak_cat_view(self.window_size).map(|view| view.map(Message::Sandbox))
+                    }
+                    ActivePopup::SandboxJailbreakUnit => {
+                        if !matches!(self.current_page, Page::Sandbox) || self.app_state.sandbox.tab != crate::app::state::SandboxTab::Lineup || !self.sandbox_state.jailbreak_ready() {
+                            return None;
+                        }
+
+                        self.sandbox_state
+                            .jailbreak_unit_view(
+                                self.window_size,
+                                &self.settings,
+                                &self.app_state,
+                                GlobalContext { param: &self.param, localizable: &self.localizable, vault: &self.vault, treasure: &self.sandbox_treasure, names: &self.names },
+                            )
+                            .map(|view| view.map(Message::Sandbox))
+                    }
+                    ActivePopup::SandboxJailbreakExport => {
+                        if !matches!(self.current_page, Page::Sandbox) || self.app_state.sandbox.tab != crate::app::state::SandboxTab::Lineup || !self.sandbox_state.jailbreak_ready() {
+                            return None;
+                        }
+
+                        self.sandbox_state.jailbreak_export_view(self.window_size).map(|view| view.map(Message::Sandbox))
+                    }
+                    ActivePopup::SandboxJailbreakFilter => {
+                        if !matches!(self.current_page, Page::Sandbox) || self.app_state.sandbox.tab != crate::app::state::SandboxTab::Lineup || !self.sandbox_state.jailbreak_ready() {
+                            return None;
+                        }
+
+                        self.sandbox_state.jailbreak_filter_view(self.window_size, &self.names).map(|view| view.map(Message::Sandbox))
                     }
                     ActivePopup::SandboxOrb => {
                         if !matches!(self.current_page, Page::Sandbox)

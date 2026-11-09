@@ -2,7 +2,7 @@ use crate::Fault;
 
 use super::{
     AppContext, combo_list_rebuild, get_built_deck_rows, get_built_deck_stage_key,
-    get_button_unit_id, get_button_unit_row, get_scene_id, has_built_deck,
+    get_button_unit_id, get_button_unit_row, get_scene_id, has_built_deck, roguelike_unit_form,
 };
 
 pub fn evaluate_active_combos(ctx: &mut AppContext) -> Result<(), Fault> {
@@ -36,8 +36,7 @@ pub fn evaluate_active_combos(ctx: &mut AppContext) -> Result<(), Fault> {
 
         let unit = get_button_unit_id(ctx, 0, slot as i32)?;
 
-        *form = ctx
-            .i32_at(AppContext::UNIT_FORMS.wrapping_add((unit as i64 as usize).wrapping_mul(4)))?;
+        *form = roguelike_unit_form(ctx, unit)?;
     }
 
     for record in ctx

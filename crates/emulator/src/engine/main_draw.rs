@@ -1,6 +1,6 @@
 use crate::{Fault, ops};
 
-use super::{*, DrawEntry, MamodelPart, Matrix, Rect, Vector};
+use super::{DrawEntry, MamodelPart, Matrix, Rect, Vector, *, has_point_rule};
 
 pub fn main_draw(ctx: &mut AppContext, flag: u8) -> Result<(), Fault> {
     ctx.zero(AppContext::DRAW_TEMP_0, 0x28)?;
@@ -1211,7 +1211,9 @@ pub fn main_draw(ctx: &mut AppContext, flag: u8) -> Result<(), Fault> {
 
             clock = Some(if left > 0 { left } else { 0 });
         }
-    } else if is_score_stage(ctx.event_items.as_ref()) {
+    } else if is_score_stage(ctx.event_items.as_ref())
+        && has_point_rule(ctx.event_items.as_ref(), -1)?
+    {
         let sheet = ctx.img001_sheet.clone();
         let digits = sheet.as_deref().ok_or(Fault::null_pointer())?;
         let x = ops::div_2(get_drawable_width(ctx)?).wrapping_add(-0x86);

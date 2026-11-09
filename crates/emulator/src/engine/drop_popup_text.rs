@@ -1,11 +1,11 @@
-use crate::Fault;
+use crate::{Fault, ops};
 
 use super::{
-    AppContext, UNIT_BUY, UNIT_BUY_STRIDE, find_item_index, format_string3, format_string3_int3,
-    format_string3_int4, get_item_cap, get_item_name, get_orb_def, level_cell_plus, level_cell_base, min_i32,
-    orb_name,
-    query_localizable, reward_unit_id, std_string_from_cstr, substitute_tokens, unit_buy_field,
-    xor_row46_get,
+    AppContext, ItemDefinition, UNIT_BUY, UNIT_BUY_STRIDE, find_item_index, format_string3,
+    format_string3_int3, format_string3_int4, get_item_cap, get_item_name, get_orb_def,
+    is_roguelike_map, level_cell_base, level_cell_plus, min_i32, orb_name, query_localizable,
+    reward_unit_id, roguelike_point_bonus, std_string_from_cstr, substitute_tokens,
+    unit_buy_field, xor_row46_get,
 };
 
 pub fn drop_popup_text(
@@ -241,14 +241,25 @@ pub fn drop_popup_text(
     }
 
     let next = cell.wrapping_add(1) as i64 as usize;
+    let mut amount = xor_row46_get(ctx.bytes_from(row)?, next)
+        .ok_or(Fault::index_out_of_range(next as i64, 0x2f))? as i32;
+
+    if ctx.i32_at(
+        AppContext::ITEM_DEFINITIONS
+            .wrapping_add(((index as i64) << 6) as usize)
+            .wrapping_add(ItemDefinition::ICON),
+    )? == 0xe
+        && is_roguelike_map(ctx, -1, -1)?
+    {
+        amount = ops::div_100(roguelike_point_bonus(ctx, -1, -1)?.wrapping_mul(amount) as i64) as i32;
+    }
+
     let mut possession: Vec<u8> = Vec::new();
 
     if index & !0x10 != 6 {
         let pattern = query_localizable(ctx, b"item_possession");
         let held = *ctx.item_possession.entry(index).or_insert(0);
         let cap = get_item_cap(ctx, index)?;
-        let gained = xor_row46_get(ctx.bytes_from(row)?, next)
-            .ok_or(Fault::index_out_of_range(next as i64, 0x2f))? as i32;
 
         possession = substitute_tokens(
             ctx,
@@ -257,16 +268,14 @@ pub fn drop_popup_text(
                 (b"itemNum1".as_slice(), held.to_string().as_bytes()),
                 (
                     b"itemNum2".as_slice(),
-                    min_i32(gained.wrapping_add(held), cap).to_string().as_bytes(),
+                    min_i32(amount.wrapping_add(held), cap).to_string().as_bytes(),
                 ),
             ],
         )?;
 
-        let gained = xor_row46_get(ctx.bytes_from(row)?, next)
-            .ok_or(Fault::index_out_of_range(next as i64, 0x2f))? as i32;
         let count = ctx.item_possession.entry(index).or_insert(0);
 
-        *count = count.wrapping_add(gained);
+        *count = count.wrapping_add(amount);
     }
 
     let shown = xor_row46_get(ctx.bytes_from(row)?, cell as i64 as usize)
@@ -278,8 +287,6 @@ pub fn drop_popup_text(
     };
     let pattern = query_localizable(ctx, key);
     let name = get_item_name(ctx, index);
-    let amount = xor_row46_get(ctx.bytes_from(row)?, next)
-        .ok_or(Fault::index_out_of_range(next as i64, 0x2f))? as i32;
 
     substitute_tokens(
         ctx,

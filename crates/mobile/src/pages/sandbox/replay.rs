@@ -14,6 +14,7 @@ use emulator::runtime::VERSION;
 use foundry::common::frames;
 use foundry::common::job::JobOutcome;
 use foundry::domains::cat::scanner::{self, CatEntry};
+use foundry::domains::sandbox::jailbreak::Board;
 use foundry::domains::sandbox::replay::{self as tape, Save, Summary, Unit};
 
 use crate::host::{Command, Reel};
@@ -737,8 +738,18 @@ pub fn wire(window: &AppWindow, state: &Shared, context: &Rc<Context>) {
         let (level, plus) = clamped(unit.level, unit.plus, altar_cap);
         let inspected = if plus == 0 { level.to_string() } else { format!("{level}+{plus}") };
         let form = usize::try_from(unit.form).unwrap_or(0);
+        let recorded = held.borrow().replay.summary.as_ref().and_then(|summary| summary.save.as_ref()).map(|save| (save.setup.stage.map_id, save.setup.stage.crown, save.setup.jailbreak.clone()));
+        let roster = held.borrow().cats.clone();
+        let vault = ctx.engine.vault();
+        let grants = recorded.zip(roster).zip(ctx.globals()).and_then(|(((map_id, crown, picks), roster), globals)| {
+            let board = Board::load(globals.context(&vault), &roster, map_id, crown)?;
+            let run = board.run_from(&picks.roster, &picks.bonuses, picks.cannon);
 
-        cats::seed_member(&ui, &pages.cats, &ctx, cats::Seed { cat: &cat, form, level: &inspected, talents: &talent_levels(&cat, &unit.talents), locked: true });
+            Some(Rc::new(board.grants(&run, cat.id)))
+        });
+        let levels = grants.as_ref().map_or_else(|| talent_levels(&cat, &unit.talents), |grants| grants.levels.clone());
+
+        cats::seed_member(&ui, &pages.cats, &ctx, cats::Seed { cat: &cat, form, level: &inspected, talents: &levels, locked: true, grants });
         held.borrow_mut().replay.opened = Some(slot);
         ui.global::<Sandbox>().set_unit_open(true);
         refresh(&ui, &held, &ctx);

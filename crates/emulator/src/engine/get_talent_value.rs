@@ -1,6 +1,6 @@
 use crate::Fault;
 
-use super::{AppContext, has_talent};
+use super::{AppContext, has_talent, is_roguelike_map, roguelike_talent_values};
 
 pub fn get_talent_value(
     ctx: &mut AppContext,
@@ -12,6 +12,17 @@ pub fn get_talent_value(
 ) -> Result<i32, Fault> {
     if !has_talent(ctx, faction, unit_id, form, ability)? {
         return Ok(0);
+    }
+
+    if is_roguelike_map(ctx, -1, -1)? {
+        let Some(values) = roguelike_talent_values(ctx, unit_id, ability, -1, -1)? else {
+            return Ok(0);
+        };
+
+        return values
+            .get(param as i64 as usize)
+            .copied()
+            .ok_or(Fault::index_out_of_range(param as i64, values.len() as i64));
     }
 
     let mut talent_slot = 0;

@@ -33,10 +33,14 @@ pub(crate) fn Abilities(selected: Picked, globals: Shared) -> Element {
     let Some(base) = selected.0.stats.as_ref().and_then(|stats| stats.get(form)) else {
         return rsx! { div { class: "note", "Stats data not found" } };
     };
-    let allows_talents = form >= 2;
+    let allows_talents = state.talented(form);
     let talent_data = if allows_talents { cat.talent_data.as_ref() } else { None };
     let levels = allows_talents.then(|| state.levels_for(cat.id));
-    let final_stats = get_final_stats(base, cat.curve.as_ref(), level, talent_data, levels.as_ref(), &globals.0.treasure);
+    let mut final_stats = get_final_stats(base, cat.curve.as_ref(), level, talent_data, levels.as_ref(), &globals.0.treasure);
+
+    if let Some(grants) = state.granted.read().as_ref() {
+        grants.apply(&mut final_stats);
+    }
     let ctx = RenderContext {
         global: globals.0.context(),
         base_stats: base,

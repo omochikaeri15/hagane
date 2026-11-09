@@ -63,6 +63,7 @@ pub(super) fn values(ability: i32) -> Option<&'static [Value]> {
         1 => &const { [CHANCE, DURATION, Value::new("Reduced To", Unit::Inverted).fixed()] },
         2 | 3 | 60 => AILMENT,
         8 | 11 | 13 | 15 | 58 => CHANCE_ONLY,
+        9 => &const { [CHANCE, DURATION, Value::new("Min Distance", Unit::Range).fixed(), Value::new("Max Distance", Unit::Range).fixed()] },
         10 => &const { [Value::new("Health Threshold", Unit::Inverted), BOOST] },
         17 | 62 => WAVE,
         18..=22 | 30 | 52 | 54 => RESIST_ONLY,
@@ -78,7 +79,8 @@ pub(super) fn values(ability: i32) -> Option<&'static [Value]> {
             [Value::new("Dodge Chance", Unit::Percent), Value::new("Dodge Duration", Unit::Frames)]
         },
         67 => &const { [CHANCE, ANCHOR, SPAN] },
-        4..=7 | 9 | 12 | 14 | 16 | 23 | 24 | 29 | 33..=49 | 53 | 55 | 57 | 59 | 63 | 66 | 68 | 69 => &[],
+        73 => &const { [Value::new("Combo Row", Unit::Count).fixed()] },
+        4..=7 | 12 | 14 | 16 | 23 | 24 | 29 | 33..=49 | 53 | 55 | 57 | 59 | 63 | 66 | 68 | 69 => &[],
         _ => return None,
     };
 

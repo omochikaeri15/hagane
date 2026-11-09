@@ -8,15 +8,16 @@ use super::{
     load_continue_stages_csv, load_daily_login_grade_json, load_dojo_chest_tsv,
     load_enemy_combat_csv, load_event_item_json, load_ex_option_csv, load_gacha_setting_csv,
     load_gatya_ability_csv, load_gold_cpu_csv, load_hidden_data_csv, load_item_pack_tsv,
-    load_leadership_return_csv, load_lineup_csvs, load_map_layout, load_map_option_csv,
-    load_map_option_json, load_map_stage_next, load_medal_data_file, load_officers_club_csv,
-    load_orb_effect_csv, load_parameter_table_tsv, load_point_event_reward_json, load_point_files,
+    load_leadership_return_csv, load_lineup_csvs, load_map_layout, load_map_option_json,
+    load_map_stage_next, load_medal_data_file, load_officers_club_csv, load_orb_effect_csv,
+    load_parameter_table_tsv, load_point_event_reward_json, load_point_files,
     load_point_release_json, load_realms_rng_csv, load_reccomended_levelup_csv,
     load_recommended_powerup_csv, load_score_bonus_json, load_slot_unlock_csv,
-    load_sound_settings_tsv, load_special_rules_json, load_stage_filter_csv, load_talent_orb_files,
-    load_talent_type_csv, load_tower_checkpoint_csv, load_treasure_data_csv,
-    load_treasure_gauge_json, load_vibration_csv, map_type_as_index, open_asset_stream,
-    read_csv_cell, read_csv_row, sound_manager, string_format_int,
+    load_sound_settings_tsv, load_special_rules_json, load_stage_filter_csv,
+    load_talent_orb_files, load_talent_type_csv, load_tower_checkpoint_csv,
+    load_treasure_data_csv, load_treasure_gauge_json, load_vibration_csv, map_type_as_index,
+    open_asset_stream, read_csv_cell, read_csv_row, roguelike_initialize, sound_manager,
+    string_format_int,
 };
 
 const MAP_TYPES: [i32; 16] = [
@@ -119,7 +120,6 @@ pub fn initialize_game_data(ctx: &mut AppContext) -> Result<bool, Fault> {
 
     calculate_treasure_percentages(ctx)?;
     load_cat_drops_csv(ctx)?;
-    load_map_option_csv(ctx)?;
     load_item_pack_tsv(ctx)?;
     load_cat_cannon_csv(ctx)?;
     load_cat_group_csv(ctx)?;
@@ -165,6 +165,7 @@ pub fn initialize_game_data(ctx: &mut AppContext) -> Result<bool, Fault> {
     load_point_event_reward_json(ctx)?;
     load_point_release_json(ctx)?;
     load_treasure_gauge_json(ctx)?;
+    roguelike_initialize(ctx)?;
 
     Ok(true)
 }

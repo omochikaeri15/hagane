@@ -72,6 +72,23 @@ pub fn parse_point_rule_entry(entry: &mut PointRule, node: Option<&JsonNode>) ->
         }
     }
 
+    let Some(JsonNode::Array(values)) = fields.get(b"RuleImageLabel".as_slice()) else {
+        return Err(Fault::null_pointer());
+    };
+    let mut index = 0usize;
+
+    while index < values.len() {
+        let text = match values.get(index) {
+            Some(JsonNode::String(text)) => json_string_as_string(text),
+            Some(JsonNode::Array(_)) | Some(JsonNode::Object(_)) => json_container_as_string(),
+            Some(found) => json_value_as_string(found),
+            None => Vec::new(),
+        };
+
+        entry.image_labels.push(text);
+        index += 1;
+    }
+
     if entry.kind == 0 {
         entry.detail = Some(PointRuleDetail::default());
 

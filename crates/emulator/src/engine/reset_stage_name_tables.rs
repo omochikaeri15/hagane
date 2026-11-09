@@ -10,5 +10,7 @@ pub fn reset_stage_name_tables(ctx: &mut AppContext) -> Result<(), Fault> {
         cell += 1;
     }
 
+    ctx.keyed_stage_records.clear();
+
     Ok(())
 }

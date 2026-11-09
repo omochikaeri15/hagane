@@ -37,7 +37,7 @@ pub(crate) fn gather(vault: &Vault, save: Save, config: &ScannerConfig) -> Vec<(
     for slot in 0..page.tiles.len() {
         let ctx = GlobalContext { param: &param, localizable: &localizable, vault: &staged.vault, treasure: &treasure, names: &names };
 
-        page.open_unit(slot);
+        page.open_unit(slot, ctx);
         drop(page.unit_popup_view(WINDOW, &settings, &app_state, ctx));
 
         let walk = page.tiles.get(slot).and_then(|tile| page.inspector.cat(tile.id)).map(cat::popup_walk).unwrap_or_default();

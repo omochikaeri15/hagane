@@ -40,7 +40,7 @@ pub fn get_enemy_money_drop(
         .wrapping_mul(drop);
     let base = ops::div_100(scaled as i64) as i32;
     let boosted = ops::div_100(percent.wrapping_add(bonus).wrapping_mul(base) as i64) as i32;
-    let combo = get_cat_combo_bonus(ctx, &ctx.combo_store, 0xc, -1)?
+    let combo = get_cat_combo_bonus(ctx, 0xc, -1)?
         .wrapping_add(0x64)
         .wrapping_mul(boosted);
     let total = ops::div_100(combo as i64) as i32;

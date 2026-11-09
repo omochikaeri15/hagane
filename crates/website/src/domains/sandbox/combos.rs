@@ -208,10 +208,10 @@ pub(crate) fn Combos(cats: Cats, globals: Shared, rules: Ruled, lineup: Held, fo
     let mut needs: Signal<[f32; SAMPLES]> = use_signal(|| [0.0; SAMPLES]);
     let tallest = needs().into_iter().fold(0.0, f32::max);
     let height = if phone { (BASE_LINES * words::base_line(fit.scale) * LINE_HEIGHT).max(tallest) + PHONE_PAD * fit.scale } else { fit.row };
-    let rows = {
+    let (rows, unlocked) = {
         let vault = globals.0.vault();
 
-        vault.vds.cats.combos(&vault.vfs)
+        (vault.vds.cats.combos(&vault.vfs), lineup.0.unlocked(&vault.vds.cats.talents(&vault.vfs)))
     };
     let wanted = query.read().to_lowercase();
     let strength_now = strength();
@@ -223,7 +223,7 @@ pub(crate) fn Combos(cats: Cats, globals: Shared, rules: Ruled, lineup: Held, fo
         .enumerate()
         .filter_map(|(index, card)| {
             let banned = rules.0.bans(card.combo.effect_type);
-            let active = !banned && rows.get(card.combo.line).is_some_and(|row| lineup.0.active(row));
+            let active = !banned && rows.get(card.combo.line).is_some_and(|row| lineup.0.powers(card.combo.line, row, &unlocked));
             let strong = match strength_now {
                 Strength::Any => true,
                 Strength::Active => active,

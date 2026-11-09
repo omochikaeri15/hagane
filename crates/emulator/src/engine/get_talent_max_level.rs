@@ -4,10 +4,14 @@ use super::AppContext;
 
 pub fn get_talent_max_level(
     ctx: &mut AppContext,
-    _faction: i32,
+    faction: i32,
     unit_id: i32,
     ability: i32,
 ) -> Result<i32, Fault> {
+    if faction != 0 {
+        return Ok(0);
+    }
+
     if !ctx.talent_definitions.contains_key(&unit_id) {
         return Ok(0);
     }

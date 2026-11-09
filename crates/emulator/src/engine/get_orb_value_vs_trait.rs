@@ -2,7 +2,7 @@ use std::collections::BTreeMap;
 
 use crate::Fault;
 
-use super::{AppContext, get_equipped_orb, has_fixed_lineup};
+use super::{AppContext, get_equipped_orb, has_fixed_lineup, is_roguelike_map};
 
 pub fn get_orb_value_vs_trait(
     ctx: &mut AppContext,
@@ -15,6 +15,10 @@ pub fn get_orb_value_vs_trait(
     let mut value = dflt;
 
     if has_fixed_lineup(ctx, -1, -1, -1)? {
+        return Ok(value);
+    }
+
+    if is_roguelike_map(ctx, -1, -1)? {
         return Ok(value);
     }
 

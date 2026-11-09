@@ -1,8 +1,9 @@
 use crate::Fault;
 
 use super::{
-    AppContext, get_cleared_count, map_type_as_index, map_type_base_id, std_map_int_bool_subscript,
-    std_map_int_map_subscript, std_map_int_map_subscript_2, xor_row51_get,
+    AppContext, get_cleared_count, is_cap_extension_map, map_type_as_index, map_type_base_id,
+    std_map_int_bool_subscript, std_map_int_map_subscript, std_map_int_map_subscript_2,
+    xor_row51_get,
 };
 
 pub fn get_stage_record(
@@ -13,9 +14,9 @@ pub fn get_stage_record(
     crown: i32,
     use_cache: i32,
 ) -> Result<i32, Fault> {
-    if use_cache != 0 {
-        let map_id = map_type_base_id(map_type, map_idx);
+    let map_id = map_type_base_id(map_type, map_idx);
 
+    if use_cache != 0 {
         return ctx
             .stage_record_cache
             .entry(map_id)
@@ -25,6 +26,13 @@ pub fn get_stage_record(
             .get(crown as usize)
             .map(|record| *record as i32)
             .ok_or(Fault::index_out_of_range(crown as i64, 4));
+    }
+
+    if is_cap_extension_map(&ctx.map_options, map_id) {
+        return Ok(ctx
+            .keyed_stage_records
+            .get(&(map_id, stage, crown))
+            .map_or(0, |record| *record as i32));
     }
 
     if map_type as u32 <= 4 {

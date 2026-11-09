@@ -1,14 +1,22 @@
 use crate::Fault;
 
-use super::{AppContext, get_scene_id, has_fixed_lineup};
+use super::{AppContext, get_scene_id, has_fixed_lineup, is_roguelike_map, roguelike_talent_values};
 
 pub fn has_talent(
     ctx: &mut AppContext,
-    _faction: i32,
+    faction: i32,
     unit_id: i32,
     form: i32,
     ability: i32,
 ) -> Result<bool, Fault> {
+    if faction != 0 {
+        return Ok(false);
+    }
+
+    if is_roguelike_map(ctx, -1, -1)? {
+        return Ok(roguelike_talent_values(ctx, unit_id, ability, -1, -1)?.is_some());
+    }
+
     if !ctx.talent_definitions.contains_key(&unit_id) {
         return Ok(false);
     }

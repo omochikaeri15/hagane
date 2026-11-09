@@ -131,9 +131,14 @@ pub enum Kind {
     Source,
     Provider,
     StageAttributes,
+    SandboxJailbreakGlobal,
+    SandboxJailbreakCat,
+    SandboxJailbreakUnit,
+    JailbreakAnimationExport,
+    JailbreakFilter,
 }
 
-pub(crate) const KIND_COUNT: usize = 56;
+pub(crate) const KIND_COUNT: usize = 61;
 
 const KINDS: [Kind; KIND_COUNT] = [
     Kind::CatFilter,
@@ -192,6 +197,11 @@ const KINDS: [Kind; KIND_COUNT] = [
     Kind::Source,
     Kind::Provider,
     Kind::StageAttributes,
+    Kind::SandboxJailbreakGlobal,
+    Kind::SandboxJailbreakCat,
+    Kind::SandboxJailbreakUnit,
+    Kind::JailbreakAnimationExport,
+    Kind::JailbreakFilter,
 ];
 
 impl Kind {
@@ -253,6 +263,11 @@ impl Kind {
             Self::Source => "source",
             Self::Provider => "provider",
             Self::StageAttributes => "stage_attributes",
+            Self::SandboxJailbreakGlobal => "sandbox_jailbreak_global",
+            Self::SandboxJailbreakCat => "sandbox_jailbreak_cat",
+            Self::SandboxJailbreakUnit => "sandbox_jailbreak_unit",
+            Self::JailbreakAnimationExport => "jailbreak_animation_export",
+            Self::JailbreakFilter => "jailbreak_filter",
         }
     }
 

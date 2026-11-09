@@ -9,6 +9,9 @@ use crate::domains::cat::scanner::CatEntry;
 use crate::domains::cat::waiter::unitexplanation;
 use crate::{Source, Vault, Vfs};
 
+const TALENT_NOTE: &str = "Talent Unlock";
+const NOTE_JOIN: &str = " / ";
+
 pub struct ComboMember {
     pub id: Option<u32>,
     pub form: usize,
@@ -106,11 +109,16 @@ fn resolve(ctx: GlobalContext<'_>, cats: &[CatEntry], wanted: impl Fn(&Nyancombo
             let effect = text_at(&effects, row.effect_type).unwrap_or_default();
             let band = text_at(&bands, row.effect_level).unwrap_or_default();
 
-            let restriction = u32::try_from(row.charagroup_id)
+            let limited = u32::try_from(row.charagroup_id)
                 .ok()
                 .and_then(|id| groups.get(&id))
                 .and_then(|group| group.text_id.as_deref())
                 .map(|key| ctx.localizable.lookup(key).unwrap_or(key).to_string());
+            let restriction = match (row.needs_talent(), limited) {
+                (true, Some(limited)) => Some(format!("{TALENT_NOTE}{NOTE_JOIN}{limited}")),
+                (true, None) => Some(TALENT_NOTE.to_owned()),
+                (false, limited) => limited,
+            };
 
             let members = row.slots().map(|slot| {
                 member(vfs, &unitbuy, &known, &mut read, slot, empty_icon.as_ref())

@@ -13,6 +13,7 @@ use super::{
     get_global_map_id, get_gudetama_soul, get_hit_flash_timer, get_hp, get_max_hp, get_no_revive,
     get_pos_x, get_revive_count, get_revive_hp, get_revive_time, get_revive_timer,
     get_sage_kb_resist_pct, get_score_time_limit, get_score_value, get_setting, get_shield_hp,
+    get_talent_value,
     get_shield_max, get_shield_regen, get_slow_timer, get_soul_anim_type, get_spawn_serial,
     get_special_rule, get_speed, get_treasure_value, get_unit_anim, get_weaken_timer, is_alien,
     is_angel, is_dark, is_floating, is_metal, is_red, is_score_stage, is_scored_stage,
@@ -781,7 +782,8 @@ pub fn enemy_update(ctx: &mut AppContext, faction: i32) -> Result<(), Fault> {
                 }
 
                 let frame = ctx.i32_at(entity.wrapping_add(Entity::FRAME))?;
-                let combo = get_cat_combo_bonus(ctx, &ctx.combo_store, 0x11, -1)?;
+                let combo = get_cat_combo_bonus(ctx, 0x11, -1)?;
+                let effect_up = get_talent_value(ctx, 0, -1, 0, 0x3ec, 0)?;
                 let sage_resist = get_sage_kb_resist_pct(ctx, faction, slot as i32)?;
                 let remaining = 0xci32.wrapping_sub(frame);
                 let cycles = ops::div_12(remaining as i64) as i32;
@@ -792,15 +794,16 @@ pub fn enemy_update(ctx: &mut AppContext, faction: i32) -> Result<(), Fault> {
                 let boosted = (ops::div_1000(strongest.wrapping_mul(phase) as i64) as i32)
                     .wrapping_add(phase);
                 let comboed =
-                    ops::div_100(combo.wrapping_add(0x64).wrapping_mul(boosted) as i64)
-                        as i32;
+                    ops::div_100(
+                        combo.wrapping_add(effect_up).wrapping_add(0x64).wrapping_mul(boosted)
+                            as i64,
+                    ) as i32;
                 let push = ops::div_neg_100(
                     0x64i32.wrapping_sub(sage_resist).wrapping_mul(comboed) as i64,
                 ) as i32;
                 let x = ctx.i32_at(entity.wrapping_add(Entity::POS_X))?;
 
                 ctx.set_i32_at(entity.wrapping_add(Entity::POS_X), x.wrapping_add(push))?;
-                get_cat_combo_bonus(ctx, &ctx.combo_store, 0x11, -1)?;
                 get_sage_kb_resist_pct(ctx, faction, slot as i32)?;
                 keep_in_bound(ctx, faction, slot as i32)?;
 

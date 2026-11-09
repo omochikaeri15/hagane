@@ -19,7 +19,7 @@ pub fn get_cannon_charge_frames(ctx: &mut AppContext) -> Result<i32, Fault> {
     let frames = frames
         .wrapping_sub(get_treasure_value(ctx, &ctx.treasure_store, 1)?)
         .wrapping_add(0x5dc);
-    let bonus = get_cat_combo_bonus(ctx, &ctx.combo_store, 7, -1)?;
+    let bonus = get_cat_combo_bonus(ctx, 7, -1)?;
     let frames = ops::div_100(100i32.wrapping_sub(bonus).wrapping_mul(frames) as i64) as i32;
 
     Ok(if frames >= 0x3b7 { frames } else { 0x3b6 })

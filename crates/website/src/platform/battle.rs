@@ -2,7 +2,7 @@ use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
 
-use emulator::runtime::{BATTLE_ITEMS, BattleOptions, CatGod, PartLevels, Setup, SetupUnit, StageEntry, StageVariant, TECH_COUNT, TREASURE_CHAPTERS, TREASURE_STAGES, TechLevel, TutorialFlags};
+use emulator::runtime::{BATTLE_ITEMS, BattleOptions, CatGod, PartLevels, RoguelikePicks, RosterPick, Setup, SetupUnit, StageEntry, StageVariant, TECH_COUNT, TREASURE_CHAPTERS, TREASURE_STAGES, TechLevel, TutorialFlags};
 
 use foundry::domains::sandbox::replay::Save;
 use foundry::domains::settings::ReplaySource;
@@ -62,6 +62,9 @@ pub struct SetupWire {
     pub tutorial: [bool; 5],
     pub war_funds: i32,
     pub expenses: i32,
+    pub roster: Vec<(bool, i32)>,
+    pub bonuses: Vec<(i32, i32)>,
+    pub run_cannon: i32,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -138,6 +141,17 @@ impl From<&Setup> for SetupWire {
             tutorial: [setup.tutorial.battle_cleared, setup.tutorial.deck_seen, setup.tutorial.two_rows_seen, setup.tutorial.cat_god_seen, setup.tutorial.shop_seen],
             war_funds: setup.war_funds,
             expenses: setup.expenses,
+            roster: setup
+                .roguelike
+                .roster
+                .iter()
+                .map(|pick| match pick {
+                    RosterPick::Starter(unit) => (true, *unit),
+                    RosterPick::Recruit(chara) => (false, *chara),
+                })
+                .collect(),
+            bonuses: setup.roguelike.buffs.clone(),
+            run_cannon: setup.roguelike.cannon,
         }
     }
 }
@@ -187,6 +201,11 @@ impl From<SetupWire> for Setup {
         };
         setup.war_funds = wire.war_funds;
         setup.expenses = wire.expenses;
+        setup.roguelike = RoguelikePicks {
+            roster: wire.roster.into_iter().map(|(starter, id)| if starter { RosterPick::Starter(id) } else { RosterPick::Recruit(id) }).collect(),
+            buffs: wire.bonuses,
+            cannon: wire.run_cannon,
+        };
 
         setup
     }

@@ -7,6 +7,7 @@ use foundry::systems::combat::NameBook;
 use foundry::domains::sandbox::config::{
     fund_typable, CatGod, Gimmicks, StartSpeed, Tutorial, ALTAR_HINT, CAT_GOD_HINT, EXPENSES_HINT, FILIBUSTER_MAP, NO_ALTAR_HINT, NO_CAT_GOD_HINT, NO_EXPENSES_HINT, NO_WAR_FUNDS_HINT, UNAVAILABLE, WAR_FUNDS_HINT,
 };
+use foundry::domains::sandbox::jailbreak::OVERRIDDEN;
 use foundry::domains::sandbox::{config, ITEMS, TECHS};
 use foundry::domains::stage::{navigate, GlobalMapId, StageRegistry};
 use foundry::systems::treasure::Catalog;
@@ -17,7 +18,8 @@ use crate::app::state::{SandboxScaling, SandboxDevice, SandboxPanel, SandboxStat
 use crate::app::theme;
 use crate::systems::host::Lag;
 use crate::systems::treasure;
-use crate::widget::{combo_row, entry_row, hover_hint, idle_entry_row, list_row, section, smooth_scroll, toggle_row};
+use crate::widget::{combo_row, entry_combo_row, entry_row, hover_hint, idle_entry_row, list_row, section, smooth_scroll, toggle_row};
+
 
 const SIDEBAR_WIDTH: f32 = 110.0;
 const PANEL_PADDING: f32 = 20.0;
@@ -210,7 +212,8 @@ impl State {
         self.filibuster_outbreak = invadable(registry, Category::ZombieOutbreaks);
     }
 
-    pub fn set_stage_gimmicks(&mut self, cat_god: bool, war_funds: bool, expenses: bool) {
+    pub fn set_stage_gimmicks(&mut self, cat_god: bool, war_funds: bool, expenses: bool, jailbreak: bool) {
+        self.gimmicks.jailbreak = jailbreak;
         self.gimmicks.cat_god = cat_god;
         self.gimmicks.war_funds = war_funds;
         self.gimmicks.expenses = expenses;
@@ -328,8 +331,9 @@ impl State {
 
         let body = match options.panel {
             SandboxPanel::Settings => Self::settings(options),
+            SandboxPanel::Treasure if self.gimmicks.jailbreak => section("Treasures", Length::Fill, hover_hint(self.treasure.idle_view(UNAVAILABLE).map(Message::Treasure), OVERRIDDEN)),
             SandboxPanel::Treasure => section("Treasures", Length::Fill, self.treasure.view(&options.config.treasure, catalog).map(Message::Treasure)),
-            SandboxPanel::Tech => Self::tech(options),
+            SandboxPanel::Tech => self.tech(options),
             SandboxPanel::Base => self.base(options),
             SandboxPanel::Items => Self::items(options),
             SandboxPanel::Gimmick => self.gimmick(options),
@@ -424,9 +428,9 @@ impl State {
     fn gimmick<'a>(&'a self, options: &'a SandboxState) -> Element<'a, Message> {
         let config = &options.config;
         let cat_god = if self.gimmicks.cat_god {
-            combo_row("Cat God Miracles", CAT_GOD_HINT, CatGod::ALL, Some(config.cat_god), Some(Message::CatGod))
+            entry_combo_row("Cat God Miracles", CAT_GOD_HINT, CatGod::ALL, Some(config.cat_god), Some(Message::CatGod))
         } else {
-            combo_row("Cat God Miracles", NO_CAT_GOD_HINT, [UNAVAILABLE], Some(UNAVAILABLE), None::<fn(&'static str) -> Message>)
+            entry_combo_row("Cat God Miracles", NO_CAT_GOD_HINT, [UNAVAILABLE], Some(UNAVAILABLE), None::<fn(&'static str) -> Message>)
         };
         let altar = if self.gimmicks.altar {
             hover_hint(entry_row("Aku Altar Cap", NO_CAP, &config.altar_level, Message::Altar), ALTAR_HINT)
@@ -512,13 +516,15 @@ impl State {
         section("Battle Items", Length::Fill, rows)
     }
 
-    fn tech(options: &SandboxState) -> Element<'_, Message> {
+    fn tech<'a>(&self, options: &'a SandboxState) -> Element<'a, Message> {
         let mut rows = Column::new().spacing(ROW_SPACING);
 
         for (index, tech) in TECHS.iter().enumerate() {
-            rows = rows.push(entry_row(tech.name, &tech.hint(), &options.config.techs[index], move |entry| {
-                Message::Tech(index, entry)
-            }));
+            rows = rows.push(if self.gimmicks.jailbreak {
+                hover_hint(idle_entry_row(tech.name, UNAVAILABLE), OVERRIDDEN)
+            } else {
+                entry_row(tech.name, &tech.hint(), &options.config.techs[index], move |entry| Message::Tech(index, entry))
+            });
         }
 
         section("Tech Levels", Length::Fill, rows)
@@ -531,6 +537,26 @@ impl State {
         let highest = |parts: &std::collections::BTreeMap<i32, i32>, id: Option<i32>| {
             parts.get(&id.unwrap_or(0)).copied().unwrap_or(1).to_string()
         };
+
+        if self.gimmicks.jailbreak {
+            let idle = |label: &'a str| combo_row(label, OVERRIDDEN, [UNAVAILABLE], Some(UNAVAILABLE), None::<fn(&'static str) -> Message>);
+            let unused = |label: &'a str| hover_hint(idle_entry_row(label, UNAVAILABLE), OVERRIDDEN);
+
+            return section(
+                "Cat Base",
+                Length::Fill,
+                column![
+                    idle("Cannon"),
+                    idle("Style"),
+                    idle("Foundation"),
+                    unused("Cannon Level"),
+                    unused("Style Level"),
+                    unused("Foundation Level"),
+                    unused("Base Health Level"),
+                ]
+                    .spacing(ROW_SPACING),
+            );
+        }
 
         let cannon = held(&self.cannons, options.config.cannon);
         let style = held(&self.styles, options.config.style);

@@ -3,26 +3,29 @@ use std::rc::Rc;
 use crate::{Fault, ops};
 
 use super::{
-    AppContext, DialogEventHandler, Rect, STAGE_DISPLAY_ORDER, ZOMBIE_CLEAR_ROWS, altar_recompute,
-    app_on_draw, back_pressed, battle_check_login_bonus, bonus_popup_text, button_bank_busy,
-    button_bank_find, call_rng, check_medals, connecting_indicator_show, dialog_close,
-    dialog_set_back_button, dialog_set_on_update, dialog_show, dialog_show_alt, dialog_show_kind2,
-    dialog_top, drop_popup_text, ex_group_pick, ex_lottery_stage_key, format_localized,
-    format_string2, format_string3, game_win_update_lambda_0, game_win_update_lambda_1,
-    game_win_update_lambda_10, game_win_update_lambda_11, game_win_update_lambda_12,
-    game_win_update_lambda_13, game_win_update_lambda_14, game_win_update_lambda_15,
-    game_win_update_lambda_16, game_win_update_lambda_17, game_win_update_lambda_19,
-    game_win_update_lambda_2, game_win_update_lambda_3, game_win_update_lambda_4,
+    AppContext, DialogEventHandler, Rect, STAGE_DISPLAY_ORDER, ZOMBIE_CLEAR_ROWS,
+    altar_recompute, app_on_draw, back_pressed, battle_check_login_bonus, bonus_popup_text,
+    button_bank_busy, button_bank_find, call_rng, check_medals, connecting_indicator_show,
+    dialog_close, dialog_set_back_button, dialog_set_on_update, dialog_show, dialog_show_alt,
+    dialog_show_kind2, dialog_top, drop_popup_text, ex_group_pick, ex_lottery_stage_key,
+    find_roguelike_chara, format_localized, format_string2, format_string3,
+    game_win_update_lambda_0, game_win_update_lambda_1, game_win_update_lambda_10,
+    game_win_update_lambda_11, game_win_update_lambda_12, game_win_update_lambda_13,
+    game_win_update_lambda_14, game_win_update_lambda_15, game_win_update_lambda_16,
+    game_win_update_lambda_17, game_win_update_lambda_19, game_win_update_lambda_2,
+    game_win_update_lambda_20, game_win_update_lambda_3, game_win_update_lambda_4,
     game_win_update_lambda_5, game_win_update_lambda_6, game_win_update_lambda_7,
-    game_win_update_lambda_8, game_win_update_lambda_9, get_altar_level_cap, get_auto_camera_mode,
-    get_bottom_inset_logical, get_castle_enemy_row, get_cat_name, get_cleared_count,
-    get_drawable_width, get_global_map_id, get_item_cap, get_item_name, get_map_index, get_map_type,
-    get_stage_index, get_stage_name, handle_battle_swipe_pinch, has_inquiry_code, hidden_drop_key,
-    hit_test_rect, imgcut_get_sprite_cut, is_score_stage, labyrinth_active, labyrinth_rank,
-    labyrinth_result_ready, labyrinth_submit, labyrinth_unit_count, map_index_of_map_id,
-    map_type_of_map_id, message_layer_clear, message_layer_set, min_i32, new_button_register,
+    game_win_update_lambda_8, game_win_update_lambda_9, get_altar_level_cap,
+    get_auto_camera_mode, get_bottom_inset_logical, get_castle_enemy_row, get_cat_name,
+    get_cleared_count, get_drawable_width, get_global_map_id, get_item_cap, get_item_name,
+    get_map_index, get_map_type, get_stage_index, get_stage_name, handle_battle_swipe_pinch,
+    has_inquiry_code, has_point_rule, hidden_drop_key, hit_test_rect, imgcut_get_sprite_cut,
+    is_roguelike_map, is_score_stage, labyrinth_active, labyrinth_rank, labyrinth_result_ready,
+    labyrinth_submit, labyrinth_unit_count, map_index_of_map_id, map_type_of_map_id,
+    message_layer_clear, message_layer_set, min_i32, new_button_register,
     new_button_set_animated, new_button_set_touchable, play_sound, query_localizable,
-    reward_def_lookup, stage_pair_record, string_format_int,
+    reward_def_lookup, roguelike_bonus_explanation, roguelike_bonus_tutorial,
+    roguelike_progress, roguelike_unit_level, stage_pair_record, string_format_int,
     string_format_rank_comment, substitute_tokens, texture_cache_load, touch_is_down,
     touch_released, ui_node_add_child, ui_node_set_anchor, ui_node_set_sprite, xor_row46_get,
 };
@@ -79,14 +82,21 @@ pub fn game_win_update(ctx: &mut AppContext) -> Result<bool, Fault> {
             ctx.set_i32_at(AppContext::OUTRO_PHASE, phase)?;
             ctx.set_i32_at(AppContext::OUTRO_FRAME, 0)?;
 
-            if phase == 2 && is_score_stage(ctx.event_items.as_ref()) {
+            if phase == 2
+                && is_score_stage(ctx.event_items.as_ref())
+                && has_point_rule(ctx.event_items.as_ref(), -1)?
+            {
                 ctx.set_i32_at(AppContext::OUTRO_FRAME, -100)?;
             }
 
             return Ok(true);
         }
 
-        if phase != 2 || frame > -2 || !is_score_stage(ctx.event_items.as_ref()) {
+        if phase != 2
+            || frame > -2
+            || !is_score_stage(ctx.event_items.as_ref())
+            || !has_point_rule(ctx.event_items.as_ref(), -1)?
+        {
             return Ok(true);
         }
 
@@ -172,7 +182,7 @@ pub fn game_win_update(ctx: &mut AppContext) -> Result<bool, Fault> {
             .first()
             .ok_or(Fault::index_out_of_range(0, 0))?;
 
-        if kind as u32 > 0x11 {
+        if kind as u32 > 0x12 {
             return Ok(true);
         }
 
@@ -670,6 +680,18 @@ pub fn game_win_update(ctx: &mut AppContext) -> Result<bool, Fault> {
 
                 return Ok(true);
             }
+            0x12 => {
+                ctx.set_i32_at(AppContext::OUTRO_PHASE, 8)?;
+                ctx.set_i32_at(AppContext::OUTRO_FRAME, 0)?;
+                ctx.set_i32_at(AppContext::REWARD_POP_COUNTER, 0)?;
+                ctx.set_i32_at(AppContext::REWARD_POP_HOLD, 0)?;
+                play_sound(ctx, 0x1d, None)?;
+                message = query_localizable(ctx, b"Roguelike_TutorialText_006");
+
+                dialog_show(ctx, &message, 0, 0, 4, Some(game_win_update_lambda_20))?;
+
+                return Ok(true);
+            }
             _ => {
                 ctx.set_i32_at(AppContext::OUTRO_PHASE, 8)?;
                 ctx.set_i32_at(AppContext::OUTRO_FRAME, 0)?;
@@ -712,10 +734,53 @@ pub fn game_win_update(ctx: &mut AppContext) -> Result<bool, Fault> {
                             &[(b"itemName", &name), (b"itemNum", &amount)],
                         )?;
                     }
+                    2 => {
+                        let master = Rc::clone(&ctx.roguelike.master);
+                        let buff = master.buffs.get(&reward.id).ok_or(Fault::null_pointer())?;
+                        let mut form = 0i32;
+
+                        if buff.target_chara != -1
+                            && let Some(progress) = roguelike_progress(ctx, -1, -1)?
+                        {
+                            let progress = progress.borrow();
+
+                            if let Some(chara) = find_roguelike_chara(&progress, buff.target_chara) {
+                                form = progress.roster[chara].form;
+                            }
+                        }
+
+                        let name = roguelike_bonus_explanation(ctx, reward.id, form)?;
+                        let text = query_localizable(ctx, &reward.label0);
+
+                        message = substitute_tokens(ctx, &text, &[(b"bonusName", &name)])?;
+                    }
+                    3 => {
+                        if let Some(progress) = roguelike_progress(ctx, -1, -1)? {
+                            let master = Rc::clone(&ctx.roguelike.master);
+                            let chara =
+                                master.charas.get(&reward.id).ok_or(Fault::null_pointer())?;
+                            let (_, _, form) = roguelike_unit_level(
+                                ctx,
+                                &progress.borrow(),
+                                chara.chara_id,
+                                chara.level,
+                                chara.plus_level,
+                            )?;
+                            let text = query_localizable(ctx, &reward.label0);
+                            let name = get_cat_name(ctx, chara.chara_id, form);
+
+                            message = substitute_tokens(ctx, &text, &[(b"charaName", &name)])?;
+                        }
+                    }
                     _ => {}
                 }
 
                 dialog_show_alt(ctx, &message, 0, 0x191, 1, Some(game_win_update_lambda_15))?;
+
+                if is_roguelike_map(ctx, -1, -1)? && reward.kind as u32 <= 3 && reward.kind & !1 == 2
+                {
+                    roguelike_bonus_tutorial(ctx)?;
+                }
 
                 let low = {
                     let row = AppContext::MAP_STAGE_ROWS.wrapping_add(

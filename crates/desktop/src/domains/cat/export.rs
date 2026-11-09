@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 
 use foundry::common::context::GlobalContext;
+use foundry::domains::cat::grants::Grants;
 use foundry::domains::cat::scanner::CatEntry;
 use foundry::domains::cat::statblock::{self, Subject};
 use foundry::domains::settings::Settings;
@@ -18,6 +19,7 @@ pub(super) struct Ctx<'a> {
     pub(super) sheets: &'a [SpriteSheet],
     pub(super) global: GlobalContext<'a>,
     pub(super) settings: &'a Settings,
+    pub(super) grants: Option<&'a Grants>,
 }
 
 pub(super) fn request(ctx: Ctx<'_>) -> Option<Request<'_>> {
@@ -29,6 +31,7 @@ pub(super) fn request(ctx: Ctx<'_>) -> Option<Request<'_>> {
         talent_levels: ctx.talent_levels,
         is_conjure_expanded: ctx.is_conjure_expanded,
         global: ctx.global,
+        grants: ctx.grants,
     })?;
 
     Some(Request { data, sheets: ctx.sheets, settings: ctx.settings })

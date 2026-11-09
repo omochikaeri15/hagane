@@ -1,5 +1,6 @@
 use std::cell::RefCell;
 use std::collections::HashMap;
+use std::sync::Arc;
 
 use iced::widget::image::Handle;
 use iced::widget::{button, column, container, image as iced_image, row, scrollable, slider, text, text_input, Space};
@@ -100,6 +101,7 @@ pub struct ViewCtx<'a, 'b> {
     pub level_inputs: &'a HashMap<u8, String>,
     pub talent_costs: &'a HashMap<u8, TalentCost>,
     pub descriptions: &'a [String],
+    pub combos: Arc<Vec<Option<String>>>,
     pub current_stats: Option<&'b Entity>,
     pub traits: Option<Entity>,
     pub curve: Option<&'a LevelCurve>,
@@ -290,10 +292,7 @@ impl State {
     }
 
     fn group_body<'a>(&'a self, ctx: &ViewCtx<'a, '_>, index: u8, group: &'a TalentGroup) -> Element<'a, Message> {
-        let description_text = ctx.descriptions
-            .get(group.text_id as usize)
-            .cloned()
-            .unwrap_or_else(|| "No skill description found".to_string());
+        let description_text = talent_logic::describe(group, ctx.descriptions, &ctx.combos);
 
         let description_box = dark_box(text(description_text).size(13).color(Color::WHITE).width(Length::Fill));
 

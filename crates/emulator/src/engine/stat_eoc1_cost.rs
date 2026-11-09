@@ -1,4 +1,4 @@
-use crate::Fault;
+use crate::{Fault, ops};
 
 use super::{AppContext, CatStats, get_talent_value, max_i32, read_flag};
 
@@ -15,5 +15,8 @@ pub fn stat_eoc1_cost(
     let base = ctx.i32_at(AppContext::cat_stat(unit_id, form, CatStats::EOC1_COST))?;
     let discount = get_talent_value(ctx, faction, unit_id, form, 0x19, 0)?;
 
-    Ok(max_i32(discount.wrapping_mul(-100).wrapping_add(base), 0))
+    let hundreds = ops::div_100(max_i32(discount.wrapping_mul(-100).wrapping_add(base), 0));
+    let cut = get_talent_value(ctx, faction, unit_id, form, 0x3f4, 0)?;
+
+    Ok(ops::div_100(0x64i32.wrapping_sub(cut).wrapping_mul(hundreds)).wrapping_mul(0x64))
 }

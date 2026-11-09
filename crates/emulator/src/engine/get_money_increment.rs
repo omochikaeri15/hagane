@@ -14,7 +14,7 @@ pub fn get_money_increment(ctx: &mut AppContext, wallet: usize) -> Result<i32, F
         .wrapping_add((((cell[4] ^ cell[3]) as u32) << 0x18) as i32);
     let earned = ops::div_10(worker_level.wrapping_add(0xa).wrapping_mul(rate) as i64) as i32;
     let total = get_treasure_value(ctx, &ctx.treasure_store, 3)?.wrapping_add(earned);
-    let boosted = get_cat_combo_bonus(ctx, &ctx.combo_store, 8, -1)?
+    let boosted = get_cat_combo_bonus(ctx, 8, -1)?
         .wrapping_add(0x64)
         .wrapping_mul(total);
 

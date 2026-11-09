@@ -2,44 +2,46 @@ use crate::Fault;
 
 use super::{
     AppContext, FormatArg, add_resource, analytics_nekokan_use, app_on_draw, base_shake_reset,
-    get_global_map_id, get_stage_index, get_crown_level, is_ex_option_target, log_analytics_event,
-    save_battle_snapshot,
+    get_crown_level, get_global_map_id, get_stage_index, is_ex_option_target, is_roguelike_map,
+    log_analytics_event, roguelike_mark_stage, save_battle_snapshot,
 };
 
 pub fn battle_continue(ctx: &mut AppContext) -> Result<(), Fault> {
     base_shake_reset(&mut ctx.base_shake);
     app_on_draw(ctx)?;
 
-    if ctx.u8_at(AppContext::OUTRO_VIDEO_WATCHED)? != 0 {
-        ctx.set_i32_at(AppContext::REVIVE_REQUESTED, 1)?;
-        ctx.set_i32_at(AppContext::REWARD_POP_COUNTER, 0)?;
-    } else {
+    if ctx.u8_at(AppContext::OUTRO_VIDEO_WATCHED)? == 0 {
         add_resource(ctx, 0x16, -0x1e, 0)?;
         ctx.set_block_at::<1>(AppContext::CURTAIN_ACTIVE, [1])?;
         ctx.set_i32_at(AppContext::CURTAIN_STYLE, 1)?;
-        ctx.set_i32_at(AppContext::REVIVE_REQUESTED, 1)?;
-        ctx.set_i32_at(AppContext::REWARD_POP_COUNTER, 0)?;
+    }
 
-        if ctx.u8_at(AppContext::OUTRO_VIDEO_WATCHED)? == 0 {
-            let map = get_global_map_id(ctx, 0)?;
-            let stage = get_stage_index(ctx)?;
-            let crown = get_crown_level(ctx)?;
+    ctx.set_i32_at(AppContext::REVIVE_REQUESTED, 1)?;
+    ctx.set_i32_at(AppContext::REWARD_POP_COUNTER, 0)?;
 
-            analytics_nekokan_use(
-                ctx,
-                0x13157fc,
-                0x1e,
-                0,
-                &[
-                    (b"sec1_type", FormatArg::Text(b"MapID")),
-                    (b"sec1_id", FormatArg::Int(map)),
-                    (b"sec2_type", FormatArg::Text(b"StageIdx")),
-                    (b"sec2_id", FormatArg::Int(stage)),
-                    (b"ex_type", FormatArg::Text(b"StageLv")),
-                    (b"ex_id", FormatArg::Int(crown)),
-                ],
-            )?;
-        }
+    if is_roguelike_map(ctx, -1, -1)? {
+        roguelike_mark_stage(ctx)?;
+    }
+
+    if ctx.u8_at(AppContext::OUTRO_VIDEO_WATCHED)? == 0 {
+        let map = get_global_map_id(ctx, 0)?;
+        let stage = get_stage_index(ctx)?;
+        let crown = get_crown_level(ctx)?;
+
+        analytics_nekokan_use(
+            ctx,
+            0x13157fc,
+            0x1e,
+            0,
+            &[
+                (b"sec1_type", FormatArg::Text(b"MapID")),
+                (b"sec1_id", FormatArg::Int(map)),
+                (b"sec2_type", FormatArg::Text(b"StageIdx")),
+                (b"sec2_id", FormatArg::Int(stage)),
+                (b"ex_type", FormatArg::Text(b"StageLv")),
+                (b"ex_id", FormatArg::Int(crown)),
+            ],
+        )?;
     }
 
     log_analytics_event(ctx, 0x14, 0, 0, 0, 0)?;

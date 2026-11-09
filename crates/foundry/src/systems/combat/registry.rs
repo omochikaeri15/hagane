@@ -97,7 +97,7 @@ fn targets(ctx: &FormatContext<'_>, identity: Identity) -> String {
     }
 }
 
-fn fruit(ctx: &FormatContext<'_>, multiplier: fn(TraitBonus) -> f64, reciprocal: bool) -> String {
+fn fruit(ctx: &FormatContext<'_>, multiplier: impl Fn(TraitBonus) -> f64, reciprocal: bool) -> String {
     let (low, high) = ctx.treasure.fruit_span(ctx.stats);
     let label = |bonus: TraitBonus| {
         let value = multiplier(bonus);
@@ -109,8 +109,8 @@ fn fruit(ctx: &FormatContext<'_>, multiplier: fn(TraitBonus) -> f64, reciprocal:
     if low == high { label(low) } else { format!("{}~{}", label(low), label(high)) }
 }
 
-fn fruit_time(ctx: &FormatContext<'_>) -> String {
-    let (shortest, longest) = ctx.treasure.fruit_frames(ctx.stats, ctx.duration);
+fn fruit_time(ctx: &FormatContext<'_>, identity: Identity) -> String {
+    let (shortest, longest) = ctx.treasure.fruit_frames(ctx.stats, ctx.duration, ctx.stats.effect_up(identity));
 
     frames::span(shortest, longest)
 }
@@ -608,14 +608,18 @@ pub fn get_display_def(identity: Identity) -> AbilityDisplayDef {
             fallback: "Strng",
             icon: AbilityIcon::Standard(img015::ICON_STRONG_AGAINST),
             group: DisplayGroup::Headline1,
-            formatter: |ctx| format!("Deals {} Damage to and takes {} Damage from {}", fruit(ctx, TraitBonus::strong_dealt, false), fruit(ctx, TraitBonus::strong_taken, false), ctx.target),
+            formatter: |ctx| {
+                let raise = ctx.stats.effect_up(Identity::StrongAgainst);
+
+                format!("Deals {} Damage to and takes {} Damage from {}", fruit(ctx, |bonus| bonus.strong_dealt(raise), false), fruit(ctx, |bonus| bonus.strong_taken(raise), false), ctx.target)
+            },
         },
         Identity::MassiveDamage => AbilityDisplayDef {
             name: "Massive Damage",
             fallback: "Massv",
             icon: AbilityIcon::Standard(img015::ICON_MASSIVE_DAMAGE),
             group: DisplayGroup::Headline1,
-            formatter: |ctx| format!("Deals {} Damage to {}", fruit(ctx, TraitBonus::massive_dealt, false), ctx.target),
+            formatter: |ctx| format!("Deals {} Damage to {}", fruit(ctx, |bonus| bonus.massive_dealt(ctx.stats.effect_up(Identity::MassiveDamage)), false), ctx.target),
         },
         Identity::InsaneDamage => AbilityDisplayDef {
             name: "Insane Damage",
@@ -629,7 +633,7 @@ pub fn get_display_def(identity: Identity) -> AbilityDisplayDef {
             fallback: "Resist",
             icon: AbilityIcon::Standard(img015::ICON_RESIST),
             group: DisplayGroup::Headline1,
-            formatter: |ctx| format!("Takes {} Damage from {}", fruit(ctx, TraitBonus::resist_taken, true), ctx.target),
+            formatter: |ctx| format!("Takes {} Damage from {}", fruit(ctx, |bonus| bonus.resist_taken(ctx.stats.effect_up(Identity::Resist)), true), ctx.target),
         },
         Identity::InsanelyTough => AbilityDisplayDef {
             name: "Insanely Tough",
@@ -986,7 +990,7 @@ pub fn get_display_def(identity: Identity) -> AbilityDisplayDef {
             group: DisplayGroup::Body2,
             formatter: |ctx| {
                 let dodged = pick(ctx.stats.faction, ctx.target, "attacks");
-                format!("{}% Chance to {} against {} for {}", finite(ctx.value), named(ctx, Identity::Dodge), dodged, fruit_time(ctx))
+                format!("{}% Chance to {} against {} for {}", finite(ctx.value), named(ctx, Identity::Dodge), dodged, fruit_time(ctx, Identity::Dodge))
             },
         },
         Identity::RechargeCut => AbilityDisplayDef {
@@ -995,6 +999,76 @@ pub fn get_display_def(identity: Identity) -> AbilityDisplayDef {
             icon: AbilityIcon::Standard(img015::ICON_RECHARGE_CUT),
             group: DisplayGroup::Body2,
             formatter: |ctx| format!("{}% {} every second deploy", finite(ctx.value), named(ctx, Identity::RechargeCut)),
+        },
+        Identity::CatCombo => AbilityDisplayDef {
+            name: "Cat Combo",
+            fallback: "Combo",
+            icon: AbilityIcon::Standard(img015::ICON_CAT_COMBO),
+            group: DisplayGroup::Body2,
+            formatter: |ctx| format!("Unlocks a {}", named(ctx, Identity::CatCombo)),
+        },
+        Identity::ExtraSpawn => AbilityDisplayDef {
+            name: "Extra Cat on Deploy",
+            fallback: "Extra",
+            icon: AbilityIcon::Standard(img015::ICON_EXTRA_SPAWN),
+            group: DisplayGroup::Body2,
+            formatter: |ctx| format!("Deploys {} more of itself\n{} after it is deployed", finite(ctx.value), fmt_time(ctx.duration)),
+        },
+        Identity::KillAttackUp => AbilityDisplayDef {
+            name: "Attack Up on Kill",
+            fallback: "KillAtk",
+            icon: AbilityIcon::Standard(img015::ICON_KILL_ATTACK_UP),
+            group: DisplayGroup::Body2,
+            formatter: |ctx| format!("Gains +{}% Attack Power\nonce this Cat defeats {} enemies", finite(ctx.value), ctx.param.powerup_kills),
+        },
+        Identity::StrongUp => AbilityDisplayDef {
+            name: "Strong Effect Up",
+            fallback: "StrongUp",
+            icon: AbilityIcon::Standard(img015::ICON_STRONG_AGAINST_UP),
+            group: DisplayGroup::Body2,
+            formatter: |ctx| format!("{} Effect +{}%", named(ctx, Identity::StrongAgainst), finite(ctx.value)),
+        },
+        Identity::MassiveUp => AbilityDisplayDef {
+            name: "Massive Damage Effect Up",
+            fallback: "MassiveUp",
+            icon: AbilityIcon::Standard(img015::ICON_MASSIVE_DAMAGE_UP),
+            group: DisplayGroup::Body2,
+            formatter: |ctx| format!("{} Effect +{}%", named(ctx, Identity::MassiveDamage), finite(ctx.value)),
+        },
+        Identity::ResistUp => AbilityDisplayDef {
+            name: "Tough Effect Up",
+            fallback: "ResistUp",
+            icon: AbilityIcon::Standard(img015::ICON_RESIST_UP),
+            group: DisplayGroup::Body2,
+            formatter: |ctx| format!("{} Effect +{}%", named(ctx, Identity::Resist), finite(ctx.value)),
+        },
+        Identity::KnockbackUp => AbilityDisplayDef {
+            name: "Knockback Effect Up",
+            fallback: "KnockbackUp",
+            icon: AbilityIcon::Standard(img015::ICON_KNOCKBACK_UP),
+            group: DisplayGroup::Body2,
+            formatter: |ctx| format!("{} Effect +{}%", named(ctx, Identity::Knockback), finite(ctx.value)),
+        },
+        Identity::SlowUp => AbilityDisplayDef {
+            name: "Slow Effect Up",
+            fallback: "SlowUp",
+            icon: AbilityIcon::Standard(img015::ICON_SLOW_UP),
+            group: DisplayGroup::Body2,
+            formatter: |ctx| format!("{} Effect +{}%", named(ctx, Identity::Slow), finite(ctx.value)),
+        },
+        Identity::FreezeUp => AbilityDisplayDef {
+            name: "Freeze Effect Up",
+            fallback: "FreezeUp",
+            icon: AbilityIcon::Standard(img015::ICON_FREEZE_UP),
+            group: DisplayGroup::Body2,
+            formatter: |ctx| format!("{} Effect +{}%", named(ctx, Identity::Freeze), finite(ctx.value)),
+        },
+        Identity::WeakenUp => AbilityDisplayDef {
+            name: "Weaken Effect Up",
+            fallback: "WeakenUp",
+            icon: AbilityIcon::Standard(img015::ICON_WEAKEN_UP),
+            group: DisplayGroup::Body2,
+            formatter: |ctx| format!("{} Effect +{}%", named(ctx, Identity::Weaken), finite(ctx.value)),
         },
         Identity::Weaken => AbilityDisplayDef {
             name: "Weaken",
@@ -1007,7 +1081,7 @@ pub fn get_display_def(identity: Identity) -> AbilityDisplayDef {
                 named(ctx, Identity::Weaken),
                 ctx.target,
                 ctx.stats.weaken_to,
-                fruit_time(ctx)
+                fruit_time(ctx, Identity::Weaken)
             ),
         },
         Identity::Freeze => AbilityDisplayDef {
@@ -1015,28 +1089,35 @@ pub fn get_display_def(identity: Identity) -> AbilityDisplayDef {
             fallback: "Freez",
             icon: AbilityIcon::Standard(img015::ICON_FREEZE),
             group: DisplayGroup::Body2,
-            formatter: |ctx| format!("{}% Chance to {} {} for {}", finite(ctx.value), named(ctx, Identity::Freeze), ctx.target, fruit_time(ctx)),
+            formatter: |ctx| format!("{}% Chance to {} {} for {}", finite(ctx.value), named(ctx, Identity::Freeze), ctx.target, fruit_time(ctx, Identity::Freeze)),
         },
         Identity::Slow => AbilityDisplayDef {
             name: "Slow",
             fallback: "Slow",
             icon: AbilityIcon::Standard(img015::ICON_SLOW),
             group: DisplayGroup::Body2,
-            formatter: |ctx| format!("{}% Chance to {} {} for {}", finite(ctx.value), named(ctx, Identity::Slow), ctx.target, fruit_time(ctx)),
+            formatter: |ctx| format!("{}% Chance to {} {} for {}", finite(ctx.value), named(ctx, Identity::Slow), ctx.target, fruit_time(ctx, Identity::Slow)),
         },
         Identity::Knockback => AbilityDisplayDef {
             name: "Knockback",
             fallback: "KB",
             icon: AbilityIcon::Standard(img015::ICON_KNOCKBACK),
             group: DisplayGroup::Body2,
-            formatter: |ctx| format!("{}% Chance to {} {}", finite(ctx.value), named(ctx, Identity::Knockback), ctx.target),
+            formatter: |ctx| {
+                let chance = format!("{}% Chance to {} {}", finite(ctx.value), named(ctx, Identity::Knockback), ctx.target);
+
+                match ctx.stats.effect_up(Identity::Knockback) {
+                    0 => chance,
+                    raise => format!("{chance}\nPushes them {raise}% farther"),
+                }
+            },
         },
         Identity::Curse => AbilityDisplayDef {
             name: "Curse",
             fallback: "Curse",
             icon: AbilityIcon::Standard(img015::ICON_CURSE),
             group: DisplayGroup::Body2,
-            formatter: |ctx| format!("{}% Chance to {} {} for {}", finite(ctx.value), named(ctx, Identity::Curse), ctx.target, fruit_time(ctx)),
+            formatter: |ctx| format!("{}% Chance to {} {} for {}", finite(ctx.value), named(ctx, Identity::Curse), ctx.target, fruit_time(ctx, Identity::Curse)),
         },
         Identity::Warp => AbilityDisplayDef {
             name: "Warp",

@@ -9,6 +9,8 @@ use foundry::domains::sandbox::{Config, Roster};
 use crate::systems::{host::Lag, turn::Orientation};
 use crate::platform::Platform;
 
+use super::jailbreak::Jail;
+
 const STORAGE_KEY: &str = "sandbox";
 pub(crate) const QUALITY_RANGE: std::ops::RangeInclusive<u8> = 15..=100;
 pub(crate) const QUALITY_STEP: u8 = 5;
@@ -190,11 +192,16 @@ pub(crate) struct Usable(pub(crate) Signal<[bool; 6]>);
 #[derive(Clone, Copy)]
 pub(crate) struct StageGimmicks(pub(crate) Signal<Gimmicks>);
 
+pub(crate) fn jail() -> Jail {
+    use_context::<Jail>()
+}
+
 pub(crate) fn provide(platform: &Platform) -> Signal<SandboxState> {
     let restored = platform.host().recall(STORAGE_KEY).and_then(|json| serde_json::from_str::<SandboxState>(&json).ok()).unwrap_or_default();
 
     use_context_provider(|| Usable(Signal::new([true; 6])));
     use_context_provider(|| StageGimmicks(Signal::new(Gimmicks::default())));
+    use_context_provider(|| Jail(Signal::new(None)));
     use_context_provider(|| Signal::new(restored))
 }
 

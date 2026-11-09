@@ -7,7 +7,9 @@ use dioxus::prelude::*;
 use codex::chapter::Category;
 use foundry::domains::sandbox::base::{self, Parts};
 use foundry::domains::sandbox::config::{ALTAR_HINT, CAT_GOD_HINT, CatGod, EXPENSES_HINT, FILIBUSTER_MAP, NO_ALTAR_HINT, NO_CAT_GOD_HINT, NO_EXPENSES_HINT, NO_WAR_FUNDS_HINT, StartSpeed, Tutorial, UNAVAILABLE, WAR_FUNDS_HINT, fund_typable};
+use foundry::domains::sandbox::jailbreak::OVERRIDDEN;
 use foundry::domains::sandbox::{ITEMS, TECHS};
+use foundry::systems::treasure::ARCS;
 use foundry::domains::stage::{GlobalMapId, StageRegistry, navigate};
 
 use crate::domains::settings::{Treasures, Treasury};
@@ -124,10 +126,14 @@ fn invadable(registry: &StageRegistry, category: Category) -> Vec<(u32, String)>
 }
 
 #[component]
-fn ComboRow(label: String, hint: String, options: Vec<String>, selected: String, #[props(default = true)] enabled: bool, onchange: EventHandler<String>) -> Element {
+fn ComboRow(label: String, hint: String, options: Vec<String>, selected: String, #[props(default = true)] enabled: bool, #[props(default)] aligned: bool, onchange: EventHandler<String>) -> Element {
     rsx! {
-        label { class: "setting-row inline",
-            Tip { text: hint, hover: true, span { "{label}" } }
+        label { class: if aligned { "entry-row" } else { "setting-row inline" },
+            if aligned {
+                div { class: "entry-label", Tip { text: hint, hover: true, span { "{label}" } } }
+            } else {
+                Tip { text: hint, hover: true, span { "{label}" } }
+            }
             select { class: "combo", value: "{selected}", disabled: !enabled, onchange: move |event| onchange.call(event.value()),
                 for option in options.iter() {
                     option { value: "{option}", selected: *option == selected, "{option}" }
@@ -162,6 +168,13 @@ fn GimmickEntry(label: String, hint: String, placeholder: String, value: String,
             input { class: "input entry-input", r#type: "text", inputmode: "numeric", placeholder: "{placeholder}", value: "{value}", disabled: !enabled,
                 oninput: move |event| oninput.call(event.value()) }
         }
+    }
+}
+
+#[component]
+fn Overridden(label: String) -> Element {
+    rsx! {
+        GimmickEntry { label, hint: OVERRIDDEN, placeholder: UNAVAILABLE, value: String::new(), enabled: false, oninput: move |_| {} }
     }
 }
 
@@ -278,6 +291,19 @@ fn GameSettings(platform: Platform, sandbox: Signal<SandboxState>) -> Element {
 
 #[component]
 fn TreasurePanel(platform: Platform, sandbox: Signal<SandboxState>, globals: Shared) -> Element {
+    if (state::gimmicks().0)().jailbreak {
+        return rsx! {
+            div { class: "settings-sections",
+                div { class: "settings-section",
+                    div { class: "settings-heading", "Treasures" }
+                    for name in ARCS {
+                        Overridden { key: "{name}", label: name }
+                    }
+                }
+            }
+        };
+    }
+
     let config = sandbox.read().config.treasure.clone();
     let catalog = Some(Treasury(Arc::clone(&globals.0.catalog)));
     let arc_platform = platform.clone();
@@ -299,6 +325,19 @@ fn TreasurePanel(platform: Platform, sandbox: Signal<SandboxState>, globals: Sha
 
 #[component]
 fn TechPanel(platform: Platform, sandbox: Signal<SandboxState>) -> Element {
+    if (state::gimmicks().0)().jailbreak {
+        return rsx! {
+            div { class: "settings-sections",
+                div { class: "settings-section",
+                    div { class: "settings-heading", "Tech Levels" }
+                    for tech in TECHS.iter() {
+                        Overridden { key: "{tech.name}", label: tech.name }
+                    }
+                }
+            }
+        };
+    }
+
     let held = sandbox.read();
     let techs = held.config.techs.clone();
 
@@ -336,6 +375,7 @@ fn GimmickPanel(platform: Platform, sandbox: Signal<SandboxState>) -> Element {
     let god_platform = platform.clone();
     let altar_platform = platform.clone();
     let funds_platform = platform.clone();
+    let expense_platform = platform.clone();
 
     rsx! {
         div { class: "settings-sections",
@@ -345,12 +385,13 @@ fn GimmickPanel(platform: Platform, sandbox: Signal<SandboxState>) -> Element {
                     ComboRow {
                         label: "Cat God Miracles",
                         hint: CAT_GOD_HINT,
+                        aligned: true,
                         options: CatGod::ALL.iter().map(ToString::to_string).collect(),
                         selected: cat_god,
                         onchange: move |label: String| if let Some(picked) = CatGod::ALL.into_iter().find(|god| god.to_string() == label) { state::apply(&god_platform, sandbox, |next| next.config.cat_god = picked) },
                     }
                 } else {
-                    ComboRow { label: "Cat God Miracles", hint: NO_CAT_GOD_HINT, options: vec![UNAVAILABLE.to_owned()], selected: UNAVAILABLE.to_owned(), enabled: false, onchange: move |_| {} }
+                    ComboRow { label: "Cat God Miracles", hint: NO_CAT_GOD_HINT, options: vec![UNAVAILABLE.to_owned()], selected: UNAVAILABLE.to_owned(), enabled: false, aligned: true, onchange: move |_| {} }
                 }
                 GimmickEntry {
                     label: "Aku Altar Cap",
@@ -374,7 +415,7 @@ fn GimmickPanel(platform: Platform, sandbox: Signal<SandboxState>) -> Element {
                     placeholder: if gimmicks.expenses { NO_FUNDS } else { UNAVAILABLE },
                     value: if gimmicks.expenses { expenses } else { String::new() },
                     enabled: gimmicks.expenses,
-                    oninput: move |entry: String| if fund_typable(&entry) { state::apply(&platform, sandbox, |next| next.config.expenses = entry) },
+                    oninput: move |entry: String| if fund_typable(&entry) { state::apply(&expense_platform, sandbox, |next| next.config.expenses = entry) },
                 }
             }
         }
@@ -386,6 +427,23 @@ fn BasePanel(platform: Platform, sandbox: Signal<SandboxState>, globals: Shared)
     let shared = globals.clone();
     let fitted = use_memo(use_reactive!(|shared| Fitted(Rc::new(fit(&shared)))));
     let fitted = fitted();
+
+    if (state::gimmicks().0)().jailbreak {
+        return rsx! {
+            div { class: "settings-sections",
+                div { class: "settings-section",
+                    div { class: "settings-heading", "Cat Base" }
+                    for label in ["Cannon", "Style", "Foundation"] {
+                        ComboRow { key: "{label}", label, hint: OVERRIDDEN, options: vec![UNAVAILABLE.to_owned()], selected: UNAVAILABLE.to_owned(), enabled: false, onchange: move |_| {} }
+                    }
+                    for label in ["Cannon Level", "Style Level", "Foundation Level", "Base Health Level"] {
+                        Overridden { key: "{label}", label }
+                    }
+                }
+            }
+        };
+    }
+
     let held = sandbox.read();
     let config = held.config.clone();
 

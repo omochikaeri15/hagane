@@ -1,10 +1,11 @@
-use crate::Fault;
+use crate::{Fault, ops};
 
 use super::{
-    AppContext, FormatArg, UNIT_BUY, UNIT_BUY_STRIDE, add_resource, analytics_nekokan_get,
-    event_unit_slot_by_item, find_item_index, get_global_map_id, get_powerup, get_stage_index,
-    get_crown_level, level_cell_add, level_cell_plus, mission_progress, orb_inventory_add,
-    reward_unit_id, unit_buy_field, xor_row46_get,
+    AppContext, FormatArg, ItemDefinition, UNIT_BUY, UNIT_BUY_STRIDE, add_resource,
+    analytics_nekokan_get, event_unit_slot_by_item, find_item_index, get_crown_level,
+    get_global_map_id, get_powerup, get_stage_index, is_roguelike_map, level_cell_add,
+    level_cell_plus, mission_progress, orb_inventory_add, reward_unit_id, roguelike_point_bonus,
+    unit_buy_field, xor_row46_get,
 };
 
 pub fn grant_stage_reward(ctx: &mut AppContext, field: i32, first: u8) -> Result<i32, Fault> {
@@ -18,8 +19,19 @@ pub fn grant_stage_reward(ctx: &mut AppContext, field: i32, first: u8) -> Result
 
     if kind != -1 {
         let kind = find_item_index(ctx, item)?;
-        let amount =
+        let mut amount =
             xor_row46_get(ctx.bytes_from(row)?, index + 1).ok_or(Fault::index_out_of_range(index as i64 + 1, 0x2e))? as i32;
+
+        if ctx.i32_at(
+            AppContext::ITEM_DEFINITIONS
+                .wrapping_add(((kind as i64) << 6) as usize)
+                .wrapping_add(ItemDefinition::ICON),
+        )? == 0xe
+            && is_roguelike_map(ctx, -1, -1)?
+        {
+            amount =
+                ops::div_100(roguelike_point_bonus(ctx, -1, -1)?.wrapping_mul(amount) as i64) as i32;
+        }
 
         add_resource(ctx, kind, amount, 0)?;
 

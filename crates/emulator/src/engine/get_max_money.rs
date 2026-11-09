@@ -46,7 +46,7 @@ pub fn get_max_money(ctx: &mut AppContext, wallet: usize) -> Result<i32, Fault> 
         .wrapping_mul(wallet_upgrade.wrapping_add(0x2710));
     let total = get_treasure_value(ctx, &ctx.treasure_store, 4)?
         .wrapping_add(ops::div_10(scaled as i64) as i32);
-    let boosted = get_cat_combo_bonus(ctx, &ctx.combo_store, 9, -1)?
+    let boosted = get_cat_combo_bonus(ctx, 9, -1)?
         .wrapping_add(0x64)
         .wrapping_mul(total);
     let result = ops::div_100(boosted as i64) as i32;

@@ -1,6 +1,10 @@
+use std::collections::BTreeMap;
+
 use serde::{Deserialize, Serialize};
 
 use crate::systems::treasure;
+
+use super::jailbreak::Runs;
 
 pub const FILIBUSTER_MAP: u32 = 9;
 pub const UNAVAILABLE: &str = "Unavailable";
@@ -154,6 +158,7 @@ pub struct Config {
     pub cat_god: CatGod,
     pub tutorial: Tutorial,
     pub invasions: Invasions,
+    pub jailbreak: BTreeMap<i32, Runs>,
 }
 
 impl Default for Config {
@@ -176,6 +181,7 @@ impl Default for Config {
             cat_god: CatGod::default(),
             tutorial: Tutorial::default(),
             invasions: Invasions::default(),
+            jailbreak: BTreeMap::new(),
         }
     }
 }
@@ -208,6 +214,7 @@ pub struct Gimmicks {
     pub altar: bool,
     pub war_funds: bool,
     pub expenses: bool,
+    pub jailbreak: bool,
 }
 
 fn fund(entry: &str) -> i32 {

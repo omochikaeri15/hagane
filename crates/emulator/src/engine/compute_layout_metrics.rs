@@ -130,7 +130,10 @@ pub fn compute_layout_metrics(ctx: &mut AppContext) -> Result<(), Fault> {
         .ok_or(Fault::host_missing())?
         .set_window_ratio(ratio);
 
-    if get_scene_id(ctx)? == 0x64 && ctx.i32_at(AppContext::SCENE_0X64_PAGE)? == 0 {
+    if get_scene_id(ctx)? == 0x64
+        && ctx.i32_at(AppContext::SCENE_0X64_PAGE)? == 0
+        && ctx.u8_at(AppContext::OPTION_MENU_IS_OPEN)? == 0
+    {
         ctx.ui()
             .ok_or(Fault::host_missing())?
             .clear_layout_latch();

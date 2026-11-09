@@ -142,8 +142,14 @@ impl NyancomboData {
         (self.series, self.combo_id)
     }
 
+    pub const TALENT_SERIES: i32 = 7;
+
     pub fn is_active(&self) -> bool {
         self.series > 0
+    }
+
+    pub fn needs_talent(&self) -> bool {
+        self.series == Self::TALENT_SERIES
     }
 
     pub fn slots(&self) -> [ComboSlot; 5] {

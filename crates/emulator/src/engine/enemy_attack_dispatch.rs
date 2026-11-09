@@ -2,25 +2,27 @@ use crate::{Fault, ops};
 
 use super::{
     AppContext, Entity, add_score_hit_mask, attack_dmg_dispatch, attack_proc_dispatch,
-    score_bonus_active, build_trait_mask, call_rng, count_target_traits, does_target,
-    get_attack_damage, get_barrier_hp, get_base_destroyer, get_behemoth_dodge_chance,
-    get_behemoth_dodge_duration, get_behemoth_dodge_timer, get_best_treasure, get_button_unit_form,
-    get_cannon_effect, get_cat_combo_bonus, get_colossus_orb_def_pct, get_dodge_chance,
-    get_dodge_duration, get_dodge_timer, get_entity_button, get_explosion_immune,
-    get_explosion_resist_pct, get_foundation_part_id, get_foundation_part_level,
-    get_foundation_part_rec, get_hp, get_max_hp, get_orb_dodge_chance, get_orb_dodge_duration,
-    get_orb_dodge_timer, get_orb_value_vs_trait, get_resist_part_rec, get_savage_blow_boost,
-    get_score_bonus, get_setting, get_shield_hp, get_slot_unit_id, get_strengthen_boost,
+    build_trait_mask, call_rng, count_target_traits, does_target, get_attack_damage,
+    get_barrier_hp, get_base_destroyer, get_behemoth_dodge_chance, get_behemoth_dodge_duration,
+    get_behemoth_dodge_timer, get_best_treasure, get_button_unit_form, get_cannon_effect,
+    get_cat_combo_bonus, get_colossus_orb_def_pct, get_dodge_chance, get_dodge_duration,
+    get_dodge_timer, get_entity_button, get_explosion_immune, get_explosion_resist_pct,
+    get_foundation_part_id, get_foundation_part_level, get_foundation_part_rec, get_hp,
+    get_max_hp, get_orb_dodge_chance, get_orb_dodge_duration, get_orb_dodge_timer,
+    get_orb_value_vs_trait, get_resist_part_rec, get_savage_blow_boost, get_score_bonus,
+    get_setting, get_shield_hp, get_slot_unit_id, get_strengthen_boost,
     get_strengthen_threshold, get_style_part_id, get_style_part_level, get_surge_immune,
-    get_surge_resist_pct, get_toxic_damage, get_toxic_immune, get_toxic_resist_pct,
-    get_trait_kaijin, get_treasure_capped, get_wave_immune, get_wave_resist_pct, get_weaken_active,
-    get_weaken_active_pct, get_weaken_timer, has_behemoth_slayer, has_colossus_slayer,
-    has_conjure_deck_slot, has_eva_killer, has_fixed_lineup, has_insanely_tough, has_resist,
-    has_sage_slayer, has_strong_against, has_witch_slayer, is_aku, is_alien, is_angel, is_behemoth,
-    is_colossus, is_dark, is_eva_angel, is_floating, is_metal, is_red, is_relic, is_sage,
-    is_touchable_thunk, is_traitless, is_witch, is_zombie, max_i32, set_barrier_state,
-    set_behemoth_dodge_timer, set_crit_vfx, set_dodge_timer, set_dodge_vfx_frame,
-    set_orb_dodge_timer, set_savage_blow_vfx, set_shield_state, set_toxic_vfx, start_immune_vfx,
+    get_surge_resist_pct, get_talent_value, get_toxic_damage, get_toxic_immune,
+    get_toxic_resist_pct, get_trait_kaijin, get_treasure_capped, get_wave_immune,
+    get_wave_resist_pct, get_weaken_active, get_weaken_active_pct, get_weaken_timer,
+    has_behemoth_slayer, has_colossus_slayer, has_conjure_deck_slot, has_eva_killer,
+    has_fixed_lineup, has_insanely_tough, has_resist, has_sage_slayer, has_strong_against,
+    has_witch_slayer, is_aku, is_alien, is_angel, is_behemoth, is_colossus, is_dark,
+    is_eva_angel, is_floating, is_metal, is_red, is_relic, is_roguelike_map, is_sage,
+    is_touchable_thunk, is_traitless, is_witch, is_zombie, max_i32, score_bonus_active,
+    set_barrier_state, set_behemoth_dodge_timer, set_crit_vfx, set_dodge_timer,
+    set_dodge_vfx_frame, set_orb_dodge_timer, set_savage_blow_vfx, set_shield_state,
+    set_toxic_vfx, start_immune_vfx,
 };
 
 pub fn enemy_attack_dispatch(
@@ -184,15 +186,17 @@ pub fn enemy_attack_dispatch(
                     orb = get_orb_value_vs_trait(ctx, unit_id, 2, 1, &traits, 0)?;
                 }
 
-                let combo = get_cat_combo_bonus(ctx, &ctx.combo_store, 0xe, unit_id)?;
+                let effect_up = get_talent_value(ctx, 0, unit_id, form, 0x3e9, 0)?;
+                let combo = get_cat_combo_bonus(ctx, 0xe, unit_id)?;
 
                 damage = ops::div_3000(
                     damage.wrapping_mul(0x5dci32.wrapping_sub(treasure) as i64),
                 );
                 damage =
                     ops::div_100((100i32.wrapping_sub(combo) as i64).wrapping_mul(damage));
-                damage = (100i32.wrapping_sub(orb) as i64).wrapping_mul(damage);
-                get_cat_combo_bonus(ctx, &ctx.combo_store, 0xe, unit_id)?;
+                damage =
+                    (100i32.wrapping_sub(orb.wrapping_add(effect_up)) as i64).wrapping_mul(damage);
+                get_cat_combo_bonus(ctx, 0xe, unit_id)?;
 
                 let scoring = score_bonus_active(ctx)?;
 
@@ -214,15 +218,17 @@ pub fn enemy_attack_dispatch(
                     orb = get_orb_value_vs_trait(ctx, unit_id, 4, 0, &traits, 0)?;
                 }
 
-                let combo = get_cat_combo_bonus(ctx, &ctx.combo_store, 0x10, unit_id)?;
+                let effect_up = get_talent_value(ctx, 0, unit_id, form, 0x3eb, 0)?;
+                let combo = get_cat_combo_bonus(ctx, 0x10, unit_id)?;
 
                 damage = ops::div_6000(
                     damage.wrapping_mul(0x5dci32.wrapping_sub(treasure) as i64),
                 );
                 damage =
                     ops::div_100((100i32.wrapping_sub(combo) as i64).wrapping_mul(damage));
-                damage = (100i32.wrapping_sub(orb) as i64).wrapping_mul(damage);
-                get_cat_combo_bonus(ctx, &ctx.combo_store, 0x10, unit_id)?;
+                damage =
+                    (100i32.wrapping_sub(orb.wrapping_add(effect_up)) as i64).wrapping_mul(damage);
+                get_cat_combo_bonus(ctx, 0x10, unit_id)?;
 
                 let scoring = score_bonus_active(ctx)?;
 
@@ -297,20 +303,20 @@ pub fn enemy_attack_dispatch(
         }
 
         if has_witch_slayer(ctx, 0, target)? && is_witch(ctx, 1, attacker)? {
-            let combo = get_cat_combo_bonus(ctx, &ctx.combo_store, 0x16, unit_id)?;
+            let combo = get_cat_combo_bonus(ctx, 0x16, unit_id)?;
 
             damage = ops::div_10(damage)
                 .wrapping_mul(ops::div_neg_100(combo).wrapping_add(5) as i64);
-            get_cat_combo_bonus(ctx, &ctx.combo_store, 0x16, unit_id)?;
+            get_cat_combo_bonus(ctx, 0x16, unit_id)?;
             damage = ops::div_5(damage);
         }
 
         if has_eva_killer(ctx, 0, target)? && is_eva_angel(ctx, 1, attacker)? {
-            let combo = get_cat_combo_bonus(ctx, &ctx.combo_store, 0x17, unit_id)?;
+            let combo = get_cat_combo_bonus(ctx, 0x17, unit_id)?;
 
             damage = ops::div_5(damage)
                 .wrapping_mul(ops::div_neg_100(combo).wrapping_add(5) as i64);
-            get_cat_combo_bonus(ctx, &ctx.combo_store, 0x17, unit_id)?;
+            get_cat_combo_bonus(ctx, 0x17, unit_id)?;
             damage = ops::div_5(damage);
         }
 
@@ -340,7 +346,7 @@ pub fn enemy_attack_dispatch(
             damage = ops::div_1000(damage);
         }
 
-        let kaijin_combo = get_cat_combo_bonus(ctx, &ctx.combo_store, 0x19, unit_id)?;
+        let kaijin_combo = get_cat_combo_bonus(ctx, 0x19, unit_id)?;
 
         if kaijin_combo > 0 && get_trait_kaijin(ctx, 1, attacker)? {
             damage = ops::div_wide(damage.wrapping_mul(1000), kaijin_combo as u32 as i64)
@@ -395,12 +401,14 @@ pub fn enemy_attack_dispatch(
     let mut style_level = get_style_part_level(ctx, style_id)?;
     let fixed_lineup = has_fixed_lineup(ctx, -1, -1, -1)?;
 
-    foundation_level = foundation_level.wrapping_add(1);
-    style_level = style_level.wrapping_add(1);
-
-    if fixed_lineup & (ctx.i32_at(AppContext::LINEUP_CANNON_LEVEL)? != -1) {
+    if (fixed_lineup & (ctx.i32_at(AppContext::LINEUP_CANNON_LEVEL)? != -1))
+        || is_roguelike_map(ctx, -1, -1)?
+    {
         foundation_level = 1;
         style_level = 1;
+    } else {
+        foundation_level = foundation_level.wrapping_add(1);
+        style_level = style_level.wrapping_add(1);
     }
 
     if target != 0 {

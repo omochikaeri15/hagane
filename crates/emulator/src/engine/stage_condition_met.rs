@@ -2,7 +2,7 @@ use crate::Fault;
 
 use super::{
     AppContext, aku_list_key, aku_realm_final_redirect, get_aku_stage_list, get_cleared_count,
-    get_stage_record, unlock_condition_met,
+    get_stage_record, is_roguelike_map, map_type_base_id, roguelike_progress, unlock_condition_met,
 };
 
 pub fn stage_condition_met(
@@ -10,6 +10,7 @@ pub fn stage_condition_met(
     map_type: i32,
     map_idx: i32,
     stage: i32,
+    skip_run: u8,
 ) -> Result<bool, Fault> {
     match map_type {
         -21 => Ok(get_cleared_count(ctx, AppContext::LABYRINTH)? <= stage),
@@ -61,6 +62,15 @@ pub fn stage_condition_met(
             Ok(met)
         }
         _ => {
+            let map_id = map_type_base_id(map_type, map_idx);
+
+            if is_roguelike_map(ctx, map_id, -1)? && skip_run == 0 {
+                let map_id = map_type_base_id(map_type, map_idx);
+
+                return Ok(roguelike_progress(ctx, map_id, -1)?
+                    .is_some_and(|progress| progress.borrow().stage_index == stage));
+            }
+
             if !ctx.stage_conditions.contains_key(&map_type) {
                 return Ok(true);
             }

@@ -1,16 +1,15 @@
 use crate::Fault;
 
-use super::{AppContext, ComboStore, charagroup_has_unit};
+use super::{AppContext, charagroup_has_unit, is_roguelike_map, roguelike_combo_values};
 
 pub fn get_cat_combo_values(
-    ctx: &AppContext,
-    table: &ComboStore,
+    ctx: &mut AppContext,
     kind: i32,
     unit_id: i32,
 ) -> Result<Vec<i32>, Fault> {
     let mut out = Vec::new();
 
-    for record in &table.records {
+    for record in &ctx.combo_store.records {
         if record.enabled == 0 || record.effect_count <= 0 {
             continue;
         }
@@ -36,7 +35,8 @@ pub fn get_cat_combo_values(
                 let power = *effects
                     .get((effect + 3) as usize)
                     .ok_or(Fault::index_out_of_range(effect, 4))?;
-                let value = table
+                let value = ctx
+                    .combo_store
                     .params
                     .get(kind as usize)
                     .and_then(|powers| powers.get(power as usize))
@@ -50,6 +50,21 @@ pub fn get_cat_combo_values(
             if effect >= record.effect_count as i64 {
                 break;
             }
+        }
+    }
+
+    if is_roguelike_map(ctx, -1, -1)?
+        && let Some((_, each)) = roguelike_combo_values(ctx, kind, unit_id, -1, -1)?
+    {
+        for power in each {
+            let value = ctx
+                .combo_store
+                .params
+                .get(kind as usize)
+                .and_then(|powers| powers.get(power as i64 as usize))
+                .ok_or(Fault::index_out_of_range(power as i64, 0))?;
+
+            out.push(*value);
         }
     }
 

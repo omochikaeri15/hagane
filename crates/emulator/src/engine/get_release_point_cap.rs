@@ -13,7 +13,7 @@ pub struct ReleasePoint {
 
 pub fn get_release_point_cap(ctx: &mut AppContext, point_id: i32) -> Result<i32, Fault> {
     let Some(release) = ctx.release_points.get(&point_id) else {
-        return Ok(0);
+        return Ok(0x5f5e0ff);
     };
     let mut cap = 0;
     let mut index = 0usize;

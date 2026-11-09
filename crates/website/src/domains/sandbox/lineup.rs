@@ -27,50 +27,51 @@ use super::orbs::{self, Book, Shelf};
 use super::state::{self, SandboxState};
 use super::{Cats, Dialog, Ruled, combos};
 
-const RIPE_MS: f64 = 160.0;
-const DOUBLE_CLICK_MS: f64 = 400.0;
-const SLACK: f64 = 6.0;
+pub(super) const RIPE_MS: f64 = 160.0;
+pub(super) const DOUBLE_CLICK_MS: f64 = 400.0;
+pub(super) const SLACK: f64 = 6.0;
 const FIRST_TALENT_FORM: usize = 2;
-const COLUMNS: usize = 5;
+pub(super) const COLUMNS: usize = 5;
 const SMALLEST: f32 = 0.45;
 const TEXT_FLOOR: f32 = 0.8;
 const DECK_SHARE: f32 = 0.68;
-const CARD_BORDER: f32 = 2.0;
+const ACTIONS_HEIGHT: f32 = 34.0;
+pub(super) const CARD_BORDER: f32 = 2.0;
 const SIDE_SHARE: f32 = 0.55;
 const BAR_ROOM: f32 = 38.0;
-const LEVEL_SIZE: f32 = 11.0;
-const BADGE_SIZE: f32 = 12.0;
+pub(super) const LEVEL_SIZE: f32 = 11.0;
+pub(super) const BADGE_SIZE: f32 = 12.0;
 const COST_SIZE: f32 = 12.0;
 const ORB_SIZE: f32 = 26.0;
 const COIN_SIZE: f32 = 18.0;
 const ORB_STEP: f32 = 0.55;
 const NP_ICON: &str = "gatyaitemD_07_f.png";
 const SLOT_ORB_SIZE: f32 = 44.0;
-const UNIT_WIDTH: f32 = 760.0;
+pub(super) const UNIT_WIDTH: f32 = 760.0;
 const ORB_WIDTH: f32 = 310.0;
-const CONFIRM_MS: u32 = 2000;
+pub(super) const CONFIRM_MS: u32 = 2000;
 const CONFIRM_LABEL: &str = "Sure?";
-const TOUCH: &str = "touch";
+pub(super) const TOUCH: &str = "touch";
 
 #[derive(Clone, Copy, PartialEq)]
-struct Metrics {
-    scale: f32,
-    pad: f32,
-    cell_width: f32,
-    cell_height: f32,
-    gap: f32,
-    header: f32,
-    header_gap: f32,
-    bench_gap: f32,
-    bench_title: f32,
-    bench_note: f32,
+pub(super) struct Metrics {
+    pub(super) scale: f32,
+    pub(super) pad: f32,
+    pub(super) cell_width: f32,
+    pub(super) cell_height: f32,
+    pub(super) gap: f32,
+    pub(super) header: f32,
+    pub(super) header_gap: f32,
+    pub(super) bench_gap: f32,
+    pub(super) bench_title: f32,
+    pub(super) bench_note: f32,
+    pub(super) actions: f32,
 }
 
 impl Metrics {
-    const FULL: Self = Self::at(1.0);
-
-    const fn at(scale: f32) -> Self {
+    const fn at(scale: f32, actions: bool) -> Self {
         Self {
+            actions: if actions { ACTIONS_HEIGHT * scale } else { 0.0 },
             scale,
             pad: 12.0 * scale,
             cell_width: 110.0 * scale,
@@ -84,64 +85,67 @@ impl Metrics {
         }
     }
 
-    fn fitting(width: f32, height: f32) -> Self {
+    pub(super) fn fitting(width: f32, height: f32, actions: bool) -> Self {
+        let full = Self::at(1.0, actions);
+
         if width <= 0.0 || height <= 0.0 {
-            return Self::FULL;
+            return full;
         }
 
-        let across = width / Self::FULL.deck_width();
-        let down = height * DECK_SHARE / Self::FULL.deck_height();
+        let across = width / full.deck_width();
+        let down = height * DECK_SHARE / full.deck_height();
 
-        Self::at(across.min(down).clamp(SMALLEST, 1.0))
+        Self::at(across.min(down).clamp(SMALLEST, 1.0), actions)
     }
 
-    fn beside(width: f32, height: f32) -> Self {
-        let across = width * SIDE_SHARE / Self::FULL.deck_width();
-        let down = (height - BAR_ROOM) / Self::FULL.deck_height();
+    pub(super) fn beside(width: f32, height: f32, actions: bool) -> Self {
+        let full = Self::at(1.0, actions);
+        let across = width * SIDE_SHARE / full.deck_width();
+        let down = (height - BAR_ROOM) / full.deck_height();
 
-        Self::at(across.min(down).clamp(SMALLEST, 1.0))
+        Self::at(across.min(down).clamp(SMALLEST, 1.0), actions)
     }
 
     fn grid_width(&self) -> f32 {
         self.cell_width * COLUMNS as f32 + self.gap * (COLUMNS as f32 - 1.0)
     }
 
-    fn deck_width(&self) -> f32 {
+    pub(super) fn deck_width(&self) -> f32 {
         self.grid_width() + self.pad * 2.0
     }
 
     fn grid_top(&self) -> f32 {
-        self.pad + self.header + self.header_gap
+        self.pad + self.header + self.header_gap + self.actions
     }
 
     fn bench_top(&self) -> f32 {
         self.grid_top() + self.cell_height * 2.0 + self.gap + self.bench_gap + self.bench_title + self.bench_note + self.gap
     }
 
-    fn deck_height(&self) -> f32 {
+    pub(super) fn deck_height(&self) -> f32 {
         self.bench_top() + self.cell_height + self.pad
     }
 
-    fn text(&self, size: f32) -> f32 {
+    pub(super) fn text(&self, size: f32) -> f32 {
         size * self.scale.max(TEXT_FLOOR)
     }
 }
 
 #[derive(Clone, Copy, PartialEq)]
-enum Cargo {
+pub(super) enum Cargo {
     Fresh(u32),
     Held(Cell),
 }
 
 #[derive(Clone, Copy, PartialEq)]
-enum Landing {
+pub(super) enum Landing {
     Off,
     Card,
     Cell(Cell, Edge),
 }
 
 #[derive(Clone, Copy, PartialEq, Default)]
-enum Drag {
+pub(super) enum Drag {
     #[default]
     Idle,
     Pressed { cargo: Cargo, since: f64, from: (f64, f64), touch: bool },
@@ -181,7 +185,7 @@ fn shown_form(cat: &CatEntry, banner_form: usize) -> usize {
         .unwrap_or(0)
 }
 
-fn landing(at: (f64, f64), deck: Option<(f64, f64)>, metrics: Metrics) -> Landing {
+pub(super) fn landing(at: (f64, f64), deck: Option<(f64, f64)>, metrics: Metrics) -> Landing {
     let Some((left, top)) = deck else {
         return Landing::Card;
     };
@@ -333,7 +337,7 @@ pub(crate) fn Editor(cats: Cats, globals: Shared, rules: Ruled, altar: Option<u3
     let priced = Rc::new(price(&lineup, &cats.0, &rules));
     let (area_width, area_height) = area();
     let beside = (drawers.compact)() && area_width > area_height;
-    let metrics = if beside { Metrics::beside(area_width, area_height) } else { Metrics::fitting(area_width, area_height) };
+    let metrics = if beside { Metrics::beside(area_width, area_height, false) } else { Metrics::fitting(area_width, area_height, false) };
     let dragging = drag();
     let lifted = match dragging {
         Drag::Moving { lifted, .. } => lifted,
@@ -668,8 +672,15 @@ pub(crate) fn Editor(cats: Cats, globals: Shared, rules: Ruled, altar: Option<u3
     let delete_tools = editing_tools.clone();
     let delete_platform = platform.clone();
 
+    let unused = rules.0.deck().note();
+
     rsx! {
-        div { class: "lineup-editor",
+        div { class: if unused.is_some() { "lineup-editor unused" } else { "lineup-editor" },
+            if let Some(note) = unused {
+                div { class: "lineup-unused",
+                    div { class: "outlined-card lineup-unused-note", "{note}" }
+                }
+            }
             if dragging != Drag::Idle {
                 div {
                     class: "drag-scrim",
@@ -809,7 +820,7 @@ pub(crate) fn Editor(cats: Cats, globals: Shared, rules: Ruled, altar: Option<u3
 }
 
 #[component]
-fn SandboxRoster(
+pub(super) fn SandboxRoster(
     cats: Cats,
     banner_form: usize,
     filter_class: String,

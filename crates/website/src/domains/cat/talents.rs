@@ -181,7 +181,7 @@ fn body(
     let vault = globals.0.vault();
     let descriptions = vault.vds.cats.descriptions(&vault.vfs);
     let costs = vault.vds.cats.talent_costs(&vault.vfs);
-    let description = descriptions.get(usize::from(group.text_id)).cloned().unwrap_or_else(|| "No skill description found".to_owned());
+    let description = talent_logic::describe(group, &descriptions, &vault.vds.cats.combo_names(&vault.vfs));
     let levels = state.levels_for(cat.id);
     let current = levels.get(&index).copied().unwrap_or(0);
     let np_cost = talent_logic::get_talent_np_cost(group.cost_id, current, &costs);

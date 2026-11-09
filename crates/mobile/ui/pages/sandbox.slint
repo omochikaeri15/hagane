@@ -12,6 +12,7 @@ import { TreasureEditor, ArcRow, ChapterFold } from "settings.slint";
 export struct DeckCell { filled: bool, aimed: bool, icon: image, has-icon: bool, fallback: string, level: string, cost: string, has-cost: bool, barred: bool, talented: bool, np: image, has-np: bool, orbs: [image] }
 export struct ComboSample { name: string, effect: string, note: string }
 export struct ComboRow { line: int, name: string, effect: string, note: string, active: bool, banned: bool, icons: [image], has: [bool] }
+export struct JailBonus { id: int, title: string, detail: string, icon: image, has-icon: bool, fallback: string, level: int, limit: int, permanent: bool }
 export struct SavedRow { index: int, name: string, count: string, selected: bool }
 export struct ConfigEntry { label: string, hint: string, value: string }
 export struct ItemRow { label: string, on: bool, allowed: bool }
@@ -66,6 +67,15 @@ export global Sandbox {
     in property <bool> orb-held;
 
     in-out property <int> panel;
+    in property <bool> jail-ready;
+    in property <string> lineup-note;
+    in-out property <bool> jail-bonuses-open;
+    in property <bool> jail-global;
+    in property <[JailBonus]> jail-bonuses;
+    in-out property <string> jail-search;
+    callback jail-open-bonuses(bool);
+    callback jail-raise(int, int);
+    callback jail-search-changed(string);
     in property <[string]> panels: ["Settings", "Treasure", "Tech", "Base", "Items", "Gimmick", "Invasions", "Tutorial"];
     in property <[string]> volumes: ["Off", "Low", "Medium", "High"];
     in-out property <int> music;
@@ -341,12 +351,14 @@ component DeckSlot inherits Rectangle {
 
 component Deck inherits OutlinedCard {
     in property <length> avail;
+    in property <string> bench-note: Sandbox.jail-ready ? "Not part of the run" : "Does not affect battle";
+    callback open-roster();
     property <length> gap: 6px;
     property <length> cell-width: min((root.avail - 24px - self.gap * 4) / 5, 110px);
     property <length> cell-height: self.cell-width * 85 / 110;
     property <length> grid-width: self.cell-width * 5 + self.gap * 4;
     property <length> left: 12px + (root.avail - 24px - self.grid-width) / 2;
-    property <length> slots-top: 40px;
+    property <length> slots-top: Sandbox.jail-ready ? 74px : 40px;
     property <length> bench-title-top: self.slots-top + self.cell-height * 2 + self.gap * 2 + 2px;
     property <length> bench-top: self.bench-title-top + 36px;
     property <int> drag-from: -1;
@@ -396,8 +408,18 @@ component Deck inherits OutlinedCard {
     }
 
     Label { x: 12px; y: 12px; width: root.avail - 24px; text: "Lineup"; bold: true; font-size: 16px; horizontal-alignment: center; }
+    if Sandbox.jail-ready: HorizontalLayout {
+        x: 12px;
+        y: 38px;
+        width: root.avail - 24px;
+        height: 28px;
+        alignment: center;
+        spacing: 6px;
+        Btn { label: "Global Bonus"; width: 110px; height: 28px; text-size: 12px; clicked => { Sandbox.jail-open-bonuses(true); } }
+        Btn { label: "Cat Bonus"; width: 110px; height: 28px; text-size: 12px; clicked => { Sandbox.jail-open-bonuses(false); } }
+    }
     Label { x: 12px; y: root.bench-title-top; width: root.avail - 24px; text: "Bench"; bold: true; font-size: 14px; horizontal-alignment: center; }
-    Label { x: 12px; y: root.bench-title-top + 18px; width: root.avail - 24px; text: "Does not affect battle"; weak: true; font-size: 11px; horizontal-alignment: center; }
+    Label { x: 12px; y: root.bench-title-top + 18px; width: root.avail - 24px; text: root.bench-note; weak: true; font-size: 11px; horizontal-alignment: center; }
     for index in [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]: DeckSlot {
         x: root.left + mod(index, 5) * (root.cell-width + root.gap);
         y: root.slots-top + floor(index / 5) * (root.cell-height + root.gap);
@@ -406,7 +428,7 @@ component Deck inherits OutlinedCard {
         cell: Sandbox.slots[index];
         index: index;
         lifted: root.drag-from == index && !root.drag-bench && !root.aimed;
-        tapped => { if Sandbox.slots[index].filled { Sandbox.cell-tapped(index, false); } else { Sandbox.roster-open = true; } }
+        tapped => { if Sandbox.slots[index].filled { Sandbox.cell-tapped(index, false); } else { root.open-roster(); } }
         drag-started(icon, has) => { root.drag-from = index; root.drag-bench = false; root.drag-icon = icon; root.drag-has-icon = has; root.drag-x = self.x + self.width / 2; root.drag-y = self.y + self.height / 2; Sandbox.dragging = true; }
         dragged(x, y) => { root.drag-x = self.x + x; root.drag-y = self.y + y; }
         dropped(x, y) => { root.drop(self.x + x, self.y + y); }
@@ -420,7 +442,7 @@ component Deck inherits OutlinedCard {
         index: index;
         bench: true;
         lifted: root.drag-from == index && root.drag-bench && !root.aimed;
-        tapped => { if Sandbox.bench[index].filled { Sandbox.cell-tapped(index, true); } else { Sandbox.roster-open = true; } }
+        tapped => { if Sandbox.bench[index].filled { Sandbox.cell-tapped(index, true); } else { root.open-roster(); } }
         drag-started(icon, has) => { root.drag-from = index; root.drag-bench = true; root.drag-icon = icon; root.drag-has-icon = has; root.drag-x = self.x + self.width / 2; root.drag-y = self.y + self.height / 2; Sandbox.dragging = true; }
         dragged(x, y) => { root.drag-x = self.x + x; root.drag-y = self.y + y; }
         dropped(x, y) => { root.drop(self.x + x, self.y + y); }
@@ -617,9 +639,9 @@ component LineupHeader inherits HorizontalLayout {
 
 component LineupTab inherits Rectangle {
     property <bool> wide: root.width > root.height;
-    property <length> side-cell: max(24px, min(110px, (root.height - 208px) / 3 * 110 / 85, (root.width * 0.55 - 48px) / 5));
+    property <length> side-cell: max(24px, min(110px, (root.height - (Sandbox.jail-ready ? 242px : 208px)) / 3 * 110 / 85, (root.width * 0.55 - 48px) / 5));
     property <length> side-width: root.side-cell * 5 + 48px;
-    EdgeGrab { armed: !Sandbox.roster-open && !Shell.nav-open && Sandbox.active == false && !Sandbox.dragging; reach: drawer.panel-width; dragged(fraction) => { drawer.drag(fraction); } dropped => { drawer.release(); }
+    EdgeGrab { armed: !Sandbox.roster-open && !Shell.nav-open && Sandbox.active == false && !Sandbox.dragging && Sandbox.lineup-note == ""; reach: drawer.panel-width; dragged(fraction) => { drawer.drag(fraction); } dropped => { drawer.release(); }
         if !root.wide: VerticalLayout {
             width: 100%;
             height: 100%;
@@ -629,7 +651,7 @@ component LineupTab inherits Rectangle {
             padding-bottom: 62px;
             spacing: 8px;
             LineupHeader { }
-            Deck { avail: root.width - 20px; }
+            Deck { avail: root.width - 20px; open-roster => { Sandbox.roster-open = true; } }
             ComboList { vertical-stretch: 1; }
         }
         if root.wide: HorizontalLayout {
@@ -645,7 +667,7 @@ component LineupTab inherits Rectangle {
                 alignment: start;
                 spacing: 8px;
                 LineupHeader { }
-                Deck { avail: root.side-width; }
+                Deck { avail: root.side-width; open-roster => { Sandbox.roster-open = true; } }
             }
             ComboList { horizontal-stretch: 1; }
         }
@@ -655,13 +677,29 @@ component LineupTab inherits Rectangle {
         panel-width: 152px;
         RosterPanel { width: 100%; height: 100%; }
     }
+    if Sandbox.lineup-note != "": Rectangle {
+        width: 100%;
+        height: 100%;
+        background: #0000008c;
+        TouchArea { enabled: !Shell.swiping; }
+        Rectangle {
+            width: min(parent.width - 32px, 340px);
+            height: unused.preferred-height + 20px;
+            background: Theme.outlined-bg;
+            border-radius: 6px;
+            border-width: 2px;
+            border-color: Theme.outlined-border;
+            unused := Label { width: parent.width - 32px; text: Sandbox.lineup-note; font-size: 14px; horizontal-alignment: center; }
+        }
+    }
 }
 
 component Row inherits HorizontalLayout {
     in property <string> label;
+    in property <length> label-width: 120px;
     spacing: 10px;
     alignment: start;
-    Label { text: root.label; vertical-alignment: center; width: 120px; }
+    Label { text: root.label; vertical-alignment: center; width: root.label-width; }
     @children
 }
 
@@ -751,18 +789,26 @@ component ConfigBody inherits VerticalLayout {
             }
             if Sandbox.panel == 1: Section {
                 title: "Treasures";
-                TreasureEditor { arcs: Sandbox.arcs; chapters: Sandbox.chapters; grades: Sandbox.grades; arc-edited(index, value) => { Sandbox.arc-edited(index, value); } fold(slot) => { Sandbox.fold(slot); } grade(slot, stage, level) => { Sandbox.grade(slot, stage, level); } }
+                if Sandbox.jail-ready: VerticalLayout {
+                    spacing: 10px;
+                    for arc in Sandbox.arcs: EntryRow { label: arc.name; enabled: false; }
+                }
+                if !Sandbox.jail-ready: TreasureEditor { arcs: Sandbox.arcs; chapters: Sandbox.chapters; grades: Sandbox.grades; arc-edited(index, value) => { Sandbox.arc-edited(index, value); } fold(slot) => { Sandbox.fold(slot); } grade(slot, stage, level) => { Sandbox.grade(slot, stage, level); } }
             }
             if Sandbox.panel == 2: Section {
                 title: "Tech Levels";
-                for tech[index] in Sandbox.techs: EntryRow { label: tech.label; hint: tech.hint; value: tech.value; edited(value) => { Sandbox.tech-edited(index, value); } }
+                for tech[index] in Sandbox.techs: EntryRow { label: tech.label; hint: tech.hint; value: tech.value; enabled: !Sandbox.jail-ready; edited(value) => { Sandbox.tech-edited(index, value); } }
             }
             if Sandbox.panel == 3: Section {
                 title: "Cat Base";
-                Row { label: "Cannon"; Combo { width: 180px; height: 30px; text-size: 13px; options: Sandbox.cannons; current: Sandbox.cannon; selected(index) => { Sandbox.cannon-set(index); } } }
-                Row { label: "Style"; Combo { width: 180px; height: 30px; text-size: 13px; options: Sandbox.styles; current: Sandbox.style; selected(index) => { Sandbox.style-set(index); } } }
-                Row { label: "Foundation"; Combo { width: 180px; height: 30px; text-size: 13px; options: Sandbox.foundations; current: Sandbox.foundation; selected(index) => { Sandbox.foundation-set(index); } } }
-                for entry[index] in Sandbox.base-levels: EntryRow { label: entry.label; hint: entry.hint; value: entry.value; edited(value) => { Sandbox.base-level-edited(index, value); } }
+                if !Sandbox.jail-ready: Row { label: "Cannon"; Combo { width: 180px; height: 30px; text-size: 13px; options: Sandbox.cannons; current: Sandbox.cannon; selected(index) => { Sandbox.cannon-set(index); } } }
+                if !Sandbox.jail-ready: Row { label: "Style"; Combo { width: 180px; height: 30px; text-size: 13px; options: Sandbox.styles; current: Sandbox.style; selected(index) => { Sandbox.style-set(index); } } }
+                if !Sandbox.jail-ready: Row { label: "Foundation"; Combo { width: 180px; height: 30px; text-size: 13px; options: Sandbox.foundations; current: Sandbox.foundation; selected(index) => { Sandbox.foundation-set(index); } } }
+                if Sandbox.jail-ready: VerticalLayout {
+                    spacing: 10px;
+                    for part in ["Cannon", "Style", "Foundation"]: Row { label: part; Combo { width: 180px; height: 30px; text-size: 13px; options: ["Unavailable"]; current: 0; enabled: false; } }
+                }
+                for entry[index] in Sandbox.base-levels: EntryRow { label: entry.label; hint: entry.hint; value: entry.value; enabled: !Sandbox.jail-ready; edited(value) => { Sandbox.base-level-edited(index, value); } }
             }
             if Sandbox.panel == 4: Section {
                 title: "Battle Items";
@@ -771,8 +817,8 @@ component ConfigBody inherits VerticalLayout {
             }
             if Sandbox.panel == 5: Section {
                 title: "Gimmicks";
-                if Sandbox.cat-god-enabled: Row { label: "Cat God Miracles"; Combo { width: 130px; height: 30px; text-size: 13px; options: ["Absent", "Present", "Discounted"]; current <=> Sandbox.cat-god; selected(index) => { Sandbox.cat-god-set(index); } } }
-                if !Sandbox.cat-god-enabled: Row { label: "Cat God Miracles"; Combo { width: 130px; height: 30px; text-size: 13px; options: ["Unavailable"]; current: 0; enabled: false; } }
+                if Sandbox.cat-god-enabled: Row { label: "Cat God Miracles"; label-width: 170px; Combo { width: 130px; height: 30px; text-size: 13px; options: ["Absent", "Present", "Discounted"]; current <=> Sandbox.cat-god; selected(index) => { Sandbox.cat-god-set(index); } } }
+                if !Sandbox.cat-god-enabled: Row { label: "Cat God Miracles"; label-width: 170px; Combo { width: 130px; height: 30px; text-size: 13px; options: ["Unavailable"]; current: 0; enabled: false; } }
                 EntryRow { label: "Aku Altar Cap"; hint: "None"; value: Sandbox.altar; enabled: Sandbox.altar-enabled; edited(value) => { Sandbox.altar-edited(value); } }
                 EntryRow { label: "War Trust Fund"; hint: "0"; value: Sandbox.war-funds; enabled: Sandbox.war-funds-enabled; edited(value) => { Sandbox.war-funds-edited(value); } }
                 EntryRow { label: "Expenses Trust Fund"; hint: "0"; value: Sandbox.expenses; enabled: Sandbox.expenses-enabled; edited(value) => { Sandbox.expenses-edited(value); } }
@@ -1109,6 +1155,48 @@ component AgreementDialog inherits Dialog {
     }
 }
 
+component JailBonusDialog inherits Dialog {
+    open <=> Sandbox.jail-bonuses-open;
+    title: Sandbox.jail-global ? "Global Bonuses" : "Cat Bonuses";
+    panel-width: 420px;
+    body-height: 460px;
+    VerticalLayout {
+        padding: 12px;
+        spacing: 8px;
+        Input { text <=> Sandbox.jail-search; placeholder: "Search bonuses"; text-size: 13px; height: 32px; edited(value) => { Sandbox.jail-search-changed(value); } }
+        if Sandbox.jail-bonuses.length == 0: Label { text: "No bonus matches"; weak: true; horizontal-alignment: center; vertical-stretch: 1; vertical-alignment: center; }
+        if Sandbox.jail-bonuses.length > 0: ListView {
+            mouse-drag-pan-enabled: true;
+            vertical-stretch: 1;
+            for row in Sandbox.jail-bonuses: Rectangle {
+                height: (row.title != "" ? 70px : 46px) + told.preferred-height + 6px;
+                width: parent.width;
+                told := Label { x: 0px; y: (row.title != "" ? 28px : 4px) + 40px; width: parent.width; text: row.detail; weak: true; font-size: 12px; }
+                if row.title != "": Label { x: 0px; y: 4px; width: parent.width; text: row.title; bold: true; font-size: 14px; overflow: elide; }
+                HorizontalLayout {
+                    x: 0px;
+                    y: row.title != "" ? 28px : 4px;
+                    width: parent.width;
+                    height: 38px;
+                    spacing: 10px;
+                    alignment: start;
+                    Rectangle {
+                        width: 36px;
+                        height: 36px;
+                        border-radius: Theme.radius-sm;
+                        background: row.has-icon ? transparent : Theme.danger;
+                        if row.has-icon: Image { source: row.icon; width: 36px; height: 36px; image-fit: contain; }
+                        if !row.has-icon: Label { text: row.fallback; font-size: 10px; width: 36px; height: 36px; horizontal-alignment: center; vertical-alignment: center; }
+                    }
+                    Slider { width: 110px; maximum: row.limit; value: row.level; guarded: false; changed(level) => { Sandbox.jail-raise(row.id, level); } }
+                    Label { text: row.level + "/" + row.limit; font-size: 13px; width: 34px; vertical-alignment: center; }
+                    if row.permanent: Label { text: "Permanent"; weak: true; font-size: 12px; vertical-alignment: center; }
+                }
+            }
+        }
+    }
+}
+
 export component SandboxPage inherits Rectangle {
     VerticalLayout {
         padding-top: 4px;
@@ -1149,6 +1237,7 @@ export component SandboxPage inherits Rectangle {
     }
     LineupsDialog { }
     FilterDialog { }
+    JailBonusDialog { }
     UnitDialog { }
     OrbDialog { }
     AgreementDialog { }

@@ -28,30 +28,32 @@ use crate::common::feedback::{Slot as Confirm, CONFIRM_SHORT_LABEL};
 use crate::common::header_icon;
 use crate::domains::cat::{self, Picked};
 use crate::editor;
-use crate::widget::{list_row, popup, roster_list, smooth_scroll};
+use crate::widget::{list_row, popup, roster_list, scrim, smooth_scroll};
 
 use super::{combos, orbs};
 
 pub(super) const LIST_SCOPE: &str = "sandbox-cat-banner-list";
+const BENCH_NOTE: &str = "Does not affect battle";
 
 const UNIT_POPUP: popup::Spec = popup::Spec::new(popup::Kind::SandboxUnit, Size::new(760.0, 540.0));
 const ORB_POPUP: popup::Spec = popup::Spec::new(popup::Kind::SandboxOrb, Size::new(310.0, 250.0));
-const RIPE: Duration = Duration::from_millis(160);
-const DOUBLE_CLICK: Duration = Duration::from_millis(400);
-const SLACK: f32 = 6.0;
+pub(super) const RIPE: Duration = Duration::from_millis(160);
+pub(super) const DOUBLE_CLICK: Duration = Duration::from_millis(400);
+pub(super) const SLACK: f32 = 6.0;
 const FIRST_TALENT_FORM: usize = 2;
 
-const LEFT_WIDTH: f32 = roster_list::LIST_WIDTH + 16.0;
-const RIGHT_WIDTH: f32 = LEFT_WIDTH;
-const TOP_PAD: f32 = 10.0;
-const CARD_GAP: f32 = 10.0;
+pub(super) const LEFT_WIDTH: f32 = roster_list::LIST_WIDTH + 16.0;
+pub(super) const RIGHT_WIDTH: f32 = LEFT_WIDTH;
+pub(super) const TOP_PAD: f32 = 10.0;
+pub(super) const CARD_GAP: f32 = 10.0;
 const COLUMNS: usize = 5;
 const DECK_SHARE: f32 = 0.68;
+const ACTIONS_HEIGHT: f32 = 34.0;
 pub(super) const SMALLEST: f32 = 0.45;
 const TEXT_FLOOR: f32 = 0.8;
 
-const LEVEL_SIZE: f32 = 11.0;
-const BADGE_SIZE: f32 = 12.0;
+pub(super) const LEVEL_SIZE: f32 = 11.0;
+pub(super) const BADGE_SIZE: f32 = 12.0;
 const COST_SIZE: f32 = 12.0;
 const BARRED_SHADE: f32 = 0.6;
 const ORB_SIZE: f32 = 26.0;
@@ -60,11 +62,13 @@ const ORB_STEP: f32 = 0.55;
 const NP_ICON: &str = "gatyaitemD_07_f.png";
 const SLOT_ORB_SIZE: f32 = 44.0;
 const BADGE_FILL: f32 = 0.62;
-const GHOST_ALPHA: f32 = 0.75;
+pub(super) const GHOST_ALPHA: f32 = 0.75;
 const EMPTY_FILL: f32 = 0.07;
-const NAME_SIZE: f32 = 13.0;
+pub(super) const NAME_SIZE: f32 = 13.0;
+const UNUSED_SIZE: f32 = 14.0;
+const UNUSED_PADDING: [f32; 2] = [10.0, 16.0];
 const ORB_HEADER_SIZE: f32 = 18.0;
-const ECHO: Duration = Duration::from_millis(80);
+pub(super) const ECHO: Duration = Duration::from_millis(80);
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(super) struct Metrics {
@@ -78,13 +82,19 @@ pub(super) struct Metrics {
     bench_gap: f32,
     bench_title: f32,
     bench_note: f32,
+    actions: f32,
 }
 
 impl Metrics {
     pub(super) const FULL: Self = Self::at(1.0);
 
+    pub(super) const fn with_actions(scale: f32) -> Self {
+        Self { actions: ACTIONS_HEIGHT * scale, ..Self::at(scale) }
+    }
+
     pub(super) const fn at(scale: f32) -> Self {
         Self {
+            actions: 0.0,
             scale,
             pad: 12.0 * scale,
             cell_width: 110.0 * scale,
@@ -99,33 +109,80 @@ impl Metrics {
     }
 
     fn fitting(area: Size) -> Self {
+        Self::fit(area, Self::at)
+    }
+
+    pub(super) fn fitting_actions(area: Size) -> Self {
+        Self::fit(area, Self::with_actions)
+    }
+
+    fn fit(area: Size, sized: fn(f32) -> Self) -> Self {
+        let full = sized(1.0);
+
         if area.width <= 0.0 || area.height <= 0.0 {
-            return Self::FULL;
+            return full;
         }
 
-        let across = (area.width - LEFT_WIDTH - RIGHT_WIDTH - CARD_GAP * 2.0) / Self::FULL.deck_width();
-        let down = area.height * DECK_SHARE / Self::FULL.deck_height();
+        let across = (area.width - LEFT_WIDTH - RIGHT_WIDTH - CARD_GAP * 2.0) / full.deck_width();
+        let down = area.height * DECK_SHARE / full.deck_height();
 
-        Self::at(across.min(down).clamp(SMALLEST, 1.0))
+        sized(across.min(down).clamp(SMALLEST, 1.0))
+    }
+
+    pub(super) fn landing(&self, at: Point) -> Landing {
+        let on_card = (0.0..self.deck_width()).contains(&at.x) && (0.0..self.deck_height()).contains(&at.y);
+
+        if !on_card {
+            return Landing::Off;
+        }
+
+        let half = self.gap / 2.0;
+        let across = at.x - self.pad + half;
+        let pitch = self.cell_width + self.gap;
+
+        if !(0.0..pitch * COLUMNS as f32).contains(&across) {
+            return Landing::Card;
+        }
+
+        let column = (across / pitch) as usize;
+        let offset = across - column as f32 * pitch;
+        let edge = if offset < pitch / 2.0 { Edge::Before } else { Edge::After };
+        let fall = self.cell_height + self.gap;
+        let bench = at.y - self.bench_top() + half;
+
+        if (0.0..fall).contains(&bench) {
+            return Landing::Cell(Cell::Bench(column), edge);
+        }
+
+        let grid = at.y - self.grid_top() + half;
+        let lines = LINEUP_SLOTS / COLUMNS;
+
+        if !(0.0..fall * lines as f32).contains(&grid) {
+            return Landing::Card;
+        }
+
+        let line = (grid / fall) as usize;
+
+        Landing::Cell(Cell::Slot(line * COLUMNS + column), edge)
     }
 
     pub(super) fn grid_width(&self) -> f32 {
         self.cell_width * COLUMNS as f32 + self.gap * (COLUMNS as f32 - 1.0)
     }
 
-    fn deck_width(&self) -> f32 {
+    pub(super) fn deck_width(&self) -> f32 {
         self.grid_width() + self.pad * 2.0
     }
 
     fn grid_top(&self) -> f32 {
-        self.pad + self.header + self.header_gap
+        self.pad + self.header + self.header_gap + self.actions
     }
 
     fn bench_top(&self) -> f32 {
         self.grid_top() + self.cell_height * 2.0 + self.gap + self.bench_gap + self.bench_title + self.bench_note + self.gap
     }
 
-    fn deck_height(&self) -> f32 {
+    pub(super) fn deck_height(&self) -> f32 {
         self.bench_top() + self.cell_height + self.pad
     }
 
@@ -141,7 +198,7 @@ enum Cargo {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
-enum Landing {
+pub(super) enum Landing {
     Off,
     Card,
     Cell(Cell, Edge),
@@ -194,6 +251,83 @@ struct Priced {
     cost: i32,
     barred: bool,
     talented: bool,
+}
+
+pub(super) fn cell_frame(aimed: bool) -> impl Fn(&Theme) -> container::Style {
+    move |theme: &Theme| {
+        let palette = theme.palette();
+
+        container::Style {
+            background: Some(Color { a: EMPTY_FILL, ..palette.text }.into()),
+            border: Border::default().rounded(6.0).width(if aimed { 2.0 } else { 1.0 }).color(if aimed {
+                palette.primary
+            } else {
+                Color { a: 0.25, ..palette.text }
+            }),
+            ..container::Style::default()
+        }
+    }
+}
+
+pub(super) fn cell_badge<'a, M: 'a>(shown: String, size: f32) -> iced::widget::Container<'a, M> {
+    container(theme::bold_text(shown).size(size).color(Color::WHITE)).padding([1, 6]).style(|_: &Theme| container::Style {
+        background: Some(Color { a: BADGE_FILL, ..Color::BLACK }.into()),
+        border: Border::default().rounded(6.0),
+        ..container::Style::default()
+    })
+}
+
+pub(super) fn deck_card<'a, M: 'a>(metrics: Metrics, bench_note: &'a str, actions: Option<Element<'a, M>>, mut cell: impl FnMut(Cell) -> Element<'a, M>) -> Element<'a, M> {
+    let mut grid = Column::new().spacing(metrics.gap);
+
+    for line in 0..LINEUP_SLOTS / COLUMNS {
+        let mut cells = Row::new().spacing(metrics.gap);
+
+        for column in 0..COLUMNS {
+            cells = cells.push(cell(Cell::Slot(line * COLUMNS + column)));
+        }
+
+        grid = grid.push(cells);
+    }
+
+    let mut bench = Row::new().spacing(metrics.gap);
+
+    for index in 0..BENCH_SLOTS {
+        bench = bench.push(cell(Cell::Bench(index)));
+    }
+
+    let titled = |label: &'a str, height: f32, size: f32| {
+        container(theme::bold_text(label).size(size)).width(Length::Fill).height(Length::Fixed(height)).align_x(Horizontal::Center).align_y(Vertical::Center)
+    };
+
+    let note = container(
+        text(bench_note)
+            .size(metrics.text(LEVEL_SIZE))
+            .style(|theme: &Theme| text::Style { color: Some(theme::weak_text_color(theme)) }),
+    )
+        .width(Length::Fill)
+        .height(Length::Fixed(metrics.bench_note))
+        .align_x(Horizontal::Center)
+        .align_y(Vertical::Center);
+
+    let actions = actions.map(|actions| container(actions).width(Length::Fill).height(Length::Fixed(metrics.actions)).align_x(Horizontal::Center));
+    let card = Column::new()
+        .push(titled("Lineup", metrics.header, metrics.text(16.0)))
+        .push(Space::new().height(Length::Fixed(metrics.header_gap)))
+        .push(actions)
+        .push(grid)
+        .push(Space::new().height(Length::Fixed(metrics.bench_gap)))
+        .push(titled("Bench", metrics.bench_title, metrics.text(14.0)))
+        .push(note)
+        .push(Space::new().height(Length::Fixed(metrics.gap)))
+        .push(bench);
+
+    container(card)
+        .padding(metrics.pad)
+        .width(Length::Fixed(metrics.deck_width()))
+        .height(Length::Fixed(metrics.deck_height()))
+        .style(theme::outlined_card_container)
+        .into()
 }
 
 pub struct State {
@@ -469,7 +603,7 @@ impl State {
         self.combos.focus(Some((member.id, member.form)));
     }
 
-    fn close(&mut self) {
+    pub(super) fn close(&mut self) {
         self.editing = None;
         self.orb_slot = None;
         self.combos.focus(None);
@@ -482,42 +616,8 @@ impl State {
 
         let metrics = self.metrics;
         let card_left = LEFT_WIDTH + ((self.area.width - LEFT_WIDTH - RIGHT_WIDTH - metrics.deck_width()) / 2.0).max(0.0);
-        let on_card = (card_left..card_left + metrics.deck_width()).contains(&at.x) && (TOP_PAD..TOP_PAD + metrics.deck_height()).contains(&at.y);
 
-        if !on_card {
-            return Landing::Off;
-        }
-
-        let half = metrics.gap / 2.0;
-        let across = at.x - card_left - metrics.pad + half;
-        let pitch = metrics.cell_width + metrics.gap;
-
-        if !(0.0..pitch * COLUMNS as f32).contains(&across) {
-            return Landing::Card;
-        }
-
-        let column = (across / pitch) as usize;
-        let offset = across - column as f32 * pitch;
-        let edge = if offset < pitch / 2.0 { Edge::Before } else { Edge::After };
-
-        let down = at.y - TOP_PAD;
-        let fall = metrics.cell_height + metrics.gap;
-        let bench = down - metrics.bench_top() + half;
-
-        if (0.0..fall).contains(&bench) {
-            return Landing::Cell(Cell::Bench(column), edge);
-        }
-
-        let grid = down - metrics.grid_top() + half;
-        let lines = LINEUP_SLOTS / COLUMNS;
-
-        if !(0.0..fall * lines as f32).contains(&grid) {
-            return Landing::Card;
-        }
-
-        let line = (grid / fall) as usize;
-
-        Landing::Cell(Cell::Slot(line * COLUMNS + column), edge)
+        metrics.landing(Point::new(at.x - card_left, at.y - TOP_PAD))
     }
 
     fn plan(lifted: Option<Cell>, landing: Landing, lineup: Option<&Lineup>) -> Option<Arrangement> {
@@ -920,7 +1020,15 @@ impl State {
             );
         }
 
-        editor::suppress(layers, self.drag != Drag::Idle)
+        let unused = self.rules.deck().note();
+
+        if let Some(note) = unused {
+            let told = container(text(note).size(UNUSED_SIZE)).padding(UNUSED_PADDING).style(theme::outlined_card_container);
+
+            layers = layers.push(scrim()).push(container(told).center(Length::Fill));
+        }
+
+        editor::suppress(layers, self.drag != Drag::Idle || unused.is_some())
     }
 
     fn ghost<'a>(&'a self, cargo: Cargo, at: Point, lineup: Option<&'a Lineup>, roster: &Roster) -> Element<'a, Message> {
@@ -969,80 +1077,18 @@ impl State {
                 None => (None, false),
             }
         };
-        let mut grid = Column::new().spacing(metrics.gap);
-
-        for line in 0..LINEUP_SLOTS / COLUMNS {
-            let mut cells = Row::new().spacing(metrics.gap);
-
-            for column in 0..COLUMNS {
-                let cell = Cell::Slot(line * COLUMNS + column);
-                let (member, aimed) = shown(cell);
-
-                cells = cells.push(self.view_cell(cell, member, aimed));
-            }
-
-            grid = grid.push(cells);
-        }
-
-        let mut bench = Row::new().spacing(metrics.gap);
-
-        for index in 0..BENCH_SLOTS {
-            let cell = Cell::Bench(index);
+        deck_card(metrics, BENCH_NOTE, None, |cell| {
             let (member, aimed) = shown(cell);
 
-            bench = bench.push(self.view_cell(cell, member, aimed));
-        }
-
-        let titled = |label: &'a str, height: f32, size: f32| {
-            container(theme::bold_text(label).size(size)).width(Length::Fill).height(Length::Fixed(height)).align_x(Horizontal::Center).align_y(Vertical::Center)
-        };
-
-        let note = container(
-            text("Does not affect battle")
-                .size(metrics.text(LEVEL_SIZE))
-                .style(|theme: &Theme| text::Style { color: Some(theme::weak_text_color(theme)) }),
-        )
-            .width(Length::Fill)
-            .height(Length::Fixed(metrics.bench_note))
-            .align_x(Horizontal::Center)
-            .align_y(Vertical::Center);
-
-        let card = column![
-            titled("Lineup", metrics.header, metrics.text(16.0)),
-            Space::new().height(Length::Fixed(metrics.header_gap)),
-            grid,
-            Space::new().height(Length::Fixed(metrics.bench_gap)),
-            titled("Bench", metrics.bench_title, metrics.text(14.0)),
-            note,
-            Space::new().height(Length::Fixed(metrics.gap)),
-            bench,
-        ];
-
-        container(card)
-            .padding(metrics.pad)
-            .width(Length::Fixed(metrics.deck_width()))
-            .height(Length::Fixed(metrics.deck_height()))
-            .style(theme::outlined_card_container)
-            .into()
+            self.view_cell(cell, member, aimed)
+        })
     }
 
     fn view_cell<'a>(&'a self, cell: Cell, member: Option<(Cell, &'a Member)>, aimed: bool) -> Element<'a, Message> {
         let metrics = self.metrics;
         let (width, height) = (Length::Fixed(metrics.cell_width), Length::Fixed(metrics.cell_height));
 
-        let frame = move |theme: &Theme| {
-            let palette = theme.palette();
-
-            container::Style {
-                background: Some(Color { a: EMPTY_FILL, ..palette.text }.into()),
-                border: Border::default().rounded(6.0).width(if aimed { 2.0 } else { 1.0 }).color(if aimed {
-                    palette.primary
-                } else {
-                    Color { a: 0.25, ..palette.text }
-                }),
-                ..container::Style::default()
-            }
-        };
+        let frame = cell_frame(aimed);
 
         let Some((source, member)) = member else {
             return container(Space::new()).width(width).height(height).style(frame).into();
@@ -1059,11 +1105,7 @@ impl State {
             (levels, None) => levels,
         };
         let shown = if plus > 0 { format!("Lv{level}+{plus}") } else { format!("Lv{level}") };
-        let badge = container(theme::bold_text(shown).size(metrics.text(BADGE_SIZE)).color(Color::WHITE)).padding([1, 6]).style(|_: &Theme| container::Style {
-            background: Some(Color { a: BADGE_FILL, ..Color::BLACK }.into()),
-            border: Border::default().rounded(6.0),
-            ..container::Style::default()
-        });
+        let badge = cell_badge(shown, metrics.text(BADGE_SIZE));
 
         let orb_size = ORB_SIZE * metrics.scale;
         let spread = self.worn(member).count().saturating_sub(1) as f32 * orb_size * ORB_STEP + orb_size;

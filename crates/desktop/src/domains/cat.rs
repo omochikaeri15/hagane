@@ -32,6 +32,7 @@ use foundry::domains::cat::level;
 use foundry::domains::cat::scanner::{self, CatEntry};
 use foundry::domains::cat::waiter::unitid;
 use foundry::domains::cat::CatDataState;
+use foundry::domains::sandbox::jailbreak::Grants;
 use foundry::systems::combat::registry::{format_stat, Magnification, StatContext, STAT_ATK_CYCLE, STAT_ATTACK, STAT_COOLDOWN, STAT_COST, STAT_DPS, STAT_HITPOINTS, STAT_KNOCKBACKS, STAT_RANGE, STAT_RARITY, STAT_SPEED};
 use foundry::systems::combat::RenderContext;
 use foundry::domains::settings::{ScannerConfig, Settings};
@@ -200,6 +201,7 @@ pub struct State {
     custom_assets: CustomAssets,
 
     dynamic_stats: StatsMemo,
+    granted: Option<Grants>,
     header_icon_cache: header_icon::Cache,
     header_icon_dummy: HeaderIcon,
 
@@ -240,6 +242,7 @@ impl Default for State {
             custom_assets: CustomAssets::new(),
 
             dynamic_stats: RefCell::new(None),
+            granted: None,
             header_icon_cache: RefCell::new(HashMap::new()),
             header_icon_dummy,
 
@@ -285,6 +288,32 @@ impl State {
         Self { list: list::State::scoped(scope, banner_form), animation: animation::State::with_popup(export), details: details::State::inspecting(), ..Self::default() }
     }
 
+    pub(crate) fn granting(mut self) -> Self {
+        self.granted = Some(Grants::default());
+        self
+    }
+
+    pub(crate) fn grant(&mut self, id: u32, grants: Grants) {
+        if let Some(cat) = self.data.cats.iter_mut().find(|cat| cat.id == id) {
+            cat.talent_data = (!grants.talent.groups.is_empty()).then(|| grants.talent.clone());
+        }
+
+        self.talent_levels.insert(id, grants.levels.clone());
+        self.granted = Some(grants);
+    }
+
+    pub(crate) fn set_granting(&mut self, granting: bool) {
+        self.granted = granting.then(Grants::default);
+    }
+
+    fn talented(&self, form: usize) -> bool {
+        self.granted.is_some() || form >= 2
+    }
+
+    fn tabbed(&self, form: usize) -> bool {
+        self.granted.is_none() && form >= 2
+    }
+
     pub(crate) fn set_banner_form(&mut self, banner_form: usize) {
         self.list.set_variant(banner_form);
     }
@@ -318,7 +347,7 @@ impl State {
         self.talent_level_inputs.clear();
         self.talent_levels.clear();
         self.talent_levels.insert(id, talents.clone());
-        let caps = self.data.cats.iter().find(|cat| cat.id == id).and_then(|cat| cat.unitbuy.level_caps());
+        let caps = self.data.cats.iter().find(|cat| cat.id == id).and_then(|cat| cat.unitbuy.level_caps()).filter(|_| self.granted.is_none());
 
         self.level_input = level::capped(level, caps);
         self.current_level = level::total(&self.level_input, caps);
@@ -378,6 +407,10 @@ impl State {
             .or_else(|| (0..=highest).rev().find(|form| cat.forms[*form]))
             .or_else(|| cat.forms.iter().position(|exists| *exists))
             .unwrap_or(0)
+    }
+
+    pub(crate) fn img015(&self) -> &[SpriteSheet] {
+        &self.img015_sheets
     }
 
     pub(crate) fn cat(&self, id: u32) -> Option<&CatEntry> {
@@ -615,7 +648,7 @@ impl State {
             self.selected_form
         };
 
-        let tab = if self.selected_tab == DetailTab::Talents && (form < 2 || cat.talent_data.is_none()) {
+        let tab = if self.selected_tab == DetailTab::Talents && (!self.tabbed(form) || cat.talent_data.is_none()) {
             DetailTab::Abilities
         } else {
             self.selected_tab
@@ -924,6 +957,7 @@ impl State {
                     sheets: &self.img015_sheets,
                     global: global_ctx,
                     settings,
+                    grants: self.granted.as_ref(),
                 });
 
                 self.export.update(msg, || ctx.and_then(export::request)).map(Message::Export)
@@ -1136,7 +1170,7 @@ impl State {
         for (tab_enum, label) in tabs {
             let is_talents = tab_enum == DetailTab::Talents;
             let available = if is_talents {
-                self.selected_form >= 2 && cat.talent_data.is_some()
+                self.tabbed(self.selected_form) && cat.talent_data.is_some()
             } else {
                 true
             };
@@ -1257,11 +1291,15 @@ impl State {
             return container(text("Stats data not found")).into();
         };
 
-        let form_allows_talents = self.selected_form >= 2;
+        let form_allows_talents = self.talented(self.selected_form);
         let talent_data = if form_allows_talents { cat.talent_data.as_ref() } else { None };
         let talent_levels = if form_allows_talents { self.talent_levels.get(&cat.id) } else { None };
 
-        let final_stats = get_final_stats(base_stats, cat.curve.as_ref(), self.current_level, talent_data, talent_levels, global_ctx.treasure);
+        let mut final_stats = get_final_stats(base_stats, cat.curve.as_ref(), self.current_level, talent_data, talent_levels, global_ctx.treasure);
+
+        if let Some(grants) = self.granted.as_ref() {
+            grants.apply(&mut final_stats);
+        }
 
         let cat_ctx = RenderContext {
             global: global_ctx,
@@ -1358,6 +1396,7 @@ impl State {
             level_inputs: &self.talent_level_inputs,
             talent_costs: &cat.talent_costs,
             descriptions: &cat.skill_descriptions,
+            combos: global_ctx.vault.vds.cats.combo_names(&global_ctx.vault.vfs),
             current_stats: base_stats,
             traits,
             curve: cat.curve.as_ref(),

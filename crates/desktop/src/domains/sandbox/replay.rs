@@ -20,6 +20,7 @@ use foundry::common::context::GlobalContext;
 use foundry::systems::combat::NameBook;
 use foundry::common::frames;
 use foundry::domains::cat::scanner;
+use foundry::domains::sandbox::jailbreak::{Board, Run};
 use foundry::domains::sandbox::orb::Allowance;
 use foundry::domains::sandbox::replay::{self as tape, Staged, Summary, Unit};
 use foundry::domains::settings::{ScannerConfig, Settings};
@@ -161,6 +162,8 @@ pub struct State {
     picked: Option<Pick>,
     details: Option<Details>,
     staged: Option<Arc<Staged>>,
+    run: Option<(Board, Run)>,
+    run_read: bool,
     failure: Option<String>,
     cache: Vec<(Pick, String, Arc<Staged>)>,
     metrics: Option<Metrics>,
@@ -417,6 +420,8 @@ impl State {
             .as_ref()
             .map_or_else(Bonus::default, |save| Bonus::from_levels(&catalog, &treasure::recorded_levels(&save.setup.treasures)));
         self.inspector.set_treasure(self.treasure);
+        self.run = None;
+        self.run_read = false;
 
         let adopted = self.inspector.adopt_cats(&staged.cats, &staged.vault).map(Message::Cat);
         let orbs = self.orbs.load(&staged.vault, &self.glossary).map(Message::Orbs);
@@ -489,7 +494,22 @@ impl State {
         }
     }
 
-    fn open_unit(&mut self, slot: usize) {
+    fn recorded_run(&self, ctx: GlobalContext<'_>) -> Option<(Board, Run)> {
+        let staged = self.staged.as_deref()?;
+        let setup = &staged.summary.save.as_ref()?.setup;
+        let scoped = GlobalContext { vault: &staged.vault, treasure: &self.treasure, names: &self.glossary, ..ctx };
+        let board = Board::load(scoped, &staged.cats, setup.stage.map_id, setup.stage.crown)?;
+        let run = board.run_from(&setup.jailbreak.roster, &setup.jailbreak.bonuses, setup.jailbreak.cannon);
+
+        Some((board, run))
+    }
+
+    fn open_unit(&mut self, slot: usize, ctx: GlobalContext<'_>) {
+        if !std::mem::replace(&mut self.run_read, true) {
+            self.run = self.recorded_run(ctx);
+            self.inspector.set_granting(self.run.is_some());
+        }
+
         let Some(tile) = self.tiles.get(slot) else {
             return;
         };
@@ -501,6 +521,11 @@ impl State {
 
         self.inspector.set_export_scope(scope);
         self.inspector.inspect(tile.id, tile.form, &tile.inspected, &tile.talents);
+
+        if let Some((board, run)) = self.run.as_ref() {
+            self.inspector.grant(tile.id, board.grants(run, tile.id));
+        }
+
         self.open = Some(slot);
     }
 
@@ -597,7 +622,7 @@ impl State {
                     return Task::none();
                 }
 
-                self.open_unit(slot);
+                self.open_unit(slot, ctx);
 
                 Task::none()
             }

@@ -6,6 +6,23 @@ const FOUR_CROWN: i8 = 3;
 const FOUR_CROWN_MASK: u8 = 6;
 const LEGEND_TIER: i32 = 3;
 const TOP_ROW: usize = 5;
+const FIXED_NOTE: &str = "Stage forces a fixed lineup";
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Deck {
+    #[default]
+    Own,
+    Fixed,
+}
+
+impl Deck {
+    pub fn note(self) -> Option<&'static str> {
+        match self {
+            Self::Own => None,
+            Self::Fixed => Some(FIXED_NOTE),
+        }
+    }
+}
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Rules {
@@ -20,11 +37,16 @@ pub struct Rules {
     cost_percent: Vec<u32>,
     lineup_caps: Vec<u32>,
     banned_effects: Vec<u32>,
+    deck: Deck,
 }
 
 impl Rules {
     pub fn of(stage: &Stage, map: Option<&Map>, crown: i8) -> Self {
         let mut rules = Self::default();
+
+        if u8::try_from(crown).is_ok_and(|crown| stage.fixed_lineups.contains_key(&crown)) {
+            rules.deck = Deck::Fixed;
+        }
 
         if let Some(map) = map {
             rules.banned_effects.clone_from(&map.invalid_combos);
@@ -61,6 +83,10 @@ impl Rules {
         }
 
         rules
+    }
+
+    pub fn deck(&self) -> Deck {
+        self.deck
     }
 
     pub fn cost(&self, base: i32, rarity: usize) -> i32 {
@@ -125,6 +151,20 @@ mod tests {
         assert_eq!(scaled.cost(100, 3), 75);
         assert_eq!(scaled.cost(100, 4), 150);
         assert_eq!(Rules { cost_multiplier: 100, ..Rules::default() }.cost(100, 0), 100, "a map multiplier replaces the Legend price");
+    }
+
+    // A stage that brings its own cats says so, on the crown that carries them.
+    #[test]
+    fn a_stage_with_its_own_cats_names_whose_lineup_plays() {
+        let mut stage = Stage::default();
+
+        assert_eq!(Rules::of(&stage, None, 0).deck().note(), None);
+
+        stage.fixed_lineups.insert(1, Default::default());
+
+        assert_eq!(Rules::of(&stage, None, 0).deck(), Deck::Own, "only the crown that carries the lineup forces it");
+        assert_eq!(Rules::of(&stage, None, 1).deck(), Deck::Fixed);
+        assert_eq!(Rules::of(&stage, None, 1).deck().note(), Some(FIXED_NOTE));
     }
 
     #[test]

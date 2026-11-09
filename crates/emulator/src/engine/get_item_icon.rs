@@ -3,7 +3,7 @@ use crate::Fault;
 use super::{AppContext, ItemDefinition};
 
 pub fn get_item_icon(ctx: &AppContext, item: i32) -> Result<i32, Fault> {
-    if item as u32 > 0x112 {
+    if item as u32 > 0x113 {
         return Ok(-1);
     }
 

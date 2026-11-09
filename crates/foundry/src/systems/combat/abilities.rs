@@ -1,5 +1,5 @@
 use codex::cat::unit::TalentGroup;
-use codex::combat::{get_talent, targets_traits, AttrUnit, AttrValue, Entity, Faction, Identity, REGISTRY};
+use codex::combat::{get_ability, get_talent, targets_traits, AttrUnit, AttrValue, Entity, Faction, Identity, REGISTRY};
 use codex::files::img015;
 use tracing::trace;
 
@@ -41,6 +41,10 @@ pub fn collect_ability_data(ctx: &RenderContext<'_>) -> AbilityGroups {
         let attrs = (pure_def.attributes)(ctx.final_stats);
 
         if attrs.is_empty() || !leveled(pure_def.identity, ctx.final_stats) { continue; }
+        if pure_def.identity.effect_base().is_some_and(|base| held(ctx.final_stats, base)) { continue; }
+
+        let boost = pure_def.identity.effect_up().map(|(_, up)| up).filter(|_| ctx.final_stats.effect_up(pure_def.identity) > 0);
+        let icon = boost.map_or(display_def.icon, |up| registry::get_display_def(up).icon);
 
         let format_ctx = FormatContext {
             value: attrs.first().map_or(AttrValue::Finite(0), |(_, value, _)| *value),
@@ -55,10 +59,13 @@ pub fn collect_ability_data(ctx: &RenderContext<'_>) -> AbilityGroups {
 
         groups[slot].push(AbilityItem {
             identity: pure_def.identity,
-            icon_id: standard_icon(display_def.icon),
+            icon_id: standard_icon(icon),
             text: (display_def.formatter)(&format_ctx),
-            custom_icon: custom_icon(display_def.icon),
-            border_id: pure_def.talent_id.and_then(|talent_id| talent_border(ctx, talent_id)),
+            custom_icon: custom_icon(icon),
+            border_id: boost
+                .and_then(|up| run_border(ctx, up))
+                .or_else(|| pure_def.talent_id.and_then(|talent_id| talent_border(ctx, talent_id)))
+                .or_else(|| run_border(ctx, pure_def.identity)),
         });
     }
 
@@ -149,6 +156,16 @@ fn custom_icon(icon: AbilityIcon) -> CustomIcon {
         AbilityIcon::Custom(custom) => custom,
         AbilityIcon::Standard(_) | AbilityIcon::None => CustomIcon::None,
     }
+}
+
+fn held(stats: &Entity, identity: Identity) -> bool {
+    get_ability(identity).is_some_and(|ability| !(ability.attributes)(stats).is_empty())
+}
+
+fn run_border(ctx: &RenderContext<'_>, identity: Identity) -> Option<usize> {
+    let (_, maxed) = ctx.final_stats.run_marks.iter().find(|(held, _)| *held == identity)?;
+
+    Some(if *maxed { img015::BORDER_GOLD } else { img015::BORDER_RED })
 }
 
 fn talent_border(ctx: &RenderContext<'_>, ability_id: u8) -> Option<usize> {

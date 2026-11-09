@@ -8,7 +8,7 @@ use foundry::systems::treasure::{Catalog, Config, ARCS, FULL_PERCENT};
 use codex::chapter::treasure::ARC_SLOTS;
 
 use crate::app::theme;
-use crate::widget::{entry_row, subsection};
+use crate::widget::{entry_row, idle_entry_row, subsection};
 
 const CHAPTER_TITLES: [[&str; 3]; 3] = [
     ["Empire of Cats Ch. 1", "Empire of Cats Ch. 2", "Empire of Cats Ch. 3"],
@@ -77,6 +77,24 @@ impl State {
             for (chapter, slot) in slots.iter().copied().enumerate() {
                 chapters = chapters.push(self.fold(CHAPTER_TITLES[arc][chapter], slot, || chapter_view(config, catalog, slot)));
             }
+        }
+
+        column![subsection("General", arcs), subsection("Advanced", chapters)].spacing(ROW_SPACING * 2.0).into()
+    }
+
+    pub(crate) fn idle_view<'a>(&self, unused: &'a str) -> Element<'a, Message> {
+        let mut arcs = Column::new().spacing(ROW_SPACING);
+
+        for name in ARCS {
+            arcs = arcs.push(idle_entry_row(name, unused));
+        }
+
+        let mut chapters = Column::new().spacing(ROW_SPACING);
+
+        for title in CHAPTER_TITLES.iter().flatten() {
+            let heading = row![theme::bold_text(*title).size(FOLD_TITLE_SIZE), note(unused)].spacing(FOLD_SPACING).align_y(Vertical::Bottom);
+
+            chapters = chapters.push(column![heading, rule::horizontal(1)].spacing(FOLD_SPACING));
         }
 
         column![subsection("General", arcs), subsection("Advanced", chapters)].spacing(ROW_SPACING * 2.0).into()

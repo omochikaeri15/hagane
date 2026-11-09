@@ -1,5 +1,6 @@
 mod combos;
 mod config;
+mod jailbreak;
 mod lineup;
 mod orbs;
 mod replay;
@@ -22,6 +23,7 @@ use foundry::domains::sandbox::config::CatGod;
 use foundry::systems::treasure::{Bonus, Catalog};
 use foundry::domains::sandbox::keybind::Bind;
 use foundry::domains::sandbox::altar::Altars;
+use foundry::domains::sandbox::jailbreak::Board;
 use foundry::domains::sandbox::TECHS;
 use foundry::domains::sandbox::replay as replay_tape;
 use foundry::domains::settings::{ReplaySource, SavedBcvName, ScannerConfig, Settings};
@@ -90,6 +92,7 @@ pub enum Message {
     Tick,
     Tab(SandboxTab),
     Lineup(lineup::Message),
+    Jailbreak(jailbreak::Message),
     Config(config::Message),
     Stage(stage::Message),
     FaultPopup(popup::Message),
@@ -107,6 +110,10 @@ pub enum Message {
     IgnoreVersion,
     Restamped(Result<(), String>),
     Keepsakes(u64, Vec<(Box<str>, PathBuf)>),
+}
+
+fn jailbroken(message: jailbreak::Message) -> Message {
+    Message::Jailbreak(message)
 }
 
 pub struct State {
@@ -128,6 +135,7 @@ pub struct State {
     density: f32,
     tapped: Option<std::time::Instant>,
     lineup: lineup::State,
+    jailbreak: jailbreak::State,
     config: config::State,
     replay: replay::State,
     was_running: bool,
@@ -158,6 +166,7 @@ impl Default for State {
             density: 1.0,
             tapped: None,
             lineup: lineup::State::new(0),
+            jailbreak: jailbreak::State::default(),
             config: config::State::default(),
             replay: replay::State::new(),
             was_running: false,
@@ -248,7 +257,9 @@ impl State {
 
         self.lineup.set_banner_form(settings.sandbox.banner_form);
 
-        Task::batch([self.lineup.enter(app_state, ctx).map(Message::Lineup), replays])
+        let run = self.jailbreak.refresh(&self.lineup.inspector().data.cats, &app_state.sandbox.config, ctx).map(jailbroken);
+
+        Task::batch([self.lineup.enter(app_state, ctx).map(Message::Lineup), replays, run])
     }
 
     pub(crate) fn set_castle(&mut self, castle: Option<i32>, app_state: &AppState) {
@@ -263,8 +274,66 @@ impl State {
         self.config.set_altar_gimmick(self.castle.is_some_and(|castle| self.altars.seals(castle)));
     }
 
-    pub(crate) fn set_stage_gimmicks(&mut self, cat_god: bool, war_funds: bool, expenses: bool) {
-        self.config.set_stage_gimmicks(cat_god, war_funds, expenses);
+    pub(crate) fn set_stage_gimmicks(&mut self, cat_god: bool, war_funds: bool, expenses: bool, jailbreak: bool) {
+        self.config.set_stage_gimmicks(cat_god, war_funds, expenses, jailbreak);
+    }
+
+    pub(crate) fn jailbreak_key(&self) -> Option<jailbreak::Key> {
+        self.jailbreak.key()
+    }
+
+    pub(crate) fn set_jailbreak(&mut self, key: Option<jailbreak::Key>, board: Option<Board>, app_state: &AppState, ctx: GlobalContext<'_>) -> Task<Message> {
+        self.jailbreak.set_board(key, board, &app_state.sandbox.config);
+
+        if self.jailbreak.ready() {
+            self.lineup.close();
+        }
+
+        self.jailbreak.refresh(&self.lineup.inspector().data.cats, &app_state.sandbox.config, ctx).map(jailbroken)
+    }
+
+    pub(crate) fn jailbreak_ready(&self) -> bool {
+        self.jailbreak.ready()
+    }
+
+    pub(crate) fn jailbreak_global_open(&self) -> bool {
+        self.jailbreak.global_open()
+    }
+
+    pub(crate) fn jailbreak_cat_open(&self) -> bool {
+        self.jailbreak.cat_open()
+    }
+
+    pub(crate) fn jailbreak_unit_open(&self) -> bool {
+        self.jailbreak.unit_open()
+    }
+
+    pub(crate) fn jailbreak_export_open(&self) -> bool {
+        self.jailbreak.export_open()
+    }
+
+    pub(crate) fn jailbreak_filter_open(&self) -> bool {
+        self.jailbreak.filter_open()
+    }
+
+    pub(crate) fn jailbreak_global_view(&self, window: Size) -> Option<Element<'_, Message>> {
+        self.jailbreak.global_view(window).map(|view| view.map(jailbroken))
+    }
+
+    pub(crate) fn jailbreak_cat_view(&self, window: Size) -> Option<Element<'_, Message>> {
+        self.jailbreak.cat_view(window).map(|view| view.map(jailbroken))
+    }
+
+    pub(crate) fn jailbreak_unit_view<'a>(&'a self, window: Size, settings: &'a Settings, app_state: &'a AppState, ctx: GlobalContext<'a>) -> Option<Element<'a, Message>> {
+        self.jailbreak.unit_view(window, settings, app_state, ctx).map(|view| view.map(jailbroken))
+    }
+
+    pub(crate) fn jailbreak_export_view(&self, window: Size) -> Option<Element<'_, Message>> {
+        self.jailbreak.export_view(window).map(|view| view.map(jailbroken))
+    }
+
+    pub(crate) fn jailbreak_filter_view<'a>(&'a self, window: Size, names: &'a NameBook) -> Option<Element<'a, Message>> {
+        self.jailbreak.filter_view(window, names).map(|view| view.map(jailbroken))
     }
 
     pub(crate) fn set_invadable(&mut self, registry: &StageRegistry) {
@@ -286,11 +355,15 @@ impl State {
             return iced::event::listen_with(game_key);
         }
 
-        iced::Subscription::batch([self.lineup.subscription().map(Message::Lineup), self.replay.subscription().map(Message::Replay)])
+        iced::Subscription::batch([
+            self.lineup.subscription().map(Message::Lineup),
+            self.replay.subscription().map(Message::Replay),
+            self.jailbreak.subscription().map(jailbroken),
+        ])
     }
 
     pub(crate) fn icon_stream(&mut self) -> Task<Message> {
-        self.lineup.icon_stream().map(Message::Lineup)
+        Task::batch([self.lineup.icon_stream().map(Message::Lineup), self.jailbreak.icon_stream().map(jailbroken)])
     }
 
     pub(crate) fn adopt_cats(&mut self, cats: &[CatEntry], app_state: &mut AppState, ctx: GlobalContext<'_>) -> Task<Message> {
@@ -417,6 +490,11 @@ impl State {
         }
 
         setup.speed_engaged = options.config.start_speed.engaged();
+
+        if let Some((picks, fielded)) = self.jailbreak.picks(&options.config, stage.map_id) {
+            setup.roguelike = picks;
+            setup.lineup = fielded;
+        }
 
         setup.cannon = options.config.cannon.unwrap_or(0);
         setup.style = options.config.style.unwrap_or(0);
@@ -765,6 +843,7 @@ impl State {
             }
             Message::Stage(_) => Task::none(),
             Message::Lineup(msg) => self.lineup.update(msg, settings, app_state, ctx).map(Message::Lineup),
+            Message::Jailbreak(msg) => self.jailbreak.update(msg, &self.lineup.inspector().data.cats, settings, app_state, ctx).map(jailbroken),
             Message::Config(msg) => {
                 self.config.update(msg, &mut app_state.sandbox);
                 self.clamp(app_state);
@@ -1061,6 +1140,7 @@ impl State {
             (SandboxTab::Stage, Some(staged)) => staged.map(Message::Stage),
             (SandboxTab::Config, _) => self.config.view(options, catalog, PLAY_RESERVE).map(Message::Config),
             (SandboxTab::Replay, _) => self.replay.view(PLAY_RESERVE).map(Message::Replay),
+            _ if self.jailbreak.ready() => self.jailbreak.view().map(jailbroken),
             _ => self.lineup.view(app_state).map(Message::Lineup),
         };
 
@@ -1096,7 +1176,7 @@ impl State {
         stack![page, play].into()
     }
 
-    pub(crate) fn playable(app_state: &AppState, staged: bool) -> bool {
-        staged && app_state.sandbox.roster.current().is_some_and(|lineup| !lineup.slots.is_empty())
+    pub(crate) fn playable(&self, app_state: &AppState, staged: bool) -> bool {
+        staged && (self.jailbreak.key().is_some_and(|_| self.jailbreak.ready()) || app_state.sandbox.roster.current().is_some_and(|lineup| !lineup.slots.is_empty()))
     }
 }

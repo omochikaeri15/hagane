@@ -11,12 +11,14 @@ pub struct MissionData {
     pub unlock_condition_id: i32,
     pub priority: i32,
     pub popup_condition: bool,
+    pub designation: i32,
     pub condition_setting: Option<Rc<MissionConditionSetting>>,
     pub condition: MissionCondition,
     pub items: MissionItems,
 }
 
 pub fn parse_mission_data_row(out: &mut MissionData, stm: &AssetStream<'_>) {
+    out.designation = -1;
     out.condition_setting = None;
     out.condition.values.clear();
     out.condition.gatya_setting = None;

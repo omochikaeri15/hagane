@@ -151,21 +151,18 @@ pub fn load_picture_book_files(ctx: &mut AppContext) -> Result<(), Fault> {
         let stm = &mut AssetStream::new(&bytes, b'\n');
         let mut row = 0i32;
 
-        ctx.cat_book_data.clear();
-
         while row != ctx.limits.units {
-            read_csv_row(stm);
+            let record = AppContext::UNIT_BOOK_DATA.wrapping_add((row as i64 as usize).wrapping_mul(AppContext::UNIT_BOOK_STRIDE));
 
-            ctx.cat_book_data.push([
-                read_csv_cell(stm, 0) as i32,
-                read_csv_cell(stm, 1) as i32,
-                read_csv_cell(stm, 2) as i32,
-                read_csv_cell(stm, 3) as i32,
-                read_csv_cell(stm, 4) as i32,
-                read_csv_cell(stm, 5) as i32,
-                read_csv_cell(stm, 6) as i32,
-                read_csv_cell(stm, 7) as i32,
-            ]);
+            read_csv_row(stm);
+            ctx.set_i32_at(record, read_csv_cell(stm, 0) as i32)?;
+            ctx.set_i32_at(record.wrapping_add(1 * 4), read_csv_cell(stm, 1) as i32)?;
+            ctx.set_i32_at(record.wrapping_add(2 * 4), read_csv_cell(stm, 2) as i32)?;
+            ctx.set_i32_at(record.wrapping_add(3 * 4), read_csv_cell(stm, 3) as i32)?;
+            ctx.set_i32_at(record.wrapping_add(4 * 4), read_csv_cell(stm, 4) as i32)?;
+            ctx.set_i32_at(record.wrapping_add(5 * 4), read_csv_cell(stm, 5) as i32)?;
+            ctx.set_i32_at(record.wrapping_add(6 * 4), read_csv_cell(stm, 6) as i32)?;
+            ctx.set_i32_at(record.wrapping_add(7 * 4), read_csv_cell(stm, 7) as i32)?;
             row += 1;
         }
     }

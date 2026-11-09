@@ -6,7 +6,7 @@ use super::{
     does_target, get_attack_damage, get_barrier_hp, get_base_destroyer, get_best_treasure,
     get_button_unit_form, get_cat_combo_bonus, get_colossus_orb_atk_pct, get_dodge_chance,
     get_dodge_duration, get_dodge_timer, get_entity_base_idx, get_entity_button,
-    get_explosion_immune, get_hp, get_max_hp, get_orb_value_max, get_orb_value_vs_trait,
+    get_explosion_immune, get_hp, get_max_hp, get_orb_value_max, get_orb_value_vs_trait, get_talent_value,
     get_savage_blow_boost, get_score_bonus, get_setting, get_shield_hp, get_slot_unit_id,
     get_spawn_serial, get_status_bits, get_strengthen_boost, get_strengthen_threshold,
     get_surge_immune, get_trait_kaijin, get_treasure_capped, get_wave_immune, get_weaken_active,
@@ -88,17 +88,20 @@ pub fn cat_attack_dispatch(
 
         if get_strengthen_threshold(ctx, 0, attacker)?.wrapping_mul(max_hp) >= 100 {
             let boost = get_strengthen_boost(ctx, 0, attacker)?;
-            let combo = get_cat_combo_bonus(ctx, &ctx.combo_store, 0x15, unit_id)?;
+            let combo = get_cat_combo_bonus(ctx, 0x15, unit_id)?;
 
             get_strengthen_boost(ctx, 0, attacker)?;
             damage = damage.wrapping_mul(combo.wrapping_add(boost).wrapping_add(100) as i64);
-            get_cat_combo_bonus(ctx, &ctx.combo_store, 0x15, unit_id)?;
+            get_cat_combo_bonus(ctx, 0x15, unit_id)?;
             damage = ops::div_100(damage);
         }
     }
 
     if get_status_bits(ctx, 0, attacker)? & 2 != 0 {
-        let percent = get_orb_value_max(ctx, unit_id, 0x12, 0, 0)?.wrapping_add(100) as i64;
+        let orb = get_orb_value_max(ctx, unit_id, 0x12, 0, 0)?;
+        let percent = get_talent_value(ctx, 0, unit_id, form, 0x3f0, 0)?
+            .wrapping_add(orb)
+            .wrapping_add(100) as i64;
 
         damage = ops::div_100(damage.wrapping_mul(percent));
     }
@@ -153,13 +156,17 @@ pub fn cat_attack_dispatch(
                     orb = get_orb_value_vs_trait(ctx, unit_id, 2, 0, &traits, 0)?;
                 }
 
-                let combo = get_cat_combo_bonus(ctx, &ctx.combo_store, 0xe, unit_id)?;
+                let effect_up = get_talent_value(ctx, 0, unit_id, form, 0x3e9, 0)?;
+                let combo = get_cat_combo_bonus(ctx, 0xe, unit_id)?;
 
-                damage = ops::div_1000(
-                    damage.wrapping_mul(treasure.wrapping_add(orb).wrapping_add(0x5dc) as i64),
-                );
+                damage = ops::div_1000(damage.wrapping_mul(
+                    treasure
+                        .wrapping_add(orb)
+                        .wrapping_add(effect_up.wrapping_mul(5).wrapping_mul(2))
+                        .wrapping_add(0x5dc) as i64,
+                ));
                 damage = (combo.wrapping_add(100) as i64).wrapping_mul(damage);
-                get_cat_combo_bonus(ctx, &ctx.combo_store, 0xe, unit_id)?;
+                get_cat_combo_bonus(ctx, 0xe, unit_id)?;
 
                 let scoring = score_bonus_active(ctx)?;
 
@@ -181,13 +188,17 @@ pub fn cat_attack_dispatch(
                     orb = get_orb_value_vs_trait(ctx, unit_id, 3, 0, &traits, 0)?;
                 }
 
-                let combo = get_cat_combo_bonus(ctx, &ctx.combo_store, 0xf, unit_id)?;
+                let effect_up = get_talent_value(ctx, 0, unit_id, form, 0x3ea, 0)?;
+                let combo = get_cat_combo_bonus(ctx, 0xf, unit_id)?;
 
-                damage = ops::div_300(
-                    damage.wrapping_mul(treasure.wrapping_add(orb).wrapping_add(0x384) as i64),
-                );
+                damage = ops::div_300(damage.wrapping_mul(
+                    effect_up
+                        .wrapping_mul(3)
+                        .wrapping_add(treasure.wrapping_add(orb))
+                        .wrapping_add(0x384) as i64,
+                ));
                 damage = (combo.wrapping_add(100) as i64).wrapping_mul(damage);
-                get_cat_combo_bonus(ctx, &ctx.combo_store, 0xf, unit_id)?;
+                get_cat_combo_bonus(ctx, 0xf, unit_id)?;
 
                 let scoring = score_bonus_active(ctx)?;
 
@@ -244,22 +255,22 @@ pub fn cat_attack_dispatch(
         }
 
         if has_witch_slayer(ctx, 0, attacker)? && is_witch(ctx, 1, target)? {
-            let combo = get_cat_combo_bonus(ctx, &ctx.combo_store, 0x16, unit_id)?;
+            let combo = get_cat_combo_bonus(ctx, 0x16, unit_id)?;
 
             damage = damage
                 .wrapping_mul(combo.wrapping_add(100) as i64)
                 .wrapping_mul(5);
-            get_cat_combo_bonus(ctx, &ctx.combo_store, 0x16, unit_id)?;
+            get_cat_combo_bonus(ctx, 0x16, unit_id)?;
             damage = ops::div_100(damage);
         }
 
         if has_eva_killer(ctx, 0, attacker)? && is_eva_angel(ctx, 1, target)? {
-            let combo = get_cat_combo_bonus(ctx, &ctx.combo_store, 0x17, unit_id)?;
+            let combo = get_cat_combo_bonus(ctx, 0x17, unit_id)?;
 
             damage = damage
                 .wrapping_mul(combo.wrapping_add(100) as i64)
                 .wrapping_mul(5);
-            get_cat_combo_bonus(ctx, &ctx.combo_store, 0x17, unit_id)?;
+            get_cat_combo_bonus(ctx, 0x17, unit_id)?;
             damage = ops::div_100(damage);
         }
 
@@ -288,7 +299,7 @@ pub fn cat_attack_dispatch(
             damage = ops::div_1000(damage);
         }
 
-        let kaijin_combo = get_cat_combo_bonus(ctx, &ctx.combo_store, 0x19, unit_id)?;
+        let kaijin_combo = get_cat_combo_bonus(ctx, 0x19, unit_id)?;
 
         if kaijin_combo > 0 && get_trait_kaijin(ctx, 1, target)? {
             damage = ops::div_1000(damage.wrapping_mul(kaijin_combo as u32 as i64));

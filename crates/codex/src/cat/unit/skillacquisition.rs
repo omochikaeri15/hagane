@@ -45,6 +45,12 @@ pub struct TalentGroup {
 }
 
 impl TalentGroup {
+    pub const COMBO_TALENT: u8 = 73;
+
+    pub fn combo_line(&self) -> Option<usize> {
+        (self.ability_id == Self::COMBO_TALENT).then_some(usize::from(self.min_1))
+    }
+
     pub fn calculate_value(min: u16, max: u16, level: u8, max_level: u8) -> i32 {
         if level == 0 { return 0; }
         if max_level <= 1 { return min as i32; }

@@ -124,6 +124,14 @@ pub enum God {
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq, Eq)]
+#[serde(default)]
+pub struct Jailbreak {
+    pub roster: Vec<(bool, i32)>,
+    pub bonuses: Vec<(i32, i32)>,
+    pub cannon: i32,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq, Eq)]
 pub struct Setup {
     pub stage: Stage,
     pub lineup: Vec<Unit>,
@@ -143,6 +151,8 @@ pub struct Setup {
     pub war_funds: i32,
     #[serde(default)]
     pub expenses: i32,
+    #[serde(default)]
+    pub jailbreak: Jailbreak,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]

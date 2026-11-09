@@ -2,7 +2,7 @@ use std::collections::BTreeMap;
 
 use crate::Fault;
 
-use super::{AppContext, charagroup_has_unit};
+use super::{AppContext, charagroup_has_unit, is_roguelike_map, roguelike_combo_values};
 
 #[derive(Clone, Default, PartialEq, Eq, Debug)]
 pub struct NyancomboRecord {
@@ -36,14 +36,13 @@ pub struct ComboStore {
 }
 
 pub fn get_cat_combo_bonus(
-    ctx: &AppContext,
-    table: &ComboStore,
+    ctx: &mut AppContext,
     kind: i32,
     unit_id: i32,
 ) -> Result<i32, Fault> {
     let mut bonus = 0i32;
 
-    for record in &table.records {
+    for record in &ctx.combo_store.records {
         if record.enabled == 0 || record.effect_count <= 0 {
             continue;
         }
@@ -69,7 +68,8 @@ pub fn get_cat_combo_bonus(
                 let power = *effects
                     .get((effect + 3) as usize)
                     .ok_or(Fault::index_out_of_range(effect, 4))?;
-                let value = table
+                let value = ctx
+                    .combo_store
                     .params
                     .get(kind as usize)
                     .and_then(|powers| powers.get(power as usize))
@@ -84,6 +84,12 @@ pub fn get_cat_combo_bonus(
                 break;
             }
         }
+    }
+
+    if is_roguelike_map(ctx, -1, -1)?
+        && let Some((total, _)) = roguelike_combo_values(ctx, kind, unit_id, -1, -1)?
+    {
+        bonus = bonus.wrapping_add(total);
     }
 
     Ok(bonus)

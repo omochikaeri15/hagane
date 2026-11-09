@@ -102,14 +102,14 @@ impl Bonus {
         (TraitBonus(low), TraitBonus(high))
     }
 
-    pub fn fruit_frames(&self, stats: &Entity, frames: i32) -> (i32, i32) {
+    pub fn fruit_frames(&self, stats: &Entity, frames: i32, raise: i32) -> (i32, i32) {
         if stats.faction != Faction::Cat {
             return (frames, frames);
         }
 
         let (low, high) = self.fruit_span(stats);
 
-        (low.scale_duration(frames), high.scale_duration(frames))
+        (low.scale_duration(frames, raise), high.scale_duration(frames, raise))
     }
 
     pub fn strength(&self, stats: &Entity, percent: i32) -> f32 {

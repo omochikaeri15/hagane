@@ -257,7 +257,8 @@ impl DiskAssets {
     }
 
     fn backfill(&self, name: &str, own: Vec<u8>) -> Vec<u8> {
-        let Some((head, extension)) = stripped(name).filter(|(_, extension)| TABLE_KINDS.contains(extension)) else {
+        let keyed = name.rsplit_once('.').filter(|(head, _)| KEYED_TABLES.contains(head));
+        let Some((head, extension)) = stripped(name).or(keyed).filter(|(_, extension)| TABLE_KINDS.contains(extension)) else {
             return own;
         };
 

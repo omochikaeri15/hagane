@@ -6,6 +6,7 @@ use dioxus::prelude::*;
 
 use foundry::common::frames;
 use foundry::domains::cat::scanner::{self, CatEntry};
+use foundry::domains::sandbox::jailbreak::Board;
 use foundry::domains::sandbox::replay::{Save, Unit};
 
 use crate::domains::cat::{self, SelectedCat};
@@ -240,6 +241,7 @@ pub(crate) fn Replays(globals: Shared, cats: Option<Cats>) -> Element {
     let shelf = use_memo(use_reactive!(|shared| Shelf(Rc::new(Book::load(&shared)))));
     let shelf = shelf();
     let mut open: Signal<Option<usize>> = use_signal(|| None);
+    let mut shown: Signal<Option<Rc<CatEntry>>> = use_signal(|| None);
     let mut clicked: Signal<Option<(usize, f64)>> = use_signal(|| None);
     let latest = (battle.latest)();
     let exporting = (battle.exporting)();
@@ -303,7 +305,12 @@ pub(crate) fn Replays(globals: Shared, cats: Option<Cats>) -> Element {
     let compression_platform = platform.clone();
     let uploader = platform.clone();
     let deleter = platform.clone();
-    let opened = open().and_then(|slot| tiles.get(slot).cloned()).and_then(|tile| cat_of(tile.id).cloned().map(|cat| (tile, Rc::new(cat))));
+    let opened = open().and_then(|slot| tiles.get(slot).cloned()).and_then(|tile| {
+        let granted = shown().filter(|cat| cat.id == tile.id);
+
+        granted.or_else(|| cat_of(tile.id).cloned().map(Rc::new)).map(|cat| (tile, cat))
+    });
+    let recorded = Rc::new(save.map(|save| (save.setup.stage.map_id, save.setup.stage.crown, save.setup.jailbreak.clone())));
 
     rsx! {
         div { class: "replay-page scroll",
@@ -367,6 +374,8 @@ pub(crate) fn Replays(globals: Shared, cats: Option<Cats>) -> Element {
                                             let presser = platform.clone();
                                             let seeded = held.clone();
                                             let roster = roster.clone();
+                                            let recorded = Rc::clone(&recorded);
+                                            let tables = globals.clone();
 
                                             rsx! {
                                                 div {
@@ -378,8 +387,24 @@ pub(crate) fn Replays(globals: Shared, cats: Option<Cats>) -> Element {
                                                         let doubled = clicked.take().is_some_and(|(held, at)| held == slot && now - at <= DOUBLE_CLICK_MS);
 
                                                         if doubled {
-                                                            if let Some(cat) = roster.as_ref().and_then(|roster| roster.iter().find(|cat| cat.id == seeded.id)) {
-                                                                cat_state.seed(cat, seeded.form, &seeded.inspected, &talent_levels(cat, &seeded.talents));
+                                                            if let Some((roster, cat)) = roster.as_ref().and_then(|roster| Some((roster, roster.iter().find(|cat| cat.id == seeded.id)?))) {
+                                                                let grants = recorded.as_ref().as_ref().and_then(|(map_id, crown, picks)| {
+                                                                    let board = Board::load(tables.0.context(), roster, *map_id, *crown)?;
+                                                                    let run = board.run_from(&picks.roster, &picks.bonuses, picks.cannon);
+
+                                                                    Some(board.grants(&run, seeded.id))
+                                                                });
+                                                                let mut cat = cat.clone();
+
+                                                                if let Some(grants) = grants.as_ref() {
+                                                                    cat.talent_data = (!grants.talent.groups.is_empty()).then(|| grants.talent.clone());
+                                                                }
+
+                                                                let levels = grants.as_ref().map_or_else(|| talent_levels(&cat, &seeded.talents), |grants| grants.levels.clone());
+
+                                                                cat_state.seed(&cat, seeded.form, &seeded.inspected, &levels);
+                                                                cat_state.granted.set(grants.map(Rc::new));
+                                                                shown.set(Some(Rc::new(cat)));
                                                             }
 
                                                             open.set(Some(slot));

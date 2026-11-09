@@ -1,5 +1,5 @@
 use emulator::java::{self, Activity};
-use emulator::runtime::{BattleOptions, CatGod, PartLevels, Seeds, Setup, SetupUnit, StageEntry, StageVariant, TechLevel, TutorialFlags};
+use emulator::runtime::{BattleOptions, CatGod, PartLevels, RoguelikePicks, RosterPick, Seeds, Setup, SetupUnit, StageEntry, StageVariant, TechLevel, TutorialFlags};
 use foundry::domains::sandbox::replay::{self as tape, Key};
 
 use super::keys::Action;
@@ -127,6 +127,19 @@ pub fn setup_to(setup: &Setup, map_name: &str, stage_name: &str) -> tape::Setup 
         },
         war_funds: setup.war_funds,
         expenses: setup.expenses,
+        jailbreak: tape::Jailbreak {
+            roster: setup
+                .roguelike
+                .roster
+                .iter()
+                .map(|pick| match pick {
+                    RosterPick::Starter(unit) => (true, *unit),
+                    RosterPick::Recruit(chara) => (false, *chara),
+                })
+                .collect(),
+            bonuses: setup.roguelike.buffs.clone(),
+            cannon: setup.roguelike.cannon,
+        },
     }
 }
 
@@ -184,6 +197,11 @@ pub fn setup_from(saved: &tape::Setup) -> Setup {
         },
         war_funds: saved.war_funds,
         expenses: saved.expenses,
+        roguelike: RoguelikePicks {
+            roster: saved.jailbreak.roster.iter().map(|(starter, id)| if *starter { RosterPick::Starter(*id) } else { RosterPick::Recruit(*id) }).collect(),
+            buffs: saved.jailbreak.bonuses.clone(),
+            cannon: saved.jailbreak.cannon,
+        },
         ..Setup::default()
     };
 

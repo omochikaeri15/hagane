@@ -9,6 +9,7 @@ use foundry::domains::cat::combo::{self, CatCombo};
 use foundry::domains::cat::filter::evaluation::entity_passes_filter;
 use foundry::domains::cat::game::stats::{get_final_stats, seeded_level};
 use foundry::domains::cat::scanner::{self, CatEntry};
+use foundry::domains::sandbox::jailbreak::Runs;
 use foundry::domains::sandbox::orb::{self, Allowance, Kind};
 use foundry::domains::sandbox::{BENCH_SLOTS, Cell, Edge, LINEUP_SLOTS, Lineup, Member, Placed, Roster, mount_of};
 use foundry::systems::treasure::Bonus;
@@ -19,15 +20,15 @@ use crate::roster::Entry;
 use crate::{AppWindow, Cats, ComboRow, ComboSample, DeckCell, OrbSlot, Sandbox, SavedRow};
 
 use super::orbs::{BEST_GRADE, Book};
-use super::{Shared, Staging, refresh};
+use super::{Shared, Staging, jailbreak, refresh};
 
 const NP_ICON: &str = "gatyaitemD_07_f.png";
 const DOUBLE_TAP: Duration = Duration::from_millis(400);
 const DROP_GUARD: Duration = Duration::from_millis(400);
 const FIRST_TALENT_FORM: usize = 2;
 const CONFIRM_MS: u64 = 2000;
-const CONFIRM_LABEL: &str = "Sure?";
-const DELETE_LABEL: &str = "Delete";
+pub(super) const CONFIRM_LABEL: &str = "Sure?";
+pub(super) const DELETE_LABEL: &str = "Delete";
 const EVERY_KIND: &str = "All Types";
 const ANY_STRENGTH: &str = "Any Strength";
 const BANNED_NOTE: &str = "Disabled on this stage";
@@ -45,7 +46,7 @@ struct Priced {
     talented: bool,
 }
 
-fn matches(cat: &CatEntry, query: &str) -> bool {
+pub(super) fn matches(cat: &CatEntry, query: &str) -> bool {
     cat.base_id_str().contains(query) || cat.names.iter().flatten().any(|name| name.to_lowercase().contains(query))
 }
 
@@ -127,6 +128,10 @@ pub fn edit(state: &Shared, context: &Rc<Context>, change: impl FnOnce(&mut Rost
 }
 
 pub fn fill_roster(ui: &AppWindow, state: &Shared, context: &Rc<Context>) {
+    if jailbreak::editing(state) {
+        return jailbreak::fill_roster(ui, state, context);
+    }
+
     let Some(cats) = state.borrow().cats.clone() else {
         return;
     };
@@ -159,6 +164,10 @@ fn shown_rows(state: &Shared, context: &Rc<Context>, cats: &[CatEntry]) -> Vec<u
 }
 
 pub fn refilter(ui: &AppWindow, state: &Shared, context: &Rc<Context>) {
+    if jailbreak::editing(state) {
+        return jailbreak::fill_roster(ui, state, context);
+    }
+
     let Some(cats) = state.borrow().cats.clone() else {
         return;
     };
@@ -178,7 +187,7 @@ fn edge_of(after: bool) -> Edge {
     if after { Edge::After } else { Edge::Before }
 }
 
-fn show_deck(ui: &AppWindow, state: &Shared) {
+pub(super) fn show_deck(ui: &AppWindow, state: &Shared) {
     let sandbox = ui.global::<Sandbox>();
     let held = state.borrow();
     let resting = |cell: Cell| {
@@ -210,7 +219,7 @@ fn open_unit(ui: &AppWindow, state: &Shared, context: &Rc<Context>, cell: Cell, 
         return;
     };
 
-    cats::seed_member(ui, &pages.cats, context, cats::Seed { cat: &cat, form: member.form, level: &member.level, talents: &member.talents, locked: false });
+    cats::seed_member(ui, &pages.cats, context, cats::Seed { cat: &cat, form: member.form, level: &member.level, talents: &member.talents, locked: false, grants: None });
 
     let landing = Rc::clone(state);
     let ctx = Rc::clone(context);
@@ -300,6 +309,13 @@ pub fn wire(window: &AppWindow, state: &Shared, context: &Rc<Context>) {
         };
         let id = id.max(0) as u32;
 
+        if jailbreak::editing(&held) {
+            jailbreak::recruit(&held, id);
+            refresh(&ui, &held, &ctx);
+
+            return;
+        }
+
         edit(&held, &ctx, |roster| {
             if let Some(member) = recruit(&held, &ctx, roster, id, None) {
                 roster.current_mut().add(member);
@@ -329,6 +345,16 @@ pub fn wire(window: &AppWindow, state: &Shared, context: &Rc<Context>) {
         let Some(ui) = weak.upgrade() else {
             return;
         };
+        if jailbreak::editing(&held) {
+            if from >= 0 {
+                jailbreak::hovered(&held, cell_at(from, from_bench), (to >= 0).then(|| cell_at(to, to_bench)), edge_of(after));
+            }
+
+            show_deck(&ui, &held);
+
+            return;
+        }
+
         let plan = if from >= 0 && to >= 0 {
             held.borrow().saved().roster.current().and_then(|lineup| lineup.arrange(Some(cell_at(from, from_bench)), cell_at(to, to_bench), edge_of(after)))
         } else {
@@ -351,6 +377,14 @@ pub fn wire(window: &AppWindow, state: &Shared, context: &Rc<Context>) {
             return;
         }
         let cell = cell_at(index, bench);
+
+        if jailbreak::editing(&held) {
+            jailbreak::tapped(&ui, &held, &ctx, cell);
+            refresh(&ui, &held, &ctx);
+
+            return;
+        }
+
         let member = held.borrow().saved().roster.current().and_then(|lineup| lineup.get(cell).cloned());
 
         if let Some(member) = member {
@@ -366,7 +400,9 @@ pub fn wire(window: &AppWindow, state: &Shared, context: &Rc<Context>) {
         dropped_at.set(Some(Instant::now()));
         held.borrow_mut().plan = None;
 
-        if from != to {
+        if jailbreak::editing(&held) {
+            jailbreak::dropped(&held, from, to, edge_of(after));
+        } else if from != to {
             edit(&held, &ctx, |roster| {
                 let lineup = roster.current_mut();
 
@@ -386,9 +422,14 @@ pub fn wire(window: &AppWindow, state: &Shared, context: &Rc<Context>) {
     sandbox.on_cell_discarded(move |index, bench| {
         dropped_at.set(Some(Instant::now()));
         held.borrow_mut().plan = None;
-        edit(&held, &ctx, |roster| {
-            roster.current_mut().take(cell_at(index, bench));
-        });
+
+        if jailbreak::editing(&held) {
+            jailbreak::discarded(&held, cell_at(index, bench));
+        } else {
+            edit(&held, &ctx, |roster| {
+                roster.current_mut().take(cell_at(index, bench));
+            });
+        }
 
         if let Some(ui) = weak.upgrade() {
             refresh(&ui, &held, &ctx);
@@ -463,7 +504,12 @@ pub fn wire(window: &AppWindow, state: &Shared, context: &Rc<Context>) {
 
     let (held, ctx, weak) = on(state, context, window);
     sandbox.on_lineup_new(move || {
-        edit(&held, &ctx, Roster::create);
+        if jailbreak::editing(&held) {
+            jailbreak::shelve(&held, Runs::create);
+        } else {
+            edit(&held, &ctx, Roster::create);
+        }
+
         held.borrow_mut().deleting = false;
 
         if let Some(ui) = weak.upgrade() {
@@ -497,7 +543,13 @@ pub fn wire(window: &AppWindow, state: &Shared, context: &Rc<Context>) {
         }
 
         held.borrow_mut().deleting = false;
-        edit(&held, &ctx, Roster::delete);
+
+        if jailbreak::editing(&held) {
+            jailbreak::shelve(&held, Runs::delete);
+        } else {
+            edit(&held, &ctx, Roster::delete);
+        }
+
         refresh(&ui, &held, &ctx);
     });
 
@@ -505,11 +557,16 @@ pub fn wire(window: &AppWindow, state: &Shared, context: &Rc<Context>) {
     sandbox.on_lineup_pick(move |index| {
         let index = index.max(0) as usize;
 
-        edit(&held, &ctx, |roster| {
-            if index < roster.lineups.len() {
-                roster.selected = index;
-            }
-        });
+        if jailbreak::editing(&held) {
+            jailbreak::shelve(&held, |runs| runs.load(index));
+        } else {
+            edit(&held, &ctx, |roster| {
+                if index < roster.lineups.len() {
+                    roster.selected = index;
+                }
+            });
+        }
+
         held.borrow_mut().deleting = false;
 
         if let Some(ui) = weak.upgrade() {
@@ -519,7 +576,11 @@ pub fn wire(window: &AppWindow, state: &Shared, context: &Rc<Context>) {
 
     let (held, ctx, weak) = on(state, context, window);
     sandbox.on_lineup_renamed(move |name| {
-        edit(&held, &ctx, |roster| roster.current_mut().name = name.to_string());
+        if jailbreak::editing(&held) {
+            jailbreak::shelve(&held, |runs| runs.current_mut().name = name.to_string());
+        } else {
+            edit(&held, &ctx, |roster| roster.current_mut().name = name.to_string());
+        }
 
         if let Some(ui) = weak.upgrade() {
             refresh(&ui, &held, &ctx);
@@ -538,6 +599,7 @@ pub fn wire(window: &AppWindow, state: &Shared, context: &Rc<Context>) {
     let (held, ctx, weak) = on(state, context, window);
     sandbox.on_unit_closed(move || {
         close_unit(&held, &ctx);
+        held.borrow_mut().jail_viewing = None;
 
         if let Some(ui) = weak.upgrade() {
             ui.global::<Sandbox>().set_orb_open(false);
@@ -730,7 +792,7 @@ fn tallest_looking(combos: &[(&CatCombo, Option<&str>)]) -> Vec<ComboSample> {
         .collect()
 }
 
-fn sync_combos(ui: &AppWindow, context: &Rc<Context>, cats: &[CatEntry], lineup: &Lineup, staging: Option<&Staging>, focus: Option<(u32, usize)>, filters: &ComboFilters) {
+pub(super) fn sync_combos(ui: &AppWindow, context: &Rc<Context>, cats: &[CatEntry], lineup: &Lineup, staging: Option<&Staging>, focus: Option<(u32, usize)>, filters: &ComboFilters) {
     let sandbox = ui.global::<Sandbox>();
     let images = &context.images;
     let Some(globals) = context.globals() else {
@@ -738,6 +800,7 @@ fn sync_combos(ui: &AppWindow, context: &Rc<Context>, cats: &[CatEntry], lineup:
     };
     let vault = context.engine.vault();
     let rows = vault.vds.cats.combos(&vault.vfs);
+    let unlocked = lineup.unlocked(&vault.vds.cats.talents(&vault.vfs));
     let every = combo::every(globals.context(&vault), cats);
     let mut kinds: Vec<(i32, SharedString)> = Vec::new();
     let mut bands: Vec<(i32, SharedString)> = Vec::new();
@@ -781,7 +844,7 @@ fn sync_combos(ui: &AppWindow, context: &Rc<Context>, cats: &[CatEntry], lineup:
         .into_iter()
         .map(|combo| {
             let banned = staging.is_some_and(|staging| staging.rules.bans(combo.effect_type));
-            let active = !banned && rows.get(combo.line).is_some_and(|row| lineup.active(row));
+            let active = !banned && rows.get(combo.line).is_some_and(|row| lineup.powers(combo.line, row, &unlocked));
 
             (combo, active, banned)
         })
@@ -849,6 +912,10 @@ fn sync_combos(ui: &AppWindow, context: &Rc<Context>, cats: &[CatEntry], lineup:
 }
 
 pub fn sync(ui: &AppWindow, state: &Shared, context: &Rc<Context>, staging: Option<&Staging>) {
+    if jailbreak::editing(state) {
+        return jailbreak::sync_tab(ui, state, context, staging);
+    }
+
     let sandbox = ui.global::<Sandbox>();
     let Some(cats) = state.borrow().cats.clone() else {
         return;
