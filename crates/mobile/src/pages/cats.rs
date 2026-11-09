@@ -1119,7 +1119,32 @@ fn apply(state: &Shared, context: &Rc<Context>, cat: &CatEntry, form: Option<usi
     }
 }
 
+pub fn lent(state: &Shared, id: u32) -> bool {
+    let held = state.borrow();
+
+    held.locked && held.selected == Some(id)
+}
+
 pub fn entered(ui: &AppWindow, state: &Shared, context: &Rc<Context>) {
+    let lent = state.borrow().locked || state.borrow().granted.is_some();
+
+    if lent {
+        let remembered = context.memory.get();
+        let wanted = remembered.last_cat.or(state.borrow().selected).filter(|id| state.borrow().cat(*id).is_some());
+
+        {
+            let mut held = state.borrow_mut();
+
+            held.locked = false;
+            held.granted = None;
+            held.seeded_for = None;
+        }
+
+        if let Some(id) = wanted {
+            return select(ui, state, context, id, Some(remembered.last_cat_form));
+        }
+    }
+
     let shown = state.borrow().selected.and_then(|id| state.borrow().cat(id));
 
     if shown.is_some() {

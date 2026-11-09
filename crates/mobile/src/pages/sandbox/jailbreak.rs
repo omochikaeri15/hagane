@@ -193,7 +193,7 @@ fn show(ui: &AppWindow, state: &Shared, context: &Rc<Context>, member: &Member, 
         return;
     };
 
-    if unchanged {
+    if unchanged && cats::lent(&pages.cats, member.id) {
         return;
     }
 
