@@ -1,5 +1,5 @@
 use std::collections::HashMap;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use iced::alignment::{Horizontal, Vertical};
 use iced::widget::image::Handle;
@@ -49,6 +49,7 @@ const COUNT_WIDTH: f32 = 30.0;
 const TILE_PADDING: [f32; 2] = [4.0, 6.0];
 const RAIL_WIDTH: f32 = 8.0;
 const RAIL_MARGIN: f32 = 2.0;
+const HOLD: Duration = Duration::from_millis(700);
 const NO_BONUSES: &str = "No bonus matches";
 
 pub type Key = (i32, i32, u64, usize);
@@ -90,6 +91,7 @@ pub enum Message {
     DragMove(Point),
     DragEnd,
     DragCancel,
+    Held,
     Raise(i32, i32),
     GlobalQuery(String),
     CatQuery(String),
@@ -144,6 +146,7 @@ pub struct State {
     area: Size,
     metrics: Metrics,
     clicked: Option<(Cell, Instant)>,
+    holding: Confirm<Cell>,
     icons: HashMap<(u32, usize), Handle>,
     decoded: header_icon::Cache,
     bonus_icons: ability_icon::Cache,
@@ -183,6 +186,7 @@ impl Default for State {
             area: Size::ZERO,
             metrics: Metrics::FULL,
             clicked: None,
+            holding: Confirm::default(),
             icons: HashMap::new(),
             decoded: header_icon::Cache::default(),
             bonus_icons: ability_icon::Cache::default(),
@@ -289,7 +293,9 @@ impl State {
 
         let cannon = board.cannon(&run);
 
-        Some((RoguelikePicks { roster, buffs: run.bonuses.into_iter().collect(), cannon }, fielded))
+        let registered = board.registered(&run);
+
+        Some((RoguelikePicks { roster, buffs: run.bonuses.into_iter().collect(), cannon, registered }, fielded))
     }
 
     fn settle(&mut self, config: &Config) {
@@ -549,19 +555,24 @@ impl State {
                 Task::none()
             }
             Message::PressCell(cell) => {
-                if self.lineup.get(cell).is_some() {
-                    self.drag = Drag::Pressed { cargo: Cargo::Held(cell), since: Instant::now(), from: None };
+                if self.lineup.get(cell).is_none() {
+                    return Task::none();
                 }
 
-                Task::none()
+                self.drag = Drag::Pressed { cargo: Cargo::Held(cell), since: Instant::now(), from: None };
+
+                self.holding.set_after(cell, Message::Held, HOLD)
             }
             Message::DragMove(at) => {
                 self.drag = match self.drag {
                     Drag::Pressed { cargo, since, from } => {
                         let origin = from.unwrap_or(at);
                         let strayed = (at.x - origin.x).abs() > SLACK || (at.y - origin.y).abs() > SLACK;
+                        let ripe = matches!(cargo, Cargo::Fresh(_)) && since.elapsed() >= RIPE;
 
-                        if strayed || since.elapsed() >= RIPE {
+                        if strayed || ripe {
+                            self.holding.clear();
+
                             let landing = self.landing(at);
                             let lifted = match cargo {
                                 Cargo::Held(cell) => Some(cell),
@@ -592,12 +603,32 @@ impl State {
             Message::DragCancel => {
                 self.drag = Drag::Idle;
                 self.plan = None;
+                self.holding.clear();
+
+                Task::none()
+            }
+            Message::Held => {
+                let held = self.holding.get().copied();
+
+                self.holding.expire();
+
+                if let (Some(cell), Drag::Pressed { cargo: Cargo::Held(pressed), .. }) = (held, self.drag)
+                    && cell == pressed
+                    && let Some(unit) = self.lineup.get(cell).map(|member| member.id)
+                {
+                    self.drag = Drag::Idle;
+                    self.plan = None;
+                    self.clicked = None;
+                    self.edit(&mut app_state.sandbox.config, |board, run| board.toggle_registered(run, unit));
+                }
 
                 Task::none()
             }
             Message::DragEnd => {
                 let settled = std::mem::take(&mut self.drag);
                 let plan = self.plan.take();
+
+                self.holding.clear();
 
                 match settled {
                     Drag::Pressed { cargo: Cargo::Fresh(id), .. } => self.edit(&mut app_state.sandbox.config, |board, run| board.add(run, id)),
@@ -844,7 +875,14 @@ impl State {
         let (level, plus) = member.levels(None);
         let shown = if plus > 0 { format!("Lv{level}+{plus}") } else { format!("Lv{level}") };
         let badge = container(cell_badge(shown, metrics.text(BADGE_SIZE))).width(Length::Fill).height(Length::Fill).align_x(Horizontal::Right).align_y(Vertical::Top);
-        let tile = stack![container(face).width(width).height(height).style(frame), badge].width(width).height(height);
+        let mut tile = stack![container(face).width(width).height(height).style(frame), badge].width(width).height(height);
+
+        if self.run.registered.contains(&member.id) {
+            let registered = cell_badge(rules::REGISTERED.to_owned(), metrics.text(BADGE_SIZE));
+
+            tile = tile.push(container(registered).width(Length::Fill).height(Length::Fill).align_x(Horizontal::Left).align_y(Vertical::Top));
+        }
+
 
         mouse_area(tile).interaction(mouse::Interaction::Grab).on_press(Message::PressCell(cell)).into()
     }

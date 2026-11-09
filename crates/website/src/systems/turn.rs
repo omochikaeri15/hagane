@@ -157,6 +157,10 @@ impl Turn {
         (class, format!("--turn-width: {height}px; --turn-height: {width}px; --turn-shift: {width}px; --turn-drop: {height}px;"))
     }
 
+    pub(crate) fn turned(self) -> bool {
+        self.frame().0.is_some()
+    }
+
     fn engaged(self) -> Option<(Spin, Viewport)> {
         let viewport = *self.viewport.peek();
 

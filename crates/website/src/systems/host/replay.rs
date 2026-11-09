@@ -134,6 +134,7 @@ pub fn setup_to(setup: &Setup, map_name: &str, stage_name: &str) -> tape::Setup 
                 .collect(),
             bonuses: setup.roguelike.buffs.clone(),
             cannon: setup.roguelike.cannon,
+            registered: setup.roguelike.registered.clone(),
         },
     }
 }
@@ -177,6 +178,7 @@ pub fn setup_from(saved: &tape::Setup) -> Setup {
             roster: saved.jailbreak.roster.iter().map(|(starter, id)| if *starter { RosterPick::Starter(*id) } else { RosterPick::Recruit(*id) }).collect(),
             buffs: saved.jailbreak.bonuses.clone(),
             cannon: saved.jailbreak.cannon,
+            registered: saved.jailbreak.registered.clone(),
         },
         ..Setup::default()
     };

@@ -499,7 +499,7 @@ impl State {
         let setup = &staged.summary.save.as_ref()?.setup;
         let scoped = GlobalContext { vault: &staged.vault, treasure: &self.treasure, names: &self.glossary, ..ctx };
         let board = Board::load(scoped, &staged.cats, setup.stage.map_id, setup.stage.crown)?;
-        let run = board.run_from(&setup.jailbreak.roster, &setup.jailbreak.bonuses, setup.jailbreak.cannon);
+        let run = board.run_from(&setup.jailbreak.roster, &setup.jailbreak.bonuses, setup.jailbreak.cannon, &setup.jailbreak.registered);
 
         Some((board, run))
     }

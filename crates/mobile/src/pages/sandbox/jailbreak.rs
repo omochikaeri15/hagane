@@ -62,7 +62,9 @@ pub fn picks(saved: &Saved, board: &Board) -> (RoguelikePicks, Vec<SetupUnit>) {
 
     let cannon = board.cannon(&run);
 
-    (RoguelikePicks { roster, buffs: run.bonuses.into_iter().collect(), cannon }, fielded)
+    let registered = board.registered(&run);
+
+    (RoguelikePicks { roster, buffs: run.bonuses.into_iter().collect(), cannon, registered }, fielded)
 }
 
 fn edit(state: &Shared, board: &Board, change: impl FnOnce(&Board, &mut Run)) {
@@ -122,7 +124,7 @@ pub fn fill_roster(ui: &AppWindow, state: &Shared, context: &Rc<Context>) {
     ui.global::<Sandbox>().set_roster_count(rows.len() as i32);
 }
 
-fn cell_of(context: &Rc<Context>, cats: &[CatEntry], member: Option<&Member>) -> DeckCell {
+fn cell_of(context: &Rc<Context>, cats: &[CatEntry], run: &Run, member: Option<&Member>) -> DeckCell {
     let Some(member) = member else {
         return DeckCell::default();
     };
@@ -137,6 +139,7 @@ fn cell_of(context: &Rc<Context>, cats: &[CatEntry], member: Option<&Member>) ->
 
     DeckCell {
         filled: true,
+        registered: run.registered.contains(&member.id),
         has_icon: icon.is_some(),
         icon: icon.unwrap_or_default(),
         fallback: format!("{:03}-{}", member.id, member.form + 1).into(),
@@ -151,8 +154,8 @@ pub fn sync_deck(ui: &AppWindow, state: &Shared, context: &Rc<Context>) {
     };
     let run = run(&state.borrow().saved(), &board);
     let lineup = board.lineup(&run);
-    let slots: Vec<DeckCell> = (0..LINEUP_SLOTS).map(|index| cell_of(context, &cats, lineup.slots.get(index))).collect();
-    let bench: Vec<DeckCell> = (0..BENCH_SLOTS).map(|index| cell_of(context, &cats, lineup.bench.get(index).and_then(Option::as_ref))).collect();
+    let slots: Vec<DeckCell> = (0..LINEUP_SLOTS).map(|index| cell_of(context, &cats, &run, lineup.slots.get(index))).collect();
+    let bench: Vec<DeckCell> = (0..BENCH_SLOTS).map(|index| cell_of(context, &cats, &run, lineup.bench.get(index).and_then(Option::as_ref))).collect();
     let sandbox = ui.global::<Sandbox>();
 
     state.borrow_mut().resting = (slots, bench);
@@ -353,6 +356,18 @@ pub fn dropped(state: &Shared, from: Cell, to: Cell, edge: Edge) {
             }
         });
     }
+}
+
+pub fn held_down(state: &Shared, cell: Cell) {
+    let Some(board) = held(state) else {
+        return;
+    };
+    let run = run(&state.borrow().saved(), &board);
+    let Some(unit) = board.lineup(&run).get(cell).map(|member| member.id) else {
+        return;
+    };
+
+    edit(state, &board, |board, run| board.toggle_registered(run, unit));
 }
 
 pub fn discarded(state: &Shared, cell: Cell) {

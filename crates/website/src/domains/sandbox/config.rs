@@ -17,7 +17,7 @@ use crate::systems::host::Lag;
 use crate::platform::Platform;
 use crate::systems::context::Shared;
 use crate::systems::turn::Orientation;
-use crate::widget::{Drawer, Tip, Toggle, drawer};
+use crate::widget::{Drawer, Slider, Tip, Toggle};
 
 use super::Staged;
 use super::state::{self, Device, Panel, QUALITY_RANGE, QUALITY_STEP, SandboxState, Scaling, Volume};
@@ -239,7 +239,6 @@ fn volume_of(label: &str) -> Option<Volume> {
 
 #[component]
 fn GameSettings(platform: Platform, sandbox: Signal<SandboxState>) -> Element {
-    let drawers = drawer::drawers();
     let held = sandbox.read();
     let music = Volume::nearest(held.music_volume).to_string();
     let effects = Volume::nearest(held.effects_volume).to_string();
@@ -279,9 +278,8 @@ fn GameSettings(platform: Platform, sandbox: Signal<SandboxState>) -> Element {
                 }
                 label { class: "setting-row inline",
                     Tip { text: QUALITY_HINT, hover: true, span { "Quality" } }
-                    input { class: "slider quality-slider", r#type: "range", min: "{QUALITY_RANGE.start()}", max: "{QUALITY_RANGE.end()}", step: "{QUALITY_STEP}", value: "{quality}",
-                        onpointerdown: move |event| drawers.claim(event.data().pointer_id()),
-                        oninput: { let platform = p[7].clone(); move |event| if let Ok(value) = event.value().parse::<u8>() { state::apply(&platform, sandbox, |next| next.image_quality = Some(value)) } } }
+                    Slider { class: "quality-slider", min: i32::from(*QUALITY_RANGE.start()), max: i32::from(*QUALITY_RANGE.end()), step: i32::from(QUALITY_STEP), value: i32::from(quality),
+                        oninput: { let platform = p[7].clone(); move |value: i32| if let Ok(value) = u8::try_from(value) { state::apply(&platform, sandbox, |next| next.image_quality = Some(value)) } } }
                     span { "{quality}%" }
                 }
             }

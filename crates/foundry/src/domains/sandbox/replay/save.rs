@@ -129,6 +129,7 @@ pub struct Jailbreak {
     pub roster: Vec<(bool, i32)>,
     pub bonuses: Vec<(i32, i32)>,
     pub cannon: i32,
+    pub registered: Vec<i32>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq, Eq)]

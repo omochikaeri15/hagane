@@ -16,6 +16,7 @@ const BUFF_KIND: i32 = 1;
 const ONE_LEVEL: i32 = 1;
 const NO_FORM: i32 = -1;
 const NOT_OWNED: i32 = 0;
+const OWNED: i32 = 1;
 
 pub fn seed_roguelike_run(ctx: &mut AppContext, setup: &Setup) -> Result<(), Fault> {
     let event = roguelike_event_id(ctx, CURRENT, CURRENT)?;
@@ -25,7 +26,9 @@ pub fn seed_roguelike_run(ctx: &mut AppContext, setup: &Setup) -> Result<(), Fau
     }
 
     for member in setup.lineup.iter().take(DECK_SLOTS) {
-        ctx.set_i32_at(AppContext::UNITS_OWNED + (member.unit as usize) * 4, NOT_OWNED)?;
+        let owned = if setup.roguelike.registered.contains(&member.unit) { OWNED } else { NOT_OWNED };
+
+        ctx.set_i32_at(AppContext::UNITS_OWNED + (member.unit as usize) * 4, owned)?;
     }
 
     let master = Rc::clone(&ctx.roguelike.master);

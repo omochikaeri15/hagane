@@ -1,4 +1,4 @@
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 
 use codex::cat::unit::Talent;
 use codex::chapter::map::{
@@ -28,6 +28,7 @@ pub const CAT_TITLE: &str = "Cat Bonuses";
 pub const GLOBAL_HINT: &str = "The bonuses that are not tied to one cat, each at the level it was picked up to\nPermanent bonuses are the ones bought with event points";
 pub const CAT_HINT: &str = "The bonuses of the cats in this lineup, each at the level it was picked up to";
 pub const OVERRIDDEN: &str = "A Jailbreak run brings its own, the ones here are not used";
+pub const REGISTERED: &str = "REG";
 pub const BENCH_NOTE: &str = "Not part of the run";
 pub const PERMANENT: &str = "Permanent";
 pub const EVERY_CAT: &str = "Every Cat";
@@ -75,11 +76,12 @@ pub struct Run {
     pub bench: [Option<u32>; BENCH_SLOTS],
     pub bonuses: BTreeMap<i32, i32>,
     pub cannon: Option<i32>,
+    pub registered: BTreeSet<u32>,
 }
 
 impl Default for Run {
     fn default() -> Self {
-        Self { name: UNNAMED.to_owned(), slots: Vec::new(), bench: Default::default(), bonuses: BTreeMap::new(), cannon: None }
+        Self { name: UNNAMED.to_owned(), slots: Vec::new(), bench: Default::default(), bonuses: BTreeMap::new(), cannon: None, registered: BTreeSet::new() }
     }
 }
 
@@ -139,7 +141,7 @@ impl Runs {
 
 impl Run {
     pub fn is_fresh(&self) -> bool {
-        self.slots.is_empty() && self.bench.iter().all(Option::is_none) && self.bonuses.is_empty() && self.cannon.is_none()
+        self.slots.is_empty() && self.bench.iter().all(Option::is_none) && self.bonuses.is_empty() && self.cannon.is_none() && self.registered.is_empty()
     }
 
     pub fn level(&self, bonus: i32) -> i32 {
@@ -202,6 +204,7 @@ pub struct Board {
     pub cats: Vec<Cat>,
     pub bonuses: Vec<Bonus>,
     pub texts: HashMap<u8, (u8, i16)>,
+    pub registered_plus: i32,
 }
 
 pub fn is_challenge_map(vfs: &Vfs, map_id: i32) -> bool {
@@ -401,7 +404,7 @@ impl Board {
             told.entry(group.ability_id).or_insert((group.text_id, group.name_id));
         }
 
-        Some(Self { map_id, starters, cats: listed, bonuses, texts: told })
+        Some(Self { map_id, starters, cats: listed, bonuses, texts: told, registered_plus: ctx.param.registered_plus_levels })
     }
 
     pub fn cat(&self, unit: u32) -> Option<&Cat> {
@@ -461,6 +464,7 @@ impl Board {
             .filter(|(bonus, _)| i32::try_from(unit).is_ok_and(|unit| bonus.rule.applies_to(unit, rarity)))
             .filter_map(|(bonus, held)| bonus.rule.power_up().map(|(level, plus)| (level.saturating_mul(held), plus.saturating_mul(held))));
         let (level, plus) = gains.fold((cat.level.saturating_sub(1), cat.plus), |(level, plus), (more, extra)| (level.saturating_add(more), plus.saturating_add(extra)));
+        let plus = if run.registered.contains(&unit) { plus.saturating_add(self.registered_plus) } else { plus };
         let form = roguelike_form(level.saturating_add(plus), cat.forms);
 
         Standing { level: level.saturating_add(1), plus, form: usize::try_from(form).unwrap_or(0) }
@@ -586,7 +590,23 @@ impl Board {
         run.cannon.filter(|cannon| unlocked.contains(cannon)).or_else(|| unlocked.last().copied()).unwrap_or(BASIC_CANNON)
     }
 
-    pub fn run_from(&self, roster: &[(bool, i32)], bonuses: &[(i32, i32)], cannon: i32) -> Run {
+    pub fn enlist(&self, run: &mut Run, unit: u32, registered: bool) {
+        if registered && self.cat(unit).is_some() {
+            run.registered.insert(unit);
+        } else {
+            run.registered.remove(&unit);
+        }
+    }
+
+    pub fn toggle_registered(&self, run: &mut Run, unit: u32) {
+        self.enlist(run, unit, !run.registered.contains(&unit));
+    }
+
+    pub fn registered(&self, run: &Run) -> Vec<i32> {
+        self.fielded(run).iter().filter(|unit| run.registered.contains(unit)).filter_map(|unit| i32::try_from(*unit).ok()).collect()
+    }
+
+    pub fn run_from(&self, roster: &[(bool, i32)], bonuses: &[(i32, i32)], cannon: i32, registered: &[i32]) -> Run {
         let slots = roster
             .iter()
             .filter_map(|(starter, id)| match starter {
@@ -594,7 +614,8 @@ impl Board {
                 false => self.cats.iter().find(|cat| cat.chara == Some(*id)).map(|cat| cat.unit),
             })
             .collect();
-        let mut run = Run { slots, bonuses: bonuses.iter().copied().collect(), cannon: Some(cannon), ..Run::default() };
+        let registered = registered.iter().filter_map(|unit| u32::try_from(*unit).ok()).collect();
+        let mut run = Run { slots, bonuses: bonuses.iter().copied().collect(), cannon: Some(cannon), registered, ..Run::default() };
 
         self.settle(&mut run);
 
@@ -675,6 +696,7 @@ impl Board {
             })
             .collect();
         run.cannon = run.cannon.filter(|cannon| *cannon != BASIC_CANNON && self.unlocked(run).contains(cannon));
+        run.registered.retain(|unit| self.cat(*unit).is_some());
     }
 
     pub fn settled(&self, run: &Run) -> Run {
@@ -724,6 +746,7 @@ mod tests {
             cats: (0..10).map(|unit| cat(unit, None, 20, 3)).chain([cat(75, Some(4), 20, 3), cat(76, Some(6), 5, 2)]).collect(),
             bonuses: vec![bonus(0, 5, None, level_up), bonus(50, 1, Some(75), skill(75)), bonus(86, 1, Some(9), skill(9))],
             texts: HashMap::from([(32, (7, 3))]),
+            registered_plus: 5,
         }
     }
 
@@ -861,7 +884,7 @@ mod tests {
 
         assert!(run.is_fresh(), "dropping the bonus takes its cannon with it");
 
-        let replayed = board.run_from(&[(false, 4), (true, 1)], &[(255, 1)], 1);
+        let replayed = board.run_from(&[(false, 4), (true, 1)], &[(255, 1)], 1, &[]);
 
         assert_eq!((replayed.slots[0], replayed.slots[1], board.cannon(&replayed)), (75, 1, 1));
 
@@ -885,6 +908,25 @@ mod tests {
         assert_eq!(board.label(&run, &owned), "Big Cat 1: Bonus");
         assert_eq!(board.detail(&run, &owned), "Bonus");
         assert_eq!(board.detail(&run, &woven), "Gives Big Cat 1 a boost", "a name inside the sentence stays");
+    }
+
+    // A cat in the player's Cat Guide joins the run with extra plus levels, which can carry it into its next form.
+    #[test]
+    fn a_registered_cat_gains_its_plus_levels() {
+        let board = board();
+        let mut run = Run::default();
+        let before = board.standing(&run, 75);
+
+        board.enlist(&mut run, 75, true);
+
+        let after = board.standing(&run, 75);
+
+        assert_eq!((after.level, after.plus), (before.level, before.plus + 5));
+        assert_eq!(after.label(), format!("{}+{}", before.level, before.plus + 5));
+
+        board.enlist(&mut run, 75, false);
+
+        assert!(run.is_fresh());
     }
 
     // A map keeps a list of runs the way the Lineup tab keeps lineups, and is never left without one.

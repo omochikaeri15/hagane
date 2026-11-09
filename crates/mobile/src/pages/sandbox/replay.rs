@@ -743,7 +743,7 @@ pub fn wire(window: &AppWindow, state: &Shared, context: &Rc<Context>) {
         let vault = ctx.engine.vault();
         let grants = recorded.zip(roster).zip(ctx.globals()).and_then(|(((map_id, crown, picks), roster), globals)| {
             let board = Board::load(globals.context(&vault), &roster, map_id, crown)?;
-            let run = board.run_from(&picks.roster, &picks.bonuses, picks.cannon);
+            let run = board.run_from(&picks.roster, &picks.bonuses, picks.cannon, &picks.registered);
 
             Some(Rc::new(board.grants(&run, cat.id)))
         });
@@ -826,6 +826,7 @@ fn tile(context: &Rc<Context>, cats: &[CatEntry], book: Option<&Rc<super::orbs::
 
     DeckCell {
         filled: true,
+        registered: false,
         aimed: false,
         has_icon: icon.is_some(),
         icon: icon.unwrap_or_default(),

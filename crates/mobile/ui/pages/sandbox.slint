@@ -9,7 +9,7 @@ import { StagesPage } from "stages.slint";
 import { Cats, FilterDialog, CatDetail } from "cats.slint";
 import { TreasureEditor, ArcRow, ChapterFold } from "settings.slint";
 
-export struct DeckCell { filled: bool, aimed: bool, icon: image, has-icon: bool, fallback: string, level: string, cost: string, has-cost: bool, barred: bool, talented: bool, np: image, has-np: bool, orbs: [image] }
+export struct DeckCell { filled: bool, aimed: bool, registered: bool, icon: image, has-icon: bool, fallback: string, level: string, cost: string, has-cost: bool, barred: bool, talented: bool, np: image, has-np: bool, orbs: [image] }
 export struct ComboSample { name: string, effect: string, note: string }
 export struct ComboRow { line: int, name: string, effect: string, note: string, active: bool, banned: bool, icons: [image], has: [bool] }
 export struct JailBonus { id: int, title: string, detail: string, icon: image, has-icon: bool, fallback: string, level: int, limit: int, permanent: bool }
@@ -175,6 +175,7 @@ export global Sandbox {
     in-out property <bool> dragging;
     in property <int> battle-orientation;
     callback cell-tapped(int, bool);
+    callback cell-held(int, bool);
     callback cell-dropped(int, bool, int, bool, bool);
     callback cell-hovered(int, bool, int, bool, bool);
     callback cell-discarded(int, bool);
@@ -252,6 +253,7 @@ component DeckSlot inherits Rectangle {
     in property <bool> bench;
     in property <bool> lifted;
     callback tapped;
+    callback held;
     callback drag-started(image, bool);
     callback dragged(length, length);
     callback dropped(length, length);
@@ -283,6 +285,23 @@ component DeckSlot inherits Rectangle {
         border-radius: 3px;
         background: Theme.scrim;
         level := Text { text: root.cell.level; color: Theme.white; font-size: 9px; vertical-alignment: center; horizontal-alignment: center; width: parent.width; height: parent.height; }
+    }
+    if root.cell.filled && root.cell.registered: Rectangle {
+        x: 2px;
+        y: 2px;
+        width: enlisted.preferred-width + 6px;
+        height: 14px;
+        border-radius: 3px;
+        background: Theme.scrim;
+        enlisted := Text { text: "REG"; color: Theme.white; font-size: 9px; vertical-alignment: center; horizontal-alignment: center; width: parent.width; height: parent.height; }
+    }
+    Timer {
+        interval: 700ms;
+        running: Sandbox.jail-ready && root.cell.filled && root.armed && !root.dragging && !root.spent;
+        triggered => {
+            root.spent = true;
+            root.held();
+        }
     }
     if root.cell.filled && root.cell.has-cost: Rectangle {
         x: parent.width - self.width - 2px;
@@ -429,6 +448,7 @@ component Deck inherits OutlinedCard {
         index: index;
         lifted: root.drag-from == index && !root.drag-bench && !root.aimed;
         tapped => { if Sandbox.slots[index].filled { Sandbox.cell-tapped(index, false); } else { root.open-roster(); } }
+        held => { Sandbox.cell-held(index, false); }
         drag-started(icon, has) => { root.drag-from = index; root.drag-bench = false; root.drag-icon = icon; root.drag-has-icon = has; root.drag-x = self.x + self.width / 2; root.drag-y = self.y + self.height / 2; Sandbox.dragging = true; }
         dragged(x, y) => { root.drag-x = self.x + x; root.drag-y = self.y + y; }
         dropped(x, y) => { root.drop(self.x + x, self.y + y); }
@@ -443,6 +463,7 @@ component Deck inherits OutlinedCard {
         bench: true;
         lifted: root.drag-from == index && root.drag-bench && !root.aimed;
         tapped => { if Sandbox.bench[index].filled { Sandbox.cell-tapped(index, true); } else { root.open-roster(); } }
+        held => { Sandbox.cell-held(index, true); }
         drag-started(icon, has) => { root.drag-from = index; root.drag-bench = true; root.drag-icon = icon; root.drag-has-icon = has; root.drag-x = self.x + self.width / 2; root.drag-y = self.y + self.height / 2; Sandbox.dragging = true; }
         dragged(x, y) => { root.drag-x = self.x + x; root.drag-y = self.y + y; }
         dropped(x, y) => { root.drop(self.x + x, self.y + y); }

@@ -390,7 +390,7 @@ pub(crate) fn Replays(globals: Shared, cats: Option<Cats>) -> Element {
                                                             if let Some((roster, cat)) = roster.as_ref().and_then(|roster| Some((roster, roster.iter().find(|cat| cat.id == seeded.id)?))) {
                                                                 let grants = recorded.as_ref().as_ref().and_then(|(map_id, crown, picks)| {
                                                                     let board = Board::load(tables.0.context(), roster, *map_id, *crown)?;
-                                                                    let run = board.run_from(&picks.roster, &picks.bonuses, picks.cannon);
+                                                                    let run = board.run_from(&picks.roster, &picks.bonuses, picks.cannon, &picks.registered);
 
                                                                     Some(board.grants(&run, seeded.id))
                                                                 });

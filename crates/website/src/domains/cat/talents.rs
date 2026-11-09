@@ -12,7 +12,7 @@ use foundry::systems::combat::registry::{AbilityIcon, get_display_def};
 use crate::systems::context::{self, Shared};
 use crate::systems::images::{self, Pictures};
 use crate::systems::picture::Pic;
-use crate::widget::{Superscript, drawer};
+use crate::widget::{Slider, Superscript};
 
 use super::icons::{self, IMG015, IMG022};
 use super::{Picked, SelectedCat, state};
@@ -173,7 +173,6 @@ fn body(
 ) -> Element {
     let settings = context::settings();
     let mut state = state();
-    let drawers = drawer::current();
     let cat = &selected.0.cat;
     let Some(talent_data) = cat.talent_data.as_ref() else {
         return rsx! {};
@@ -208,15 +207,12 @@ fn body(
             div { class: "dark-box",
                 div { class: "level-slider-row",
                     span { class: "bold white", "Level:" }
-                    input {
-                        class: "slider",
-                        r#type: "range",
-                        onpointerdown: move |event| drawers.claim(event.data().pointer_id()),
-                        min: "0",
-                        max: "{max_level}",
-                        value: "{current}",
-                        oninput: move |event| {
-                            if let Ok(level) = event.value().parse::<u8>() {
+                    Slider {
+                        min: 0,
+                        max: i32::from(max_level),
+                        value: i32::from(current),
+                        oninput: move |level: i32| {
+                            if let Ok(level) = u8::try_from(level) {
                                 state.set_talent_level(&for_slider.0.cat, index, level, &settings.read());
                             }
                         },

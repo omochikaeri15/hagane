@@ -16,6 +16,13 @@ To remove a unit from a line-up, right click on them and the context menu will g
 ### Combos
 You can add a cat combo to the lineup by double-clicking it. You can also search cat combo's by attributes. Any cat combos that a stage restricts will be highlighted red, and active cat combos will be highlighted green.
 
+### Roguelike
+This mode has special behaviors specific to it. There are "Bonuses" as well as "Registration" that can be attached to units.
+
+Provided are two buttons: "Global Bonus" and "Cat Bonus." They are self explanitory: one is for the global bonuses that applies to groups of cats or other attributes, and the other is for cat-sepcific bonuses.
+
+To "register" a Cat, click and hold on their Deploy Icon for 0.7 seconds. Registered Cats get a +5 boost to plus level as well as a point drop boost for the respective event stages.
+
 ## Stage
 Mirror of the `Stages` page and determines what stage you lead into when you click `Play`.
 

@@ -65,6 +65,7 @@ pub struct SetupWire {
     pub roster: Vec<(bool, i32)>,
     pub bonuses: Vec<(i32, i32)>,
     pub run_cannon: i32,
+    pub run_registered: Vec<i32>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -152,6 +153,7 @@ impl From<&Setup> for SetupWire {
                 .collect(),
             bonuses: setup.roguelike.buffs.clone(),
             run_cannon: setup.roguelike.cannon,
+            run_registered: setup.roguelike.registered.clone(),
         }
     }
 }
@@ -205,6 +207,7 @@ impl From<SetupWire> for Setup {
             roster: wire.roster.into_iter().map(|(starter, id)| if starter { RosterPick::Starter(id) } else { RosterPick::Recruit(id) }).collect(),
             buffs: wire.bonuses,
             cannon: wire.run_cannon,
+            registered: wire.run_registered,
         };
 
         setup

@@ -63,10 +63,6 @@ pub(crate) fn drawers() -> Drawers {
     use_context::<Drawers>()
 }
 
-pub(crate) fn current() -> Drawers {
-    consume_context::<Drawers>()
-}
-
 impl Drawers {
     pub(crate) fn shut(self) {
         if let Some(mut open) = *self.hosted.peek()

@@ -102,6 +102,23 @@ pub struct Param {
     pub comeback_treasure_festival_days: i32,
     pub unknown_80: i32,
     pub unknown_81: i32,
+    pub tutorial_money: i32,
+    pub tutorial_duration_0: i32,
+    pub tutorial_duration_1: i32,
+    pub tutorial_duration_2: i32,
+    pub tutorial_duration_3: i32,
+    pub vibration_power_ios: i32,
+    pub vibration_power_android: i32,
+    pub vibration_time_ios: i32,
+    pub vibration_time_android: i32,
+    pub vibration_sharpness_ios: i32,
+    pub registered_plus_levels: i32,
+    pub registered_point_rate_0: i32,
+    pub registered_point_rate_1: i32,
+    pub registered_point_rate_2: i32,
+    pub registered_point_rate_3: i32,
+    pub registered_point_rate_4: i32,
+    pub registered_point_rate_5: i32,
     pub rest: Vec<i32>,
 }
 
@@ -110,6 +127,8 @@ impl Param {
         parse_inner(bytes.as_ref())
     }
 }
+
+const NAMED_ROWS: usize = 98;
 
 fn parse_inner(bytes: &[u8]) -> Result<Param, ParamError> {
     let file_content = file::scrub(bytes);
@@ -143,8 +162,8 @@ fn parse_inner(bytes: &[u8]) -> Result<Param, ParamError> {
     };
 
     let mut rest = Vec::new();
-    if raw_ordered_values.len() > 81 {
-        rest.extend_from_slice(&raw_ordered_values[81..]);
+    if raw_ordered_values.len() > NAMED_ROWS {
+        rest.extend_from_slice(&raw_ordered_values[NAMED_ROWS..]);
     }
 
     Ok(Param {
@@ -229,6 +248,23 @@ fn parse_inner(bytes: &[u8]) -> Result<Param, ParamError> {
         comeback_treasure_festival_days: get_val("comeback_treasure_day"),
         unknown_80: get_val("update_version_notification_interval"),
         unknown_81: get_val("battle_sentai_recast"),
+        tutorial_money: get_val("tutorial_money"),
+        tutorial_duration_0: get_val("tutorial_duration0"),
+        tutorial_duration_1: get_val("tutorial_duration1"),
+        tutorial_duration_2: get_val("tutorial_duration2"),
+        tutorial_duration_3: get_val("tutorial_duration3"),
+        vibration_power_ios: get_val("option_vibration_power_ios"),
+        vibration_power_android: get_val("option_vibration_power_android"),
+        vibration_time_ios: get_val("option_vibration_time_ios"),
+        vibration_time_android: get_val("option_vibration_time_android"),
+        vibration_sharpness_ios: get_val("option_vibration_sharpness_ios"),
+        registered_plus_levels: get_val("roguelike_charabonus_plusvalue"),
+        registered_point_rate_0: get_val("roguelike_charabonus_pointvalue0"),
+        registered_point_rate_1: get_val("roguelike_charabonus_pointvalue1"),
+        registered_point_rate_2: get_val("roguelike_charabonus_pointvalue2"),
+        registered_point_rate_3: get_val("roguelike_charabonus_pointvalue3"),
+        registered_point_rate_4: get_val("roguelike_charabonus_pointvalue4"),
+        registered_point_rate_5: get_val("roguelike_charabonus_pointvalue5"),
         rest,
     })
 }

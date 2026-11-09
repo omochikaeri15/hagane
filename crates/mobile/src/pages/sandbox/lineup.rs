@@ -367,6 +367,19 @@ pub fn wire(window: &AppWindow, state: &Shared, context: &Rc<Context>) {
 
     let last_drop = Rc::new(cell::Cell::new(None::<Instant>));
     let (held, ctx, weak) = on(state, context, window);
+    sandbox.on_cell_held(move |index, bench| {
+        if !jailbreak::editing(&held) {
+            return;
+        }
+
+        jailbreak::held_down(&held, cell_at(index, bench));
+
+        if let Some(ui) = weak.upgrade() {
+            refresh(&ui, &held, &ctx);
+        }
+    });
+
+    let (held, ctx, weak) = on(state, context, window);
     let dropped_at = Rc::clone(&last_drop);
     sandbox.on_cell_tapped(move |index, bench| {
         let Some(ui) = weak.upgrade() else {
@@ -736,6 +749,7 @@ fn cell_of(painter: &Painter<'_>, member: Option<&Member>, priced: Priced) -> De
 
     DeckCell {
         filled: true,
+        registered: false,
         aimed: false,
         has_icon: icon.is_some(),
         icon: icon.unwrap_or_default(),

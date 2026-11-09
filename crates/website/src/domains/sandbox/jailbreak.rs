@@ -15,7 +15,7 @@ use crate::systems::context::Shared;
 use crate::systems::images;
 use crate::systems::picture::Pic;
 use crate::systems::turn;
-use crate::widget::{Drawer, Popup, Tip, drawer};
+use crate::widget::{Drawer, Popup, Slider, Tip, drawer};
 
 use super::combos;
 
@@ -27,6 +27,7 @@ const BONUS_WIDTH: f32 = 700.0;
 const ICON_SIZE: f32 = 36.0;
 const EVERY_FORM: usize = 3;
 const CONFIRM_LABEL: &str = "Continue?";
+const HOLD_MS: u32 = 700;
 const NO_BONUSES: &str = "No bonus matches";
 
 #[derive(Clone)]
@@ -59,7 +60,9 @@ pub(crate) fn picks(state: &SandboxState, board: &Board) -> (RoguelikePicks, Vec
 
     let cannon = board.cannon(&run);
 
-    (RoguelikePicks { roster, buffs: run.bonuses.into_iter().collect(), cannon }, fielded)
+    let registered = board.registered(&run);
+
+    (RoguelikePicks { roster, buffs: run.bonuses.into_iter().collect(), cannon, registered }, fielded)
 }
 
 fn settled(sandbox: Signal<SandboxState>, board: &Board) -> Run {
@@ -217,7 +220,7 @@ pub(crate) fn Editor(board: Held, cats: Cats, globals: Shared, ruled: Ruled) -> 
                         plan_held.set(None);
 
                         Drag::Idle
-                    } else if (scrolling && across > SLACK) || (!scrolling && (strayed || now - since >= RIPE_MS)) {
+                    } else if (scrolling && across > SLACK) || (!scrolling && (strayed || (matches!(cargo, Cargo::Fresh(_)) && now - since >= RIPE_MS))) {
                         let landing = landing(at, origin, metrics);
                         let lifted = match cargo {
                             Cargo::Held(cell) => Some(cell),
@@ -305,6 +308,7 @@ pub(crate) fn Editor(board: Held, cats: Cats, globals: Shared, ruled: Ruled) -> 
             None => (None, false),
         }
     };
+    let enlisted = run.registered.clone();
     let cell_view = |cell: Cell| -> Element {
         let (member, aimed) = shown(cell);
         let frame_class = if aimed { "deck-cell aimed" } else { "deck-cell" };
@@ -317,6 +321,10 @@ pub(crate) fn Editor(board: Held, cats: Cats, globals: Shared, ruled: Ruled) -> 
             };
         };
         let icon = icon_of(member.id, member.form);
+        let unit = member.id;
+        let registered = enlisted.contains(&unit);
+        let hold_platform = platform.clone();
+        let hold_board = board.clone();
         let (level, plus) = member.levels(None);
         let badge = if plus > 0 { format!("Lv{level}+{plus}") } else { format!("Lv{level}") };
         let fallback = format!("{:03}-{}", member.id, member.form + 1);
@@ -336,6 +344,26 @@ pub(crate) fn Editor(board: Held, cats: Cats, globals: Shared, ruled: Ruled) -> 
                     let point = event.data().client_coordinates();
 
                     press(Cargo::Held(cell), turn.point(point.x, point.y), event.data().pointer_type() == TOUCH);
+
+                    let began = match *drag.peek() {
+                        Drag::Pressed { since, .. } => since,
+                        _ => return,
+                    };
+                    let sleeper = hold_platform.clone();
+                    let board = hold_board.clone();
+
+                    spawn(async move {
+                        sleeper.host().sleep(HOLD_MS).await;
+
+                        if *drag.peek() != (Drag::Pressed { cargo: Cargo::Held(cell), since: began, from: turn.point(point.x, point.y), touch: event.data().pointer_type() == TOUCH }) {
+                            return;
+                        }
+
+                        drag.set(Drag::Idle);
+                        plan_held.set(None);
+                        clicked.set(None);
+                        edit(&sleeper, sandbox, &board.0, |board, run| board.toggle_registered(run, unit));
+                    });
                 },
                 onpointermove: move |event| {
                     if *drag.peek() != Drag::Idle {
@@ -359,6 +387,9 @@ pub(crate) fn Editor(board: Held, cats: Cats, globals: Shared, ruled: Ruled) -> 
                     None => rsx! { div { class: "deck-fallback", style: "font-size: {LEVEL_SIZE}px;", "{fallback}" } },
                 }
                 div { class: "deck-badge deck-level", style: "font-size: {metrics.text(BADGE_SIZE)}px;", "{badge}" }
+                if registered {
+                    div { class: "deck-badge deck-registered", style: "font-size: {metrics.text(BADGE_SIZE)}px;", "{rules::REGISTERED}" }
+                }
             }
         }
     };
@@ -590,7 +621,6 @@ fn BonusPopup(board: Held, open: Signal<bool>, global: bool) -> Element {
     let platform = use_context::<Platform>();
     let sandbox = state::state();
     let pictures = images::pictures();
-    let drawers = drawer::drawers();
     let mut query = use_signal(String::new);
     let run = settled(sandbox, &board.0);
     let searched = query();
@@ -632,19 +662,7 @@ fn BonusPopup(board: Held, open: Signal<bool>, global: bool) -> Element {
                                                 }
                                                 div { class: "bonus-level",
                                                     div { class: "bonus-row",
-                                                        input {
-                                                            class: "slider bonus-slider",
-                                                            r#type: "range",
-                                                            min: "0",
-                                                            max: "{limit}",
-                                                            value: "{level}",
-                                                            onpointerdown: move |event| drawers.claim(event.data().pointer_id()),
-                                                            oninput: move |event| {
-                                                                if let Ok(level) = event.value().parse::<i32>() {
-                                                                    edit(&tile_platform, sandbox, &tile_board.0, |board, run| board.raise(run, id, level));
-                                                                }
-                                                            },
-                                                        }
+                                                        Slider { class: "bonus-slider", min: 0, max: limit, value: level, oninput: move |level: i32| edit(&tile_platform, sandbox, &tile_board.0, |board, run| board.raise(run, id, level)) }
                                                         span { class: "bonus-count", "{level}/{limit}" }
                                                     }
                                                     if bonus.permanent {

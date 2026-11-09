@@ -112,6 +112,7 @@ pub struct RoguelikePicks {
     pub roster: Vec<RosterPick>,
     pub buffs: Vec<(i32, i32)>,
     pub cannon: i32,
+    pub registered: Vec<i32>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
