@@ -23,6 +23,8 @@ Provided are two buttons: "Global Bonus" and "Cat Bonus." They are self explanit
 
 To "register" a cat, click and hold on their Deploy Icon for 0.7 seconds. Registered cats get a +5 boost to plus level as well as a point drop boost for the respective event stages.
 
+The lineups made under each Roguelike map is also contained to that specific map. This is due to each map having a unique roster as well as unique ability-changing mechanics detatched from the regular game.
+
 ## Stage
 Mirror of the `Stages` page and determines what stage you lead into when you click `Play`.
 
