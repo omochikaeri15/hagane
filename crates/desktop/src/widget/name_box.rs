@@ -4,6 +4,8 @@ use iced::advanced::{layout, mouse, renderer, Layout, Widget};
 use iced::alignment::Vertical;
 use iced::{Element, Length, Pixels, Rectangle, Renderer as IcedRenderer, Size, Theme};
 
+use foundry::common::glyphs::breakable;
+
 use crate::common::glyphs;
 
 const MAX_FONT_SIZE: f32 = 22.0;
@@ -22,10 +24,7 @@ struct Fitted {
 }
 
 fn allowance(content: &str) -> f32 {
-    match content.split_whitespace().nth(1) {
-        Some(_) => MAX_LINES,
-        None => UNBROKEN_LINES,
-    }
+    if breakable(content) { MAX_LINES } else { UNBROKEN_LINES }
 }
 
 fn lines(paragraph: &RendererParagraph, size: f32) -> f32 {
@@ -252,6 +251,22 @@ mod tests {
         assert_eq!(super::allowance("ragnarokssssssssssssssssss"), super::UNBROKEN_LINES);
         assert_eq!(super::allowance("Orbital Annihilator"), super::MAX_LINES);
         assert_eq!(super::allowance(""), super::UNBROKEN_LINES);
+    }
+
+    // Japanese has no spaces to break on, so a long name takes its second line
+    // before it gives up any size.
+    #[test]
+    fn a_japanese_name_takes_two_lines_before_it_shrinks() {
+        let wrap = 145.0;
+        let name = "\u{30cd}\u{30b3}".repeat(5);
+
+        assert_eq!(super::allowance(&name), super::MAX_LINES);
+
+        let whole = measured(&name, MAX_FONT_SIZE, wrap, Wrapping::WordOrGlyph);
+        let line = text::LineHeight::default().to_absolute(Pixels(MAX_FONT_SIZE)).0;
+
+        assert_eq!((whole.height / line).round(), 2.0, "ten kana at full size belong on two lines");
+        assert!(whole.width <= wrap);
     }
 
     #[test]

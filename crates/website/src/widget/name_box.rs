@@ -3,6 +3,8 @@ use std::rc::Rc;
 
 use dioxus::prelude::*;
 
+use foundry::common::glyphs::breakable;
+
 use crate::systems::turn;
 
 const MAX_FONT_SIZE: f32 = 22.0;
@@ -26,7 +28,7 @@ fn candidates() -> impl Iterator<Item = f32> {
 }
 
 fn allowed_lines(name: &str) -> f32 {
-    if name.contains(char::is_whitespace) { MAX_LINES } else { UNBROKEN_LINES }
+    if breakable(name) { MAX_LINES } else { UNBROKEN_LINES }
 }
 
 fn fits(size: f32, width: f32, height: f32, allowed: f32, wrap_width: f32) -> bool {

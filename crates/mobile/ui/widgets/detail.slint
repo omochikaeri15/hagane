@@ -3,12 +3,51 @@ import { Tip } from "basics.slint";
 import { Shell, Tap } from "../shell.slint";
 
 export struct Seg { text: string, raised: bool, symbol: bool }
-export struct Line { segs: [Seg] }
+export struct Word { segs: [Seg] }
+export struct Line { segs: [Seg], words: [Word] }
 export struct AbilityIcon { icon: image, has-icon: bool, border: image, has-border: bool, fallback: string, tip: string }
 export struct AbilityLine { icon: AbilityIcon, lines: [Line], conjure: bool }
 export struct StatCell { header: string, value: [Line], tip: string }
 export struct HeaderBtn { label: string, available: bool }
 export struct RosterRow { id: int, banner: image, has-banner: bool, tooltip: string }
+
+component LineText inherits Text {
+    in property <Seg> seg;
+    in property <length> size;
+    in property <bool> bold;
+    text: root.seg.text;
+    font-size: root.seg.raised ? max(root.size - 3px, 1px) : root.size;
+    font-family: root.seg.symbol ? "Miscellaneous-Symbols" : "";
+    font-weight: root.bold ? 700 : 400;
+    vertical-alignment: top;
+    opacity: root.seg.raised ? 0.7 : 1.0;
+}
+
+component FlowLine inherits VerticalLayout {
+    in property <Line> line;
+    in property <length> size;
+    in property <color> color;
+    in property <bool> bold;
+    in property <TextHorizontalAlignment> align;
+    FlexboxLayout {
+        preferred-width: single.preferred-width + root.line.words.length * 1px;
+        alignment: root.align == TextHorizontalAlignment.center ? center : start;
+        spacing-horizontal: root.size * 0.27;
+        spacing-vertical: 0px;
+        for word in root.line.words: HorizontalLayout {
+            for seg in word.segs: LineText { seg: seg; size: root.size; color: root.color; bold: root.bold; wrap: word-wrap; }
+        }
+    }
+    Rectangle {
+        height: 0px;
+        single := HorizontalLayout {
+            x: 0;
+            y: 0;
+            visible: false;
+            for seg in root.line.segs: LineText { seg: seg; size: root.size; color: root.color; bold: root.bold; wrap: no-wrap; }
+        }
+    }
+}
 
 export component Lines inherits VerticalLayout {
     in property <[Line]> lines;
@@ -18,18 +57,12 @@ export component Lines inherits VerticalLayout {
     in property <TextHorizontalAlignment> align: left;
     spacing: 0px;
     alignment: center;
-    for line in root.lines: HorizontalLayout {
-        alignment: root.align == TextHorizontalAlignment.center ? center : start;
-        for seg in line.segs: Text {
-            text: seg.text;
-            color: root.color;
-            font-size: seg.raised ? max(root.size - 3px, 1px) : root.size;
-            font-family: seg.symbol ? "Miscellaneous-Symbols" : "";
-            font-weight: root.bold ? 700 : 400;
-            vertical-alignment: top;
-            opacity: seg.raised ? 0.7 : 1.0;
-            wrap: word-wrap;
+    for line in root.lines: VerticalLayout {
+        if line.words.length == 0: HorizontalLayout {
+            alignment: root.align == TextHorizontalAlignment.center ? center : start;
+            for seg in line.segs: LineText { seg: seg; size: root.size; color: root.color; bold: root.bold; wrap: word-wrap; }
         }
+        if line.words.length > 0: FlowLine { line: line; size: root.size; color: root.color; bold: root.bold; align: root.align; }
     }
 }
 

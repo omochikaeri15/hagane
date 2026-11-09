@@ -7,6 +7,14 @@ pub enum Segment<'a> {
     Raised(&'a str),
 }
 
+impl<'a> Segment<'a> {
+    pub fn body(&self) -> &'a str {
+        match self {
+            Self::Plain(body) | Self::Raised(body) => body,
+        }
+    }
+}
+
 pub fn segments(line: &str) -> Vec<Segment<'_>> {
     let mut parts = line.split(MARK);
     let mut out = Vec::new();

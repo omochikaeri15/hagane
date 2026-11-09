@@ -370,7 +370,7 @@ component Abilities inherits VerticalLayout {
         if Cats.headline-2.length > 0: IconRow { items: Cats.headline-2; }
         if Cats.body-1.length > 0: AbilityRows { items: Cats.body-1; conjure-open: Cats.conjure-open; conjure-toggled => { Cats.conjure-toggled(); } }
         if Cats.conjure-open && Cats.has-spirit: Card {
-            height: spirit.preferred-height + 16px;
+            height: spirit.preferred-height;
             border-top-left-radius: 0px;
             border-top-right-radius: 0px;
             spirit := VerticalLayout {

@@ -11,7 +11,7 @@ use slint::{ComponentHandle, Image, Model, ModelRc, SharedString, VecModel};
 use codex::cat::unit::{Talent, TalentGroup};
 use codex::combat::{AttrUnit, Entity, Faction, Identity, REGISTRY, get_talent};
 use codex::files::{img015, img022};
-use foundry::common::io;
+use foundry::common::{glyphs, io};
 use foundry::domains::cat::combo::{self, ComboEffects};
 use foundry::domains::cat::filter::evaluation::entity_passes_filter;
 use foundry::domains::cat::filter::{ATTACK_TYPE_ICONS, CatFilterState, MatchMode, TalentFilterMode, icons as filter_icons};
@@ -391,7 +391,12 @@ fn glyph_width(font: &FontRef<'static>, size: f32, glyph: char) -> f32 {
     let scaled = font.as_scaled(PxScale::from(size));
     let id = font.glyph_id(glyph);
 
-    if id.0 == 0 { size * 0.9 } else { scaled.h_advance(id) }
+    match id.0 {
+        0 if glyphs::ideograph(glyph) => size,
+        0 if glyphs::unspaced(glyph) => size * 0.6,
+        0 => size * 0.9,
+        _ => scaled.h_advance(id),
+    }
 }
 
 fn text_width(font: &FontRef<'static>, size: f32, text: &str) -> f32 {
@@ -415,18 +420,26 @@ fn wrapped(font: &FontRef<'static>, size: f32, text: &str, width: f32) -> (usize
                 lines += 1;
             }
 
-            let full = (word_width / width).floor();
+            current = 0.0;
 
-            lines += full as usize;
-            current = word_width - full * width;
-            widest = widest.max(width);
+            for glyph in word.chars() {
+                let advance = glyph_width(font, size, glyph);
+
+                if current > 0.0 && current + advance > width {
+                    widest = widest.max(current);
+                    lines += 1;
+                    current = advance;
+                } else {
+                    current += advance;
+                }
+            }
         } else {
             widest = widest.max(current);
             lines += 1;
             current = word_width;
         }
 
-        widest = widest.max(current.min(width));
+        widest = widest.max(current);
     }
 
     (lines, widest)
@@ -436,7 +449,7 @@ pub fn name_size(name: &str, wrap_width: f32) -> f32 {
     let Some(font) = name_font() else {
         return NAME_MAX;
     };
-    let allowed = if name.split_whitespace().nth(1).is_some() { 2 } else { 1 };
+    let allowed = if glyphs::breakable(name) { 2 } else { 1 };
     let room = wrap_width * NAME_MARGIN;
     let mut size = NAME_MAX;
 
@@ -1739,4 +1752,26 @@ pub fn set_export_face(ui: &AppWindow, label: &str, tone: Tone) {
 
     cats.set_export_label(label.into());
     cats.set_export_tone(tone);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{NAME_MAX, NAME_WRAP, name_size};
+
+    // Ten kana are two full lines of five at the largest size; one more has to
+    // give up a little size, but nowhere near what a single line would cost.
+    #[test]
+    fn a_japanese_name_takes_two_lines_before_it_shrinks() {
+        let ten = "\u{30cd}\u{30b3}".repeat(5);
+        let eleven = format!("{ten}\u{30cd}");
+
+        assert_eq!(name_size(&ten, NAME_WRAP), NAME_MAX);
+        assert!(name_size(&eleven, NAME_WRAP) < NAME_MAX);
+        assert!(name_size(&eleven, NAME_WRAP) > 16.0);
+    }
+
+    #[test]
+    fn a_lone_english_word_still_shrinks_to_one_line() {
+        assert!(name_size("Ragnarokssssssssssssss", NAME_WRAP) < 16.0);
+    }
 }

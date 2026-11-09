@@ -10,7 +10,7 @@ use foundry::common::superscript::{Segment, segments};
 use foundry::systems::statblock::{self, Fonts, StatblockData};
 
 use crate::pages::Context;
-use crate::{AppWindow, Line, Seg, Tone, bridge, delivery};
+use crate::{AppWindow, Line, Seg, Tone, Word, bridge, delivery};
 
 const FEEDBACK_MS: u64 = 2000;
 pub const IMG015: &str = "img015";
@@ -43,19 +43,43 @@ fn symbolized(body: &str, raised: bool) -> Vec<Seg> {
     out
 }
 
+fn words(parts: &[Segment<'_>]) -> Vec<Vec<Seg>> {
+    let mut out = Vec::new();
+    let mut word = Vec::new();
+
+    for part in parts {
+        let Segment::Plain(body) = part else {
+            word.extend(symbolized(part.body(), true));
+
+            continue;
+        };
+
+        for (index, piece) in body.split(' ').enumerate() {
+            if index > 0 && !word.is_empty() {
+                out.push(std::mem::take(&mut word));
+            }
+
+            word.extend(symbolized(piece, false));
+        }
+    }
+
+    if !word.is_empty() {
+        out.push(word);
+    }
+
+    out
+}
+
 pub fn lines(text: &str) -> ModelRc<Line> {
     let rows: Vec<Line> = text
         .split('\n')
         .map(|line| {
-            let segs: Vec<Seg> = segments(line)
-                .into_iter()
-                .flat_map(|segment| match segment {
-                    Segment::Plain(body) => symbolized(body, false),
-                    Segment::Raised(body) => symbolized(body, true),
-                })
-                .collect();
+            let parts = segments(line);
+            let raised = parts.iter().any(|part| matches!(part, Segment::Raised(_)));
+            let words: Vec<Word> = if raised { words(&parts).into_iter().map(|segs| Word { segs: ModelRc::new(VecModel::from(segs)) }).collect() } else { Vec::new() };
+            let segs: Vec<Seg> = parts.iter().flat_map(|part| symbolized(part.body(), matches!(part, Segment::Raised(_)))).collect();
 
-            Line { segs: ModelRc::new(VecModel::from(segs)) }
+            Line { segs: ModelRc::new(VecModel::from(segs)), words: ModelRc::new(VecModel::from(words)) }
         })
         .collect();
 
@@ -111,4 +135,20 @@ fn settle(ui: &AppWindow, context: &Rc<Context>, ok: bool, face: Face) {
         }
     });
     context.keep_timer(timer);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{segments, words};
+
+    // A frame count has to travel with the time it belongs to when a line wraps.
+    #[test]
+    fn a_frame_count_stays_in_the_word_of_its_time() {
+        let told: Vec<String> = words(&segments("Dodge for 1.00s^30f~1.20s^36f then"))
+            .iter()
+            .map(|word| word.iter().map(|seg| if seg.raised { format!("^{}", seg.text) } else { seg.text.to_string() }).collect())
+            .collect();
+
+        assert_eq!(told, ["Dodge", "for", "1.00s^30f~1.20s^36f", "then"]);
+    }
 }
