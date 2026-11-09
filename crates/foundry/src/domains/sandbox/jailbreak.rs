@@ -6,7 +6,7 @@ use codex::chapter::map::{
     RoguelikeBonusLotteryGroups, RoguelikeBonusMapStageLottery, RoguelikeBonusPermanent, RoguelikeBonusTokens, RoguelikeMapSettings,
 };
 use codex::chapter::stage::CertificationPreset;
-use codex::combat::get_talent;
+use codex::combat::{get_talent, AttrUnit};
 use codex::files::img015;
 use serde::{Deserialize, Serialize};
 
@@ -250,7 +250,20 @@ impl Texts<'_> {
             tokens.skill_name.clone()
         };
 
-        let percent = self.skills.skills.get(&skill).is_some_and(|skill| skill.percent());
+        let held = self.skills.skills.get(&skill);
+        let idle = held.is_some_and(|skill| skill.parameters.first() == Some(&0));
+        let raised = held.filter(|_| idle).and_then(|skill| {
+            let told = u8::try_from(skill.ability_id?).ok().and_then(get_talent)?.talent_values;
+            let (index, amount) = skill.parameters.chunks(2).enumerate().find_map(|(index, pair)| pair.first().copied().filter(|amount| *amount != 0).map(|amount| (index, amount)))?;
+
+            told.get(index).map(|value| (value.label, amount, value.unit == AttrUnit::Percent))
+        });
+
+        if let Some((label, amount, percent)) = raised {
+            return format!("{name} ({label} +{amount}{})", if percent { "%" } else { "" });
+        }
+
+        let percent = held.is_some_and(RoguelikeBonusBuffSkill::percent);
 
         match (tokens.bonus_value.is_empty(), percent) {
             (true, _) => name,

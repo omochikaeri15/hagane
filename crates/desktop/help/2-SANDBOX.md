@@ -19,9 +19,11 @@ You can add a cat combo to the lineup by double-clicking it. You can also search
 ### Roguelike
 This mode has special behaviors specific to it. There are "Bonuses" as well as "Registration" that can be attached to units.
 
-Provided are two buttons: "Global Bonus" and "Cat Bonus." They are self explanitory: one is for the global bonuses that applies to groups of cats or other attributes, and the other is for cat-sepcific bonuses.
+Selecting a Roguelike map causes you to automatically enter Roguelike mode. In this mode: lineup behavior changes, the available cats on the cat list narrows, and many configuration options are disabled.
 
-To "register" a cat, click and hold on their Deploy Icon for 0.7 seconds. Registered cats get a +5 boost to plus level as well as a point drop boost for the respective event stages.
+Provided under the lineup are two buttons: "Global Bonus" and "Cat Bonus." They are self explanitory: one is for the global bonuses that applies to groups of cats or other attributes, and the other is for cat-sepcific bonuses.
+
+To "register" a cat on a lineup, click and hold on their Deploy Icon for 0.7 seconds. Registered cats get a +5 boost to plus level as well as a point drop boost for the respective event stages.
 
 The lineups made under each Roguelike map is also contained to that specific map. This is due to each map having a unique roster as well as unique ability-changing mechanics detatched from the regular game.
 
