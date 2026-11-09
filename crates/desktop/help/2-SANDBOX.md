@@ -21,7 +21,7 @@ This mode has special behaviors specific to it. There are "Bonuses" as well as "
 
 Provided are two buttons: "Global Bonus" and "Cat Bonus." They are self explanitory: one is for the global bonuses that applies to groups of cats or other attributes, and the other is for cat-sepcific bonuses.
 
-To "register" a Cat, click and hold on their Deploy Icon for 0.7 seconds. Registered Cats get a +5 boost to plus level as well as a point drop boost for the respective event stages.
+To "register" a cat, click and hold on their Deploy Icon for 0.7 seconds. Registered cats get a +5 boost to plus level as well as a point drop boost for the respective event stages.
 
 ## Stage
 Mirror of the `Stages` page and determines what stage you lead into when you click `Play`.

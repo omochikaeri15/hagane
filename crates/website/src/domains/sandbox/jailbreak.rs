@@ -651,7 +651,7 @@ fn BonusPopup(board: Held, open: Signal<bool>, global: bool) -> Element {
 
                                         rsx! {
                                             div { key: "{id}", class: "card-muted bonus-tile",
-                                                Tip { text: label, hover: true,
+                                                Tip { text: label,
                                                     match bonus.icon {
                                                         AbilityIcon::Standard(cut) => match icons::sheet_url(&pictures, bonus.sheet, cut) {
                                                             Some(url) => rsx! { Pic { url, class: "ability-icon bonus-icon", style: format!("width: {ICON_SIZE}px; height: {ICON_SIZE}px;") } },
