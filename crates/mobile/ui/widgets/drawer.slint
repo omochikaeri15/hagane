@@ -15,7 +15,7 @@ export component EdgeGrab inherits TouchArea {
     property <bool> swiping;
     property <length> travel-x: self.mouse-x - self.start-x;
     property <length> travel-y: self.mouse-y - self.start-y;
-    property <bool> free: root.armed && !Shell.holding && (!root.guarded || (root.right ? Shell.claim-leftward : Shell.claim-rightward) != Shell.press-seq);
+    property <bool> free: root.armed && !Shell.holding && !Shell.sliding && (!root.guarded || (root.right ? Shell.claim-leftward : Shell.claim-rightward) != Shell.press-seq);
     width: 100%;
     height: 100%;
     enabled: !Shell.hover-input;
@@ -53,6 +53,7 @@ export component EdgeGrab inherits TouchArea {
             root.undecided = false;
             if root.outermost {
                 Shell.press-edge = false;
+                Shell.sliding = false;
             }
             if root.swiping {
                 root.swiping = false;

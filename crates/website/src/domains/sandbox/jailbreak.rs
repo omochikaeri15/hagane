@@ -24,9 +24,6 @@ use super::state::{self, SandboxState};
 use super::{Cats, Dialog, Ruled};
 
 const BONUS_WIDTH: f32 = 700.0;
-const ACTION_WIDTH: f32 = 120.0;
-const ACTION_HEIGHT: f32 = 26.0;
-const ACTION_SIZE: f32 = 12.0;
 const ICON_SIZE: f32 = 36.0;
 const EVERY_FORM: usize = 3;
 const CONFIRM_LABEL: &str = "Continue?";
@@ -402,7 +399,6 @@ pub(crate) fn Editor(board: Held, cats: Cats, globals: Shared, ruled: Ruled) -> 
 
     let focus = seen.as_ref().map(|(member, ..)| (member.id, member.form));
     let delete_label = if deleting() { CONFIRM_LABEL } else { "Delete" };
-    let action_style = format!("width: {}px; height: {}px; font-size: {}px;", ACTION_WIDTH * metrics.scale, ACTION_HEIGHT * metrics.scale, metrics.text(ACTION_SIZE));
     let create_platform = platform.clone();
     let create_board = board.clone();
     let delete_platform = platform.clone();
@@ -462,13 +458,9 @@ pub(crate) fn Editor(board: Held, cats: Cats, globals: Shared, ruled: Ruled) -> 
                         onmounted: move |event| deck_mount.set(Some(event)),
                         div { class: "deck-title bold", style: "height: {metrics.header}px; font-size: {metrics.text(16.0)}px;", "Lineup" }
                         div { style: "height: {metrics.header_gap}px;" }
-                        div { class: "deck-actions", style: "height: {metrics.actions}px; gap: {metrics.gap}px;",
-                            Tip { text: rules::GLOBAL_HINT, hover: true,
-                                button { class: "btn btn-primary deck-action", style: "{action_style}", onclick: move |_| global_open.set(true), "{rules::GLOBAL_LABEL}" }
-                            }
-                            Tip { text: rules::CAT_HINT, hover: true,
-                                button { class: "btn btn-primary deck-action", style: "{action_style}", onclick: move |_| cat_open.set(true), "{rules::CAT_LABEL}" }
-                            }
+                        div { class: "deck-actions", style: "height: {metrics.actions}px;",
+                            button { class: "btn btn-primary deck-action", title: rules::GLOBAL_HINT, onclick: move |_| global_open.set(true), "{rules::GLOBAL_LABEL}" }
+                            button { class: "btn btn-primary deck-action", title: rules::CAT_HINT, onclick: move |_| cat_open.set(true), "{rules::CAT_LABEL}" }
                         }
                         div { class: "deck-grid", style: "gap: {metrics.gap}px;",
                             for line in 0..LINEUP_SLOTS / COLUMNS {
@@ -609,7 +601,7 @@ fn BonusPopup(board: Held, open: Signal<bool>, global: bool) -> Element {
     let groups = groups();
 
     rsx! {
-        Popup { title, open, width: BONUS_WIDTH, modal: true, class: "jail-popup",
+        Popup { title, open, width: BONUS_WIDTH, class: "jail-popup",
             div { class: "jail-bonuses",
                 input { class: "input", r#type: "search", placeholder: "Search bonuses", value: "{searched}", oninput: move |event| query.set(event.value()) }
                 if groups.is_empty() {

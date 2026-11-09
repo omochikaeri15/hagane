@@ -78,7 +78,7 @@ component FilterDialog inherits Dialog {
     body-height: Shell.app-height / 2;
     VerticalLayout {
         host := Rectangle {
-            Flickable { interactive: !Shell.swiping;
+            Flickable { interactive: !Shell.swiping && !Shell.sliding;
                 mouse-drag-pan-enabled: true;
                 width: parent.width;
                 height: parent.height;
@@ -278,7 +278,7 @@ export component EnemiesPage inherits Rectangle {
                 max-height: 100000px;
                 content-width: self.width;
                 content-height: body.preferred-height + 16px > self.height ? body.preferred-height + 16px : self.height;
-                interactive: (body.preferred-height + 16px > self.height) && !Shell.swiping;
+                interactive: (body.preferred-height + 16px > self.height) && !Shell.swiping && !Shell.sliding;
                 body := VerticalLayout {
                     x: 0;
                     y: 0;

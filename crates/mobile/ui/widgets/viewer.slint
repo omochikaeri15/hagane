@@ -91,7 +91,7 @@ component Controls inherits Rectangle {
             Tap { enabled: !Shell.swiping; tapped => { Viewer.controls-expanded = !Viewer.controls-expanded; } }
         }
         Rectangle { height: 1phx; background: Theme.bg-strong; }
-        Flickable { interactive: !Shell.swiping;
+        Flickable { interactive: !Shell.swiping && !Shell.sliding;
             mouse-drag-pan-enabled: true;
             height: Viewer.tiles-scroll ? 55px : max(root.rows, 1) * 29px - 4px;
             content-height: max(root.rows, 1) * 29px - 4px;

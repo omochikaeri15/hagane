@@ -99,7 +99,7 @@ component TermsDialog inherits Dialog {
     VerticalLayout {
         padding: 20px;
         spacing: 18px;
-        Flickable { interactive: !Shell.swiping;
+        Flickable { interactive: !Shell.swiping && !Shell.sliding;
             mouse-drag-pan-enabled: true;
             vertical-stretch: 1;
             max-height: 100000px;

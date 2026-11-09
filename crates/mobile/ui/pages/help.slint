@@ -24,7 +24,7 @@ export component HelpPage inherits Rectangle {
             vertical-stretch: 1;
             max-height: 100000px;
             content-height: body.preferred-height + 32px > self.height ? body.preferred-height + 32px : self.height;
-            interactive: (body.preferred-height + 32px > self.height) && !Shell.swiping;
+            interactive: (body.preferred-height + 32px > self.height) && !Shell.swiping && !Shell.sliding;
             body := StyledText {
                 x: (parent.width - self.width) / 2;
                 y: 16px;

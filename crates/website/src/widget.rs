@@ -3,7 +3,7 @@ mod fit_column;
 mod fit_width;
 mod hold;
 mod name_box;
-mod popup;
+pub(crate) mod popup;
 mod range_row;
 mod row_list;
 mod settled;

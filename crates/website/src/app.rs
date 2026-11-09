@@ -16,7 +16,7 @@ use crate::platform::Platform;
 use crate::systems::library::Library;
 use crate::systems::{animation, catalog, context, export, images, turn};
 use crate::theme::{self, AppTheme};
-use crate::widget::{drawer, tip};
+use crate::widget::{drawer, popup, tip};
 
 static ICON: Asset = asset!("/assets/icon.ico");
 pub(crate) const THEME_KEY: &str = "theme";
@@ -150,6 +150,7 @@ pub fn App() -> Element {
     settings::provide_logging(&platform);
     settings::provide_fullscreen(&platform);
     drawer::provide();
+    popup::provide();
     tip::provide();
 
     let turn = turn::provide(&platform);

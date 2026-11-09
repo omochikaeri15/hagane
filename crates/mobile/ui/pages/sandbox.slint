@@ -734,7 +734,7 @@ component PanelTabs inherits Panel {
         mouse-drag-pan-enabled: true;
         width: 100%;
         height: 100%;
-        interactive: (list.preferred-height > self.height) && !Shell.swiping;
+        interactive: (list.preferred-height > self.height) && !Shell.swiping && !Shell.sliding;
         content-height: list.preferred-height;
         list := VerticalLayout {
             x: 0;
@@ -763,7 +763,7 @@ component ConfigBody inherits VerticalLayout {
         vertical-stretch: 1;
         max-height: 100000px;
         content-height: body.preferred-height + 72px > self.height ? body.preferred-height + 72px : self.height;
-        interactive: (body.preferred-height + 72px > self.height) && !Shell.swiping;
+        interactive: (body.preferred-height + 72px > self.height) && !Shell.swiping && !Shell.sliding;
         body := VerticalLayout {
             x: 0;
             y: 0;
@@ -1012,7 +1012,7 @@ component ReplayTab inherits Rectangle {
                 vertical-stretch: 1;
                 max-height: 100000px;
                 content-height: column.preferred-height + 72px > self.height ? column.preferred-height + 72px : self.height;
-                interactive: (column.preferred-height + 72px > self.height) && !Shell.swiping;
+                interactive: (column.preferred-height + 72px > self.height) && !Shell.swiping && !Shell.sliding;
                 column := VerticalLayout {
                     x: 0;
                     y: 0;
@@ -1139,7 +1139,7 @@ component AgreementDialog inherits Dialog {
     VerticalLayout {
         padding: 20px;
         spacing: 18px;
-        Flickable { interactive: !Shell.swiping;
+        Flickable { interactive: !Shell.swiping && !Shell.sliding;
             mouse-drag-pan-enabled: true;
             vertical-stretch: 1;
             max-height: 100000px;
@@ -1158,39 +1158,47 @@ component AgreementDialog inherits Dialog {
 component JailBonusDialog inherits Dialog {
     open <=> Sandbox.jail-bonuses-open;
     title: Sandbox.jail-global ? "Global Bonuses" : "Cat Bonuses";
-    panel-width: 420px;
+    panel-width: 290px;
     body-height: 460px;
     VerticalLayout {
         padding: 12px;
         spacing: 8px;
         Input { text <=> Sandbox.jail-search; placeholder: "Search bonuses"; text-size: 13px; height: 32px; edited(value) => { Sandbox.jail-search-changed(value); } }
         if Sandbox.jail-bonuses.length == 0: Label { text: "No bonus matches"; weak: true; horizontal-alignment: center; vertical-stretch: 1; vertical-alignment: center; }
-        if Sandbox.jail-bonuses.length > 0: ListView {
+        if Sandbox.jail-bonuses.length > 0: Flickable {
+            interactive: !Shell.swiping && !Shell.sliding;
             mouse-drag-pan-enabled: true;
             vertical-stretch: 1;
-            for row in Sandbox.jail-bonuses: Rectangle {
-                height: (row.title != "" ? 70px : 46px) + told.preferred-height + 6px;
+            max-height: 100000px;
+            content-height: cards.preferred-height;
+            cards := VerticalLayout {
                 width: parent.width;
-                told := Label { x: 0px; y: (row.title != "" ? 28px : 4px) + 40px; width: parent.width; text: row.detail; weak: true; font-size: 12px; }
-                if row.title != "": Label { x: 0px; y: 4px; width: parent.width; text: row.title; bold: true; font-size: 14px; overflow: elide; }
-                HorizontalLayout {
-                    x: 0px;
-                    y: row.title != "" ? 28px : 4px;
-                    width: parent.width;
-                    height: 38px;
-                    spacing: 10px;
-                    alignment: start;
+                for row in Sandbox.jail-bonuses: Rectangle {
+                    property <length> head: row.title != "" ? 26px : 0px;
+                    height: self.head + 56px + told.preferred-height + 6px;
+                    if row.title != "": Label { x: 0px; y: 4px; width: parent.width; text: row.title; bold: true; font-size: 14px; overflow: elide; }
                     Rectangle {
-                        width: 36px;
-                        height: 36px;
+                        x: 0px;
+                        y: parent.head;
+                        width: parent.width;
+                        height: 56px + told.preferred-height;
                         border-radius: Theme.radius-sm;
-                        background: row.has-icon ? transparent : Theme.danger;
-                        if row.has-icon: Image { source: row.icon; width: 36px; height: 36px; image-fit: contain; }
-                        if !row.has-icon: Label { text: row.fallback; font-size: 10px; width: 36px; height: 36px; horizontal-alignment: center; vertical-alignment: center; }
+                        background: Theme.card-muted;
+                        Rectangle {
+                            x: 8px;
+                            y: 8px;
+                            width: 36px;
+                            height: 36px;
+                            border-radius: Theme.radius-sm;
+                            background: row.has-icon ? transparent : Theme.danger;
+                            if row.has-icon: Image { source: row.icon; width: 36px; height: 36px; image-fit: contain; }
+                            if !row.has-icon: Label { text: row.fallback; font-size: 10px; width: 36px; height: 36px; horizontal-alignment: center; vertical-alignment: center; }
+                        }
+                        Slider { x: 54px; y: row.permanent ? 8px : 14px; width: parent.width - 54px - 52px; maximum: row.limit; value: row.level; guarded: false; changed(level) => { Sandbox.jail-raise(row.id, level); } }
+                        Label { x: parent.width - 46px; y: row.permanent ? 8px : 14px; width: 38px; height: 24px; text: row.level + "/" + row.limit; font-size: 13px; horizontal-alignment: right; vertical-alignment: center; }
+                        if row.permanent: Label { x: 54px; y: 30px; height: 14px; text: "Permanent"; weak: true; font-size: 11px; vertical-alignment: center; }
+                        told := Label { x: 8px; y: 48px; width: parent.width - 16px; text: row.detail; weak: true; font-size: 12px; }
                     }
-                    Slider { width: 110px; maximum: row.limit; value: row.level; guarded: false; changed(level) => { Sandbox.jail-raise(row.id, level); } }
-                    Label { text: row.level + "/" + row.limit; font-size: 13px; width: 34px; vertical-alignment: center; }
-                    if row.permanent: Label { text: "Permanent"; weak: true; font-size: 12px; vertical-alignment: center; }
                 }
             }
         }
@@ -1295,7 +1303,7 @@ export component SandboxDialogs {
             padding: 20px;
             spacing: 14px;
             Label { text: "The game attempted to crash due to a fault"; font-size: 14px; horizontal-alignment: center; wrap: word-wrap; }
-            Flickable { interactive: !Shell.swiping;
+            Flickable { interactive: !Shell.swiping && !Shell.sliding;
                 mouse-drag-pan-enabled: true;
                 height: 120px;
                 content-height: reason.preferred-height;

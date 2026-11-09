@@ -35,7 +35,7 @@ pub(super) const COLUMNS: usize = 5;
 const SMALLEST: f32 = 0.45;
 const TEXT_FLOOR: f32 = 0.8;
 const DECK_SHARE: f32 = 0.68;
-const ACTIONS_HEIGHT: f32 = 34.0;
+const ACTIONS_HEIGHT: f32 = 40.0;
 pub(super) const CARD_BORDER: f32 = 2.0;
 const SIDE_SHARE: f32 = 0.55;
 const BAR_ROOM: f32 = 38.0;
@@ -71,7 +71,7 @@ pub(super) struct Metrics {
 impl Metrics {
     const fn at(scale: f32, actions: bool) -> Self {
         Self {
-            actions: if actions { ACTIONS_HEIGHT * scale } else { 0.0 },
+            actions: if actions { ACTIONS_HEIGHT } else { 0.0 },
             scale,
             pad: 12.0 * scale,
             cell_width: 110.0 * scale,
@@ -86,22 +86,23 @@ impl Metrics {
     }
 
     pub(super) fn fitting(width: f32, height: f32, actions: bool) -> Self {
-        let full = Self::at(1.0, actions);
+        let bare = Self::at(1.0, false);
 
         if width <= 0.0 || height <= 0.0 {
-            return full;
+            return Self::at(1.0, actions);
         }
 
-        let across = width / full.deck_width();
-        let down = height * DECK_SHARE / full.deck_height();
+        let across = width / bare.deck_width();
+        let down = height * DECK_SHARE / bare.deck_height();
 
         Self::at(across.min(down).clamp(SMALLEST, 1.0), actions)
     }
 
     pub(super) fn beside(width: f32, height: f32, actions: bool) -> Self {
-        let full = Self::at(1.0, actions);
-        let across = width * SIDE_SHARE / full.deck_width();
-        let down = (height - BAR_ROOM) / full.deck_height();
+        let bare = Self::at(1.0, false);
+        let room = if actions { ACTIONS_HEIGHT } else { 0.0 };
+        let across = width * SIDE_SHARE / bare.deck_width();
+        let down = (height - BAR_ROOM - room) / bare.deck_height();
 
         Self::at(across.min(down).clamp(SMALLEST, 1.0), actions)
     }

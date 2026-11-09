@@ -110,7 +110,7 @@ export component ExportDialog inherits Dialog {
     VerticalLayout {
         padding: 10px;
         spacing: 8px;
-        Flickable { interactive: !Shell.swiping;
+        Flickable { interactive: !Shell.swiping && !Shell.sliding;
             mouse-drag-pan-enabled: true;
             vertical-stretch: 1;
             content-height: content.preferred-height;

@@ -514,11 +514,10 @@ impl Board {
     }
 
     pub fn arrange(&self, lineup: &Lineup, lifted: Option<Cell>, target: Cell, edge: Edge) -> Option<Arrangement> {
-        if matches!((lifted, target), (Some(Cell::Slot(_)), Cell::Bench(_))) {
-            return None;
+        match (lifted, target) {
+            (Some(from @ Cell::Slot(_)), Cell::Bench(_)) => lineup.swap(from, target),
+            _ => lineup.arrange(lifted, target, edge),
         }
-
-        lineup.arrange(lifted, target, edge)
     }
 
     fn keep(&self, run: &mut Run, lineup: &Lineup) {
@@ -759,7 +758,14 @@ mod tests {
 
         let lineup = board.lineup(&run);
 
-        assert!(board.arrange(&lineup, Some(Cell::Slot(0)), Cell::Bench(1), Edge::Before).is_none(), "a seated cat never leaves for the bench");
+        assert!(board.arrange(&lineup, Some(Cell::Slot(0)), Cell::Bench(1), Edge::Before).is_none(), "a seated cat never leaves for an empty bench seat");
+
+        let traded = board.arrange(&lineup, Some(Cell::Slot(0)), Cell::Bench(0), Edge::Before).unwrap();
+        let mut swapped = run.clone();
+
+        board.commit(&mut swapped, &traded, None);
+
+        assert_eq!((swapped.slots[0], swapped.bench[0]), (9, Some(0)), "over a benched cat the two trade places");
 
         let back = board.arrange(&lineup, Some(Cell::Bench(0)), Cell::Slot(9), Edge::Before).unwrap();
 

@@ -317,6 +317,20 @@ impl Lineup {
         Some(plan)
     }
 
+    pub fn swap(&self, from: Cell, target: Cell) -> Option<Arrangement> {
+        if from == target || self.get(from).is_none() || self.get(target).is_none() {
+            return None;
+        }
+
+        let mut plan = Arrangement::resting(self, None);
+
+        plan.lifted = Some(from);
+        plan.set(target, Placed::Carried);
+        plan.set(from, Placed::Kept(target));
+
+        Some(plan)
+    }
+
     pub fn commit(&mut self, plan: &Arrangement, fresh: Option<Member>) {
         let mut slots: Vec<Option<Member>> = std::mem::take(&mut self.slots).into_iter().map(Some).collect();
         let mut bench = std::mem::take(&mut self.bench);

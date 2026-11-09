@@ -96,7 +96,7 @@ export component AppWindow inherits Window {
                 padding: Theme.sidebar-padding;
                 padding-right: 0px;
                 Flickable {
-                    interactive: !Shell.swiping;
+                    interactive: !Shell.swiping && !Shell.sliding;
                     mouse-drag-pan-enabled: true;
                     content-height: tabs.preferred-height;
                     tabs := VerticalLayout {

@@ -531,7 +531,7 @@ component FilterDialog inherits Dialog {
     body-height: Shell.app-height / 2;
     VerticalLayout {
         host := Rectangle {
-            Flickable { interactive: !Shell.swiping;
+            Flickable { interactive: !Shell.swiping && !Shell.sliding;
                 mouse-drag-pan-enabled: true;
                 width: parent.width;
                 height: parent.height;
@@ -591,7 +591,7 @@ component AttributesDialog inherits Dialog {
     title: "Battleground Attributes";
     open <=> Stages.attributes-open;
     body-height: 9999px;
-    Flickable { interactive: !Shell.swiping;
+    Flickable { interactive: !Shell.swiping && !Shell.sliding;
         mouse-drag-pan-enabled: true;
         width: 100%;
         height: 100%;
@@ -649,7 +649,7 @@ export component StagesPage inherits Rectangle {
             height: parent.height;
             content-width: self.width;
             content-height: body.preferred-height + 24px > self.height ? body.preferred-height + 24px : self.height;
-            interactive: (body.preferred-height + 24px > self.height && !Stages.ground-dragging) && !Shell.swiping;
+            interactive: (body.preferred-height + 24px > self.height && !Stages.ground-dragging) && !Shell.swiping && !Shell.sliding;
             body := VerticalLayout {
                 x: 0;
                 y: 0;
