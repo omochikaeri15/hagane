@@ -1,41 +1,11 @@
 # Rust Build Artifacts
 /target/
 **/*.rs.bk
-
-# Debugging
-Hagane.exe
-Battle_Cats_Complete.exe
-modules*.md
-/stuff/
-/references/
-trace*
-debug*
-crash*
-
-# Quality of Life
 .cargo/
-.cl*/
-.st*/
-.re*/
-*.py
-CL*.md
-ST*.md
-RE*.ms
 
-# Extracted Game Data
-/game/
-/exports/
-/mods/
-/studio/
-/.work/
-.csv
-.tsv
-
-# Update Leftovers
-tmp_update.zip
-tmp_new_version.exe
-tmp_new_version
-*legacy
+# Build Outputs
+/compiled/
+crates/mobile/release.keystore
 
 # IDE Settings
 .vscode/
@@ -43,11 +13,8 @@ tmp_new_version
 .zed/
 .gram/
 .tools/
-*swp
+*.swp
 
 # OS Junk
 .DS_Store
 Thumbs.db
-
-crates/mobile/release.keystore
-/compiled/
