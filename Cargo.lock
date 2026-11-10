@@ -1163,7 +1163,7 @@ dependencies = [
 
 [[package]]
 name = "codex"
-version = "26.11.7"
+version = "26.11.8"
 dependencies = [
  "aes",
  "block-padding",
@@ -1808,7 +1808,7 @@ dependencies = [
 
 [[package]]
 name = "desktop"
-version = "26.11.7"
+version = "26.11.8"
 dependencies = [
  "ab_glyph",
  "arboard",
@@ -2939,7 +2939,7 @@ dependencies = [
 
 [[package]]
 name = "foundry"
-version = "26.11.7"
+version = "26.11.8"
 dependencies = [
  "ab_glyph",
  "base64 0.23.1",
@@ -5377,7 +5377,7 @@ dependencies = [
 
 [[package]]
 name = "mobile"
-version = "26.11.7"
+version = "26.11.8"
 dependencies = [
  "ab_glyph",
  "block2 0.6.2",
@@ -9837,7 +9837,7 @@ dependencies = [
 
 [[package]]
 name = "website"
-version = "26.11.7"
+version = "26.11.8"
 dependencies = [
  "ab_glyph",
  "base64 0.23.1",
