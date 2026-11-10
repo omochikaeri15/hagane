@@ -623,7 +623,9 @@ pub fn refresh(ui: &AppWindow, state: &Shared, context: &Rc<Context>) {
 
     let jailed = state.borrow().jail.as_ref().is_some_and(|(_, board)| board.is_some());
 
-    sandbox.set_playable(ready && (fielded || jailed) && staged.is_some() && state.borrow().battle.standing == Standing::default());
+    let budgeted = !jailed || jailbreak::within_budget(state, context);
+
+    sandbox.set_playable(ready && (fielded || jailed) && budgeted && staged.is_some() && state.borrow().battle.standing == Standing::default());
 
     match tab {
         Tab::Lineup => lineup::sync(ui, state, context, staged.as_ref()),

@@ -105,6 +105,7 @@ struct Staging {
     altar: Option<u32>,
     gimmicks: Gimmicks,
     jail: Option<(i32, i32)>,
+    stage: i32,
 }
 
 pub(crate) struct Picked {
@@ -388,6 +389,7 @@ pub(crate) fn Sandbox() -> Element {
             jailbreak: ruled.as_ref().is_some_and(|ruled| ruled.challenge.is_some()),
         };
         let jail = ruled.as_ref().and_then(|ruled| ruled.challenge);
+        let stage = picked.as_ref().and_then(|picked| i32::try_from(picked.stage.stage).ok()).unwrap_or(0);
 
         Staging {
             entry,
@@ -396,6 +398,7 @@ pub(crate) fn Sandbox() -> Element {
             altar,
             gimmicks,
             jail,
+            stage,
         }
     }));
     let staging = staging();
@@ -417,7 +420,8 @@ pub(crate) fn Sandbox() -> Element {
         jail.0.set(board.clone());
     }
 
-    let playable = staging.entry.is_some() && (fielded || board.is_some()) && cats.is_some();
+    let budgeted = board.as_ref().is_none_or(|board| jailbreak::within_budget(sandbox, &board.0, staging.stage));
+    let playable = staging.entry.is_some() && (fielded || board.is_some()) && budgeted && cats.is_some();
     let usable = state::usable();
 
     if *usable.0.peek() != staging.usable {
@@ -517,7 +521,7 @@ pub(crate) fn Sandbox() -> Element {
                 match tab {
                     Tab::Lineup => match cats.clone() {
                         Some(cats) => match board.clone() {
-                            Some(board) => rsx! { jailbreak::Editor { board, cats, globals: globals.clone(), ruled: Ruled(Rc::clone(&rules)) } },
+                            Some(board) => rsx! { jailbreak::Editor { board, cats, globals: globals.clone(), ruled: Ruled(Rc::clone(&rules)), stage: staging.stage } },
                             None => rsx! { lineup::Editor { cats, globals: globals.clone(), rules: Ruled(Rc::clone(&rules)), altar: altar_cap } },
                         },
                         None => rsx! { Status { title: cats_title, detail: cats_detail.clone() } },

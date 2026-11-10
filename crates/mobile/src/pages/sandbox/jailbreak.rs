@@ -52,6 +52,14 @@ pub fn run(saved: &Saved, board: &Board) -> Run {
     saved.config.jailbreak.get(&board.map_id).and_then(Runs::current).map_or_else(Run::default, |run| board.settled(run))
 }
 
+fn stage_of(context: &Rc<Context>) -> i32 {
+    context.pages().and_then(|pages| pages.stages.borrow().picked()).and_then(|(id, _)| i32::try_from(id.stage).ok()).unwrap_or(0)
+}
+
+pub fn within_budget(state: &Shared, context: &Rc<Context>) -> bool {
+    held(state).is_none_or(|board| board.within_budget(&run(&state.borrow().saved(), &board), stage_of(context)))
+}
+
 pub fn picks(saved: &Saved, board: &Board) -> (RoguelikePicks, Vec<SetupUnit>) {
     let run = run(saved, board);
     let roster = board.roster(&run).into_iter().map(|(starter, id)| if starter { RosterPick::Starter(id) } else { RosterPick::Recruit(id) }).collect();
@@ -132,7 +140,7 @@ pub fn fill_roster(ui: &AppWindow, state: &Shared, context: &Rc<Context>) {
     ui.global::<Sandbox>().set_roster_count(rows.len() as i32);
 }
 
-fn cell_of(context: &Rc<Context>, cats: &[CatEntry], run: &Run, member: Option<&Member>) -> DeckCell {
+fn cell_of(context: &Rc<Context>, cats: &[CatEntry], run: &Run, member: Option<&Member>, flagged: bool) -> DeckCell {
     let Some(member) = member else {
         return DeckCell::default();
     };
@@ -147,6 +155,7 @@ fn cell_of(context: &Rc<Context>, cats: &[CatEntry], run: &Run, member: Option<&
 
     DeckCell {
         filled: true,
+        flagged,
         registered: run.registered.contains(&member.id),
         has_icon: icon.is_some(),
         icon: icon.unwrap_or_default(),
@@ -162,8 +171,16 @@ pub fn sync_deck(ui: &AppWindow, state: &Shared, context: &Rc<Context>) {
     };
     let run = run(&state.borrow().saved(), &board);
     let lineup = board.lineup(&run);
-    let slots: Vec<DeckCell> = (0..LINEUP_SLOTS).map(|index| cell_of(context, &cats, &run, lineup.slots.get(index))).collect();
-    let bench: Vec<DeckCell> = (0..BENCH_SLOTS).map(|index| cell_of(context, &cats, &run, lineup.bench.get(index).and_then(Option::as_ref))).collect();
+    let recruits_over = board.tally(&run, stage_of(context)).is_some_and(|tally| tally.recruits_over);
+    let slots: Vec<DeckCell> = (0..LINEUP_SLOTS)
+        .map(|index| {
+            let member = lineup.slots.get(index);
+            let flagged = recruits_over && member.is_some_and(|member| board.recruited(member.id));
+
+            cell_of(context, &cats, &run, member, flagged)
+        })
+        .collect();
+    let bench: Vec<DeckCell> = (0..BENCH_SLOTS).map(|index| cell_of(context, &cats, &run, lineup.bench.get(index).and_then(Option::as_ref), false)).collect();
     let sandbox = ui.global::<Sandbox>();
 
     state.borrow_mut().resting = (slots, bench);
@@ -286,9 +303,18 @@ pub fn sync(ui: &AppWindow, state: &Shared, context: &Rc<Context>, staging: Opti
     }
 
     let Some(board) = board else {
+        sandbox.set_jail_tallied(false);
+
         return;
     };
     let run = run(&state.borrow().saved(), &board);
+    let tally = board.tally(&run, stage_of(context));
+
+    sandbox.set_jail_tallied(tally.is_some());
+    sandbox.set_jail_recruits_over(tally.as_ref().is_some_and(|tally| tally.recruits_over));
+    sandbox.set_jail_bonuses_over(tally.as_ref().is_some_and(|tally| tally.bonuses_over));
+    sandbox.set_jail_recruits(tally.as_ref().map_or_else(Default::default, |tally| tally.recruits_note().unwrap_or(tally.recruits.as_str()).into()));
+    sandbox.set_jail_bonuses_text(tally.as_ref().map_or_else(Default::default, |tally| tally.bonuses_note().unwrap_or(tally.bonuses.as_str()).into()));
 
     if editing && editing == was_editing {
         let stale = state.borrow().cats.as_ref().is_none_or(|cats| listed(&board, &run, cats) != state.borrow().jail_listed);

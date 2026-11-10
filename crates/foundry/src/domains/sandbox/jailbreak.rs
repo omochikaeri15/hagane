@@ -31,6 +31,10 @@ pub const OVERRIDDEN: &str = "A Jailbreak run brings its own, the ones here are 
 pub const REGISTERED: &str = "REG";
 pub const BENCH_NOTE: &str = "Not part of the run";
 pub const PERMANENT: &str = "Permanent";
+pub const RECRUITS_LABEL: &str = "Recruits";
+pub const BONUSES_LABEL: &str = "Bonuses";
+pub const TOO_MANY_RECRUITS: &str = "Too many Recruits!";
+pub const TOO_MANY_BONUSES: &str = "Too many Bonuses!";
 pub const EVERY_CAT: &str = "Every Cat";
 pub const ABILITY_SHEET: &str = "img015";
 pub const BASE_SHEET: &str = "img060_01";
@@ -42,6 +46,8 @@ const GROUP_FILE: &str = "RoguelikeBonusLotteryGroup.json";
 const PERMANENT_FILE: &str = "RoguelikeBonusPermanent.json";
 const LOTTERY_FILE: &str = "RoguelikeBonusMapStageLottery.json";
 const BASIC_CANNON: i32 = 0;
+const FIRST_STAGE: i32 = 0;
+const EVERY_STAGE: i32 = -1;
 const BREAK: &str = "<br>";
 const LEVEL_FALLBACK: &str = "Lv+";
 const COMBO_FALLBACK: &str = "Combo";
@@ -197,6 +203,40 @@ impl Standing {
     }
 }
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Budget {
+    pub recruits: i32,
+    pub bonuses: i32,
+}
+
+impl Budget {
+    pub fn covers(self, spent: Self) -> bool {
+        spent.recruits <= self.recruits && spent.bonuses <= self.bonuses
+    }
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Tally {
+    pub recruits: String,
+    pub bonuses: String,
+    pub recruits_over: bool,
+    pub bonuses_over: bool,
+}
+
+impl Tally {
+    pub fn over(&self) -> bool {
+        self.recruits_over || self.bonuses_over
+    }
+
+    pub fn recruits_note(&self) -> Option<&'static str> {
+        self.recruits_over.then_some(TOO_MANY_RECRUITS)
+    }
+
+    pub fn bonuses_note(&self) -> Option<&'static str> {
+        self.bonuses_over.then_some(TOO_MANY_BONUSES)
+    }
+}
+
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Board {
     pub map_id: i32,
@@ -205,6 +245,7 @@ pub struct Board {
     pub bonuses: Vec<Bonus>,
     pub texts: HashMap<u8, (u8, i16)>,
     pub registered_plus: i32,
+    pub picks: Option<BTreeMap<i32, Budget>>,
 }
 
 pub fn is_challenge_map(vfs: &Vfs, map_id: i32) -> bool {
@@ -351,7 +392,19 @@ impl Board {
         let abilities = table(ABILITY_FILE).and_then(|bytes| RoguelikeBonusEffectAbilities::parse(bytes).ok()).unwrap_or_default();
         let groups = table(GROUP_FILE).and_then(|bytes| RoguelikeBonusLotteryGroups::parse(bytes).ok()).unwrap_or_default();
         let permanent = table(PERMANENT_FILE).and_then(|bytes| RoguelikeBonusPermanent::parse(bytes).ok()).unwrap_or_default();
-        let drawn = table(LOTTERY_FILE).and_then(|bytes| RoguelikeBonusMapStageLottery::parse(bytes).ok()).and_then(|lottery| lottery.groups(map_id));
+        let lottery = table(LOTTERY_FILE).and_then(|bytes| RoguelikeBonusMapStageLottery::parse(bytes).ok());
+        let drawn = lottery.as_ref().and_then(|lottery| lottery.groups(map_id));
+        let picks = lottery.as_ref().and_then(|lottery| {
+            let stages = lottery.maps.get(&map_id)?;
+            let picks_of = |stage: i32| {
+                lottery.draws(map_id, stage).into_iter().fold(Budget::default(), |picks, draw| Budget {
+                    recruits: picks.recruits + i32::from(!groups.charas(&draw.bonus_group_ids).is_empty()),
+                    bonuses: picks.bonuses + i32::from(!groups.buffs(&draw.bonus_group_ids).is_empty()),
+                })
+            };
+
+            Some(stages.keys().map(|stage| (*stage, picks_of(*stage))).collect())
+        });
         let offered = drawn.as_ref().map(|held| (groups.charas(held), groups.buffs(held)));
         let preset = table(&entry.preset_file_name).and_then(|bytes| CertificationPreset::parse(bytes).ok()).unwrap_or_default();
         let unitbuy = ctx.vault.vds.cats.unitbuy(vfs);
@@ -417,7 +470,7 @@ impl Board {
             told.entry(group.ability_id).or_insert((group.text_id, group.name_id));
         }
 
-        Some(Self { map_id, starters, cats: listed, bonuses, texts: told, registered_plus: ctx.param.registered_plus_levels })
+        Some(Self { map_id, starters, cats: listed, bonuses, texts: told, registered_plus: ctx.param.registered_plus_levels, picks })
     }
 
     pub fn cat(&self, unit: u32) -> Option<&Cat> {
@@ -464,6 +517,43 @@ impl Board {
     pub fn offers(&self, run: &Run, bonus: &Bonus) -> bool {
         bonus.target.is_none_or(|unit| self.fielded(run).contains(&unit))
     }
+
+    pub fn budget(&self, stage: i32) -> Option<Budget> {
+        let picks = self.picks.as_ref()?;
+
+        Some((FIRST_STAGE..stage).filter_map(|cleared| picks.get(&cleared).or_else(|| picks.get(&EVERY_STAGE))).fold(Budget::default(), |budget, picks| Budget {
+            recruits: budget.recruits + picks.recruits,
+            bonuses: budget.bonuses + picks.bonuses,
+        }))
+    }
+
+    pub fn recruited(&self, unit: u32) -> bool {
+        self.cat(unit).is_some_and(|cat| !cat.starter)
+    }
+
+    pub fn spent(&self, run: &Run) -> Budget {
+        let recruits = self.fielded(run).iter().filter(|unit| self.recruited(**unit)).count();
+        let bonuses = run.bonuses.iter().filter_map(|(id, level)| self.bonus(*id).filter(|bonus| !bonus.permanent).map(|_| *level)).sum();
+
+        Budget { recruits: i32::try_from(recruits).unwrap_or(i32::MAX), bonuses }
+    }
+
+    pub fn tally(&self, run: &Run, stage: i32) -> Option<Tally> {
+        let budget = self.budget(stage)?;
+        let spent = self.spent(run);
+
+        Some(Tally {
+            recruits: format!("{RECRUITS_LABEL} {}/{}", spent.recruits, budget.recruits),
+            bonuses: format!("{BONUSES_LABEL} {}/{}", spent.bonuses, budget.bonuses),
+            recruits_over: spent.recruits > budget.recruits,
+            bonuses_over: spent.bonuses > budget.bonuses,
+        })
+    }
+
+    pub fn within_budget(&self, run: &Run, stage: i32) -> bool {
+        self.budget(stage).is_none_or(|budget| budget.covers(self.spent(run)))
+    }
+
 
     pub fn standing(&self, run: &Run, unit: u32) -> Standing {
         let Some(cat) = self.cat(unit) else {
@@ -654,7 +744,6 @@ impl Board {
             RoguelikeBonusEffect::CatCannon { cannon, .. } => Some(cannon),
             _ => None,
         };
-
         match level.clamp(0, bonus.limit) {
             0 => run.bonuses.remove(&id),
             level => run.bonuses.insert(id, level),
@@ -760,6 +849,7 @@ mod tests {
             bonuses: vec![bonus(0, 5, None, level_up), bonus(50, 1, Some(75), skill(75)), bonus(86, 1, Some(9), skill(9))],
             texts: HashMap::from([(32, (7, 3))]),
             registered_plus: 5,
+            picks: Some(BTreeMap::from([(-1, Budget { recruits: 1, bonuses: 1 })])),
         }
     }
 
@@ -908,6 +998,44 @@ mod tests {
         }
 
         assert_eq!(full.bench, [Some(75), Some(76), None, None, None], "a cat already on the bench is not added twice");
+    }
+
+    // Every cleared stage hands out one cat and one bonus level, so the stage picked is the budget; permanent bonuses and the bench are free.
+    #[test]
+    fn the_picks_of_the_stages_cleared_so_far_are_the_budget() {
+        let mut board = board();
+
+        board.bonuses[0].limit = 5;
+        board.bonuses.push(Bonus { permanent: true, ..bonus(90, 3, None, RoguelikeBonusBuff { buff_type: Some(0), level_up: Some(5), target_rarity: Some(-1), ..RoguelikeBonusBuff::default() }) });
+
+        let mut run = Run::default();
+
+        assert_eq!(board.budget(0), Some(Budget::default()));
+        assert_eq!(board.budget(3), Some(Budget { recruits: 3, bonuses: 3 }));
+
+        board.raise(&mut run, 0, 3);
+        board.raise(&mut run, 90, 3);
+        board.add(&mut run, 76);
+
+        assert_eq!(board.spent(&run), Budget { recruits: 0, bonuses: 3 }, "the permanent bonus and the benched cat cost nothing");
+        assert!(board.within_budget(&run, 3) && !board.within_budget(&run, 2));
+
+        let plan = board.arrange(&board.lineup(&run), None, Cell::Slot(9), Edge::Before).unwrap();
+
+        board.commit(&mut run, &plan, Some(75));
+
+        assert_eq!(board.spent(&run).recruits, 1);
+
+        let tally = board.tally(&run, 1).unwrap();
+
+        assert_eq!((tally.recruits.as_str(), tally.bonuses.as_str(), tally.recruits_over, tally.bonuses_over), ("Recruits 1/1", "Bonuses 3/1", false, true), "backtracking to an earlier stage leaves the run over budget");
+        assert!(tally.over());
+        assert_eq!((tally.recruits_note(), tally.bonuses_note()), (None, Some(TOO_MANY_BONUSES)));
+        assert_eq!(board.tally(&run, 0).unwrap().recruits_note(), Some(TOO_MANY_RECRUITS));
+
+        board.picks = None;
+
+        assert!(board.tally(&run, 0).is_none() && board.within_budget(&run, 0), "a map the lottery does not list has no budget");
     }
 
     // Under a cat's own header the text does not need to say whose bonus it is again.

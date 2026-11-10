@@ -9,7 +9,7 @@ import { StagesPage } from "stages.slint";
 import { Cats, FilterDialog, CatDetail } from "cats.slint";
 import { TreasureEditor, ArcRow, ChapterFold } from "settings.slint";
 
-export struct DeckCell { filled: bool, aimed: bool, registered: bool, icon: image, has-icon: bool, fallback: string, level: string, cost: string, has-cost: bool, barred: bool, talented: bool, np: image, has-np: bool, orbs: [image] }
+export struct DeckCell { filled: bool, aimed: bool, flagged: bool, registered: bool, icon: image, has-icon: bool, fallback: string, level: string, cost: string, has-cost: bool, barred: bool, talented: bool, np: image, has-np: bool, orbs: [image] }
 export struct ComboSample { name: string, effect: string, note: string }
 export struct ComboRow { line: int, name: string, effect: string, note: string, active: bool, banned: bool, icons: [image], has: [bool] }
 export struct JailBonus { id: int, title: string, detail: string, icon: image, has-icon: bool, fallback: string, level: int, limit: int, permanent: bool }
@@ -73,6 +73,11 @@ export global Sandbox {
     in property <bool> jail-global;
     in property <[JailBonus]> jail-bonuses;
     in-out property <string> jail-search;
+    in property <bool> jail-tallied;
+    in property <bool> jail-recruits-over;
+    in property <bool> jail-bonuses-over;
+    in property <string> jail-recruits;
+    in property <string> jail-bonuses-text;
     callback jail-open-bonuses(bool);
     callback jail-raise(int, int);
     callback jail-search-changed(string);
@@ -271,6 +276,7 @@ component DeckSlot inherits Rectangle {
     if root.cell.filled && root.cell.has-icon: Image { source: root.cell.icon; width: parent.width; height: parent.height; image-fit: contain; }
     if root.cell.filled && !root.cell.has-icon: Label { text: root.cell.fallback; font-size: 11px; horizontal-alignment: center; vertical-alignment: center; width: parent.width; height: parent.height; }
     if root.cell.filled && root.cell.barred: Rectangle { background: Theme.scrim; }
+    if root.cell.filled && root.cell.flagged: Rectangle { border-width: 2px; border-color: Theme.danger; border-radius: Theme.radius-sm; }
     if root.cell.filled: HorizontalLayout {
         x: 2px;
         y: 2px;
@@ -436,8 +442,8 @@ component Deck inherits OutlinedCard {
         height: root.action-height;
         alignment: center;
         spacing: 6px;
-        Btn { label: "Global Bonus"; width: min(110px, (root.grid-width - 6px) / 2); height: root.action-height; text-size: max(9px, 12px * root.shrink); pad-y: 0px; clicked => { Sandbox.jail-open-bonuses(true); } }
-        Btn { label: "Cat Bonus"; width: min(110px, (root.grid-width - 6px) / 2); height: root.action-height; text-size: max(9px, 12px * root.shrink); pad-y: 0px; clicked => { Sandbox.jail-open-bonuses(false); } }
+        Btn { label: "Global Bonus"; tone: Sandbox.jail-bonuses-over ? Tone.danger : Tone.primary; width: min(110px, (root.grid-width - 6px) / 2); height: root.action-height; text-size: max(9px, 12px * root.shrink); pad-y: 0px; clicked => { Sandbox.jail-open-bonuses(true); } }
+        Btn { label: "Cat Bonus"; tone: Sandbox.jail-bonuses-over ? Tone.danger : Tone.primary; width: min(110px, (root.grid-width - 6px) / 2); height: root.action-height; text-size: max(9px, 12px * root.shrink); pad-y: 0px; clicked => { Sandbox.jail-open-bonuses(false); } }
     }
     Label { x: 12px; y: root.bench-title-top; width: root.avail - 24px; text: "Bench"; bold: true; font-size: 14px; horizontal-alignment: center; }
     Label { x: 12px; y: root.bench-title-top + 18px; width: root.avail - 24px; text: root.bench-note; weak: true; font-size: 11px; horizontal-alignment: center; }
@@ -650,6 +656,12 @@ component RosterPanel inherits Panel {
                     press := Tap { enabled: !Shell.swiping; tapped => { Sandbox.recruit(row.id); } }
                 }
             }
+        }
+        if Sandbox.jail-ready && Sandbox.jail-tallied: Rectangle {
+            height: 28px;
+            border-radius: Theme.radius-sm;
+            background: Sandbox.jail-recruits-over ? Theme.danger : Theme.success;
+            Label { width: parent.width; height: parent.height; text: Sandbox.jail-recruits; color: Sandbox.jail-recruits-over ? Theme.white : Theme.text; font-size: 12px; horizontal-alignment: center; vertical-alignment: center; }
         }
     }
 }
@@ -1183,6 +1195,7 @@ component JailBonusDialog inherits Dialog {
     title: Sandbox.jail-global ? "Global Bonuses" : "Cat Bonuses";
     panel-width: 290px;
     body-height: 460px;
+    Rectangle {
     VerticalLayout {
         padding: 12px;
         spacing: 8px;
@@ -1196,6 +1209,7 @@ component JailBonusDialog inherits Dialog {
             content-height: cards.preferred-height;
             cards := VerticalLayout {
                 width: parent.width;
+                padding-bottom: Sandbox.jail-tallied ? 36px : 0px;
                 for row in Sandbox.jail-bonuses: Rectangle {
                     property <length> head: row.title != "" ? 26px : 0px;
                     height: self.head + 56px + told.preferred-height + 6px;
@@ -1225,6 +1239,16 @@ component JailBonusDialog inherits Dialog {
                 }
             }
         }
+    }
+    if Sandbox.jail-tallied: Rectangle {
+        width: 150px;
+        height: 28px;
+        x: (parent.width - self.width) / 2;
+        y: parent.height - self.height - 6px;
+        border-radius: Theme.radius-sm;
+        background: Sandbox.jail-bonuses-over ? Theme.danger : Theme.success;
+        Label { width: parent.width; height: parent.height; text: Sandbox.jail-bonuses-text; color: Sandbox.jail-bonuses-over ? Theme.white : Theme.text; font-size: 13px; horizontal-alignment: center; vertical-alignment: center; }
+    }
     }
 }
 

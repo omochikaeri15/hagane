@@ -751,6 +751,7 @@ fn cell_of(painter: &Painter<'_>, member: Option<&Member>, priced: Priced) -> De
         filled: true,
         registered: false,
         aimed: false,
+        flagged: false,
         has_icon: icon.is_some(),
         icon: icon.unwrap_or_default(),
         fallback: format!("{:03}-{}", member.id, member.form + 1).into(),

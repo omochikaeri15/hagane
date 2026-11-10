@@ -329,6 +329,14 @@ impl RoguelikeBonusMapStageLottery {
 
         Some(stages.values().flat_map(BTreeMap::values).flat_map(|draw| draw.bonus_group_ids.iter().copied()).collect())
     }
+
+    pub fn draws(&self, map_id: i32, stage: i32) -> Vec<&RoguelikeBonusDraw> {
+        let Some(stages) = self.maps.get(&map_id) else {
+            return Vec::new();
+        };
+
+        stages.get(&stage).or_else(|| stages.get(&EVERY)).map_or_else(Vec::new, |draws| draws.values().collect())
+    }
 }
 
 fn parse_lottery(bytes: &[u8]) -> Result<RoguelikeBonusMapStageLottery, RoguelikeBonusError> {
@@ -658,6 +666,12 @@ mod tests {
         assert_eq!(held, vec![40, 12]);
         assert_eq!((groups.charas(&held), groups.buffs(&held)), (vec![4], vec![86]));
         assert!(lottery.groups(39002).is_none());
+
+        // A stage with no row of its own draws the map's -1 row, in BonusNum order.
+        let drawn: Vec<Vec<i32>> = lottery.draws(39001, 7).into_iter().map(|draw| draw.bonus_group_ids.clone()).collect();
+
+        assert_eq!(drawn, vec![vec![40], vec![12]]);
+        assert!(lottery.draws(39002, 0).is_empty());
     }
 
     #[test]

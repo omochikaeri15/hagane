@@ -21,7 +21,7 @@ use crate::systems::context::{self, Shared};
 use crate::systems::images::{self, Pictures};
 use crate::systems::picture::Pic;
 use crate::systems::turn;
-use crate::widget::{Drawer, RowList, drawer};
+use crate::widget::{Drawer, RowList, Tip, drawer};
 
 use super::orbs::{self, Book, Shelf};
 use super::state::{self, SandboxState};
@@ -830,6 +830,7 @@ pub(super) fn SandboxRoster(
     onrelease: Callback<()>,
     oncancel: Callback<()>,
     onsearch: Callback<String>,
+    #[props(default)] footer: Option<(String, Option<&'static str>)>,
 ) -> Element {
     let mut cat_state = cat::state();
     let pictures = images::pictures();
@@ -878,6 +879,15 @@ pub(super) fn SandboxRoster(
                 },
             }
             RowList { count, row, empty: "No Cats Found!" }
+            if let Some((label, note)) = footer.as_ref() {
+                div { class: "roster-footer-anchor",
+                    if let Some(note) = note {
+                        Tip { text: *note, div { class: "roster-footer over", "{label}" } }
+                    } else {
+                        div { class: "roster-footer", "{label}" }
+                    }
+                }
+            }
         }
     }
 }

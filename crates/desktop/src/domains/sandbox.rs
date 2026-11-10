@@ -282,6 +282,10 @@ impl State {
         self.jailbreak.key()
     }
 
+    pub(crate) fn set_jailbreak_stage(&mut self, stage: i32, app_state: &AppState) {
+        self.jailbreak.set_stage(stage, &app_state.sandbox.config);
+    }
+
     pub(crate) fn set_jailbreak(&mut self, key: Option<jailbreak::Key>, board: Option<Board>, app_state: &AppState, ctx: GlobalContext<'_>) -> Task<Message> {
         self.jailbreak.set_board(key, board, &app_state.sandbox.config);
 
@@ -1177,6 +1181,8 @@ impl State {
     }
 
     pub(crate) fn playable(&self, app_state: &AppState, staged: bool) -> bool {
-        staged && (self.jailbreak.key().is_some_and(|_| self.jailbreak.ready()) || app_state.sandbox.roster.current().is_some_and(|lineup| !lineup.slots.is_empty()))
+        let jailed = self.jailbreak.key().is_some_and(|_| self.jailbreak.ready());
+
+        staged && if jailed { self.jailbreak.within_budget() } else { app_state.sandbox.roster.current().is_some_and(|lineup| !lineup.slots.is_empty()) }
     }
 }

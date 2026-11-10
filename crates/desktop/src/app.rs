@@ -2097,6 +2097,9 @@ impl HaganeApp {
 
         let roamed = data.selected_map.as_ref().and_then(|map| i32::try_from(data.registry.addresses.get(map)?.global?).ok());
         let jailbreak = global.or(roamed).map(|map_id| (map_id, i32::from(self.stage_state.selected_crown), self.vault.vfs.fingerprint(), self.cat_state.data.cats.len()));
+        let stage = data.selected_stage.as_ref().and_then(|picked| i32::try_from(picked.stage).ok()).unwrap_or(0);
+
+        self.sandbox_state.set_jailbreak_stage(stage, &self.app_state);
 
         let run = if self.sandbox_state.jailbreak_key() == jailbreak {
             Task::none()

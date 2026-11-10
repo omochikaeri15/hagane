@@ -828,6 +828,7 @@ fn tile(context: &Rc<Context>, cats: &[CatEntry], book: Option<&Rc<super::orbs::
         filled: true,
         registered: false,
         aimed: false,
+        flagged: false,
         has_icon: icon.is_some(),
         icon: icon.unwrap_or_default(),
         fallback: format!("{id:03}-{}", form + 1).into(),

@@ -526,7 +526,15 @@ img { user-select: none; -webkit-user-select: none; }
 .lineup-unused-note { padding: 10px 16px; font-size: 14px; text-align: center; }
 .deck-actions { display: flex; justify-content: center; align-items: flex-start; gap: 8px; }
 .deck-action { flex: 1 1 0; max-width: 130px; height: 30px; min-height: 30px; padding: 0 6px; font-size: 13px; white-space: nowrap; }
-.jail-popup .popup-body { overflow: hidden; display: flex; flex-direction: column; }
+.roster-footer-anchor { display: flex; flex-shrink: 0; margin-top: 8px; }
+.roster-footer-anchor > .tip { flex: 1; }
+.roster-footer { display: flex; flex: 1; justify-content: center; align-items: center; padding: 4px 8px; border-radius: var(--radius-sm); font-size: 12px; background: var(--success); color: var(--text); }
+.roster-footer.over { background: var(--danger); color: #fff; }
+.jail-popup .popup-body { overflow: hidden; display: flex; flex-direction: column; position: relative; }
+.jail-clearance { flex-shrink: 0; height: 28px; }
+.jail-tally-anchor { position: absolute; left: 50%; bottom: 6px; transform: translateX(-50%); }
+.jail-tally { padding: 4px 10px; border-radius: var(--radius-sm); font-size: 13px; white-space: nowrap; background: var(--success); color: var(--text); }
+.jail-tally.over { background: var(--danger); color: #fff; }
 .jail-bonuses { display: flex; flex-direction: column; gap: 14px; padding: 16px; overflow-y: auto; max-height: min(480px, 78cqh); }
 .bonus-group { display: flex; flex-direction: column; gap: 8px; }
 .bonus-group-title { font-size: 14px; }
@@ -549,6 +557,7 @@ img { user-select: none; -webkit-user-select: none; }
 .deck-cell { position: relative; flex-shrink: 0; border-radius: 6px; background: color-mix(in srgb, var(--text) 7%, transparent); border: 1px solid color-mix(in srgb, var(--text) 25%, transparent); overflow: hidden; }
 .deck-cell.aimed { border: 2px solid var(--primary); }
 .deck-cell.filled { cursor: grab; touch-action: none; user-select: none; border: none; }
+.deck-cell.filled.flagged { border: 2px solid var(--danger); }
 .deck-face { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: fill; }
 .deck-fallback { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; }
 .deck-shade { position: absolute; inset: 0; background: rgba(0, 0, 0, 0.6); border-radius: 6px; }

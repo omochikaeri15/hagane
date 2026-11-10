@@ -21,11 +21,15 @@ This mode has special behaviors specific to it. There are "Bonuses" as well as "
 
 Selecting a Roguelike map causes you to automatically enter Roguelike mode. In this mode: lineup behavior changes, the available cats on the cat list narrows, and many configuration options are disabled.
 
-Provided under the lineup are two buttons: "Global Bonus" and "Cat Bonus." They are self explanitory: one is for the global bonuses that applies to groups of cats or other attributes, and the other is for cat-sepcific bonuses.
+The linup in this mode is replace-only. Dragging units outside of the lineup does not remove them and dragging units ontop the linup swaps them.
+
+Provided within the lineup are two buttons: "Global Bonus" and "Cat Bonus." They are self explanitory: one is for the global bonuses that applies to groups of cats or other attributes, and the other is for cat-sepcific bonuses.
 
 To "register" a cat on a lineup, click and hold on their Deploy Icon for 0.7 seconds. Registered cats get a +5 boost to plus level as well as a point drop boost for the respective event stages.
 
 The lineups made under each Roguelike map is also contained to that specific map. This is due to each map having a unique roster as well as unique ability-changing mechanics detatched from the regular game.
+
+There are limits that the game enforces for recruits and bonuses. Provided under the cat list and within the bonus popups are counters for these limits. If you go over a limit for the cat list, the offending cats will be outlined in red. Seperately, going over a bonus limit will cause the buttons that open the bonus popups to become red. When you exceed a limit, "Play" is disabled.
 
 ## Stage
 Mirror of the `Stages` page and determines what stage you lead into when you click `Play`.

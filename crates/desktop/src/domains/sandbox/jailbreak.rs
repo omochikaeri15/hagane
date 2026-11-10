@@ -11,7 +11,7 @@ use foundry::common::context::GlobalContext;
 use foundry::domains::cat::scanner::{self, CatEntry};
 use foundry::domains::sandbox::config::Config;
 use foundry::common::formats;
-use foundry::domains::sandbox::jailbreak::{self as rules, Board, Bonus, Run, Runs};
+use foundry::domains::sandbox::jailbreak::{self as rules, Board, Bonus, Run, Runs, Tally};
 use foundry::domains::sandbox::{Arrangement, Cell, Lineup, Member, Placed, LINEUP_SLOTS};
 use foundry::domains::settings::Settings;
 use foundry::systems::combat::registry::AbilityIcon;
@@ -28,7 +28,7 @@ use crate::editor;
 use crate::widget::{fallback_icon, hover_hint, list_row, popup, smooth_scroll};
 
 use super::combos;
-use super::lineup::{cell_badge, cell_frame, deck_card, Landing, Metrics, BADGE_SIZE, CARD_GAP, DOUBLE_CLICK, GHOST_ALPHA, LEFT_WIDTH, LEVEL_SIZE, NAME_SIZE, RIGHT_WIDTH, RIPE, SLACK, TOP_PAD};
+use super::lineup::{cell_badge, cell_frame, cell_outline, deck_card, Landing, Metrics, BADGE_SIZE, CARD_GAP, DOUBLE_CLICK, GHOST_ALPHA, LEFT_WIDTH, LEVEL_SIZE, NAME_SIZE, RIGHT_WIDTH, RIPE, SLACK, TOP_PAD};
 
 const GLOBAL_POPUP: popup::Spec = popup::Spec::new(popup::Kind::SandboxJailbreakGlobal, Size::new(700.0, 480.0));
 const CAT_POPUP: popup::Spec = popup::Spec::new(popup::Kind::SandboxJailbreakCat, Size::new(700.0, 480.0));
@@ -46,6 +46,11 @@ const TITLE_SIZE: f32 = 14.0;
 const ICON_SIZE: f32 = 36.0;
 const SLIDER_WIDTH: f32 = 110.0;
 const COUNT_WIDTH: f32 = 30.0;
+const TALLY_SIZE: f32 = 11.0;
+const TALLY_PADDING: [f32; 2] = [4.0, 10.0];
+const TALLY_CLEARANCE: f32 = 36.0;
+const TALLY_MARGIN: f32 = 6.0;
+const FOOTER_GAP: f32 = 8.0;
 const TILE_PADDING: [f32; 2] = [4.0, 6.0];
 const RAIL_WIDTH: f32 = 8.0;
 const RAIL_MARGIN: f32 = 2.0;
@@ -137,6 +142,8 @@ pub struct State {
     shown: Option<Member>,
     key: Option<Key>,
     board: Option<Board>,
+    stage: i32,
+    tally: Option<Tally>,
     run: Run,
     lineup: Lineup,
     forms: HashMap<u32, usize>,
@@ -177,6 +184,8 @@ impl Default for State {
             shown: None,
             key: None,
             board: None,
+            stage: 0,
+            tally: None,
             run: Run::default(),
             lineup: Lineup::default(),
             forms: HashMap::new(),
@@ -268,6 +277,19 @@ impl State {
         self.settle(config);
     }
 
+    pub fn set_stage(&mut self, stage: i32, config: &Config) {
+        if self.stage == stage {
+            return;
+        }
+
+        self.stage = stage;
+        self.settle(config);
+    }
+
+    pub fn within_budget(&self) -> bool {
+        self.tally.as_ref().is_none_or(|tally| !tally.over())
+    }
+
     pub fn refresh(&mut self, cats: &[CatEntry], config: &Config, ctx: GlobalContext<'_>) -> Task<Message> {
         self.stale = false;
 
@@ -306,6 +328,7 @@ impl State {
             self.global.clear();
             self.cat.clear();
             self.saved.clear();
+            self.tally = None;
 
             return;
         };
@@ -316,6 +339,7 @@ impl State {
         self.forms = board.cats.iter().map(|cat| (cat.unit, board.standing(&self.run, cat.unit).form)).collect();
         self.global = grouped(board, &self.run, &self.global_query, true);
         self.cat = grouped(board, &self.run, &self.cat_query, false);
+        self.tally = board.tally(&self.run, self.stage);
         self.selected = runs.selected;
         self.named.clone_from(&self.run.name);
 
@@ -724,9 +748,10 @@ impl State {
             _ => None,
         };
         let plan = self.plan.as_ref();
+        let over = self.tally.as_ref().is_some_and(|tally| tally.bonuses_over);
         let actions = row![
-            self.action(rules::GLOBAL_LABEL, Message::OpenGlobal),
-            self.action(rules::CAT_LABEL, Message::OpenCat),
+            self.action(rules::GLOBAL_LABEL, Message::OpenGlobal, over),
+            self.action(rules::CAT_LABEL, Message::OpenCat, over),
         ]
             .spacing(self.metrics.gap);
         let deck = deck_card(self.metrics, rules::BENCH_NOTE, Some(actions.into()), |cell| {
@@ -747,7 +772,17 @@ impl State {
             .height(Length::Fill)
             .padding(Padding { top: TOP_PAD, right: CARD_GAP, bottom: CARD_GAP, left: CARD_GAP })
             .align_x(Horizontal::Center);
-        let content = row![self.inspector.sidebar_view().map(Message::Cat), center, self.view_saved()].width(Length::Fill).height(Length::Fill);
+        let footer = self.tally.as_ref().map(|tally| {
+            let style = if tally.recruits_over { theme::danger_block_container } else { theme::success_block_container };
+            let block: Element<'_, cat::Message> = container(text(tally.recruits.as_str()).size(TALLY_SIZE)).width(Length::Fill).padding(TALLY_PADDING).align_x(Horizontal::Center).style(style).into();
+            let block = match tally.recruits_note() {
+                Some(note) => hover_hint(block, note),
+                None => block,
+            };
+
+            column![Space::new().height(Length::Fixed(FOOTER_GAP)), block].into()
+        });
+        let content = row![self.inspector.sidebar_view_with(footer).map(Message::Cat), center, self.view_saved()].width(Length::Fill).height(Length::Fill);
         let mut layers = stack![sensor(content).on_show(Message::Measured).on_resize(Message::Measured)];
 
         if self.drag != Drag::Idle {
@@ -789,15 +824,25 @@ impl State {
         self.board.as_ref().and_then(|_| self.inspector.filter_popup_view(window, names)).map(|view| view.map(Message::Cat))
     }
 
-    fn action<'a>(&self, label: &'a str, on_press: Message) -> Element<'a, Message> {
+    fn action<'a>(&self, label: &'a str, on_press: Message, over: bool) -> Element<'a, Message> {
         let scale = self.metrics.scale;
 
         button(theme::centered_text(label).size(self.metrics.text(ACTION_SIZE)).width(Length::Fill))
             .width(Length::Fixed(ACTION_WIDTH * scale))
             .height(Length::Fixed(ACTION_HEIGHT * scale))
-            .style(theme::primary_button)
+            .style(if over { theme::danger_button } else { theme::primary_button })
             .on_press(on_press)
             .into()
+    }
+
+    fn tally_block<'a>(&self, tally: &'a Tally) -> Element<'a, Message> {
+        let style = if tally.bonuses_over { theme::danger_block_container } else { theme::success_block_container };
+        let block: Element<'a, Message> = container(text(tally.bonuses.as_str()).size(TEXT_SIZE)).padding(TALLY_PADDING).style(style).into();
+
+        match tally.bonuses_note() {
+            Some(note) => hover_hint(block, note),
+            None => block,
+        }
     }
 
     fn view_saved(&self) -> Element<'_, Message> {
@@ -862,11 +907,15 @@ impl State {
     fn cell<'a>(&'a self, cell: Cell, member: Option<&'a Member>, aimed: bool) -> Element<'a, Message> {
         let metrics = self.metrics;
         let (width, height) = (Length::Fixed(metrics.cell_width), Length::Fixed(metrics.cell_height));
+
         let frame = cell_frame(aimed);
 
         let Some(member) = member else {
             return container(Space::new()).width(width).height(height).style(frame).into();
         };
+
+        let recruits_over = self.tally.as_ref().is_some_and(|tally| tally.recruits_over);
+        let flagged = recruits_over && matches!(cell, Cell::Slot(_)) && self.board.as_ref().is_some_and(|board| board.recruited(member.id));
 
         let face: Element<'a, Message> = self.icons.get(&(member.id, member.form)).map_or_else(
             || container(text(format!("{:03}-{}", member.id, member.form + 1)).size(LEVEL_SIZE)).center_x(Length::Fill).center_y(Length::Fill).into(),
@@ -875,7 +924,13 @@ impl State {
         let (level, plus) = member.levels(None);
         let shown = if plus > 0 { format!("Lv{level}+{plus}") } else { format!("Lv{level}") };
         let badge = container(cell_badge(shown, metrics.text(BADGE_SIZE))).width(Length::Fill).height(Length::Fill).align_x(Horizontal::Right).align_y(Vertical::Top);
-        let mut tile = stack![container(face).width(width).height(height).style(frame), badge].width(width).height(height);
+        let mut tile = stack![container(face).width(width).height(height).style(frame)].width(width).height(height);
+
+        if flagged {
+            tile = tile.push(container(Space::new()).width(width).height(height).style(cell_outline));
+        }
+
+        tile = tile.push(badge);
 
         if self.run.registered.contains(&member.id) {
             let registered = cell_badge(rules::REGISTERED.to_owned(), metrics.text(BADGE_SIZE));
@@ -906,11 +961,21 @@ impl State {
             listed = listed.push(weak(NO_BONUSES));
         }
 
+        if self.tally.is_some() {
+            listed = listed.push(Space::new().height(Length::Fixed(TALLY_CLEARANCE)));
+        }
+
         let rail = scrollable::Direction::Vertical(scrollable::Scrollbar::new().width(RAIL_WIDTH).margin(RAIL_MARGIN));
+        let scroll = smooth_scroll(scrollable(listed).direction(rail).height(Length::Fill));
+        let mut layered = stack![scroll].width(Length::Fill).height(Length::Fill);
+
+        if let Some(tally) = self.tally.as_ref() {
+            layered = layered.push(container(self.tally_block(tally)).width(Length::Fill).height(Length::Fill).align_x(Horizontal::Center).align_y(Vertical::Bottom).padding(TALLY_MARGIN));
+        }
 
         column![
             text_input("Search bonuses", query).on_input(on_query).size(TEXT_SIZE).style(theme::rounded_input),
-            smooth_scroll(scrollable(listed).direction(rail).height(Length::Fill)),
+            layered,
         ]
             .spacing(LIST_SPACING)
             .padding(PANE_PADDING)

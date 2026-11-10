@@ -269,6 +269,10 @@ pub(super) fn cell_frame(aimed: bool) -> impl Fn(&Theme) -> container::Style {
     }
 }
 
+pub(super) fn cell_outline(theme: &Theme) -> container::Style {
+    container::Style { border: Border::default().rounded(6.0).width(2.0).color(theme.palette().danger), ..container::Style::default() }
+}
+
 pub(super) fn cell_badge<'a, M: 'a>(shown: String, size: f32) -> iced::widget::Container<'a, M> {
     container(theme::bold_text(shown).size(size).color(Color::WHITE)).padding([1, 6]).style(|_: &Theme| container::Style {
         background: Some(Color { a: BADGE_FILL, ..Color::BLACK }.into()),

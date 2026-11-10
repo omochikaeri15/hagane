@@ -372,7 +372,11 @@ impl State {
     }
 
     pub(crate) fn sidebar_view(&self) -> Element<'_, Message> {
-        self.view_sidebar()
+        self.view_sidebar(None)
+    }
+
+    pub(crate) fn sidebar_view_with<'a>(&'a self, footer: Option<Element<'a, Message>>) -> Element<'a, Message> {
+        self.view_sidebar(footer)
     }
 
     pub(crate) fn detail_view<'a>(
@@ -1014,7 +1018,7 @@ impl State {
     }
 
     pub fn view<'a>(&'a self, settings: &'a Settings, app_state: &'a AppState, global_ctx: GlobalContext<'a>) -> Element<'a, Message> {
-        let sidebar = self.view_sidebar();
+        let sidebar = self.view_sidebar(None);
         let main_content = self.view_main_content(settings, app_state, global_ctx, None);
 
         let base_layout = row![sidebar, main_content]
@@ -1024,7 +1028,7 @@ impl State {
         base_layout.into()
     }
 
-    fn view_sidebar(&self) -> Element<'_, Message> {
+    fn view_sidebar<'a>(&'a self, footer: Option<Element<'a, Message>>) -> Element<'a, Message> {
         const FILTER_SEARCH_GAP: f32 = 4.0;
         const SEARCH_LIST_GAP: f32 = 8.0;
 
@@ -1051,6 +1055,10 @@ impl State {
         ];
 
         sidebar = sidebar.push(cat_list);
+
+        if let Some(footer) = footer {
+            sidebar = sidebar.push(footer);
+        }
 
         container(
             sidebar

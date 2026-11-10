@@ -413,6 +413,23 @@ pub fn card_container_danger(theme: &Theme) -> container::Style {
     card_container_tinted(theme, theme.palette().danger)
 }
 
+fn block_container(color: Color, text_color: Color) -> container::Style {
+    container::Style {
+        background: Some(Background::Color(color)),
+        text_color: Some(text_color),
+        border: Border { radius: Radius::from(RADIUS_SM), ..Border::default() },
+        ..container::Style::default()
+    }
+}
+
+pub fn success_block_container(theme: &Theme) -> container::Style {
+    block_container(theme.palette().success, theme.palette().text)
+}
+
+pub fn danger_block_container(theme: &Theme) -> container::Style {
+    block_container(theme.palette().danger, Color::WHITE)
+}
+
 const CARD_PRIMARY_EDGE: f32 = 0.35;
 const CARD_PRIMARY_BORDER: f32 = 2.0;
 

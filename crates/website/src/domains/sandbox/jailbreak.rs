@@ -69,6 +69,10 @@ fn settled(sandbox: Signal<SandboxState>, board: &Board) -> Run {
     sandbox.read().config.jailbreak.get(&board.map_id).and_then(Runs::current).map_or_else(Run::default, |run| board.settled(run))
 }
 
+pub(crate) fn within_budget(sandbox: Signal<SandboxState>, board: &Board, stage: i32) -> bool {
+    board.within_budget(&settled(sandbox, board), stage)
+}
+
 fn edit(platform: &Platform, sandbox: Signal<SandboxState>, board: &Board, change: impl FnOnce(&Board, &mut Run)) {
     state::apply(platform, sandbox, |next| {
         let run = next.config.jailbreak.entry(board.map_id).or_default().current_mut();
@@ -83,7 +87,7 @@ fn shelve(platform: &Platform, sandbox: Signal<SandboxState>, board: &Board, cha
 }
 
 #[component]
-pub(crate) fn Editor(board: Held, cats: Cats, globals: Shared, ruled: Ruled) -> Element {
+pub(crate) fn Editor(board: Held, cats: Cats, globals: Shared, ruled: Ruled, stage: i32) -> Element {
     let platform = use_context::<Platform>();
     let sandbox = state::state();
     let pictures = images::pictures();
@@ -116,6 +120,9 @@ pub(crate) fn Editor(board: Held, cats: Cats, globals: Shared, ruled: Ruled) -> 
         .map(|(index, saved)| (index, saved.name.clone(), board.0.fielded(saved).len()))
         .collect();
     let named = run.name.clone();
+    let tally = board.0.tally(&run, stage);
+    let bonuses_over = tally.as_ref().is_some_and(|tally| tally.bonuses_over);
+    let action_class = if bonuses_over { "btn btn-danger deck-action" } else { "btn btn-primary deck-action" };
     let lineup = Rc::new(board.0.lineup(&run));
     let mut forms: Vec<(u32, usize)> = board.0.cats.iter().map(|cat| (cat.unit, board.0.standing(&run, cat.unit).form)).collect();
 
@@ -309,9 +316,11 @@ pub(crate) fn Editor(board: Held, cats: Cats, globals: Shared, ruled: Ruled) -> 
         }
     };
     let enlisted = run.registered.clone();
+    let recruits_over = tally.as_ref().is_some_and(|tally| tally.recruits_over);
     let cell_view = |cell: Cell| -> Element {
         let (member, aimed) = shown(cell);
         let frame_class = if aimed { "deck-cell aimed" } else { "deck-cell" };
+        let flagged = recruits_over && matches!(cell, Cell::Slot(_)) && member.as_ref().is_some_and(|member| board.0.recruited(member.id));
         let size_style = format!("width: {}px; height: {}px;", metrics.cell_width, metrics.cell_height);
         let mut press = press.clone();
 
@@ -332,7 +341,7 @@ pub(crate) fn Editor(board: Held, cats: Cats, globals: Shared, ruled: Ruled) -> 
         rsx! {
             div {
                 key: "{cell:?}",
-                class: "{frame_class} filled",
+                class: if flagged { "{frame_class} filled flagged" } else { "{frame_class} filled" },
                 style: "{size_style}",
                 onpointerdown: move |event| {
                     if event.data().trigger_button() != Some(MouseButton::Primary) {
@@ -464,6 +473,7 @@ pub(crate) fn Editor(board: Held, cats: Cats, globals: Shared, ruled: Ruled) -> 
                     cats: listed.clone(),
                     banner_form: EVERY_FORM,
                     filter_class: filter_class.to_owned(),
+                    footer: tally.as_ref().map(|tally| (tally.recruits.clone(), tally.recruits_note())),
                     onpress: Callback::new(move |(id, at, touch): (u32, (f64, f64), bool)| press_row(Cargo::Fresh(id), at, touch)),
                     onmove: moved,
                     onrelease: released,
@@ -490,8 +500,8 @@ pub(crate) fn Editor(board: Held, cats: Cats, globals: Shared, ruled: Ruled) -> 
                         div { class: "deck-title bold", style: "height: {metrics.header}px; font-size: {metrics.text(16.0)}px;", "Lineup" }
                         div { style: "height: {metrics.header_gap}px;" }
                         div { class: "deck-actions", style: "height: {metrics.actions}px;",
-                            button { class: "btn btn-primary deck-action", title: rules::GLOBAL_HINT, onclick: move |_| global_open.set(true), "{rules::GLOBAL_LABEL}" }
-                            button { class: "btn btn-primary deck-action", title: rules::CAT_HINT, onclick: move |_| cat_open.set(true), "{rules::CAT_LABEL}" }
+                            button { class: "{action_class}", title: rules::GLOBAL_HINT, onclick: move |_| global_open.set(true), "{rules::GLOBAL_LABEL}" }
+                            button { class: "{action_class}", title: rules::CAT_HINT, onclick: move |_| cat_open.set(true), "{rules::CAT_LABEL}" }
                         }
                         div { class: "deck-grid", style: "gap: {metrics.gap}px;",
                             for line in 0..LINEUP_SLOTS / COLUMNS {
@@ -575,10 +585,10 @@ pub(crate) fn Editor(board: Held, cats: Cats, globals: Shared, ruled: Ruled) -> 
             }
         }
         if global_open() {
-            BonusPopup { board: board.clone(), open: global_open, global: true }
+            BonusPopup { board: board.clone(), open: global_open, global: true, stage }
         }
         if cat_open() {
-            BonusPopup { board: board.clone(), open: cat_open, global: false }
+            BonusPopup { board: board.clone(), open: cat_open, global: false, stage }
         }
         FilterPopup { cats: cat::list::Entries(Rc::clone(&listed.0)), globals: globals.clone() }
         if let Some((member, cat, _)) = seen {
@@ -617,7 +627,7 @@ fn grouped(board: &Board, run: &Run, query: &str, global: bool) -> Offers {
 }
 
 #[component]
-fn BonusPopup(board: Held, open: Signal<bool>, global: bool) -> Element {
+fn BonusPopup(board: Held, open: Signal<bool>, global: bool, stage: i32) -> Element {
     let platform = use_context::<Platform>();
     let sandbox = state::state();
     let pictures = images::pictures();
@@ -626,6 +636,7 @@ fn BonusPopup(board: Held, open: Signal<bool>, global: bool) -> Element {
     let searched = query();
     let shown_board = board.clone();
     let sought = searched.clone();
+    let tally = board.0.tally(&run, stage);
     let groups = use_memo(use_reactive!(|(run, sought, global)| Rc::new(grouped(&shown_board.0, &run, &sought, global))));
     let title = if global { rules::GLOBAL_TITLE } else { rules::CAT_TITLE };
     let groups = groups();
@@ -675,6 +686,18 @@ fn BonusPopup(board: Held, open: Signal<bool>, global: bool) -> Element {
                                 }
                             }
                         }
+                    }
+                }
+                if tally.is_some() {
+                    div { class: "jail-clearance" }
+                }
+            }
+            if let Some(tally) = tally.as_ref() {
+                div { class: "jail-tally-anchor",
+                    if let Some(note) = tally.bonuses_note() {
+                        Tip { text: note, div { class: "jail-tally over", "{tally.bonuses}" } }
+                    } else {
+                        div { class: "jail-tally", "{tally.bonuses}" }
                     }
                 }
             }
