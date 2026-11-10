@@ -301,6 +301,7 @@ fn settings_content(settings: &Settings) -> Element<'_, Message> {
         Message::ToggleOrigin,
         Message::ToggleParts,
         Message::ToggleWorld,
+        None::<fn(bool) -> Message>,
     );
 
     container(toggles)

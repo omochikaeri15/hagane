@@ -16,9 +16,9 @@ use iced::{Alignment, Element, Length, Size, Task, Theme};
 use foundry::domains::cat::files as cat_files;
 use foundry::systems::treasure::Catalog;
 use foundry::domains::sandbox::keybind::Bind;
-use foundry::domains::settings::{lang, nightly, ContextScope, EditorMode, ReplaySource, SavedBcvName, Utf8Mode};
+use foundry::domains::settings::{lang, nightly, CombatLayer, HitPositions, ContextScope, COMBAT_HEIGHT_FLOOR, COMBAT_OPACITY_CEILING, EditorMode, ReplaySource, SavedBcvName, Utf8Mode};
 use foundry::domains::settings::{
-    ExportBehavior, FrameCount, ImportStructure, ScrubBehavior, Settings as CoreSettings,
+    AnimSettings, CatDataSettings, ExportBehavior, FrameCount, ImportStructure, ScrubBehavior, Settings as CoreSettings,
     SidebarBehavior,
 };
 
@@ -101,6 +101,12 @@ pub enum Message {
     ShowcaseWalkChanged(String),
     ShowcaseIdleChanged(String),
     ShowcaseKbChanged(String),
+    CombatFadeChanged(String),
+    CombatHeightChanged(String),
+    CombatOffsetChanged(String),
+    CombatOpacityChanged(String),
+    ToggleCombatLayer(CombatLayer, bool),
+    HitPositionsSelected(HitPositions),
 }
 
 pub struct State {
@@ -110,6 +116,10 @@ pub struct State {
     pub showcase_walk_buffer: String,
     pub showcase_idle_buffer: String,
     pub showcase_kb_buffer: String,
+    pub combat_fade_buffer: String,
+    pub combat_height_buffer: String,
+    pub combat_offset_buffer: String,
+    pub combat_opacity_buffer: String,
 
     capturing: Option<Bind>,
     general: general::State,
@@ -147,10 +157,14 @@ impl Default for State {
     fn default() -> Self {
         Self {
             active_tab: Tab::General,
-            default_cat_level_buffer: "1".to_string(),
-            showcase_walk_buffer: "0".to_string(),
-            showcase_idle_buffer: "0".to_string(),
-            showcase_kb_buffer: "0".to_string(),
+            default_cat_level_buffer: String::new(),
+            showcase_walk_buffer: String::new(),
+            showcase_idle_buffer: String::new(),
+            showcase_kb_buffer: String::new(),
+            combat_fade_buffer: String::new(),
+            combat_height_buffer: String::new(),
+            combat_offset_buffer: String::new(),
+            combat_opacity_buffer: String::new(),
             capturing: None,
             general: general::State::default(),
             keys: keys::State::default(),
@@ -193,15 +207,19 @@ impl State {
                         lang::ensure_complete_list(&mut core_settings.general.language_priority);
                         nightly::settle(&mut core_settings.general.enable_nightly);
                     }
-                    Tab::Cats => self.default_cat_level_buffer = core_settings.cat_data.default_level.to_string(),
+                    Tab::Cats => self.default_cat_level_buffer = shown(core_settings.cat_data.default_level, CatDataSettings::default().default_level),
                     Tab::Files => return self.disk.update(disk::Message::Refresh).map(Message::Disk),
                     Tab::Mining => {
                         return self.snapshot.update(snapshot::Message::Refresh).map(Message::Snapshot);
                     }
                     Tab::Animation => {
-                        self.showcase_walk_buffer = core_settings.animation.default_showcase_walk.to_string();
-                        self.showcase_idle_buffer = core_settings.animation.default_showcase_idle.to_string();
-                        self.showcase_kb_buffer = core_settings.animation.default_showcase_kb.to_string();
+                        self.showcase_walk_buffer = shown(core_settings.animation.default_showcase_walk, AnimSettings::default().default_showcase_walk);
+                        self.showcase_idle_buffer = shown(core_settings.animation.default_showcase_idle, AnimSettings::default().default_showcase_idle);
+                        self.showcase_kb_buffer = shown(core_settings.animation.default_showcase_kb, AnimSettings::default().default_showcase_kb);
+                        self.combat_fade_buffer = shown(core_settings.animation.combat_hit_fade, AnimSettings::default().combat_hit_fade);
+                        self.combat_height_buffer = shown(core_settings.animation.combat_height, AnimSettings::default().combat_height);
+                        self.combat_offset_buffer = shown(core_settings.animation.combat_offset, AnimSettings::default().combat_offset);
+                        self.combat_opacity_buffer = shown(core_settings.animation.combat_opacity, AnimSettings::default().combat_opacity);
                     }
                     _ => {}
                 }
@@ -244,8 +262,8 @@ impl State {
             }
             Message::DefaultLevelChanged(val) => {
                 self.default_cat_level_buffer = val.clone();
-                if let Ok(parsed) = val.parse::<i32>() {
-                    core_settings.cat_data.default_level = parsed;
+                if let Some(held) = overridden(&self.default_cat_level_buffer, CatDataSettings::default().default_level) {
+                    core_settings.cat_data.default_level = held;
                 }
                 Task::none()
             }
@@ -346,23 +364,59 @@ impl State {
             }
             Message::ShowcaseWalkChanged(val) => {
                 self.showcase_walk_buffer = val.clone();
-                if let Ok(parsed) = val.parse::<i32>() {
-                    core_settings.animation.default_showcase_walk = parsed;
+                if let Some(held) = overridden(&self.showcase_walk_buffer, AnimSettings::default().default_showcase_walk) {
+                    core_settings.animation.default_showcase_walk = held;
                 }
                 Task::none()
             }
             Message::ShowcaseIdleChanged(val) => {
                 self.showcase_idle_buffer = val.clone();
-                if let Ok(parsed) = val.parse::<i32>() {
-                    core_settings.animation.default_showcase_idle = parsed;
+                if let Some(held) = overridden(&self.showcase_idle_buffer, AnimSettings::default().default_showcase_idle) {
+                    core_settings.animation.default_showcase_idle = held;
                 }
                 Task::none()
             }
             Message::ShowcaseKbChanged(val) => {
                 self.showcase_kb_buffer = val.clone();
-                if let Ok(parsed) = val.parse::<i32>() {
-                    core_settings.animation.default_showcase_kb = parsed;
+                if let Some(held) = overridden(&self.showcase_kb_buffer, AnimSettings::default().default_showcase_kb) {
+                    core_settings.animation.default_showcase_kb = held;
                 }
+                Task::none()
+            }
+            Message::CombatFadeChanged(val) => {
+                self.combat_fade_buffer = digits(&val);
+                if let Some(held) = overridden(&self.combat_fade_buffer, AnimSettings::default().combat_hit_fade) {
+                    core_settings.animation.combat_hit_fade = held;
+                }
+                Task::none()
+            }
+            Message::CombatHeightChanged(val) => {
+                self.combat_height_buffer = digits(&val);
+                if let Some(held) = overridden(&self.combat_height_buffer, AnimSettings::default().combat_height) {
+                    core_settings.animation.combat_height = held.max(COMBAT_HEIGHT_FLOOR);
+                }
+                Task::none()
+            }
+            Message::CombatOffsetChanged(val) => {
+                self.combat_offset_buffer = signed(&val);
+                if let Some(held) = overridden(&self.combat_offset_buffer, AnimSettings::default().combat_offset) {
+                    core_settings.animation.combat_offset = held;
+                }
+                Task::none()
+            }
+            Message::CombatOpacityChanged(val) => {
+                self.combat_opacity_buffer = digits(&val);
+                if let Some(held) = overridden(&self.combat_opacity_buffer, AnimSettings::default().combat_opacity) {
+                    core_settings.animation.combat_opacity = held.min(COMBAT_OPACITY_CEILING);
+                }
+                Task::none()
+            }
+            Message::HitPositionsSelected(positions) => {
+                core_settings.animation.combat_hit_positions = positions;
+                Task::none()
+            }
+            Message::ToggleCombatLayer(layer, shown) => {
+                core_settings.animation.set_combat_layer(layer, shown);
                 Task::none()
             }
         }
@@ -609,7 +663,7 @@ impl State {
         let level_content = column![
             row![
                 text("Default Level"),
-                text_input("Level", &self.default_cat_level_buffer)
+                text_input(&CatDataSettings::default().default_level.to_string(), &self.default_cat_level_buffer)
                     .on_input_maybe((!core_settings.cat_data.auto_level_calculations).then_some(Message::DefaultLevelChanged))
                     .width(Length::Fixed(60.0))
                     .style(theme::rounded_input),
@@ -849,14 +903,51 @@ impl State {
         ].spacing(10);
 
         let showcase_content = column![
-            row![text("Walk Frames"), text_input("0", &self.showcase_walk_buffer).on_input(Message::ShowcaseWalkChanged).width(Length::Fixed(60.0)).style(theme::rounded_input)].spacing(10).align_y(Alignment::Center),
-            row![text("Idle Frames"), text_input("0", &self.showcase_idle_buffer).on_input(Message::ShowcaseIdleChanged).width(Length::Fixed(60.0)).style(theme::rounded_input)].spacing(10).align_y(Alignment::Center),
-            row![text("KB Frames"), text_input("0", &self.showcase_kb_buffer).on_input(Message::ShowcaseKbChanged).width(Length::Fixed(60.0)).style(theme::rounded_input)].spacing(10).align_y(Alignment::Center),
+            row![text("Walk Frames"), text_input(&AnimSettings::default().default_showcase_walk.to_string(), &self.showcase_walk_buffer).on_input(Message::ShowcaseWalkChanged).width(Length::Fixed(60.0)).style(theme::rounded_input)].spacing(10).align_y(Alignment::Center),
+            row![text("Idle Frames"), text_input(&AnimSettings::default().default_showcase_idle.to_string(), &self.showcase_idle_buffer).on_input(Message::ShowcaseIdleChanged).width(Length::Fixed(60.0)).style(theme::rounded_input)].spacing(10).align_y(Alignment::Center),
+            row![text("KB Frames"), text_input(&AnimSettings::default().default_showcase_kb.to_string(), &self.showcase_kb_buffer).on_input(Message::ShowcaseKbChanged).width(Length::Fixed(60.0)).style(theme::rounded_input)].spacing(10).align_y(Alignment::Center),
         ].spacing(10);
+
+        let positions = core_settings.animation.combat_hit_positions;
+
+        let mut combat_content = column![
+            combo_row(
+                "Hit Positions",
+                positions.hint(),
+                HitPositions::ALL,
+                Some(positions),
+                Some(Message::HitPositionsSelected),
+            ),
+            hover_hint(
+                row![text("Hit Fade"), text_input(&AnimSettings::default().combat_hit_fade.to_string(), &self.combat_fade_buffer).on_input(Message::CombatFadeChanged).width(Length::Fixed(60.0)).style(theme::rounded_input)].spacing(10).align_y(Alignment::Center),
+                "How many frames a hit box stays lit after its hit lands",
+            ),
+            hover_hint(
+                row![text("System Height"), text_input(&AnimSettings::default().combat_height.to_string(), &self.combat_height_buffer).on_input(Message::CombatHeightChanged).width(Length::Fixed(60.0)).style(theme::rounded_input)].spacing(10).align_y(Alignment::Center),
+                "How tall the boxes under the unit may grow, 3 at the least",
+            ),
+            hover_hint(
+                row![text("System Offset"), text_input(&AnimSettings::default().combat_offset.to_string(), &self.combat_offset_buffer).on_input(Message::CombatOffsetChanged).width(Length::Fixed(60.0)).style(theme::rounded_input)].spacing(10).align_y(Alignment::Center),
+                "Moves the boxes up from the ground by this much, or down when negative",
+            ),
+            hover_hint(
+                row![text("Fill Opacity"), text_input(&AnimSettings::default().combat_opacity.to_string(), &self.combat_opacity_buffer).on_input(Message::CombatOpacityChanged).width(Length::Fixed(60.0)).style(theme::rounded_input)].spacing(10).align_y(Alignment::Center),
+                "How solid a filled box is, from 0 to 100",
+            ),
+        ].spacing(10);
+
+        for layer in CombatLayer::ALL {
+            combat_content = combat_content.push(toggle_row(
+                core_settings.animation.combat_layer(layer),
+                text(layer.label()),
+                Some(move |shown| Message::ToggleCombatLayer(layer, shown)),
+            ));
+        }
 
         column![
             header_section(text("Exporter").size(24), exporter_content),
             header_section(text("Showcase").size(18), showcase_content),
+            header_section(text("Combat").size(24), combat_content),
         ].spacing(SECTION_SPACING).into()
     }
 
@@ -892,6 +983,31 @@ fn frame_count_row<'a>(selected: FrameCount, on_select: impl Fn(FrameCount) -> M
         Some(selected),
         Some(on_select),
     )
+}
+
+fn digits(text: &str) -> String {
+    text.chars().filter(char::is_ascii_digit).collect()
+}
+
+fn shown(held: i32, fallback: i32) -> String {
+    match held == fallback {
+        true => String::new(),
+        false => held.to_string(),
+    }
+}
+
+fn overridden(typed: &str, fallback: i32) -> Option<i32> {
+    match typed.trim() {
+        "" => Some(fallback),
+        typed => typed.parse::<i32>().ok(),
+    }
+}
+
+fn signed(text: &str) -> String {
+    let trimmed = text.trim_start();
+    let sign = if trimmed.starts_with('-') { "-" } else { "" };
+
+    format!("{sign}{}", digits(trimmed))
 }
 
 fn header_section<'a, M: 'a>(header: impl Into<Element<'a, M>>, content: impl Into<Element<'a, M>>) -> Element<'a, M> {

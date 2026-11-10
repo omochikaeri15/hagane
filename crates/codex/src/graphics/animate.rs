@@ -37,6 +37,14 @@ pub fn resolve_frame(
     resolve_posed(rig, anim, frame, offset).0
 }
 
+pub fn anchors(rig: &Rig, anim: Option<&Animation>, frame: i32) -> Vec<Option<(f32, f32)>> {
+    let parts = engine::resolve(&rig.model, anim, frame, &rig.sheet);
+
+    (0..rig.model.alignment.len())
+        .map(|row| engine::anchor(&parts, &rig.model, row).map(|anchor| (anchor.x as f32, anchor.y as f32)))
+        .collect()
+}
+
 pub(super) fn resolve_posed<'a>(
     rig: &'a Rig,
     anim: Option<&Animation>,

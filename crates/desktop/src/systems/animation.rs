@@ -1,4 +1,5 @@
 mod canvas;
+pub(crate) mod combat;
 mod cpu;
 pub(crate) mod controls;
 mod data;
@@ -53,14 +54,21 @@ pub fn debug_toggles<'a, M: Clone + 'a>(
     origin: impl Fn(bool) -> M + 'a,
     parts: impl Fn(bool) -> M + 'a,
     world: impl Fn(bool) -> M + 'a,
+    combat: Option<impl Fn(bool) -> M + 'a>,
 ) -> Element<'a, M> {
-    column![
+    let rig = column![
         toggle_row(settings.animation.show_rig, text("Show Rig").size(DEBUG_LABEL_SIZE), Some(parts)),
         toggle_row(settings.animation.show_origin, text("Show Origin").size(DEBUG_LABEL_SIZE), Some(origin)),
         toggle_row(settings.animation.show_world, text("Show World").size(DEBUG_LABEL_SIZE), Some(world)),
     ]
-    .spacing(DEBUG_TOGGLE_GAP)
-    .into()
+    .spacing(DEBUG_TOGGLE_GAP);
+
+    let Some(combat) = combat else {
+        return rig.into();
+    };
+
+    rig.push(toggle_row(settings.animation.show_combat, text("Show Combat").size(DEBUG_LABEL_SIZE), Some(combat)))
+        .into()
 }
 
 fn frame_border<'a>() -> Element<'a, Message> {
@@ -127,6 +135,8 @@ pub struct State {
     controls: controls::State,
     export: export::State,
     overlay: overlay::State,
+    combat: Option<combat::Profile>,
+    combat_clock: combat::Clock,
     export_open: bool,
     highlight: Option<usize>,
     is_expanded: bool,
@@ -161,6 +171,8 @@ impl State {
             controls: controls::State::default(),
             export: export::State::new(kind),
             overlay: overlay::State::default(),
+            combat: None,
+            combat_clock: combat::Clock::default(),
             export_open: false,
             highlight: None,
             is_expanded: false,
@@ -183,6 +195,10 @@ impl State {
         self.sync_playhead();
 
         measuring.map_or_else(Task::none, |request| Task::perform(smol::unblock(move || request.run()), Message::Measured))
+    }
+
+    pub fn set_combat(&mut self, profile: Option<combat::Profile>) {
+        self.combat = profile;
     }
 
     pub fn reset_playhead(&mut self) {
@@ -418,6 +434,7 @@ impl State {
     pub fn tick(&mut self) {
         self.canvas.update(canvas::Message::Tick, &self.data);
         self.controls.tick(&mut self.canvas, &self.data);
+        self.combat_clock.tick(self.combat.as_ref(), &self.data, &self.canvas);
         self.export.tick();
     }
 
@@ -617,7 +634,16 @@ impl State {
             picked: self.highlight,
             reach: self.data.bounds(),
             onion: self.authoring.then(|| settings.studio.clone()),
+            combat: self.staged(settings).map(|profile| combat::Staged {
+                profile: profile.clone(),
+                look: settings.animation.combat_look(),
+                attacking: combat::attacking(&self.data),
+            }),
         }
+    }
+
+    fn staged(&self, settings: &Settings) -> Option<&combat::Profile> {
+        self.combat.as_ref().filter(|_| settings.animation.show_combat && !self.authoring)
     }
 
     fn scope(&self, settings: &Settings) -> Scope {
@@ -658,6 +684,7 @@ impl State {
 
         stack![
             viewport,
+            combat::view(&self.data, &self.canvas, self.staged(settings), settings.animation.combat_look(), self.combat_clock),
             diagnostics::view(&self.data, &self.canvas, self.overlays(settings), self.highlight),
             selection_overlay,
             self.overlay.hint_view(),

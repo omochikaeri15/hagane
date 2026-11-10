@@ -66,6 +66,8 @@ pub(crate) struct CatChanges<'a> {
 type StatsMemo = RefCell<Option<(u32, Option<Arc<Vec<Entity>>>)>>;
 
 fn animation_preload(state: &mut animation::State, cat: &CatEntry, form: usize, vfs: &Vfs, anim_state: &AnimState) -> Task<Message> {
+    state.set_combat(cat.stats.get(form).and_then(Option::as_ref).map(animation::combat::Profile::of));
+
     let key = cat_animation::set_id(cat, form);
 
     state.preload(&key, || cat_animation::motions(cat, form, vfs), anim_state).map(Message::Animation)
@@ -99,6 +101,7 @@ pub enum Message {
     ToggleOrigin(bool),
     ToggleParts(bool),
     ToggleWorld(bool),
+    ToggleCombat(bool),
     HeaderAction(usize),
     List(list::Message),
     Filter(filter::Message),
@@ -139,6 +142,7 @@ impl Message {
                 | Self::ToggleOrigin(_)
                 | Self::ToggleParts(_)
                 | Self::ToggleWorld(_)
+                | Self::ToggleCombat(_)
                 | Self::Abilities(_)
                 | Self::Animation(_)
                 | Self::Talents(talents::Message::ToggleGroup(..))
@@ -170,6 +174,7 @@ impl std::fmt::Debug for Message {
             Self::ToggleOrigin(b) => write!(f, "ToggleOrigin({})", b),
             Self::ToggleParts(b) => write!(f, "ToggleParts({})", b),
             Self::ToggleWorld(b) => write!(f, "ToggleWorld({})", b),
+            Self::ToggleCombat(b) => write!(f, "ToggleCombat({})", b),
             Self::HeaderAction(index) => write!(f, "HeaderAction({})", index),
             Self::List(msg) => write!(f, "List({:?})", msg),
             Self::Filter(msg) => write!(f, "Filter({:?})", msg),
@@ -898,6 +903,10 @@ impl State {
                 settings.animation.show_world = val;
                 Task::none()
             }
+            Message::ToggleCombat(val) => {
+                settings.animation.show_combat = val;
+                Task::none()
+            }
             Message::HeaderAction(_) => Task::none(),
             Message::ToggleTalents(is_ultra) => {
                 let talent_data = self.selected_cat
@@ -1227,7 +1236,7 @@ impl State {
             detail_row = detail_row.push(Space::new().width(Length::Fixed(15.0)));
             detail_row = detail_row.push(container(rule::vertical(1)).height(Length::Fixed(96.0)));
             detail_row = detail_row.push(Space::new().width(Length::Fixed(EXPORT_BUTTON_RULE_GAP)));
-            detail_row = detail_row.push(animation::debug_toggles(settings, Message::ToggleOrigin, Message::ToggleParts, Message::ToggleWorld));
+            detail_row = detail_row.push(animation::debug_toggles(settings, Message::ToggleOrigin, Message::ToggleParts, Message::ToggleWorld, Some(Message::ToggleCombat)));
         }
 
         column![

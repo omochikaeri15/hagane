@@ -55,6 +55,8 @@ const APPEARANCES_TEXT_SIZE: f32 = 12.0;
 const EMPTY_CAT_ICON: &str = "uni.png";
 
 fn animation_preload(state: &mut animation::State, enemy: &EnemyEntry, vfs: &Vfs, anim_state: &AnimState) -> Task<Message> {
+    state.set_combat(Some(animation::combat::Profile::of(&enemy.stats)));
+
     let key = enemy_animation::set_id(enemy);
 
     state.preload(&key, || enemy_animation::motions(enemy, vfs), anim_state).map(Message::Animation)
@@ -85,6 +87,7 @@ pub enum Message {
     ToggleOrigin(bool),
     ToggleParts(bool),
     ToggleWorld(bool),
+    ToggleCombat(bool),
     MagnificationChanged(String),
     NavigateAppearances(u32),
     List(list::Message),
@@ -108,6 +111,7 @@ impl std::fmt::Debug for Message {
             Self::ToggleOrigin(b) => write!(f, "ToggleOrigin({})", b),
             Self::ToggleParts(b) => write!(f, "ToggleParts({})", b),
             Self::ToggleWorld(b) => write!(f, "ToggleWorld({})", b),
+            Self::ToggleCombat(b) => write!(f, "ToggleCombat({})", b),
             Self::MagnificationChanged(s) => write!(f, "MagnificationChanged({})", s),
             Self::NavigateAppearances(id) => write!(f, "NavigateAppearances({})", id),
             Self::List(msg) => write!(f, "List({:?})", msg),
@@ -488,6 +492,10 @@ impl EnemyState {
                 settings.animation.show_world = val;
                 Task::none()
             }
+            Message::ToggleCombat(val) => {
+                settings.animation.show_combat = val;
+                Task::none()
+            }
             Message::MagnificationChanged(input) => {
                 if !typable_magnification(&input) {
                     return Task::none();
@@ -742,7 +750,7 @@ impl EnemyState {
                 detail_row = detail_row.push(Space::new().width(Length::Fixed(DETAIL_RULE_GAP)));
                 detail_row = detail_row.push(container(rule::vertical(1)).height(Length::Fixed(DETAIL_RULE_HEIGHT)));
                 detail_row = detail_row.push(Space::new().width(Length::Fixed(EXPORT_BUTTON_RULE_GAP)));
-                detail_row = detail_row.push(animation::debug_toggles(settings, Message::ToggleOrigin, Message::ToggleParts, Message::ToggleWorld));
+                detail_row = detail_row.push(animation::debug_toggles(settings, Message::ToggleOrigin, Message::ToggleParts, Message::ToggleWorld, Some(Message::ToggleCombat)));
             }
         }
 

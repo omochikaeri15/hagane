@@ -273,6 +273,7 @@ pub(super) struct Shot {
     pub(super) picked: Option<usize>,
     pub(super) reach: Option<BoundingBox>,
     pub(super) onion: Option<StudioSettings>,
+    pub(super) combat: Option<super::combat::Staged>,
 }
 
 pub(super) struct Trail {
@@ -341,13 +342,28 @@ fn parent_of(unit: &Rig, part: usize) -> Option<usize> {
     usize::try_from(unit.model.parts.get(part)?.parent).ok()
 }
 
-struct Sheet<'a> {
+pub(super) struct Sheet<'a> {
     pixels: &'a mut [u8],
     width: i32,
     height: i32,
 }
 
-impl Sheet<'_> {
+impl<'a> Sheet<'a> {
+    pub(super) fn over(pixels: &'a mut [u8], width: u32, height: u32) -> Self {
+        Self { pixels, width: width.min(i32::MAX as u32) as i32, height: height.min(i32::MAX as u32) as i32 }
+    }
+
+    pub(super) fn flood(&mut self, corner: Point, size: iced::Size, color: Color) {
+        for y in bracket(corner.y, corner.y + size.height, self.height) {
+            for x in bracket(corner.x, corner.x + size.width, self.width) {
+                let across = (x as f32 + 1.0).min(corner.x + size.width) - (x as f32).max(corner.x);
+                let down = (y as f32 + 1.0).min(corner.y + size.height) - (y as f32).max(corner.y);
+
+                self.blend(x, y, color, across.max(0.0) * down.max(0.0));
+            }
+        }
+    }
+
     fn blend(&mut self, x: i32, y: i32, color: Color, coverage: f32) {
         if x < 0 || y < 0 || x >= self.width || y >= self.height || coverage <= 0.0 {
             return;
@@ -371,7 +387,7 @@ impl Sheet<'_> {
         pixel[3] = over(1.0, pixel[3]);
     }
 
-    fn span(&mut self, from: Point, to: Point, color: Color, thickness: f32) {
+    pub(super) fn span(&mut self, from: Point, to: Point, color: Color, thickness: f32) {
         let reach = thickness / 2.0 + 0.5;
         let (dx, dy) = (to.x - from.x, to.y - from.y);
         let run = dx.hypot(dy);
@@ -433,8 +449,7 @@ pub(super) fn paint(
         return;
     }
 
-    let mut sheet =
-        Sheet { pixels, width: width.min(i32::MAX as u32) as i32, height: height.min(i32::MAX as u32) as i32 };
+    let mut sheet = Sheet::over(pixels, width, height);
 
     let placed: Vec<(Option<usize>, [Point; 4], Point)> = parts
         .iter()
@@ -551,6 +566,7 @@ mod tests {
             picked: Some(4),
             reach: None,
             onion: None,
+            combat: None,
         };
 
         let held = std::thread::spawn(move || (shot.scope, shot.picked));
@@ -563,7 +579,7 @@ mod tests {
         // "Include Debug" opts in, it never enables. With the viewer's overlays
         // all off the export has to come out exactly as it would untoggled.
         let shot =
-            Shot { overlays: Overlays::default(), scope: Scope::Rig, picked: None, reach: None, onion: None };
+            Shot { overlays: Overlays::default(), scope: Scope::Rig, picked: None, reach: None, onion: None, combat: None };
 
         assert!(shot.silent());
 
@@ -573,6 +589,7 @@ mod tests {
             picked: None,
             reach: None,
             onion: None,
+            combat: None,
         };
 
         assert!(!lit.silent(), "one visible overlay is enough to draw");
@@ -592,6 +609,7 @@ mod tests {
             picked: None,
             reach: None,
             onion: Some(studio),
+            combat: None,
         };
 
         let trails = shot.trails();
@@ -609,6 +627,7 @@ mod tests {
             picked: None,
             reach: None,
             onion: Some(StudioSettings::default()),
+            combat: None,
         };
 
         assert!(shot.trails().is_empty());

@@ -856,6 +856,19 @@ pub struct AnimSettings {
     pub show_rig: bool,
     pub show_origin: bool,
     pub show_world: bool,
+    pub show_combat: bool,
+    pub combat_hit_fade: i32,
+    pub combat_height: i32,
+    pub combat_offset: i32,
+    pub combat_opacity: i32,
+    pub combat_hit_positions: HitPositions,
+    pub combat_system: bool,
+    pub combat_origin: bool,
+    pub combat_bound: bool,
+    pub combat_width: bool,
+    pub combat_hit_1: bool,
+    pub combat_hit_2: bool,
+    pub combat_hit_3: bool,
 }
 
 impl Default for AnimSettings {
@@ -869,11 +882,153 @@ impl Default for AnimSettings {
             show_rig: false,
             show_origin: false,
             show_world: false,
+            show_combat: false,
+            combat_hit_fade: 30,
+            combat_height: COMBAT_HEIGHT,
+            combat_offset: 0,
+            combat_opacity: COMBAT_OPACITY,
+            combat_hit_positions: HitPositions::default(),
+            combat_system: true,
+            combat_origin: true,
+            combat_bound: true,
+            combat_width: true,
+            combat_hit_1: true,
+            combat_hit_2: true,
+            combat_hit_3: true,
         }
     }
 }
 
+pub const COMBAT_HEIGHT: i32 = 160;
+pub const COMBAT_HEIGHT_FLOOR: i32 = 3;
+pub const COMBAT_OPACITY: i32 = 75;
+pub const COMBAT_OPACITY_CEILING: i32 = 100;
+
+#[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub enum HitPositions {
+    #[default]
+    Fill,
+    Layered,
+    Stacked,
+}
+
+impl HitPositions {
+    pub const ALL: [HitPositions; 3] = [HitPositions::Fill, HitPositions::Layered, HitPositions::Stacked];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            HitPositions::Fill => "Fill",
+            HitPositions::Layered => "Layered",
+            HitPositions::Stacked => "Stacked",
+        }
+    }
+
+    pub fn hint(self) -> &'static str {
+        match self {
+            HitPositions::Fill => "A hit takes the full height unless it overlaps another, and hits that overlap split it between them",
+            HitPositions::Layered => "Every hit gets its own row, whether or not it overlaps another",
+            HitPositions::Stacked => "Every hit takes the full height, drawn over one another",
+        }
+    }
+}
+
+impl std::fmt::Display for HitPositions {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.label())
+    }
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum CombatLayer {
+    System,
+    Origin,
+    Bound,
+    Width,
+    Hit1,
+    Hit2,
+    Hit3,
+}
+
+impl CombatLayer {
+    pub const ALL: [CombatLayer; 7] = [
+        CombatLayer::System,
+        CombatLayer::Origin,
+        CombatLayer::Bound,
+        CombatLayer::Width,
+        CombatLayer::Hit1,
+        CombatLayer::Hit2,
+        CombatLayer::Hit3,
+    ];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            CombatLayer::System => "System",
+            CombatLayer::Origin => "Origin",
+            CombatLayer::Bound => "Back-bound",
+            CombatLayer::Width => "Width",
+            CombatLayer::Hit1 => "Hit 1",
+            CombatLayer::Hit2 => "Hit 2",
+            CombatLayer::Hit3 => "Hit 3",
+        }
+    }
+}
+
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub struct CombatLook {
+    pub fade: i32,
+    pub height: f32,
+    pub offset: f32,
+    pub opacity: f32,
+    pub positions: HitPositions,
+    pub system: bool,
+    pub origin: bool,
+    pub bound: bool,
+    pub width: bool,
+    pub hits: [bool; 3],
+}
+
 impl AnimSettings {
+    pub fn combat_layer(&self, layer: CombatLayer) -> bool {
+        match layer {
+            CombatLayer::System => self.combat_system,
+            CombatLayer::Origin => self.combat_origin,
+            CombatLayer::Bound => self.combat_bound,
+            CombatLayer::Width => self.combat_width,
+            CombatLayer::Hit1 => self.combat_hit_1,
+            CombatLayer::Hit2 => self.combat_hit_2,
+            CombatLayer::Hit3 => self.combat_hit_3,
+        }
+    }
+
+    pub fn set_combat_layer(&mut self, layer: CombatLayer, shown: bool) {
+        let slot = match layer {
+            CombatLayer::System => &mut self.combat_system,
+            CombatLayer::Origin => &mut self.combat_origin,
+            CombatLayer::Bound => &mut self.combat_bound,
+            CombatLayer::Width => &mut self.combat_width,
+            CombatLayer::Hit1 => &mut self.combat_hit_1,
+            CombatLayer::Hit2 => &mut self.combat_hit_2,
+            CombatLayer::Hit3 => &mut self.combat_hit_3,
+        };
+
+        *slot = shown;
+    }
+
+    pub fn combat_look(&self) -> CombatLook {
+        CombatLook {
+            fade: self.combat_hit_fade.max(0),
+            height: self.combat_height.max(COMBAT_HEIGHT_FLOOR) as f32,
+            offset: self.combat_offset as f32,
+            opacity: self.combat_opacity.clamp(0, COMBAT_OPACITY_CEILING) as f32 / COMBAT_OPACITY_CEILING as f32,
+            positions: self.combat_hit_positions,
+            system: self.combat_system,
+            origin: self.combat_origin,
+            bound: self.combat_bound,
+            width: self.combat_width,
+            hits: [self.combat_hit_1, self.combat_hit_2, self.combat_hit_3],
+        }
+    }
+
     pub fn overlays(&self) -> Overlays {
         Overlays {
             rig: Tier::of(self.show_rig),

@@ -16,12 +16,12 @@ use codex::graphics::tools::part;
 use foundry::systems::animation::export::process::calculate_export_time;
 use foundry::systems::animation::export::{EncoderMessage, ExportMode, FrameTiming, ShowcaseLengths};
 use foundry::domains::settings::Scope;
-use foundry::systems::animation::{multiply_mat3, Role};
+use foundry::systems::animation::{multiply_mat3, playback_frames, Role};
 use foundry::Source;
 
 use crate::systems::animation;
 
-use super::diagnostics;
+use super::{combat, diagnostics};
 use super::pipeline::{build_vertices, Painted, Pipeline};
 
 #[derive(Clone, Copy, Debug)]
@@ -76,7 +76,7 @@ impl Renderer {
         frame_time: f32,
         take: Take<'_>,
     ) -> Result<Vec<u8>, String> {
-        let Take { camera, background, offset, debug, ghosts } = take;
+        let Take { camera, background, offset, debug, ghosts, attacking, period } = take;
         let at = frame_time.floor() as i32;
         let whole = || resolve_frame(unit, animation, at, offset);
 
@@ -122,6 +122,12 @@ impl Renderer {
             let to_screen = |x: f32, y: f32| {
                 Point::new((x - camera.region_x) * camera.zoom, (y - camera.region_y) * camera.zoom)
             };
+
+            if let Some(staged) = shot.combat.as_ref() {
+                let still = combat::Still { unit, anim: animation, frame: at, played: frame_time, period, offset, zoom: camera.zoom, attacking };
+
+                combat::paint(&mut pixels, self.width, self.height, &still, to_screen, staged);
+            }
 
             diagnostics::paint(&mut pixels, self.width, self.height, unit, &marked, to_screen, shot);
         }
@@ -380,6 +386,8 @@ struct Take<'a> {
     offset: Option<usize>,
     debug: Option<&'a diagnostics::Shot>,
     ghosts: &'a [Ghost<'a>],
+    attacking: bool,
+    period: Option<i32>,
 }
 
 pub struct Job {
@@ -424,7 +432,7 @@ fn run(job: Job) {
     let trails = job.debug.as_ref().map_or_else(Vec::new, diagnostics::Shot::trails);
 
     let seat = |progress: i32| {
-        let (animation, local_time) = match &motions {
+        let (animation, local_time, attacking) = match &motions {
             Some(motions) => {
                 let (role, time) = showcase_segment(job.lengths, progress);
                 let animation = motions.get(role);
@@ -432,12 +440,16 @@ fn run(job: Job) {
                     Some(anim) if anim.declared_frames() > 1 => time,
                     _ => 0.0,
                 };
-                (animation, time)
+                (animation, time, role == Role::Attack)
             }
-            None => (job.animation.as_deref(), 0.0),
+            None => (
+                job.animation.as_deref(),
+                0.0,
+                job.debug.as_ref().and_then(|shot| shot.combat.as_ref()).is_some_and(|staged| staged.attacking),
+            ),
         };
 
-        (animation, calculate_export_time(&job.timing, animation, local_time, progress))
+        (animation, calculate_export_time(&job.timing, animation, local_time, progress), attacking)
     };
 
     for progress in 0..frame_count {
@@ -446,12 +458,17 @@ fn run(job: Job) {
             return;
         }
 
-        let (animation, frame_time) = seat(progress);
+        let (animation, frame_time, attacking) = seat(progress);
+
+        let period = animation
+            .filter(|_| motions.is_none() && job.timing.frame_start <= job.timing.frame_end)
+            .map(playback_frames)
+            .filter(|period| job.timing.frame_start + progress >= *period);
 
         let ghosts: Vec<Ghost<'_>> = trails
             .iter()
             .filter_map(|trail| {
-                let (ghost_anim, ghost_time) = seat(ghost_seat(progress, trail.step, frame_count));
+                let (ghost_anim, ghost_time, _) = seat(ghost_seat(progress, trail.step, frame_count));
 
                 (ghost_time.floor() != frame_time.floor())
                     .then_some(Ghost { animation: ghost_anim, frame_time: ghost_time, tint: trail.tint, fade: trail.fade })
@@ -468,6 +485,8 @@ fn run(job: Job) {
                 offset: job.offset,
                 debug: job.debug.as_ref(),
                 ghosts: &ghosts,
+                attacking,
+                period,
             },
         ) {
             Ok(pixels) => {
