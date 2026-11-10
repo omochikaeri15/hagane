@@ -1209,7 +1209,7 @@ component JailBonusDialog inherits Dialog {
             content-height: cards.preferred-height;
             cards := VerticalLayout {
                 width: parent.width;
-                padding-bottom: Sandbox.jail-tallied ? 36px : 0px;
+                padding-bottom: Sandbox.jail-tallied ? 44px : 0px;
                 for row in Sandbox.jail-bonuses: Rectangle {
                     property <length> head: row.title != "" ? 26px : 0px;
                     height: self.head + 56px + told.preferred-height + 6px;
@@ -1244,7 +1244,7 @@ component JailBonusDialog inherits Dialog {
         width: 150px;
         height: 28px;
         x: (parent.width - self.width) / 2;
-        y: parent.height - self.height - 6px;
+        y: parent.height - self.height - 14px;
         border-radius: Theme.radius-sm;
         background: Sandbox.jail-bonuses-over ? Theme.danger : Theme.success;
         Label { width: parent.width; height: parent.height; text: Sandbox.jail-bonuses-text; color: Sandbox.jail-bonuses-over ? Theme.white : Theme.text; font-size: 13px; horizontal-alignment: center; vertical-alignment: center; }

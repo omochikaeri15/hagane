@@ -531,8 +531,9 @@ img { user-select: none; -webkit-user-select: none; }
 .roster-footer { display: flex; flex: 1; justify-content: center; align-items: center; padding: 4px 8px; border-radius: var(--radius-sm); font-size: 12px; background: var(--success); color: var(--text); }
 .roster-footer.over { background: var(--danger); color: #fff; }
 .jail-popup .popup-body { overflow: hidden; display: flex; flex-direction: column; position: relative; }
-.jail-clearance { flex-shrink: 0; height: 28px; }
-.jail-tally-anchor { position: absolute; left: 50%; bottom: 6px; transform: translateX(-50%); }
+.jail-clearance { flex-shrink: 0; height: 36px; }
+.jail-tally-anchor { position: absolute; left: 0; right: 0; bottom: 14px; display: flex; justify-content: center; pointer-events: none; }
+.jail-tally-anchor > * { pointer-events: auto; }
 .jail-tally { padding: 4px 10px; border-radius: var(--radius-sm); font-size: 13px; white-space: nowrap; background: var(--success); color: var(--text); }
 .jail-tally.over { background: var(--danger); color: #fff; }
 .jail-bonuses { display: flex; flex-direction: column; gap: 14px; padding: 16px; overflow-y: auto; max-height: min(480px, 78cqh); }
