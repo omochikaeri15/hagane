@@ -776,7 +776,7 @@ impl State {
                     return Task::none();
                 };
 
-                if session.watching() && !matches!(bind, Bind::Pause | Bind::Diagnostics | Bind::Quality) {
+                if session.watching() && !matches!(bind, Bind::Pause | Bind::Diagnostics | Bind::Quality | Bind::Collision) {
                     return Task::none();
                 }
 
@@ -806,6 +806,19 @@ impl State {
 
                         app_state.sandbox.cycle_quality();
                         self.quality_notice = format!("Image Quality {}%", app_state.sandbox.quality());
+
+                        return self.quality.set_after((), Message::QualityExpired, QUALITY_LIFETIME);
+                    }
+                    Bind::Collision => {
+                        if !pressed {
+                            return Task::none();
+                        }
+
+                        app_state.sandbox.show_collision = !app_state.sandbox.show_collision;
+                        self.quality_notice = match app_state.sandbox.show_collision {
+                            true => "Collision On".to_owned(),
+                            false => "Collision Off".to_owned(),
+                        };
 
                         return self.quality.set_after((), Message::QualityExpired, QUALITY_LIFETIME);
                     }
@@ -872,7 +885,12 @@ impl State {
 
                 self.was_running = running;
 
+                let replayed = self.replay.collision();
+
                 if let Some(session) = self.session.as_mut() {
+                    let shown = app_state.sandbox.show_collision || (session.watching() && replayed);
+
+                    session.set_collision(shown.then(|| settings.animation.combat_look()));
                     session.tick(&ctx.vault.vfs);
 
                     match session.diagnose().filter(|_| self.diagnosing) {

@@ -865,10 +865,15 @@ pub struct AnimSettings {
     pub combat_system: bool,
     pub combat_origin: bool,
     pub combat_bound: bool,
+    pub combat_range: bool,
     pub combat_width: bool,
     pub combat_hit_1: bool,
     pub combat_hit_2: bool,
     pub combat_hit_3: bool,
+    pub combat_surge: bool,
+    pub combat_wave: bool,
+    pub combat_explosion: bool,
+    pub combat_cannon: bool,
 }
 
 impl Default for AnimSettings {
@@ -891,10 +896,15 @@ impl Default for AnimSettings {
             combat_system: true,
             combat_origin: true,
             combat_bound: true,
+            combat_range: true,
             combat_width: true,
             combat_hit_1: true,
             combat_hit_2: true,
             combat_hit_3: true,
+            combat_surge: true,
+            combat_wave: true,
+            combat_explosion: true,
+            combat_cannon: true,
         }
     }
 }
@@ -943,21 +953,31 @@ pub enum CombatLayer {
     System,
     Origin,
     Bound,
+    Range,
     Width,
     Hit1,
     Hit2,
     Hit3,
+    Surge,
+    Wave,
+    Explosion,
+    Cannon,
 }
 
 impl CombatLayer {
-    pub const ALL: [CombatLayer; 7] = [
+    pub const ALL: [CombatLayer; 12] = [
         CombatLayer::System,
         CombatLayer::Origin,
         CombatLayer::Bound,
+        CombatLayer::Range,
         CombatLayer::Width,
         CombatLayer::Hit1,
         CombatLayer::Hit2,
         CombatLayer::Hit3,
+        CombatLayer::Surge,
+        CombatLayer::Wave,
+        CombatLayer::Explosion,
+        CombatLayer::Cannon,
     ];
 
     pub fn label(self) -> &'static str {
@@ -965,10 +985,15 @@ impl CombatLayer {
             CombatLayer::System => "System",
             CombatLayer::Origin => "Origin",
             CombatLayer::Bound => "Back-bound",
+            CombatLayer::Range => "Standing Range",
             CombatLayer::Width => "Width",
             CombatLayer::Hit1 => "Hit 1",
             CombatLayer::Hit2 => "Hit 2",
             CombatLayer::Hit3 => "Hit 3",
+            CombatLayer::Surge => "Surge",
+            CombatLayer::Wave => "Wave",
+            CombatLayer::Explosion => "Explosion",
+            CombatLayer::Cannon => "Cannon",
         }
     }
 }
@@ -983,8 +1008,13 @@ pub struct CombatLook {
     pub system: bool,
     pub origin: bool,
     pub bound: bool,
+    pub range: bool,
     pub width: bool,
     pub hits: [bool; 3],
+    pub surge: bool,
+    pub wave: bool,
+    pub explosion: bool,
+    pub cannon: bool,
 }
 
 impl AnimSettings {
@@ -993,10 +1023,15 @@ impl AnimSettings {
             CombatLayer::System => self.combat_system,
             CombatLayer::Origin => self.combat_origin,
             CombatLayer::Bound => self.combat_bound,
+            CombatLayer::Range => self.combat_range,
             CombatLayer::Width => self.combat_width,
             CombatLayer::Hit1 => self.combat_hit_1,
             CombatLayer::Hit2 => self.combat_hit_2,
             CombatLayer::Hit3 => self.combat_hit_3,
+            CombatLayer::Surge => self.combat_surge,
+            CombatLayer::Wave => self.combat_wave,
+            CombatLayer::Explosion => self.combat_explosion,
+            CombatLayer::Cannon => self.combat_cannon,
         }
     }
 
@@ -1005,10 +1040,15 @@ impl AnimSettings {
             CombatLayer::System => &mut self.combat_system,
             CombatLayer::Origin => &mut self.combat_origin,
             CombatLayer::Bound => &mut self.combat_bound,
+            CombatLayer::Range => &mut self.combat_range,
             CombatLayer::Width => &mut self.combat_width,
             CombatLayer::Hit1 => &mut self.combat_hit_1,
             CombatLayer::Hit2 => &mut self.combat_hit_2,
             CombatLayer::Hit3 => &mut self.combat_hit_3,
+            CombatLayer::Surge => &mut self.combat_surge,
+            CombatLayer::Wave => &mut self.combat_wave,
+            CombatLayer::Explosion => &mut self.combat_explosion,
+            CombatLayer::Cannon => &mut self.combat_cannon,
         };
 
         *slot = shown;
@@ -1024,8 +1064,13 @@ impl AnimSettings {
             system: self.combat_system,
             origin: self.combat_origin,
             bound: self.combat_bound,
+            range: self.combat_range,
             width: self.combat_width,
             hits: [self.combat_hit_1, self.combat_hit_2, self.combat_hit_3],
+            surge: self.combat_surge,
+            wave: self.combat_wave,
+            explosion: self.combat_explosion,
+            cannon: self.combat_cannon,
         }
     }
 

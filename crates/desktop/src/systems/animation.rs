@@ -638,6 +638,7 @@ impl State {
                 profile: profile.clone(),
                 look: settings.animation.combat_look(),
                 attacking: combat::attacking(&self.data),
+                crest: self.data.bounds().map(|reach| reach.min_y),
             }),
         }
     }

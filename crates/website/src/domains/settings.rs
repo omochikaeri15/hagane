@@ -820,7 +820,7 @@ fn SandboxTab(platform: Platform, settings: Signal<GameSettings>) -> Element {
                         capturing.set(None);
                     },
                     onfocusout: move |_| capturing.set(None),
-                    for bind in Bind::ALL {
+                    for bind in Bind::ALL.into_iter().filter(|bind| *bind != Bind::Collision) {
                         {
                             let held = keys.key(bind);
                             let waiting = listening == Some(bind);

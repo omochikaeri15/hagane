@@ -19,7 +19,7 @@ use foundry::Vfs;
 use foundry::common::architecture::Workspace;
 use foundry::common::job::JobOutcome;
 use foundry::domains::sandbox::replay as tape;
-use foundry::domains::settings::ReplaySource;
+use foundry::domains::settings::{CombatLook, ReplaySource};
 use foundry::systems::addons::ffmpeg::video::{self, Quality, VideoFormat, VideoWriter};
 
 use super::assets::{DiskAssets, FileIndex};
@@ -45,11 +45,17 @@ pub struct VideoJob {
     quality: Quality,
     title: String,
     abort: Arc<AtomicBool>,
+    collision: Option<CombatLook>,
 }
 
 impl VideoJob {
     pub fn new(reel: Source, source: ReplaySource, vfs: &Vfs, format: VideoFormat, quality: Quality, title: String, abort: Arc<AtomicBool>) -> Self {
-        Self { reel, source, index: DiskAssets::index(vfs), format, quality, title, abort }
+        Self { reel, source, index: DiskAssets::index(vfs), format, quality, title, abort, collision: None }
+    }
+
+    pub fn with_collision(mut self, look: Option<CombatLook>) -> Self {
+        self.collision = look;
+        self
     }
 }
 
@@ -122,6 +128,8 @@ fn film(job: &VideoJob, work: &Path, emit: &dyn Fn(VideoEvent)) -> Result<bool, 
 
     let log = Rc::new(RefCell::new(SoundLog::new()));
     let mut driver = Driver::headless(Rc::clone(&log));
+
+    driver.set_collision(job.collision);
 
     driver.arm_playback(&save, frames, faults, index.clone());
 

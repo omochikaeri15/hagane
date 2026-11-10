@@ -57,6 +57,10 @@ impl Entity {
         Span::ordered(pixels(anchor), pixels(anchor.wrapping_add(span)))
     }
 
+    pub fn standing_reach(&self) -> f32 {
+        pixels(self.standing_range)
+    }
+
     pub fn hurtbox(&self) -> Span {
         Span::ordered(self.hitbox_position as f32 / STEPS_PER_PIXEL, pixels(self.hitbox_width))
     }

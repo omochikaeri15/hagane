@@ -507,6 +507,7 @@ pub(crate) fn Arena() -> Element {
 
                 return;
             }
+            Bind::Collision => return,
             Bind::Restart => {
                 if pressed_now && !repeat {
                     let now = keyer.host().now();

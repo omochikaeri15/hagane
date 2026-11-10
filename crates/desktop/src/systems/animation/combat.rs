@@ -24,17 +24,20 @@ const STRIKE_COLORS: [Color; 3] = [
 const HURTBOX_COLOR: Color = Color::from_rgb(0.1, 1.0, 0.9);
 const ORIGIN_COLOR: Color = Color::from_rgb(0.72, 0.3, 1.0);
 const BOUND_COLOR: Color = Color::from_rgb(1.0, 0.35, 0.75);
+const RANGE_COLOR: Color = Color::from_rgb(0.75, 0.25, 0.0);
 const BASE_COLOR: Color = Color::from_rgb(0.82, 0.82, 0.82);
 
 const OUTLINE_WIDTH: f32 = 2.0;
 const LINE_WIDTH: f32 = 2.0;
 const FRAMES_PER_SECOND: f32 = 30.0;
+pub(crate) const LINE_RISE: f32 = 200.0;
 const CLOCK_DRIFT: f32 = 3.0;
 
 #[derive(Clone)]
 pub struct Profile {
     faction: Faction,
     hurtbox: Span,
+    range: f32,
     strikes: Vec<(i32, Span)>,
 }
 
@@ -50,8 +53,13 @@ impl Profile {
         Self {
             faction: stats.faction,
             hurtbox: stats.hurtbox(),
+            range: stats.standing_reach(),
             strikes,
         }
+    }
+
+    pub(crate) fn measured(faction: Faction, hurtbox: Span, range: f32, strikes: Vec<(i32, Span)>) -> Self {
+        Self { faction, hurtbox, range, strikes }
     }
 
     fn facing(&self) -> f32 {
@@ -67,9 +75,10 @@ pub struct Staged {
     pub profile: Profile,
     pub look: CombatLook,
     pub attacking: bool,
+    pub crest: Option<f32>,
 }
 
-enum Mark {
+pub(crate) enum Mark {
     Line {
         from: Point,
         to: Point,
@@ -89,6 +98,16 @@ struct Scene<'a> {
     seated: i32,
     offset: Option<usize>,
     zoom: f32,
+    crest: Option<f32>,
+}
+
+pub(crate) struct Seat {
+    pub(crate) ground: Point,
+    pub(crate) zoom: f32,
+    pub(crate) bound: Option<f32>,
+    pub(crate) crest: f32,
+    pub(crate) spans_bound: bool,
+    pub(crate) hurt: f32,
 }
 
 fn aged(period: Option<i32>, frame: f32, landed: i32) -> f32 {
@@ -98,7 +117,7 @@ fn aged(period: Option<i32>, frame: f32, landed: i32) -> f32 {
     }
 }
 
-fn ramp(fade: i32, age: f32) -> f32 {
+pub(crate) fn ramp(fade: i32, age: f32) -> f32 {
     let life = fade.max(1) as f32;
 
     match (0.0..life).contains(&age) {
@@ -218,9 +237,30 @@ fn laid(
     let lifted = scene.offset.and_then(anchored).unwrap_or((0.0, 0.0));
     let ground = to_screen(combat.0 - lifted.0, combat.1 - lifted.1);
 
-    let ahead = |distance: f32| ground.x + profile.facing() * distance * scene.zoom;
-    let depth = look.height * scene.zoom;
-    let top = ground.y - look.offset * scene.zoom;
+    let bound = anchored(profile.faction.bound_row())
+        .map(|(reach, _)| ground.x - profile.facing() * profile.faction.bound_depth(reach) * scene.zoom);
+
+    let crest = scene
+        .crest
+        .map_or(ground.y - LINE_RISE * scene.zoom, |crest| to_screen(0.0, crest).y);
+
+    let seat = Seat { ground, zoom: scene.zoom, bound, crest: crest.min(ground.y), spans_bound: true, hurt: 1.0 };
+
+    arranged(profile, look, &seat, lit)
+}
+
+pub(crate) fn arranged(
+    profile: &Profile,
+    look: CombatLook,
+    seat: &Seat,
+    lit: impl Fn(usize, i32) -> f32,
+) -> Vec<Mark> {
+    let ground = seat.ground;
+    let bound = seat.bound;
+
+    let ahead = |distance: f32| ground.x + profile.facing() * distance * seat.zoom;
+    let depth = look.height * seat.zoom;
+    let top = ground.y - look.offset * seat.zoom;
     let boxed = |from: f32, to: f32, row: f32, share: f32, color: Color, fill: f32| Mark::Box {
         corner: Point::new(from.min(to), top + row * depth),
         size: Size::new((to - from).abs(), share * depth),
@@ -229,12 +269,9 @@ fn laid(
     };
     let rising = |x: f32, color: Color| Mark::Line {
         from: Point::new(x, ground.y.max(top)),
-        to: Point::new(x, 0.0),
+        to: Point::new(x, seat.crest),
         color,
     };
-
-    let bound = anchored(profile.faction.bound_row())
-        .map(|(reach, _)| ahead(-profile.faction.bound_depth(reach)));
 
     let (left, right) = [
         ground.x,
@@ -242,7 +279,8 @@ fn laid(
         ahead(-profile.hurtbox.far),
     ]
     .into_iter()
-    .chain(bound)
+    .chain(bound.filter(|_| seat.spans_bound))
+    .chain([ahead(profile.range)])
     .chain(
         profile
             .strikes
@@ -266,11 +304,15 @@ fn laid(
             0.0,
             1.0,
             HURTBOX_COLOR,
-            1.0,
+            seat.hurt,
         ));
     }
 
     marks.extend(bound.filter(|_| look.bound).map(|x| rising(x, BOUND_COLOR)));
+
+    if look.range {
+        marks.push(rising(ahead(profile.range), RANGE_COLOR));
+    }
 
     if look.origin {
         marks.push(rising(ground.x, ORIGIN_COLOR));
@@ -316,6 +358,7 @@ pub(super) fn paint(
         seated: still.frame,
         offset: still.offset,
         zoom: still.zoom,
+        crest: staged.crest,
     };
     let lit = |_: usize, landed: i32| match still.attacking {
         true => glow(staged.look.fade, still.period, still.played, landed),
@@ -427,6 +470,7 @@ impl<M> canvas::Program<M> for Marks<'_> {
             seated: self.data.playback_frame(self.frame).floor() as i32,
             offset: self.data.offset(),
             zoom: self.zoom,
+            crest: self.data.bounds().map(|reach| reach.min_y),
         };
 
         let mut frame = canvas::Frame::new(renderer, bounds.size());
@@ -483,6 +527,44 @@ impl<M> canvas::Program<M> for Marks<'_> {
 
         vec![frame.into_geometry()]
     }
+}
+
+pub(crate) fn rects(marks: Vec<Mark>, stroke: f32) -> Vec<(Point, Size, Color)> {
+    let mut rects = Vec::new();
+
+    for mark in marks {
+        match mark {
+            Mark::Line { from, to, color } => {
+                let width = LINE_WIDTH * stroke;
+
+                rects.push((
+                    Point::new(from.x.min(to.x) - width / 2.0, from.y.min(to.y)),
+                    Size::new((to.x - from.x).abs() + width, (to.y - from.y).abs()),
+                    color,
+                ));
+            }
+            Mark::Box { corner, size, color, fill } => {
+                let width = OUTLINE_WIDTH * stroke;
+                let half = width / 2.0;
+
+                if fill > 0.0 {
+                    rects.push((corner, size, Color { a: fill, ..color }));
+                }
+
+                let (left, top) = (corner.x - half, corner.y - half);
+                let (wide, tall) = (size.width + width, size.height + width);
+
+                rects.extend([
+                    (Point::new(left, top), Size::new(wide, width), color),
+                    (Point::new(left, top + size.height), Size::new(wide, width), color),
+                    (Point::new(left, top), Size::new(width, tall), color),
+                    (Point::new(left + size.width, top), Size::new(width, tall), color),
+                ]);
+            }
+        }
+    }
+
+    rects
 }
 
 pub(super) fn attacking(data: &data::State) -> bool {

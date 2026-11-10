@@ -554,6 +554,10 @@ impl State {
         }
     }
 
+    pub fn collision(&self) -> bool {
+        self.manage.collision()
+    }
+
     pub fn unit_open(&self) -> bool {
         self.open.is_some()
     }

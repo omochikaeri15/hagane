@@ -38,6 +38,7 @@ const COMPRESSION_HINT: &str = "30";
 const READY_LABEL: &str = "Ready";
 const DONE_LABEL: &str = "Done";
 const NO_FFMPEG_HINT: &str = "Requires the FFMPEG Addon\nInstall under Settings > Addons > FFMPEG";
+const COLLISION_HINT: &str = "Draws every unit's collision boxes over this replay and its exported video.\nFollows the Combat options under Settings > Animation";
 const UNSAVED_HINT: &str = "Can't delete a replay that isn't saved!";
 
 #[derive(Clone, Debug)]
@@ -54,12 +55,39 @@ pub enum Message {
     Abort,
     Delete,
     Format(VideoFormat),
+    Collision(Shown),
     Quality(String),
     Compression(String),
     Job(Pick, Update),
     ButtonExpired(Pick),
     StatusExpired(Pick),
     DeleteExpired,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Shown {
+    On,
+    Off,
+}
+
+impl Shown {
+    const ALL: [Shown; 2] = [Shown::On, Shown::Off];
+
+    fn of(shown: bool) -> Self {
+        match shown {
+            true => Shown::On,
+            false => Shown::Off,
+        }
+    }
+}
+
+impl std::fmt::Display for Shown {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(match self {
+            Shown::On => "On",
+            Shown::Off => "Off",
+        })
+    }
 }
 
 pub enum Effect {
@@ -140,6 +168,7 @@ pub struct State {
     format: VideoFormat,
     quality: String,
     compression: String,
+    collision: bool,
 }
 
 fn percentage(input: &str) -> Option<(Option<u32>, String)> {
@@ -223,6 +252,10 @@ impl State {
         });
     }
 
+    pub fn collision(&self) -> bool {
+        self.collision
+    }
+
     pub fn forget_confirm(&mut self) {
         self.deleting.clear();
     }
@@ -284,7 +317,8 @@ impl State {
                     quality: settings.sandbox.video_quality.unwrap_or(Quality::DEFAULT_QUALITY),
                     compression: settings.sandbox.video_compression.unwrap_or(Quality::DEFAULT_COMPRESSION),
                 };
-                let job = VideoJob::new(reel_of(&key), settings.sandbox.replay_source, vfs, settings.sandbox.video_format, quality, title.to_owned(), abort);
+                let job = VideoJob::new(reel_of(&key), settings.sandbox.replay_source, vfs, settings.sandbox.video_format, quality, title.to_owned(), abort)
+                    .with_collision(self.collision.then(|| settings.animation.combat_look()));
                 let task = Task::stream(export_video(job)).map(move |event| {
                     let update = match event {
                         VideoEvent::Rendered(done, total) => Update::Progress("Rendering", done as f32 / total.max(1) as f32),
@@ -334,6 +368,11 @@ impl State {
                 self.jobs.remove(&key);
 
                 (Task::none(), Effect::Deleted(bundle))
+            }
+            Message::Collision(shown) => {
+                self.collision = shown == Shown::On;
+
+                (Task::none(), Effect::None)
             }
             Message::Format(format) => {
                 settings.sandbox.video_format = format;
@@ -461,8 +500,19 @@ impl State {
 
         let (ratio, label) = job.map_or((1.0, READY_LABEL), |job| (job.status.ratio, job.status.label.as_str()));
 
+        let collision = row![
+            hover_hint(text("Show Collision").size(STATUS_SIZE).width(Length::Fill), COLLISION_HINT),
+            pick_list(Shown::ALL, Some(Shown::of(self.collision)), Message::Collision)
+                .width(Length::Fixed(FORMAT_WIDTH))
+                .style(theme::combo_box)
+                .menu_style(theme::combo_box_menu),
+        ]
+            .spacing(SPACING)
+            .align_y(Vertical::Center);
+
         column![
             column![
+                collision,
                 keep,
                 row![video, format].spacing(SPACING).align_y(Vertical::Center),
                 field("Quality %", QUALITY_HINT, &self.quality, Message::Quality),

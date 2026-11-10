@@ -186,6 +186,7 @@ pub(crate) struct SandboxState {
     pub image_quality: Option<u8>,
     pub scaling: Option<SandboxScaling>,
     pub lag: Option<Lag>,
+    pub show_collision: bool,
 }
 
 impl Default for SandboxState {
@@ -207,6 +208,7 @@ impl Default for SandboxState {
             image_quality: None,
             scaling: None,
             lag: None,
+            show_collision: false,
         }
     }
 }

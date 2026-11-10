@@ -13,9 +13,11 @@ use emulator::runtime::{phone_activity,
     VERSION, set_limits, fill_dummy_cannon_parts, fill_dummy_save, fill_dummy_talents, plant_seeds, pump_stage_return, read_battle_options, relatch_battle_rects, seed_altar_records, seed_cat_god, seed_point_cap, stock_battle_items, unlock_dummy_combos,
 };
 use foundry::Vfs;
+use foundry::domains::settings::CombatLook;
 use foundry::domains::sandbox::replay::{self as tape, Cue, Forgiven, Recording};
 use tracing::{debug, info, trace, warn};
 
+use super::collision;
 use super::assets::{DiskAssets, FileIndex, Ledger, SharedLedger, SheetCache};
 use super::diagnostics::{self, Diagnostics};
 use super::input::{Touch, TouchQueue};
@@ -97,6 +99,7 @@ pub struct Driver {
     leaving: Option<u16>,
     needed: Option<BTreeSet<u32>>,
     cut: bool,
+    collision: collision::Overlay,
 }
 
 #[derive(Default)]
@@ -222,6 +225,7 @@ impl Driver {
             leaving: None,
             needed: None,
             cut: false,
+            collision: collision::Overlay::default(),
         };
 
         driver.host();
@@ -1150,6 +1154,11 @@ impl Driver {
         let tutorial_open = self.ctx.u8_at(AppContext::TUTORIAL_POPUP_OPEN).unwrap_or(0) != 0;
 
         let mut continued = true;
+        let held = {
+            let frame = self.frame.borrow();
+
+            (frame.quads.len(), frame.lenses.len())
+        };
 
         if !(notice || shop_open || tutorial_open) {
             continued = emulator::engine::main_battle_loop(&mut self.ctx)
@@ -1161,6 +1170,13 @@ impl Driver {
         self.sync_options();
 
         if !continued {
+            let redrawn = self.frame.borrow_mut().shed(held.0, held.1);
+
+            if redrawn {
+                self.collision.paint(&self.ctx, &mut self.frame.borrow_mut());
+                self.stamp_frame();
+            }
+
             return Ok(());
         }
 
@@ -1184,6 +1200,7 @@ impl Driver {
 
         self.frame.borrow_mut().clear();
         emulator::engine::app_on_draw(&mut self.ctx).map_err(|fault| (fault.site(), format!("app_on_draw::{fault}")))?;
+        self.collision.paint(&self.ctx, &mut self.frame.borrow_mut());
         self.stamp_frame();
 
         Ok(())
@@ -1247,6 +1264,10 @@ impl Driver {
         if let Err(fault) = applied {
             warn!("emu: sound volumes could not be applied: {fault}");
         }
+    }
+
+    pub fn set_collision(&mut self, look: Option<CombatLook>) {
+        self.collision.set(look);
     }
 
     pub fn set_options(&mut self, options: BattleOptions) {
