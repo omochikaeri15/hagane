@@ -3,5 +3,5 @@ Changes:
 - Added `roguelike`s recruit and bonus limits.
 
 Bug Fixes:
-- Fixed a bug that caused certain roguelike bonuses to display zero's.
+- Fixed a bug that caused certain roguelike bonuses to display zeros.
 - Fixed some mobile visual bugs with stats pages.
