@@ -110,6 +110,7 @@ pub struct Saved {
     pub lag: Lag,
     pub battle_orientation: Orientation,
     pub fullscreen: bool,
+    pub show_collision: bool,
 }
 
 impl Default for Saved {
@@ -131,6 +132,7 @@ impl Default for Saved {
             lag: Lag::default(),
             battle_orientation: Orientation::Landscape,
             fullscreen: true,
+            show_collision: false,
         }
     }
 }

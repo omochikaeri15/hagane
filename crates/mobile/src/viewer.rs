@@ -16,7 +16,8 @@ use foundry::domains::cat::animation as cat_animation;
 use foundry::domains::cat::scanner::CatEntry;
 use foundry::domains::enemy::animation as enemy_animation;
 use foundry::domains::enemy::scanner::EnemyEntry;
-use foundry::domains::settings::AnimSettings;
+use foundry::domains::settings::{AnimSettings, CombatLook};
+use foundry::systems::animation::collision;
 use foundry::systems::animation::{Loop, MotionSet, NO_OFFSET, Placement, Rigging, cycle, loop_frame, restart, restart_frame};
 
 use crate::host;
@@ -69,7 +70,8 @@ struct Reach {
     bounds: Option<BoundingBox>,
 }
 
-type Stamp = (usize, usize, i32, (i32, i32), i32, (u32, u32), bool, bool, bool, bool, Option<Region>);
+type Lit = (bool, bool, bool, Option<u32>, CombatLook);
+type Stamp = (usize, usize, i32, (i32, i32), i32, (u32, u32), Lit, bool, Option<Region>);
 
 pub struct State {
     key: Option<String>,
@@ -651,7 +653,8 @@ pub fn wire(window: &AppWindow, context: &Rc<Context>) {
         ctx.state.apply(|settings| match which {
             0 => settings.animation.show_rig = value,
             1 => settings.animation.show_origin = value,
-            _ => settings.animation.show_world = value,
+            2 => settings.animation.show_world = value,
+            _ => settings.animation.show_combat = value,
         });
 
         if let Some(ui) = weak.upgrade() {
@@ -856,6 +859,7 @@ pub fn sync_controls(ui: &AppWindow, context: &Rc<Context>) {
     viewer.set_show_rig(show.show_rig);
     viewer.set_show_origin(show.show_origin);
     viewer.set_show_world(show.show_world);
+    viewer.set_show_combat(show.show_combat);
 }
 
 fn state_settings(context: &Rc<Context>) -> AnimSettings {
@@ -915,6 +919,9 @@ fn tick(ui: &AppWindow, context: &Rc<Context>) {
     let rig_key = rig.as_ref().map_or(0, |rig| Arc::as_ptr(rig) as usize);
     let anim_key = anim.as_ref().map_or(0, |anim| Arc::as_ptr(anim) as usize);
     let offset = state.offset();
+    let combat = state.motion().and_then(|motion| motion.combat.clone()).filter(|_| show.show_combat);
+    let look = show.combat_look();
+    let played = state.frame;
     let stamp: Stamp = (
         rig_key,
         anim_key,
@@ -922,9 +929,7 @@ fn tick(ui: &AppWindow, context: &Rc<Context>) {
         ((state.pan.0 * 100.0) as i32, (state.pan.1 * 100.0) as i32),
         (state.zoom * 1000.0) as i32,
         pixels,
-        show.show_rig,
-        show.show_origin,
-        show.show_world,
+        (show.show_rig, show.show_origin, show.show_world, combat.is_some().then(|| played.to_bits()), look),
         state.selecting,
         state.region,
     );
@@ -965,7 +970,7 @@ fn tick(ui: &AppWindow, context: &Rc<Context>) {
         Some(rig) => {
             frames = resolve_frame(rig, anim.as_deref(), frame, offset);
 
-            let bounds = show.show_world.then(|| {
+            let bounds = (show.show_world || combat.is_some()).then(|| {
                 let stale = state.reach.as_ref().is_none_or(|held| held.rig != rig_key || held.anim != anim_key || held.offset != offset);
 
                 if stale {
@@ -979,8 +984,22 @@ fn tick(ui: &AppWindow, context: &Rc<Context>) {
             });
             let pose = scene::Pose { rig, anim: anim.as_deref(), frame, offset, frames: &frames };
 
-            let mut shapes = scene::shapes(&pose, bounds.flatten(), &view, &show);
+            let mut shapes = Vec::new();
 
+            if let Some(combatant) = combat.as_ref() {
+                let start = state.loop_start.unwrap_or(0.0);
+                let end = state.loop_end.or_else(|| state.loop_bound().map(|bound| bound.max(0) as f32));
+                let period = end.map(|end| (end - start).floor() as i32 + 1);
+                let stance = collision::Pose { rig, anim: anim.as_deref(), frame, offset, zoom: view.zoom, crest: bounds.flatten().map(|reach| reach.min_y) };
+                let glow = |_: usize, landed: i32| match combatant.attacking {
+                    true => collision::glow(look.fade, period, played, landed),
+                    false => 0.0,
+                };
+
+                shapes.extend(scene::combat(collision::posed(&combatant.profile, look, &stance, |x, y| view.to_screen(x, y), glow)));
+            }
+
+            shapes.extend(scene::shapes(&pose, bounds.flatten(), &view, &show));
             shapes.extend(camera);
             shapes
         }

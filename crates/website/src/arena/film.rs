@@ -6,7 +6,7 @@ use std::sync::Arc;
 use tracing::{info, warn};
 use wasm_bindgen_futures::spawn_local;
 
-use foundry::domains::settings::ReplaySource;
+use foundry::domains::settings::{CombatLook, ReplaySource};
 use crate::systems::host::{Backend, Clip, Equipment, Film, Playing};
 use crate::platform::battle::{AudioCommand, BattleEvent, Rolled, SheetWire};
 
@@ -98,20 +98,20 @@ thread_local! {
     static REELING: RefCell<Option<Reeling>> = const { RefCell::new(None) };
 }
 
-pub(super) fn start(engine: &Rc<Engine>, source: ReplaySource, priority: Vec<String>) {
+pub(super) fn start(engine: &Rc<Engine>, source: ReplaySource, priority: Vec<String>, collision: Option<CombatLook>) {
     unroll();
 
     let engine = Rc::clone(engine);
 
     spawn_local(async move {
-        if let Err(reason) = open(&engine, source, priority).await {
+        if let Err(reason) = open(&engine, source, priority, collision).await {
             warn!("A replay video could not be started: {reason}");
             post(BattleEvent::Rolled(Box::new(Rolled { failure: Some(reason), over: true, ..Rolled::default() })));
         }
     });
 }
 
-async fn open(engine: &Rc<Engine>, source: ReplaySource, priority: Vec<String>) -> Result<(), String> {
+async fn open(engine: &Rc<Engine>, source: ReplaySource, priority: Vec<String>, collision: Option<CombatLook>) -> Result<(), String> {
     let kept = latest(engine).await.ok_or("there is no latest battle")?;
     let reel = kept.reel();
     let (overlay, frames) = layering(engine, &reel.footage, reel.files, reel.pinned, source);
@@ -126,7 +126,7 @@ async fn open(engine: &Rc<Engine>, source: ReplaySource, priority: Vec<String>) 
         fonts: FONTS.with(|fonts| fonts.borrow().clone()),
         priority,
     };
-    let film = Film::new(equipment, &reel.footage)?;
+    let film = Film::new(equipment, &reel.footage, collision)?;
     let (played, total) = film.progress();
     let size = film.size();
 

@@ -55,8 +55,6 @@ const APPEARANCES_TEXT_SIZE: f32 = 12.0;
 const EMPTY_CAT_ICON: &str = "uni.png";
 
 fn animation_preload(state: &mut animation::State, enemy: &EnemyEntry, vfs: &Vfs, anim_state: &AnimState) -> Task<Message> {
-    state.set_combat(Some(animation::combat::Profile::of(&enemy.stats)));
-
     let key = enemy_animation::set_id(enemy);
 
     state.preload(&key, || enemy_animation::motions(enemy, vfs), anim_state).map(Message::Animation)

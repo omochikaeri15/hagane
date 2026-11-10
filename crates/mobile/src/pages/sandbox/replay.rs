@@ -90,6 +90,7 @@ pub struct Part {
     rename: String,
     failure: Option<String>,
     foreign: Option<String>,
+    collision: bool,
     ticket: Option<bridge::Ticket>,
     timer: slint::Timer,
     ended_timer: slint::Timer,
@@ -293,6 +294,9 @@ pub fn watch(ui: &AppWindow, state: &Shared, context: &Rc<Context>, checked: boo
             arena.send(Command::Density(density));
             arena.send(Command::Insets(battle::device_insets(saved.fullscreen, width, height, density)));
             arena.send(Command::Volumes(Volume::nearest(saved.music_volume).percent(), Volume::nearest(saved.effects_volume).percent()));
+            let shown = saved.show_collision || held.replay.collision;
+
+            arena.send(Command::Collision(shown.then(|| settings.animation.combat_look())));
             arena.send(Command::Watch { reel, source: settings.sandbox.replay_source, phone: saved.device() == Device::Phone, lag: saved.lag, width, height });
         }
     }
@@ -663,6 +667,15 @@ pub fn wire(window: &AppWindow, state: &Shared, context: &Rc<Context>) {
     });
 
     let (held, ctx, weak) = on(state, context, window);
+    sandbox.on_replay_collision_set(move |index| {
+        held.borrow_mut().replay.collision = index == 0;
+
+        if let Some(ui) = weak.upgrade() {
+            refresh(&ui, &held, &ctx);
+        }
+    });
+
+    let (held, ctx, weak) = on(state, context, window);
     sandbox.on_replay_save(move || {
         if let Some(ui) = weak.upgrade() {
             begin(&ui, &held, &ctx, Work::Save);
@@ -939,6 +952,7 @@ pub fn sync(ui: &AppWindow, state: &Shared, context: &Rc<Context>) {
     sandbox.set_save_label(save_label);
     sandbox.set_save_tone(save_tone);
     sandbox.set_save_enabled(ready && !busy && matches!(pick, Some(Pick::Latest)));
+    sandbox.set_replay_collision(if part.collision { 0 } else { 1 });
     sandbox.set_export_label(export_label);
     sandbox.set_export_tone(export_tone);
     sandbox.set_export_enabled(ready && !busy);

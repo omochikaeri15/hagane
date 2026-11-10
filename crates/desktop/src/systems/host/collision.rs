@@ -1,14 +1,16 @@
+use std::collections::BTreeMap;
+use std::mem;
+
 use emulator::engine::{
     AppContext, CANNON_SHOT_SPACING, CannonShot, EXPLOSION_WIDTH_DEFAULTS, Entity, SLOTS_PER_FACTION, SURGE_TIMING, Vector,
     WaveRecord, WaveSprite,
 };
-use rustc_hash::FxHashMap;
 
 use codex::combat::{Faction, Span};
 use foundry::domains::settings::CombatLook;
-use iced::{Color, Point, Size};
-
-use crate::systems::animation::combat::{self, Mark, Profile, Seat};
+use foundry::systems::animation::collision::{
+    self as layout, Color, Mark, Point, Profile, Seat, Slab, BLAST_COLORS, CANNON_COLOR, LINE_RISE, SWEEP_COLOR,
+};
 
 use super::sink::{Frame, Lens, Quad};
 
@@ -23,23 +25,23 @@ const WAVE_RECORDS: usize = 200;
 const WAVE_SPRITES: usize = 6;
 const CANNON_SHOTS: usize = 15;
 const ENEMY_SIDE: i32 = 1;
+const WAVE_PIN: u8 = 0;
+const SURGE_PIN: u8 = 1;
+const COUNTER_PIN: u8 = 2;
+const BLAST_PIN: u8 = 3;
 const UNIT_ORDER: u8 = 0;
 const EFFECT_ORDER: u8 = 1;
-const SWEEP_COLOR: Color = Color::from_rgb(0.2, 0.9, 0.3);
-const BLAST_COLORS: [Color; 3] = [
-    Color::from_rgb(0.05, 0.5, 0.15),
-    Color::from_rgb(0.2, 0.75, 0.3),
-    Color::from_rgb(0.55, 1.0, 0.6),
-];
-const CANNON_COLOR: Color = Color::from_rgb(0.1, 0.2, 0.8);
+
+type Pin = (u8, i32, i32, i32);
 
 #[derive(Default)]
 pub(super) struct Overlay {
     look: Option<CombatLook>,
-    lit: FxHashMap<(i32, i32, usize), i32>,
-    hurt: FxHashMap<(i32, i32), i32>,
-    health: FxHashMap<(i32, i32), Vital>,
-    grounds: FxHashMap<(i32, i32), f32>,
+    lit: BTreeMap<(i32, i32, usize), i32>,
+    hurt: BTreeMap<(i32, i32), i32>,
+    health: BTreeMap<(i32, i32), Vital>,
+    grounds: BTreeMap<(i32, i32), f32>,
+    pinned: BTreeMap<Pin, f32>,
 }
 
 #[derive(Clone, Copy)]
@@ -79,6 +81,7 @@ impl Overlay {
             self.hurt.clear();
             self.health.clear();
             self.grounds.clear();
+            self.pinned.clear();
             return;
         };
 
@@ -105,13 +108,13 @@ impl Overlay {
                 }
 
                 live.push((faction, slot));
-                self.grounds.insert((faction, slot), unit.ground.y);
+                self.grounds.insert((faction, slot), unit.ground.1);
 
                 if self.health.insert((faction, slot), unit.vital).is_some_and(|held| unit.vital.struck(held)) {
                     self.hurt.insert((faction, slot), now);
                 }
 
-                let faded = |lit: &i32| combat::ramp(look.fade, now.wrapping_sub(*lit) as f32);
+                let faded = |lit: &i32| layout::ramp(look.fade, now.wrapping_sub(*lit) as f32);
 
                 let lit = |attack: usize, _: i32| {
                     self.lit.get(&(faction, slot, attack)).map_or(0.0, faded)
@@ -121,24 +124,24 @@ impl Overlay {
                     ground: unit.ground,
                     zoom: 1.0,
                     bound: unit.bound,
-                    crest: unit.ground.y - combat::LINE_RISE,
+                    crest: unit.ground.1 - LINE_RISE,
                     spans_bound: false,
                     hurt: self.hurt.get(&(faction, slot)).map_or(0.0, faded),
                 };
 
-                let boxes = combat::rects(combat::arranged(&unit.profile, look, &seat, lit), stroke)
+                let boxes = layout::slabs(layout::arranged(&unit.profile, look, &seat, lit), stroke)
                     .into_iter()
-                    .map(|(corner, size, color)| solid(lens, corner, size, color))
+                    .map(|slab| solid(lens, slab))
                     .collect();
 
-                groups.push((unit.ground.y - look.offset, UNIT_ORDER, boxes));
+                groups.push((unit.ground.1 - look.offset, UNIT_ORDER, boxes));
             }
         }
 
-        for (top, mark) in effects(ctx, look, &self.grounds).unwrap_or_default() {
-            let boxes = combat::rects(vec![mark], stroke)
+        for (top, mark) in effects(ctx, look, &self.grounds, &mut self.pinned).unwrap_or_default() {
+            let boxes = layout::slabs([mark], stroke)
                 .into_iter()
-                .map(|(corner, size, color)| solid(lens, corner, size, color))
+                .map(|slab| solid(lens, slab))
                 .collect();
 
             groups.push((top, EFFECT_ORDER, boxes));
@@ -168,17 +171,18 @@ fn lens(ctx: &AppContext, frame: &Frame) -> Option<(Lens, usize)> {
     Some((*frame.lenses.get(held)?, layer))
 }
 
-fn solid(lens: Lens, corner: Point, size: Size, color: Color) -> Quad {
-    let premultiplied = [color.r * color.a, color.g * color.a, color.b * color.a, color.a];
+fn solid(lens: Lens, slab: Slab) -> Quad {
+    let Slab { corner, size, color } = slab;
+    let premultiplied = [color[0] * color[3], color[1] * color[3], color[2] * color[3], color[3]];
 
     Quad {
         sheet: None,
         label: None,
         corners: [
-            place(lens, corner.x, corner.y),
-            place(lens, corner.x, corner.y + size.height),
-            place(lens, corner.x + size.width, corner.y + size.height),
-            place(lens, corner.x + size.width, corner.y),
+            place(lens, corner.0, corner.1),
+            place(lens, corner.0, corner.1 + size.1),
+            place(lens, corner.0 + size.0, corner.1 + size.1),
+            place(lens, corner.0 + size.0, corner.1),
         ],
         source: [0.0; 4],
         colors: [premultiplied; 4],
@@ -203,11 +207,18 @@ fn across(ctx: &AppContext) -> Option<impl Fn(i32) -> f32> {
     Some(move |steps: i32| left + (steps.wrapping_sub(camera) / STEPS_PER_PIXEL) as f32)
 }
 
-fn effects(ctx: &AppContext, look: CombatLook, grounds: &FxHashMap<(i32, i32), f32>) -> Option<Vec<(f32, Mark)>> {
+fn effects(ctx: &AppContext, look: CombatLook, grounds: &BTreeMap<(i32, i32), f32>, pinned: &mut BTreeMap<Pin, f32>) -> Option<Vec<(f32, Mark)>> {
     let across = across(ctx)?;
     let base = |field: usize| ctx.i32_at(AppContext::entity_field(CAT_SIDE, 0, field)).ok();
     let floor = (base(Entity::POS_Y)? / STEPS_PER_PIXEL).wrapping_add(base(Entity::Z_LAYER)?.wrapping_mul(LAYER_RISE)) as f32;
-    let seated = |faction: i32, slot: i32| grounds.get(&(faction, slot)).copied().unwrap_or(floor) - look.offset;
+    let held = mem::take(pinned);
+    let mut seated = |pin: Pin, faction: i32, slot: i32| {
+        let height = held.get(&pin).copied().unwrap_or_else(|| grounds.get(&(faction, slot)).copied().unwrap_or(floor));
+
+        pinned.insert(pin, height);
+
+        height - look.offset
+    };
     let setting = |key: &[u8], fallback: i32| emulator::engine::get_setting(&ctx.settings, key, fallback).ok();
 
     let mut marks = Vec::new();
@@ -215,8 +226,8 @@ fn effects(ctx: &AppContext, look: CombatLook, grounds: &FxHashMap<(i32, i32), f
         let (from, to) = (across(from), across(to));
 
         marks.push((top, Mark::Box {
-            corner: Point::new(from.min(to), top),
-            size: Size::new((to - from).abs(), look.height),
+            corner: (from.min(to), top),
+            size: ((to - from).abs(), look.height),
             color,
             fill: fill * look.opacity,
         }));
@@ -231,7 +242,7 @@ fn effects(ctx: &AppContext, look: CombatLook, grounds: &FxHashMap<(i32, i32), f
             let mini = ctx.u8_at(record + WaveRecord::MINI).ok()? != 0;
             let struck = ctx.i32_at(record + WaveRecord::IN_USE).ok()?;
             let owner = ctx.i32_at(record + WaveRecord::OWNER_SLOT).ok()?;
-            let top = seated(if struck == 2 { ENEMY_SIDE } else { CAT_SIDE }, owner);
+            let side = if struck == 2 { ENEMY_SIDE } else { CAT_SIDE };
 
             for sprite in 0..WAVE_SPRITES {
                 let cell = sprites + sprite * WaveSprite::STRIDE;
@@ -241,6 +252,7 @@ fn effects(ctx: &AppContext, look: CombatLook, grounds: &FxHashMap<(i32, i32), f
                     continue;
                 }
 
+                let top = seated((WAVE_PIN, wave as i32, 0, 0), side, owner);
                 let length = emulator::engine::get_anim_len(if mini { &ctx.mini_wave_anim } else { &ctx.wave_anim }).ok()?;
                 let (first, last) = match mini {
                     true => (setting(b"battle_wave_s_frame1", 3)?, setting(b"battle_wave_s_frame2", 7)?),
@@ -271,10 +283,10 @@ fn effects(ctx: &AppContext, look: CombatLook, grounds: &FxHashMap<(i32, i32), f
             }
 
             let shift = if event.faction == 1 { SURGE_TIMING[4] } else { SURGE_TIMING[4].wrapping_neg() };
-            let fill = combat::ramp(interval, (elapsed % interval) as f32);
+            let fill = layout::ramp(interval, (elapsed % interval) as f32);
 
             band(
-                seated(event.faction, event.slot),
+                seated((SURGE_PIN, event.faction, event.slot, event.x), event.faction, event.slot),
                 event.x.wrapping_sub(half).wrapping_add(shift),
                 event.x.wrapping_add(half).wrapping_add(shift),
                 SWEEP_COLOR,
@@ -297,7 +309,7 @@ fn effects(ctx: &AppContext, look: CombatLook, grounds: &FxHashMap<(i32, i32), f
             let near = owner.wrapping_add(event.anchor.wrapping_mul(way)).wrapping_add(shift);
             let far = owner.wrapping_add(event.anchor.wrapping_add(event.span).wrapping_mul(way)).wrapping_add(shift);
 
-            band(seated(event.faction, event.slot), near.min(far).wrapping_sub(half), near.max(far).wrapping_add(half), SWEEP_COLOR, 0.0);
+            band(seated((COUNTER_PIN, event.faction, event.slot, event.x), event.faction, event.slot), near.min(far).wrapping_sub(half), near.max(far).wrapping_add(half), SWEEP_COLOR, 0.0);
         }
     }
 
@@ -327,7 +339,7 @@ fn effects(ctx: &AppContext, look: CombatLook, grounds: &FxHashMap<(i32, i32), f
                 };
 
                 for center in centers {
-                    band(seated(event.faction, event.slot), center.wrapping_sub(half), center.wrapping_add(half), BLAST_COLORS[ring], fill);
+                    band(seated((BLAST_PIN, event.faction, event.slot, event.x), event.faction, event.slot), center.wrapping_sub(half), center.wrapping_add(half), BLAST_COLORS[ring], fill);
                 }
             }
         }
@@ -419,7 +431,7 @@ fn read(ctx: &AppContext, faction: i32, side: Faction, slot: i32) -> Option<(Uni
 
     let across = across(ctx)?;
 
-    let ground = Point::new(
+    let ground: Point = (
         across(field(Entity::POS_X)?),
         (field(Entity::POS_Y)? / STEPS_PER_PIXEL).wrapping_add(field(Entity::Z_LAYER)?.wrapping_mul(LAYER_RISE)) as f32,
     );

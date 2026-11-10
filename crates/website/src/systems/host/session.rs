@@ -239,6 +239,10 @@ impl Session {
         self.driver.set_setup(setup);
     }
 
+    pub fn set_collision(&mut self, look: Option<foundry::domains::settings::CombatLook>) {
+        self.driver.set_collision(look);
+    }
+
     pub fn configure(&mut self, options: BattleOptions) {
         self.driver.set_options(options);
     }

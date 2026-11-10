@@ -4,6 +4,7 @@ use std::rc::Rc;
 use tracing::{trace, warn};
 
 use foundry::domains::sandbox::replay::Footage;
+use foundry::domains::settings::CombatLook;
 
 use super::assets::SheetCache;
 use super::driver::{Driver, Equipment};
@@ -31,11 +32,13 @@ fn even(size: f32) -> u32 {
 }
 
 impl Film {
-    pub fn new(equipment: Equipment, footage: &Footage) -> Result<Self, String> {
+    pub fn new(equipment: Equipment, footage: &Footage, collision: Option<CombatLook>) -> Result<Self, String> {
         let frames = footage.cues()?;
         let total = frames.len();
         let size = (even(footage.save.screen.width), even(footage.save.screen.height));
         let mut driver = Driver::new(equipment);
+
+        driver.set_collision(collision);
 
         driver.arm_playback(&footage.save, frames, footage.faults());
 

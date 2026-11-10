@@ -54,6 +54,15 @@ export global Settings {
     in-out property <string> showcase-walk;
     in-out property <string> showcase-idle;
     in-out property <string> showcase-kb;
+    in property <string> default-level-hint;
+    in property <[string]> showcase-hints;
+    in property <[string]> combat-hints;
+    in-out property <string> combat-fade;
+    in-out property <string> combat-height;
+    in-out property <string> combat-offset;
+    in-out property <string> combat-opacity;
+    in property <int> combat-positions;
+    in property <[LangToggle]> combat-layers;
 
     in-out property <bool> exceptions-open;
     in property <[RuleRow]> rules;
@@ -118,6 +127,9 @@ export global Settings {
     callback frame-count-set(int);
     callback toggle-auto-camera(bool);
     callback showcase-edited(int, string);
+    callback combat-edited(int, string);
+    callback combat-positions-set(int);
+    callback combat-layer-set(int, bool);
     callback open-exceptions();
     callback rule-add();
     callback rule-remove(int);
@@ -449,7 +461,7 @@ export component SettingsPage inherits Rectangle {
                     }
                     Section {
                         title: "Level Display";
-                        Row { label: "Default Level"; Input { width: 60px; height: 30px; text-size: 13px; placeholder: "Level"; text <=> Settings.default-level; enabled: !Settings.auto-level; edited(value) => { Settings.default-level-edited(value); } } }
+                        Row { label: "Default Level"; Input { width: 60px; height: 30px; text-size: 13px; placeholder: Settings.default-level-hint; text <=> Settings.default-level; enabled: !Settings.auto-level; edited(value) => { Settings.default-level-edited(value); } } }
                         Toggle { value: Settings.auto-level; label: "Auto Level Calculations"; changed(value) => { Settings.toggle-auto-level(value); } }
                         Toggle { value: Settings.bump-ultra; label: "Lv60 For Ultra"; changed(value) => { Settings.toggle-bump-ultra(value); } }
                     }
@@ -502,9 +514,18 @@ export component SettingsPage inherits Rectangle {
                     Section {
                         title: "Showcase";
                         title-size: 18px;
-                        Row { label: "Walk Frames"; Input { width: 60px; height: 30px; text-size: 13px; placeholder: "0"; text <=> Settings.showcase-walk; edited(value) => { Settings.showcase-edited(0, value); } } }
-                        Row { label: "Idle Frames"; Input { width: 60px; height: 30px; text-size: 13px; placeholder: "0"; text <=> Settings.showcase-idle; edited(value) => { Settings.showcase-edited(1, value); } } }
-                        Row { label: "KB Frames"; Input { width: 60px; height: 30px; text-size: 13px; placeholder: "0"; text <=> Settings.showcase-kb; edited(value) => { Settings.showcase-edited(2, value); } } }
+                        Row { label: "Walk Frames"; Input { width: 60px; height: 30px; text-size: 13px; placeholder: Settings.showcase-hints[0]; text <=> Settings.showcase-walk; edited(value) => { Settings.showcase-edited(0, value); } } }
+                        Row { label: "Idle Frames"; Input { width: 60px; height: 30px; text-size: 13px; placeholder: Settings.showcase-hints[1]; text <=> Settings.showcase-idle; edited(value) => { Settings.showcase-edited(1, value); } } }
+                        Row { label: "KB Frames"; Input { width: 60px; height: 30px; text-size: 13px; placeholder: Settings.showcase-hints[2]; text <=> Settings.showcase-kb; edited(value) => { Settings.showcase-edited(2, value); } } }
+                    }
+                    Section {
+                        title: "Combat";
+                        Row { label: "Hit Positions"; Combo { width: 110px; height: 30px; text-size: 13px; options: ["Fill", "Layered", "Stacked"]; current: Settings.combat-positions; selected(index) => { Settings.combat-positions-set(index); } } }
+                        Row { label: "Hit Fade"; Input { width: 60px; height: 30px; text-size: 13px; placeholder: Settings.combat-hints[0]; text <=> Settings.combat-fade; edited(value) => { Settings.combat-edited(0, value); } } }
+                        Row { label: "System Height"; Input { width: 60px; height: 30px; text-size: 13px; placeholder: Settings.combat-hints[1]; text <=> Settings.combat-height; edited(value) => { Settings.combat-edited(1, value); } } }
+                        Row { label: "System Offset"; Input { width: 60px; height: 30px; text-size: 13px; placeholder: Settings.combat-hints[2]; text <=> Settings.combat-offset; edited(value) => { Settings.combat-edited(2, value); } } }
+                        Row { label: "Fill Opacity"; Input { width: 60px; height: 30px; text-size: 13px; placeholder: Settings.combat-hints[3]; text <=> Settings.combat-opacity; edited(value) => { Settings.combat-edited(3, value); } } }
+                        for layer[index] in Settings.combat-layers: Toggle { value: layer.enabled; label: layer.code; changed(value) => { Settings.combat-layer-set(index, value); } }
                     }
                 }
                 if Settings.tab == 9: VerticalLayout {

@@ -184,6 +184,7 @@ impl Set {
                     looping: frames.looping(),
                     rig: Arc::clone(&rig),
                     file: Some(Source::disk(anim.clone())),
+                    combat: None,
                 }
             })
             .collect();

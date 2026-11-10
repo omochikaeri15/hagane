@@ -1057,6 +1057,11 @@ fn paint_loop(link: Rc<Link>) {
     let hook = Rc::clone(&frame);
     let closure = Closure::<dyn FnMut(f64)>::new(move |_: f64| {
         battle::settle_audio(&link.screen);
+
+        if Screen::revive(&link.screen) {
+            post_battle(&link, BattleCommand::Resend);
+        }
+
         link.screen.borrow_mut().draw();
 
         let again = link.screen.borrow().attached();

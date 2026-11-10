@@ -92,6 +92,8 @@ export global Sandbox {
     in property <int> scaling;
     in property <bool> scaling-enabled;
     in property <int> lag;
+    in property <bool> show-collision;
+    in property <int> replay-collision: 1;
     in property <int> quality: 100;
     in property <bool> fullscreen: true;
     in property <bool> immersed;
@@ -209,6 +211,8 @@ export global Sandbox {
     callback device-set(int);
     callback scaling-set(int);
     callback lag-set(int);
+    callback show-collision-set(bool);
+    callback replay-collision-set(int);
     callback quality-set(int);
     callback fullscreen-set(bool);
     callback arc-edited(int, string);
@@ -823,6 +827,10 @@ component ConfigBody inherits VerticalLayout {
                 Row { label: "Quality"; Slider { width: 160px; minimum: 15; maximum: 100; value: Sandbox.quality; changed(value) => { Sandbox.quality-set(value); } } Label { text: Sandbox.quality + "%"; vertical-alignment: center; } }
                 Toggle { value: Sandbox.fullscreen; label: "Fullscreen"; changed(value) => { Sandbox.fullscreen-set(value); } }
             }
+            if Sandbox.panel == 0: Section {
+                title: "Meta";
+                Toggle { value: Sandbox.show-collision; label: "Show Collision"; changed(value) => { Sandbox.show-collision-set(value); } }
+            }
             if Sandbox.panel == 1: Section {
                 title: "Treasures";
                 if Sandbox.jail-ready: VerticalLayout {
@@ -1066,6 +1074,7 @@ component ReplayTab inherits Rectangle {
                             spacing: 8px;
                             Label { text: "Manage"; bold: true; font-size: 16px; }
                             Rule { }
+                            Row { label: "Show Collision"; Combo { width: 110px; height: 30px; text-size: 13px; options: ["On", "Off"]; current: Sandbox.replay-collision; selected(index) => { Sandbox.replay-collision-set(index); } } }
                             Btn { label: Sandbox.save-label; tone: Sandbox.save-tone; enabled: Sandbox.save-enabled; height: 32px; text-size: 13px; clicked => { Sandbox.replay-save(); } }
                             Btn { label: Sandbox.export-label; tone: Sandbox.export-tone; enabled: Sandbox.export-enabled; height: 32px; text-size: 13px; clicked => { Sandbox.replay-export(); } }
                             Btn { label: Sandbox.replay-delete-label; tone: Tone.danger; enabled: Sandbox.replay-delete-enabled; height: 32px; text-size: 13px; clicked => { Sandbox.replay-delete(); } }

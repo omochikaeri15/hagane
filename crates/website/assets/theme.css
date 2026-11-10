@@ -647,6 +647,7 @@ img { user-select: none; -webkit-user-select: none; }
 .replay-knob { display: flex; align-items: center; gap: 6px; width: 240px; font-size: 13px; }
 .replay-knob span { flex: 1; }
 .replay-knob-input { width: 55px; font-size: 13px; padding: 4px 6px; min-height: 0; }
+.replay-knob-select { width: 84px; font-size: 13px; min-height: 0; }
 .replay-pair { display: flex; gap: 6px; width: 240px; }
 .replay-half { width: 117px; font-size: 13px; }
 .mods-page { position: relative; height: 100%; overflow-y: auto; display: flex; flex-direction: column; align-items: flex-start; padding: 16px; }

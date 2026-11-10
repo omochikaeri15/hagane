@@ -104,6 +104,7 @@ pub fn wire(window: &AppWindow, state: &Shared, context: &Rc<Context>) {
     setter!(on_battle_orientation_set, |saved, index| saved.battle_orientation = match index { 1 => Orientation::Portrait, 2 => Orientation::Landscape, _ => Orientation::Automatic });
     setter!(on_quality_set, |saved, value| saved.image_quality = Some(value.clamp(15, 100) as u8));
     setter!(on_fullscreen_set, |saved, value| saved.fullscreen = value);
+    setter!(on_show_collision_set, |saved, value| saved.show_collision = value);
     setter!(on_cat_god_set, |saved, index| saved.config.cat_god = CatGod::ALL.get(index.max(0) as usize).copied().unwrap_or_default());
     setter!(on_speed_set, |saved, index| saved.config.start_speed = StartSpeed::SELECTABLE.get(index.max(0) as usize).copied().unwrap_or_default());
 
@@ -293,6 +294,7 @@ pub fn sync(ui: &AppWindow, state: &Shared, context: &Rc<Context>, staging: Opti
     });
     sandbox.set_quality(i32::from(saved.quality()));
     sandbox.set_fullscreen(saved.fullscreen);
+    sandbox.set_show_collision(saved.show_collision);
 
     if let Some(globals) = context.globals() {
         let (arcs, chapters, grades) = settings::treasure_models(&saved.config.treasure, &globals.catalog, &held.folds);

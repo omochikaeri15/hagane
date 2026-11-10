@@ -26,6 +26,7 @@ const LEVEL_DIGITS: usize = 6;
 const NO_CAP: &str = "None";
 const NO_FUNDS: &str = "0";
 const NATIVE: &str = "Native";
+const COLLISION_HINT: &str = "Draws every unit's hit ranges, width and back-bound over the battle\nFollows the Combat options under Settings > Animation";
 const QUALITY_HINT: &str = "The resolution the battle is drawn at.\nLower draws fewer pixels, trading sharpness for speed on weaker hardware.\nThe Cycle Image Quality key steps through 15, 25, 35, 50, 70 and 100%, then back to 15%, mid-battle";
 const SCALING_HINT: &str = "How a battle drawn below 100% quality fills the window.\nStretch: scaled up to fill the window\nPad: shown at its drawn size in the middle of the window";
 const LAG_HINT: &str = "What the battle does when the hardware cannot draw it at full speed.\nCatch-up: keeps the battle at full speed and shows fewer frames\nSlowdown: shows every frame and slows the battle down, as the game does on a slow phone";
@@ -250,8 +251,11 @@ fn GameSettings(platform: Platform, sandbox: Signal<SandboxState>) -> Element {
     let lag = held.lag.to_string();
     let orientation = held.battle_orientation.to_string();
     let quality = held.quality();
+    let collision = held.show_collision;
 
     drop(held);
+
+    let meta = platform.clone();
 
     let p = [platform.clone(), platform.clone(), platform.clone(), platform.clone(), platform.clone(), platform.clone(), platform.clone(), platform.clone(), platform.clone()];
 
@@ -282,6 +286,10 @@ fn GameSettings(platform: Platform, sandbox: Signal<SandboxState>) -> Element {
                         oninput: { let platform = p[7].clone(); move |value: i32| if let Ok(value) = u8::try_from(value) { state::apply(&platform, sandbox, |next| next.image_quality = Some(value)) } } }
                     span { "{quality}%" }
                 }
+            }
+            div { class: "settings-section",
+                div { class: "settings-heading", "Meta" }
+                Toggle { value: collision, label: "Show Collision", hint: COLLISION_HINT, onchange: move |value| state::apply(&meta, sandbox, |next| next.show_collision = value) }
             }
         }
     }

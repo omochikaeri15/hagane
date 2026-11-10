@@ -66,8 +66,6 @@ pub(crate) struct CatChanges<'a> {
 type StatsMemo = RefCell<Option<(u32, Option<Arc<Vec<Entity>>>)>>;
 
 fn animation_preload(state: &mut animation::State, cat: &CatEntry, form: usize, vfs: &Vfs, anim_state: &AnimState) -> Task<Message> {
-    state.set_combat(cat.stats.get(form).and_then(Option::as_ref).map(animation::combat::Profile::of));
-
     let key = cat_animation::set_id(cat, form);
 
     state.preload(&key, || cat_animation::motions(cat, form, vfs), anim_state).map(Message::Animation)

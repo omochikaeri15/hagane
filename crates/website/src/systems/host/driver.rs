@@ -16,6 +16,7 @@ use emulator::runtime::{phone_activity,
 };
 use foundry::domains::sandbox::replay::{self as tape, Cue, Footage, Forgiven};
 
+use super::collision;
 use super::assets::{Assets, Files, Ledger, SharedLedger, SheetCache};
 use super::diagnostics::{self, Diagnostics};
 use super::input::{Touch, TouchQueue};
@@ -314,6 +315,7 @@ pub struct Driver {
     needed: Option<BTreeSet<u32>>,
     kept: BTreeSet<Box<str>>,
     cut: bool,
+    collision: collision::Overlay,
     filmed: Option<Footage>,
 }
 
@@ -365,6 +367,7 @@ impl Driver {
             needed: None,
             kept: BTreeSet::new(),
             cut: false,
+            collision: collision::Overlay::default(),
             filmed: None,
         };
 
@@ -1171,6 +1174,11 @@ impl Driver {
         let tutorial_open = self.ctx.u8_at(AppContext::TUTORIAL_POPUP_OPEN).unwrap_or(0) != 0;
 
         let mut continued = true;
+        let held = {
+            let frame = self.frame.borrow();
+
+            (frame.quads.len(), frame.lenses.len())
+        };
 
         if !(notice || shop_open || tutorial_open) {
             continued = emulator::engine::main_battle_loop(&mut self.ctx).map_err(|fault| (fault.site(), format!("main_battle_loop::{fault}")))?;
@@ -1180,6 +1188,13 @@ impl Driver {
         self.sync_options();
 
         if !continued {
+            let redrawn = self.frame.borrow_mut().shed(held.0, held.1);
+
+            if redrawn {
+                self.collision.paint(&self.ctx, &mut self.frame.borrow_mut());
+                self.stamp_frame();
+            }
+
             return Ok(());
         }
 
@@ -1199,6 +1214,7 @@ impl Driver {
 
         self.frame.borrow_mut().clear();
         emulator::engine::app_on_draw(&mut self.ctx).map_err(|fault| (fault.site(), format!("app_on_draw::{fault}")))?;
+        self.collision.paint(&self.ctx, &mut self.frame.borrow_mut());
         self.stamp_frame();
 
         Ok(())
@@ -1263,6 +1279,10 @@ impl Driver {
         if let Err(fault) = applied {
             warn!("emu: sound volumes could not be applied: {fault}");
         }
+    }
+
+    pub fn set_collision(&mut self, look: Option<foundry::domains::settings::CombatLook>) {
+        self.collision.set(look);
     }
 
     pub fn set_options(&mut self, options: BattleOptions) {

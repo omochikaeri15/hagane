@@ -1,4 +1,5 @@
 mod assets;
+mod collision;
 mod diagnostics;
 mod film;
 mod driver;

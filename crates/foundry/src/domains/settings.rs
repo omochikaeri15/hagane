@@ -998,7 +998,7 @@ impl CombatLayer {
     }
 }
 
-#[derive(Clone, Copy, PartialEq, Debug)]
+#[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Debug)]
 pub struct CombatLook {
     pub fade: i32,
     pub height: f32,

@@ -38,9 +38,19 @@ impl Default for State {
     }
 }
 
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Lens {
+    pub origin: [i32; 2],
+    pub matrix: [f32; 6],
+    pub at: usize,
+    pub camera: bool,
+}
+
 #[derive(Default, Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Frame {
     pub quads: Vec<Quad>,
+    #[serde(skip)]
+    pub lenses: Vec<Lens>,
     pub sheets: Vec<Box<str>>,
     pub design_width: f32,
     pub design_height: f32,
@@ -49,8 +59,24 @@ pub struct Frame {
 }
 
 impl Frame {
+    pub fn shed(&mut self, quads: usize, lenses: usize) -> bool {
+        if self.quads.len() <= quads || self.lenses.len() < lenses {
+            return false;
+        }
+
+        self.quads.drain(..quads);
+        self.lenses.drain(..lenses);
+
+        for lens in &mut self.lenses {
+            lens.at = lens.at.saturating_sub(quads);
+        }
+
+        true
+    }
+
     pub fn clear(&mut self) {
         self.quads.clear();
+        self.lenses.clear();
         self.sheets.clear();
     }
 
@@ -128,6 +154,13 @@ impl Recorder {
         };
 
         local.map(|corner| self.place(corner[0], corner[1]))
+    }
+
+    fn mark_lens(&mut self, camera: bool) {
+        let mut frame = self.frame.borrow_mut();
+        let lens = Lens { origin: self.state.origin, matrix: self.state.matrix, at: frame.quads.len(), camera };
+
+        frame.lenses.push(lens);
     }
 
     fn push(&mut self, quad: Quad) {
@@ -245,6 +278,7 @@ impl DrawSink for Recorder {
 
     fn set_draw_scale(&mut self, _scale: f32) {
         self.state.matrix = IDENTITY;
+        self.mark_lens(false);
     }
 
     fn set_tint(&mut self, red: i32, green: i32, blue: i32, alpha: i32) {
@@ -260,6 +294,7 @@ impl DrawSink for Recorder {
         let down = (matrix[1] * matrix[1] + matrix[3] * matrix[3]).sqrt();
 
         self.state.matrix = [across, 0.0, 0.0, down, matrix[4], matrix[5]];
+        self.mark_lens(true);
     }
 
     fn set_tint_alpha(&mut self, alpha: i32) {

@@ -16,7 +16,9 @@ use foundry::common::io::APP_LANGUAGES;
 use foundry::common::keys::sanitize;
 use foundry::domains::cat::files as cat_files;
 use foundry::domains::import;
-use foundry::domains::settings::{ExceptionList, ExceptionRule, FrameCount, ImportStructure, ReplaySource, SavedBcvName, RuleHandling, UpdateMode, UserKeys, Utf8Mode, lang};
+use foundry::domains::settings::{
+    AnimSettings, COMBAT_HEIGHT_FLOOR, COMBAT_OPACITY_CEILING, CatDataSettings, CombatLayer, ExceptionList, ExceptionRule, FrameCount, HitPositions, ImportStructure, ReplaySource, SavedBcvName, RuleHandling, UpdateMode, UserKeys, Utf8Mode, lang,
+};
 use foundry::systems::treasure::{self, ARCS, Catalog};
 
 use crate::pages::Context;
@@ -60,10 +62,36 @@ pub struct State {
     open_failed: bool,
     default_level: String,
     showcase: [String; 3],
+    combat: [String; 4],
     timers: Vec<Timer>,
 }
 
 pub type Shared = Rc<RefCell<State>>;
+
+fn shown(held: i32, fallback: i32) -> String {
+    match held == fallback {
+        true => String::new(),
+        false => held.to_string(),
+    }
+}
+
+fn overridden(typed: &str, fallback: i32) -> Option<i32> {
+    match typed.trim() {
+        "" => Some(fallback),
+        typed => typed.parse::<i32>().ok(),
+    }
+}
+
+fn digits(text: &str) -> String {
+    text.chars().filter(char::is_ascii_digit).collect()
+}
+
+fn signed(text: &str) -> String {
+    let trimmed = text.trim_start();
+    let sign = if trimmed.starts_with('-') { "-" } else { "" };
+
+    format!("{sign}{}", digits(trimmed))
+}
 
 fn format_size(size: u64) -> String {
     const KB: f64 = 1024.0;
@@ -130,8 +158,18 @@ impl State {
             game: Phase::Idle,
             confirm_game: false,
             open_failed: false,
-            default_level: settings.cat_data.default_level.to_string(),
-            showcase: [settings.animation.default_showcase_walk.to_string(), settings.animation.default_showcase_idle.to_string(), settings.animation.default_showcase_kb.to_string()],
+            default_level: shown(settings.cat_data.default_level, CatDataSettings::default().default_level),
+            showcase: [
+                shown(settings.animation.default_showcase_walk, AnimSettings::default().default_showcase_walk),
+                shown(settings.animation.default_showcase_idle, AnimSettings::default().default_showcase_idle),
+                shown(settings.animation.default_showcase_kb, AnimSettings::default().default_showcase_kb),
+            ],
+            combat: [
+                shown(settings.animation.combat_hit_fade, AnimSettings::default().combat_hit_fade),
+                shown(settings.animation.combat_height, AnimSettings::default().combat_height),
+                shown(settings.animation.combat_offset, AnimSettings::default().combat_offset),
+                shown(settings.animation.combat_opacity, AnimSettings::default().combat_opacity),
+            ],
             timers: Vec::new(),
         }
     }
@@ -495,7 +533,7 @@ pub fn wire(window: &AppWindow, context: &Rc<Context>) -> Shared {
     settings.on_default_level_edited(move |value| {
         held.borrow_mut().default_level = value.to_string();
 
-        if let Ok(parsed) = value.parse::<i32>() {
+        if let Some(parsed) = overridden(&value, CatDataSettings::default().default_level) {
             ctx.state.apply(|settings| settings.cat_data.default_level = parsed);
         }
 
@@ -537,12 +575,70 @@ pub fn wire(window: &AppWindow, context: &Rc<Context>) -> Shared {
             *slot = value.to_string();
         }
 
-        if let Ok(parsed) = value.parse::<i32>() {
+        let fallback = AnimSettings::default();
+        let default = match which {
+            0 => fallback.default_showcase_walk,
+            1 => fallback.default_showcase_idle,
+            _ => fallback.default_showcase_kb,
+        };
+
+        if let Some(parsed) = overridden(&value, default) {
             ctx.state.apply(|settings| match which {
                 0 => settings.animation.default_showcase_walk = parsed,
                 1 => settings.animation.default_showcase_idle = parsed,
                 _ => settings.animation.default_showcase_kb = parsed,
             });
+        }
+
+        if let Some(ui) = weak.upgrade() {
+            refresh(&ui, &held, &ctx);
+        }
+    });
+
+    let (held, ctx, weak) = on(&state, context, window);
+    settings.on_combat_edited(move |which, value| {
+        let typed = if which == 2 { signed(&value) } else { digits(&value) };
+        let fallback = AnimSettings::default();
+        let default = match which {
+            0 => fallback.combat_hit_fade,
+            1 => fallback.combat_height,
+            2 => fallback.combat_offset,
+            _ => fallback.combat_opacity,
+        };
+
+        if let Some(parsed) = overridden(&typed, default) {
+            ctx.state.apply(|settings| match which {
+                0 => settings.animation.combat_hit_fade = parsed,
+                1 => settings.animation.combat_height = parsed.max(COMBAT_HEIGHT_FLOOR),
+                2 => settings.animation.combat_offset = parsed,
+                _ => settings.animation.combat_opacity = parsed.min(COMBAT_OPACITY_CEILING),
+            });
+        }
+
+        if let Some(slot) = held.borrow_mut().combat.get_mut(which.clamp(0, 3) as usize) {
+            *slot = typed;
+        }
+
+        if let Some(ui) = weak.upgrade() {
+            refresh(&ui, &held, &ctx);
+        }
+    });
+
+    let (held, ctx, weak) = on(&state, context, window);
+    settings.on_combat_positions_set(move |index| {
+        let picked = HitPositions::ALL.get(index.max(0) as usize).copied().unwrap_or_default();
+
+        ctx.state.apply(|settings| settings.animation.combat_hit_positions = picked);
+
+        if let Some(ui) = weak.upgrade() {
+            refresh(&ui, &held, &ctx);
+        }
+    });
+
+    let (held, ctx, weak) = on(&state, context, window);
+    settings.on_combat_layer_set(move |index, shown| {
+        if let Some(layer) = CombatLayer::ALL.get(index.max(0) as usize).copied() {
+            ctx.state.apply(|settings| settings.animation.set_combat_layer(layer, shown));
         }
 
         if let Some(ui) = weak.upgrade() {
@@ -991,6 +1087,21 @@ fn refresh(ui: &AppWindow, state: &Shared, context: &Rc<Context>) {
     settings.set_showcase_walk(held.showcase[0].as_str().into());
     settings.set_showcase_idle(held.showcase[1].as_str().into());
     settings.set_showcase_kb(held.showcase[2].as_str().into());
+
+    let fallback = AnimSettings::default();
+    let hints = |values: &[i32]| ModelRc::new(VecModel::from(values.iter().map(|value| SharedString::from(value.to_string())).collect::<Vec<_>>()));
+
+    settings.set_default_level_hint(CatDataSettings::default().default_level.to_string().into());
+    settings.set_showcase_hints(hints(&[fallback.default_showcase_walk, fallback.default_showcase_idle, fallback.default_showcase_kb]));
+    settings.set_combat_hints(hints(&[fallback.combat_hit_fade, fallback.combat_height, fallback.combat_offset, fallback.combat_opacity]));
+    settings.set_combat_fade(held.combat[0].as_str().into());
+    settings.set_combat_height(held.combat[1].as_str().into());
+    settings.set_combat_offset(held.combat[2].as_str().into());
+    settings.set_combat_opacity(held.combat[3].as_str().into());
+    settings.set_combat_positions(HitPositions::ALL.iter().position(|held| *held == core.animation.combat_hit_positions).unwrap_or(0) as i32);
+    settings.set_combat_layers(ModelRc::new(VecModel::from(
+        CombatLayer::ALL.iter().map(|layer| LangToggle { code: layer.label().into(), enabled: core.animation.combat_layer(*layer) }).collect::<Vec<_>>(),
+    )));
 
     let rules: Vec<RuleRow> = held
         .rules

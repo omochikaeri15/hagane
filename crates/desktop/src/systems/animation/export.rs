@@ -1652,6 +1652,7 @@ mod tests {
                 model: Source::disk("t.mamodel"),
             }),
             file: Some(Source::disk("000_f00.maanim")),
+            combat: None,
         }
     }
 

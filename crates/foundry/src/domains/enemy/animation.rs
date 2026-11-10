@@ -1,3 +1,6 @@
+use std::sync::Arc;
+
+use crate::systems::animation::collision::Profile;
 use crate::systems::animation::{self, named_offsets, Motion, MotionSet, Loop, RigFiles};
 use crate::Vfs;
 
@@ -32,6 +35,7 @@ pub fn motions(enemy: &EnemyEntry, vfs: &Vfs) -> MotionSet {
         return MotionSet::default();
     };
 
+    let fighter = Arc::new(Profile::of(&enemy.stats));
     let mut motions = Vec::new();
 
     for (suffix, path) in animation::maanims(vfs, &bases) {
@@ -47,10 +51,11 @@ pub fn motions(enemy: &EnemyEntry, vfs: &Vfs) -> MotionSet {
             looping: if named.is_some_and(|(_, _, role)| role.loops()) { Loop::Exact } else { Loop::Frames },
             rig: rig.clone(),
             file: Some(path),
-        });
+            combat: None,
+        }.fought_by(Some(&fighter)));
     }
 
-    motions.push(Motion::model(rig));
+    motions.push(Motion::model(rig).fought_by(Some(&fighter)));
 
     MotionSet { name: set_id(enemy), motions, offsets: named_offsets("Base HP") }
 }

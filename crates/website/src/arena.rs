@@ -12,7 +12,7 @@ use wasm_bindgen::JsCast;
 use wasm_bindgen_futures::spawn_local;
 
 use foundry::domains::sandbox::replay::{self as tape, Footage, Opened};
-use foundry::domains::settings::ReplaySource;
+use foundry::domains::settings::{CombatLook, ReplaySource};
 use crate::systems::host::{Backend, Clip, Clock, Equipment, Files, Label, Phase, Playing, Session, VERSION};
 use crate::platform::battle::{AudioCommand, BattleCommand, BattleEvent, Launch, Recorded, ReelWire, SheetWire, Standing};
 
@@ -281,6 +281,7 @@ thread_local! {
     static FONTS: RefCell<Vec<Arc<[u8]>>> = const { RefCell::new(Vec::new()) };
     static LATEST: RefCell<Option<Option<Kept>>> = const { RefCell::new(None) };
     static HELD: RefCell<Option<Reel>> = const { RefCell::new(None) };
+    static COLLISION: Cell<Option<CombatLook>> = const { Cell::new(None) };
 }
 
 fn post(event: BattleEvent) {
@@ -349,7 +350,7 @@ pub(crate) fn command(engine: &Rc<Engine>, command: BattleCommand) {
                 post(BattleEvent::Uploaded(uploaded));
             });
         }
-        BattleCommand::Film { source, priority } => film::start(engine, source, priority),
+        BattleCommand::Film { source, priority, collision } => film::start(engine, source, priority, collision),
         BattleCommand::Roll(count) => film::roll(count),
         BattleCommand::Unroll => film::unroll(),
         BattleCommand::ExportVideo(_) | BattleCommand::AbortVideo => warn!("A page-side video command reached the data worker"),
@@ -375,7 +376,12 @@ pub(crate) fn command(engine: &Rc<Engine>, command: BattleCommand) {
         BattleCommand::Phone(phone) => with(|arena| arena.session.set_phone(phone)),
         BattleCommand::Volumes(music, effects) => with(|arena| arena.session.retune(music, effects)),
         BattleCommand::Lag(lag) => with(|arena| arena.session.set_lag(lag)),
+        BattleCommand::Collision(look) => {
+            COLLISION.with(|held| held.set(look));
+            with(|arena| arena.session.set_collision(look));
+        }
         BattleCommand::Presented => with(|arena| arena.session.presented()),
+        BattleCommand::Resend => with(|arena| arena.sent.clear()),
         BattleCommand::Turned(rotated) => with(|arena| arena.session.turned(rotated)),
         BattleCommand::Diagnose(on) => with(|arena| arena.diagnosing = on),
     }
@@ -441,6 +447,7 @@ fn start(engine: &Rc<Engine>, launch: Launch) {
     ensure(engine, priority);
     with(|arena| {
         arena.session.equip(setup.into());
+        arena.session.set_collision(COLLISION.with(Cell::get));
         arena.session.set_phone(phone);
         arena.session.resize(width, height);
         arena.session.configure(options.into());
@@ -683,6 +690,7 @@ async fn watch(engine: &Rc<Engine>, reel: ReelWire, checked: bool, source: Repla
             arena.sent.clear();
         }
 
+        arena.session.set_collision(COLLISION.with(Cell::get));
         arena.session.set_phone(phone);
         arena.session.resize(size.0, size.1);
         arena.session.expect_warmth();

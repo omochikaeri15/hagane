@@ -1,8 +1,12 @@
+use std::sync::Arc;
+
+use crate::systems::animation::collision::{Combatant, Profile};
 use crate::systems::animation::{self, named_offsets, Motion, MotionSet, Loop, RigFiles};
 use crate::Vfs;
 
 use super::files;
 use super::scanner::CatEntry;
+use super::waiter::unitid;
 
 const SPIRIT_ATTACK: usize = 2;
 
@@ -33,6 +37,7 @@ pub fn motions(cat: &CatEntry, form: usize, vfs: &Vfs) -> MotionSet {
     let base = vec![files::anim_base_filename(cat.id, form, egg_ids)];
     let id = set_id(cat, form);
 
+    let fighter = cat.stats.get(form).and_then(Option::as_ref).map(|stats| Arc::new(Profile::of(stats)));
     let mut motions = Vec::new();
 
     if let Some(rig) = animation::rigging(vfs, &id, &base) {
@@ -47,10 +52,11 @@ pub fn motions(cat: &CatEntry, form: usize, vfs: &Vfs) -> MotionSet {
                 looping: if named.is_some_and(|(_, _, role)| role.loops()) { Loop::Exact } else { Loop::Frames },
                 rig: rig.clone(),
                 file: Some(path),
-            });
+                combat: None,
+            }.fought_by(fighter.as_ref()));
         }
 
-        motions.push(Motion::model(rig));
+        motions.push(Motion::model(rig).fought_by(fighter.as_ref()));
     }
 
     if let Some(spirit) = spirit_motion(cat, form, vfs) {
@@ -71,6 +77,9 @@ fn spirit_motion(cat: &CatEntry, form: usize, vfs: &Vfs) -> Option<Motion> {
     let base = vec![files::anim_base_filename(spirit_id, 0, (-1, -1))];
     let rig = animation::rigging(vfs, &format!("spirit_{}", spirit_id), &base)?;
     let anim = vfs.find(&files::maanim_file(spirit_id, 0, (-1, -1), SPIRIT_ATTACK)).map(|path| vfs.source(&path))?;
+    let combat = unitid(vfs, conjure_id)
+        .and_then(|forms| forms.into_iter().next())
+        .map(|stats| Combatant { profile: Arc::new(Profile::of(&stats)), attacking: true });
 
     Some(Motion {
         name: Some("Spirit".to_string()),
@@ -79,5 +88,6 @@ fn spirit_motion(cat: &CatEntry, form: usize, vfs: &Vfs) -> Option<Motion> {
         looping: Loop::Frames,
         rig,
         file: Some(anim),
+        combat,
     })
 }

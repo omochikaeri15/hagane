@@ -33,6 +33,7 @@ pub fn motions(png: &Path, cut: &Path, model: &Path, anims: &[PathBuf], frames: 
             looping: frames.looping(),
             rig: rig.clone(),
             file: Some(Source::disk(anim.clone())),
+            combat: None,
         })
         .collect();
 

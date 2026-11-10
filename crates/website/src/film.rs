@@ -381,7 +381,7 @@ async fn shoot(filming: &Filming, wiring: &Wiring, mut receiver: UnboundedReceiv
     }
 
     (wiring.tell)(BattleEvent::Rendering(0.0));
-    (wiring.send)(BattleCommand::Film { source: filming.source, priority: filming.priority.clone() });
+    (wiring.send)(BattleCommand::Film { source: filming.source, priority: filming.priority.clone(), collision: filming.collision });
 
     let opened = next(&mut receiver).await?;
     let (width, height) = opened.size;

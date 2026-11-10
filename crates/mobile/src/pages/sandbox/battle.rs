@@ -97,6 +97,7 @@ pub fn launch(ui: &AppWindow, state: &Shared, context: &Rc<Context>, launch: Lau
 
             arena.send(Command::Density(density));
             arena.send(Command::Insets(device_insets(held.saved().fullscreen, launch.width, launch.height, density)));
+            arena.send(Command::Collision(held.saved().show_collision.then(|| context.state.settings().animation.combat_look())));
             arena.send(Command::Start(Box::new(launch)));
         }
     }

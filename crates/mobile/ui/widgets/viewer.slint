@@ -30,6 +30,7 @@ export global Viewer {
     in property <bool> show-rig;
     in property <bool> show-origin;
     in property <bool> show-world;
+    in property <bool> show-combat;
     callback resized(length, length, float);
     callback pan(length, length);
     callback pinch(float, length, length);
@@ -51,10 +52,12 @@ export global Viewer {
 }
 
 export component DebugToggles inherits VerticalLayout {
+    in property <bool> combat;
     spacing: 2px;
     Toggle { value: Viewer.show-rig; label: "Show Rig"; text-size: 12px; track-width: 36px; track-height: 18px; row-height: 22px; changed(value) => { Viewer.toggle-debug(0, value); } }
     Toggle { value: Viewer.show-origin; label: "Show Origin"; text-size: 12px; track-width: 36px; track-height: 18px; row-height: 22px; changed(value) => { Viewer.toggle-debug(1, value); } }
     Toggle { value: Viewer.show-world; label: "Show World"; text-size: 12px; track-width: 36px; track-height: 18px; row-height: 22px; changed(value) => { Viewer.toggle-debug(2, value); } }
+    if root.combat: Toggle { value: Viewer.show-combat; label: "Show Combat"; text-size: 12px; track-width: 36px; track-height: 18px; row-height: 22px; changed(value) => { Viewer.toggle-debug(3, value); } }
 }
 
 component Controls inherits Rectangle {

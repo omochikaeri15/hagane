@@ -134,6 +134,9 @@ pub(crate) struct SandboxState {
     pub(crate) scaling: Option<Scaling>,
     pub(crate) lag: Lag,
     pub(crate) battle_orientation: Orientation,
+    pub(crate) show_collision: bool,
+    #[serde(skip)]
+    pub(crate) replay_collision: bool,
 }
 
 impl Default for SandboxState {
@@ -154,6 +157,8 @@ impl Default for SandboxState {
             scaling: None,
             lag: Lag::default(),
             battle_orientation: Orientation::Landscape,
+            show_collision: false,
+            replay_collision: false,
         }
     }
 }

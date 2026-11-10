@@ -10,7 +10,7 @@ use tracing::{error, info};
 use emulator::runtime::{BattleOptions, Setup};
 use foundry::Vault;
 use foundry::domains::sandbox::replay::Insets;
-use foundry::domains::settings::{ReplaySource, SavedBcvName};
+use foundry::domains::settings::{CombatLook, ReplaySource, SavedBcvName};
 
 use crate::{AppWindow, bridge};
 
@@ -47,6 +47,7 @@ pub enum Command {
     Phone(bool),
     Volumes(i32, i32),
     Lag(Lag),
+    Collision(Option<CombatLook>),
     Display { scale: f32, padded: bool },
     Density(f32),
     Insets(Insets),
@@ -201,6 +202,7 @@ impl Stage {
                     session.set_lag(lag);
                 }
             }
+            Command::Collision(look) => self.session().set_collision(look),
             Command::Display { scale, padded } => {
                 self.scale = scale;
                 self.padded = padded;

@@ -8,7 +8,7 @@ use codex::chapter::treasure::ARC_SLOTS;
 use foundry::domains::cat::files as cat_files;
 use foundry::domains::sandbox::keybind::Bind;
 use foundry::domains::settings::Settings as GameSettings;
-use foundry::domains::settings::{ReplaySource, SidebarBehavior, lang};
+use foundry::domains::settings::{AnimSettings, COMBAT_HEIGHT_FLOOR, CatDataSettings, COMBAT_OPACITY_CEILING, CombatLayer, HitPositions, ReplaySource, SidebarBehavior, lang};
 use foundry::systems::treasure::{ARCS, Catalog, Config as TreasureConfig, FULL_PERCENT};
 
 use crate::app::{Route, remember_settings};
@@ -79,10 +79,23 @@ enum Tab {
     Enemies,
     Stages,
     Sandbox,
+    Animation,
     About,
 }
 
-const TABS: [(Tab, &str); 6] = [(Tab::General, "General"), (Tab::Cats, "Cats"), (Tab::Enemies, "Enemies"), (Tab::Stages, "Stages"), (Tab::Sandbox, "Sandbox"), (Tab::About, "About")];
+const TABS: [(Tab, &str); 7] = [
+    (Tab::General, "General"),
+    (Tab::Cats, "Cats"),
+    (Tab::Enemies, "Enemies"),
+    (Tab::Stages, "Stages"),
+    (Tab::Sandbox, "Sandbox"),
+    (Tab::Animation, "Animation"),
+    (Tab::About, "About"),
+];
+const HIT_FADE_HINT: &str = "How many frames a hit box stays lit after its hit lands";
+const SYSTEM_HEIGHT_HINT: &str = "How tall the boxes under the unit may grow, 3 at the least";
+const SYSTEM_OFFSET_HINT: &str = "Moves the boxes up from the ground by this much, or down when negative";
+const FILL_OPACITY_HINT: &str = "How solid a filled box is, from 0 to 100";
 const FULLSCREEN_HINT: &str = "Fills the whole screen with the app\nF11 switches this at any time";
 const FILE_CHECK_HINT: &str = "How often, in seconds, the site looks for new game files on the file host\nLeave it empty to never look";
 const FILE_CHECK_OFF: &str = "Off";
@@ -220,6 +233,7 @@ pub(crate) fn Settings() -> Element {
                     Tab::Enemies => rsx! { Enemies { platform: platform.clone(), settings } },
                     Tab::Stages => rsx! { Stages { platform: platform.clone(), settings } },
                     Tab::Sandbox => rsx! { SandboxTab { platform: platform.clone(), settings } },
+                    Tab::Animation => rsx! { AnimationTab { platform: platform.clone(), settings } },
                     Tab::About => rsx! { About {} },
                 }
             }
@@ -629,7 +643,8 @@ fn chapter_view(config: &TreasureConfig, catalog: &Catalog, slot: usize, onlevel
 fn Cats(platform: Platform, settings: Signal<GameSettings>) -> Element {
     let held = settings.read();
     let cat_data = held.cat_data.clone();
-    let mut level_buffer = use_signal(|| cat_data.default_level.to_string());
+    let level_fallback = CatDataSettings::default().default_level;
+    let mut level_buffer = use_signal(|| if cat_data.default_level == level_fallback { String::new() } else { cat_data.default_level.to_string() });
     let p = [platform.clone(), platform.clone(), platform.clone(), platform.clone(), platform.clone(), platform.clone()];
 
     rsx! {
@@ -662,7 +677,7 @@ fn Cats(platform: Platform, settings: Signal<GameSettings>) -> Element {
                 div { class: "settings-heading", "Level Display" }
                 label { class: "setting-row inline",
                     span { "Default Level" }
-                    input { class: "input entry-input", r#type: "text", inputmode: "numeric", placeholder: "Level", value: "{level_buffer}", disabled: cat_data.auto_level_calculations,
+                    input { class: "input entry-input", r#type: "text", inputmode: "numeric", placeholder: "{level_fallback}", value: "{level_buffer}", disabled: cat_data.auto_level_calculations,
                         oninput: {
                             let platform = p[3].clone();
                             move |event| {
@@ -671,7 +686,9 @@ fn Cats(platform: Platform, settings: Signal<GameSettings>) -> Element {
                                 if value.chars().all(|glyph| glyph.is_ascii_digit()) {
                                     level_buffer.set(value.clone());
 
-                                    if let Ok(parsed) = value.parse::<i32>() {
+                                    if value.is_empty() {
+                                        apply(&platform, settings, |next| next.cat_data.default_level = level_fallback);
+                                    } else if let Ok(parsed) = value.parse::<i32>() {
                                         apply(&platform, settings, |next| next.cat_data.default_level = parsed.max(1));
                                     }
                                 }
@@ -733,6 +750,83 @@ fn Enemies(platform: Platform, settings: Signal<GameSettings>) -> Element {
             div { class: "settings-section",
                 div { class: "settings-heading", "Enemy List" }
                 Toggle { value: show_invalid, label: "Show Invalid Enemies", onchange: move |value| apply(&platform, settings, |next| next.enemy_data.show_invalid_enemies = value) }
+            }
+        }
+    }
+}
+
+#[component]
+fn Override(label: &'static str, hint: &'static str, fallback: i32, held: i32, signed: bool, onchange: EventHandler<i32>) -> Element {
+    let mut buffer = use_signal(|| if held == fallback { String::new() } else { held.to_string() });
+
+    rsx! {
+        label { class: "setting-row inline",
+            Tip { text: hint, hover: true, span { "{label}" } }
+            input { class: "input entry-input", r#type: "text", inputmode: "numeric", placeholder: "{fallback}", value: "{buffer}",
+                oninput: move |event| {
+                    let typed = event.value();
+                    let digits = typed.strip_prefix('-').filter(|_| signed).unwrap_or(&typed);
+
+                    if !digits.chars().all(|glyph| glyph.is_ascii_digit()) {
+                        return;
+                    }
+
+                    buffer.set(typed.clone());
+
+                    if typed.is_empty() {
+                        onchange.call(fallback);
+                    } else if let Ok(parsed) = typed.parse::<i32>() {
+                        onchange.call(parsed);
+                    }
+                } }
+        }
+    }
+}
+
+#[component]
+fn AnimationTab(platform: Platform, settings: Signal<GameSettings>) -> Element {
+    let held = settings.read().animation.clone();
+    let fallback = AnimSettings::default();
+    let positions = held.combat_hit_positions;
+    let p = [platform.clone(), platform.clone(), platform.clone(), platform.clone(), platform.clone()];
+
+    rsx! {
+        div { class: "settings-sections",
+            div { class: "settings-section",
+                div { class: "settings-heading", "Combat" }
+                label { class: "setting-row inline",
+                    Tip { text: positions.hint(), hover: true, span { "Hit Positions" } }
+                    select { class: "combo", value: "{positions}",
+                        onchange: {
+                            let platform = p[0].clone();
+                            move |event| {
+                                if let Some(picked) = HitPositions::ALL.into_iter().find(|held| held.to_string() == event.value()) {
+                                    apply(&platform, settings, |next| next.animation.combat_hit_positions = picked);
+                                }
+                            }
+                        },
+                        for choice in HitPositions::ALL {
+                            option { value: "{choice}", selected: choice == positions, "{choice}" }
+                        }
+                    }
+                }
+                Override { label: "Hit Fade", hint: HIT_FADE_HINT, fallback: fallback.combat_hit_fade, held: held.combat_hit_fade, signed: false,
+                    onchange: { let platform = p[1].clone(); move |value: i32| apply(&platform, settings, |next| next.animation.combat_hit_fade = value) } }
+                Override { label: "System Height", hint: SYSTEM_HEIGHT_HINT, fallback: fallback.combat_height, held: held.combat_height, signed: false,
+                    onchange: { let platform = p[2].clone(); move |value: i32| apply(&platform, settings, |next| next.animation.combat_height = value.max(COMBAT_HEIGHT_FLOOR)) } }
+                Override { label: "System Offset", hint: SYSTEM_OFFSET_HINT, fallback: fallback.combat_offset, held: held.combat_offset, signed: true,
+                    onchange: { let platform = p[3].clone(); move |value: i32| apply(&platform, settings, |next| next.animation.combat_offset = value) } }
+                Override { label: "Fill Opacity", hint: FILL_OPACITY_HINT, fallback: fallback.combat_opacity, held: held.combat_opacity, signed: false,
+                    onchange: { let platform = p[4].clone(); move |value: i32| apply(&platform, settings, |next| next.animation.combat_opacity = value.min(COMBAT_OPACITY_CEILING)) } }
+                for layer in CombatLayer::ALL {
+                    {
+                        let platform = platform.clone();
+
+                        rsx! {
+                            Toggle { key: "{layer.label()}", value: held.combat_layer(layer), label: layer.label(), onchange: move |value| apply(&platform, settings, |next| next.animation.set_combat_layer(layer, value)) }
+                        }
+                    }
+                }
             }
         }
     }
@@ -820,7 +914,7 @@ fn SandboxTab(platform: Platform, settings: Signal<GameSettings>) -> Element {
                         capturing.set(None);
                     },
                     onfocusout: move |_| capturing.set(None),
-                    for bind in Bind::ALL.into_iter().filter(|bind| *bind != Bind::Collision) {
+                    for bind in Bind::ALL {
                         {
                             let held = keys.key(bind);
                             let waiting = listening == Some(bind);

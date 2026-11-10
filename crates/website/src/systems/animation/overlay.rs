@@ -2,6 +2,7 @@ use codex::graphics::animate::FrameData;
 use codex::graphics::rig::{Animation, BoundingBox, Rig};
 use codex::graphics::tools::{joint, part};
 use foundry::domains::settings::AnimSettings;
+use foundry::systems::animation::collision::{Mark, LINE_WIDTH, OUTLINE_WIDTH};
 
 use crate::platform::Shape;
 
@@ -39,7 +40,7 @@ pub(super) struct Pose<'a> {
 }
 
 impl View {
-    fn to_screen(&self, x: f32, y: f32) -> (f32, f32) {
+    pub(super) fn to_screen(&self, x: f32, y: f32) -> (f32, f32) {
         (self.size.0 / 2.0 + (x + self.pan.0) * self.zoom, self.size.1 / 2.0 + (y + self.pan.1) * self.zoom)
     }
 }
@@ -95,6 +96,18 @@ pub(super) fn camera(view: &View, selecting: bool, selection: Option<Drag>, regi
     }
 
     shapes
+}
+
+pub(super) fn combat(marks: Vec<Mark>) -> impl Iterator<Item = Shape> {
+    marks.into_iter().map(|mark| match mark {
+        Mark::Line { from, to, color } => Shape::Line { from, to, color, width: LINE_WIDTH },
+        Mark::Box { corner, size, color, fill } => Shape::Rect {
+            min: corner,
+            max: (corner.0 + size.0, corner.1 + size.1),
+            fill: [color[0], color[1], color[2], fill],
+            stroke: Some((color, OUTLINE_WIDTH)),
+        },
+    })
 }
 
 pub(super) fn shapes(pose: &Pose<'_>, reach: Option<BoundingBox>, view: &View, show: &AnimSettings) -> Vec<Shape> {

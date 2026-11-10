@@ -445,7 +445,7 @@ fn run(job: Job) {
             None => (
                 job.animation.as_deref(),
                 0.0,
-                job.debug.as_ref().and_then(|shot| shot.combat.as_ref()).is_some_and(|staged| staged.attacking),
+                job.debug.as_ref().and_then(|shot| shot.combat.as_ref()).is_some_and(|staged| staged.combatant.attacking),
             ),
         };
 

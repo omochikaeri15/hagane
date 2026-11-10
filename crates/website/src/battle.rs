@@ -1,6 +1,7 @@
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::rc::Rc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
 use image::RgbaImage;
@@ -131,6 +132,7 @@ pub(crate) struct Screen {
     canvas: Option<HtmlCanvasElement>,
     gpu: Option<Gpu>,
     opening: bool,
+    broken: bool,
     frame: Option<Frame>,
     dirty: bool,
     sizes: HashMap<Box<str>, (u32, u32)>,
@@ -157,11 +159,29 @@ pub(crate) type SharedScreen = Rc<RefCell<Screen>>;
 
         return names && names.filter((name) => name !== 'WEBGL_debug_renderer_info');
     };
+}
+
+export function keep_context(canvas) {
+    canvas.addEventListener('webglcontextlost', (event) => event.preventDefault());
+}
+
+export function context_lost(canvas) {
+    const context = canvas.getContext('webgl2');
+
+    return context !== null && context.isContextLost();
 }")]
 extern "C" {
     #[wasm_bindgen(js_name = hide_renderer_info)]
     pub(crate) fn hide_renderer_info();
+
+    #[wasm_bindgen(js_name = keep_context)]
+    fn keep_context(canvas: &HtmlCanvasElement);
+
+    #[wasm_bindgen(js_name = context_lost)]
+    fn context_lost(canvas: &HtmlCanvasElement) -> bool;
 }
+
+static DEVICE_LOST: AtomicBool = AtomicBool::new(false);
 
 pub(crate) struct Darkroom {
     canvas: HtmlCanvasElement,
@@ -409,7 +429,15 @@ impl Gpu {
         self.reduce(scale);
         self.write(&scene.vertices);
 
-        let target = self.surface.get_current_texture().map_err(|err| format!("the battle surface had no frame: {err}"))?;
+        let target = match self.surface.get_current_texture() {
+            Ok(target) => target,
+            Err(wgpu::SurfaceError::Outdated | wgpu::SurfaceError::Lost) => {
+                self.surface.configure(&self.device, &self.config);
+
+                return Err("the battle surface was out of date and has been rebuilt".to_owned());
+            }
+            Err(err) => return Err(format!("the battle surface had no frame: {err}")),
+        };
         let view = target.texture.create_view(&wgpu::TextureViewDescriptor::default());
         let mut encoder = self.device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some("battle") });
 
@@ -600,14 +628,56 @@ impl Screen {
 
             held.canvas = Some(canvas.clone());
             held.gpu = None;
+            held.broken = false;
             held.opening = true;
         }
 
+        keep_context(&canvas);
+        Self::open_on(screen, canvas);
+    }
+
+    pub(crate) fn revive(screen: &SharedScreen) -> bool {
+        let canvas = {
+            let mut held = screen.borrow_mut();
+            let Some(canvas) = held.canvas.clone() else {
+                return false;
+            };
+
+            if held.gpu.is_some() && (DEVICE_LOST.swap(false, Ordering::Relaxed) || context_lost(&canvas)) {
+                warn!("The battle renderer lost its GPU context; reopening it when the browser allows");
+                held.gpu = None;
+                held.sizes.clear();
+                held.pending.clear();
+                held.broken = true;
+            }
+
+            if !held.broken || held.opening || context_lost(&canvas) {
+                return false;
+            }
+
+            held.broken = false;
+            held.opening = true;
+            canvas
+        };
+
+        Self::open_on(screen, canvas);
+
+        true
+    }
+
+    fn open_on(screen: &SharedScreen, canvas: HtmlCanvasElement) {
         let screen = Rc::clone(screen);
 
         wasm_bindgen_futures::spawn_local(async move {
             match open(canvas, None).await {
                 Ok(gpu) => {
+                    gpu.device.set_device_lost_callback(|reason, message| {
+                        if reason != wgpu::DeviceLostReason::Destroyed {
+                            warn!("The battle renderer's GPU device was lost: {message}");
+                            DEVICE_LOST.store(true, Ordering::Relaxed);
+                        }
+                    });
+
                     let mut held = screen.borrow_mut();
 
                     held.gpu = Some(gpu);
@@ -630,6 +700,7 @@ impl Screen {
     pub(crate) fn detach(&mut self) {
         self.canvas = None;
         self.gpu = None;
+        self.broken = false;
         self.frame = None;
         self.sizes.clear();
         self.pending.clear();
@@ -703,6 +774,10 @@ impl Screen {
             return;
         }
 
+        for sheet in &self.pending {
+            gpu.sheets.remove(&sheet.name);
+        }
+
         for sheet in self.pending.drain(..) {
             let binding = gpu.upload(sheet.width, sheet.height, &sheet.pixels);
 
@@ -714,6 +789,7 @@ impl Screen {
         let Some(frame) = &self.frame else {
             if let Err(reason) = gpu.render(&Scene::default(), 1.0, false) {
                 trace!("{reason}");
+                self.dirty = true;
             }
 
             return;
@@ -725,6 +801,7 @@ impl Screen {
 
         if let Err(reason) = gpu.render(&scene, scale, padded) {
             trace!("{reason}");
+            self.dirty = true;
 
             return;
         }

@@ -212,6 +212,10 @@ impl State {
         self.selected.and_then(|index| self.motions.get(index))
     }
 
+    pub fn settled(&self) -> bool {
+        self.selected.is_some() && self.loaded_motion == self.selected && self.current_motion().is_some_and(|motion| motion.rig.id == self.loaded_rig)
+    }
+
     pub fn is_model(&self) -> bool {
         self.current_motion().is_some_and(|motion| motion.file.is_none())
     }
@@ -894,6 +898,7 @@ mod tests {
             looping: Loop::Auto,
             rig: rigging(),
             file: anim.map(Source::disk),
+            combat: None,
         }
     }
 

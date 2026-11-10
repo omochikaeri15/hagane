@@ -7,6 +7,7 @@ use codex::graphics::animate::FrameData;
 use codex::graphics::rig::{Animation, BoundingBox, Rig};
 use codex::graphics::tools::{joint, part};
 use foundry::domains::settings::AnimSettings;
+use foundry::systems::animation::collision::{Mark, LINE_WIDTH, OUTLINE_WIDTH};
 use foundry::systems::animation::multiply_mat3;
 use foundry::systems::raster::{self, Alpha, Batch, Texture, Vertex};
 
@@ -113,6 +114,18 @@ pub fn camera(view: &View, selecting: bool, region: Option<Region>) -> Vec<Shape
     }
 
     shapes
+}
+
+pub fn combat(marks: Vec<Mark>) -> impl Iterator<Item = Shape> {
+    marks.into_iter().map(|mark| match mark {
+        Mark::Line { from, to, color } => Shape::Line { from, to, color, width: LINE_WIDTH },
+        Mark::Box { corner, size, color, fill } => Shape::Rect {
+            min: corner,
+            max: (corner.0 + size.0, corner.1 + size.1),
+            fill: [color[0], color[1], color[2], fill],
+            stroke: Some((color, OUTLINE_WIDTH)),
+        },
+    })
 }
 
 pub fn shapes(pose: &Pose<'_>, reach: Option<BoundingBox>, view: &View, show: &AnimSettings) -> Vec<Shape> {

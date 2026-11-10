@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 use emulator::runtime::{BATTLE_ITEMS, BattleOptions, CatGod, PartLevels, RoguelikePicks, RosterPick, Setup, SetupUnit, StageEntry, StageVariant, TECH_COUNT, TREASURE_CHAPTERS, TREASURE_STAGES, TechLevel, TutorialFlags};
 
 use foundry::domains::sandbox::replay::Save;
-use foundry::domains::settings::ReplaySource;
+use foundry::domains::settings::{CombatLook, ReplaySource};
 
 use crate::systems::host::{Action, Diagnostics, Frame, Lag, Phase, Touch};
 
@@ -256,7 +256,7 @@ pub enum BattleCommand {
     DeleteLatest,
     ExportVideo(Box<Filming>),
     AbortVideo,
-    Film { source: ReplaySource, priority: Vec<String> },
+    Film { source: ReplaySource, priority: Vec<String>, collision: Option<CombatLook> },
     Roll(u32),
     Unroll,
     Stop,
@@ -269,7 +269,9 @@ pub enum BattleCommand {
     Phone(bool),
     Volumes(i32, i32),
     Lag(Lag),
+    Collision(Option<CombatLook>),
     Presented,
+    Resend,
     Turned(bool),
     Diagnose(bool),
 }
@@ -297,6 +299,7 @@ pub struct Filming {
     pub priority: Vec<String>,
     pub quality: u32,
     pub compression: u32,
+    pub collision: Option<CombatLook>,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]

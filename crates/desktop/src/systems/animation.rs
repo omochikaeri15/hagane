@@ -22,6 +22,7 @@ use codex::graphics::tools::joint::Joint;
 use codex::graphics::tools::part;
 
 use foundry::domains::settings::{Overlays, Scope, ScrubBehavior, Settings};
+use foundry::systems::animation::collision::Combatant;
 use foundry::systems::animation::MotionSet;
 
 use crate::app::state::AnimState;
@@ -135,7 +136,6 @@ pub struct State {
     controls: controls::State,
     export: export::State,
     overlay: overlay::State,
-    combat: Option<combat::Profile>,
     combat_clock: combat::Clock,
     export_open: bool,
     highlight: Option<usize>,
@@ -171,7 +171,6 @@ impl State {
             controls: controls::State::default(),
             export: export::State::new(kind),
             overlay: overlay::State::default(),
-            combat: None,
             combat_clock: combat::Clock::default(),
             export_open: false,
             highlight: None,
@@ -195,10 +194,6 @@ impl State {
         self.sync_playhead();
 
         measuring.map_or_else(Task::none, |request| Task::perform(smol::unblock(move || request.run()), Message::Measured))
-    }
-
-    pub fn set_combat(&mut self, profile: Option<combat::Profile>) {
-        self.combat = profile;
     }
 
     pub fn reset_playhead(&mut self) {
@@ -434,7 +429,7 @@ impl State {
     pub fn tick(&mut self) {
         self.canvas.update(canvas::Message::Tick, &self.data);
         self.controls.tick(&mut self.canvas, &self.data);
-        self.combat_clock.tick(self.combat.as_ref(), &self.data, &self.canvas);
+        self.combat_clock.tick(self.data.current_motion().and_then(|motion| motion.combat.as_ref()), &self.data, &self.canvas);
         self.export.tick();
     }
 
@@ -634,17 +629,16 @@ impl State {
             picked: self.highlight,
             reach: self.data.bounds(),
             onion: self.authoring.then(|| settings.studio.clone()),
-            combat: self.staged(settings).map(|profile| combat::Staged {
-                profile: profile.clone(),
+            combat: self.staged(settings).map(|combatant| combat::Staged {
+                combatant: combatant.clone(),
                 look: settings.animation.combat_look(),
-                attacking: combat::attacking(&self.data),
                 crest: self.data.bounds().map(|reach| reach.min_y),
             }),
         }
     }
 
-    fn staged(&self, settings: &Settings) -> Option<&combat::Profile> {
-        self.combat.as_ref().filter(|_| settings.animation.show_combat && !self.authoring)
+    fn staged(&self, settings: &Settings) -> Option<&Combatant> {
+        self.data.current_motion().and_then(|motion| motion.combat.as_ref()).filter(|_| settings.animation.show_combat && !self.authoring)
     }
 
     fn scope(&self, settings: &Settings) -> Scope {

@@ -60,6 +60,10 @@ const ABORTING_LABEL: &str = "Aborting...";
 const TERMINATED_LABEL: &str = "Export Terminated!";
 const NO_VIDEO_HINT: &str = "Requires a browser that can encode video";
 const QUALITY_LABEL: &str = "Quality %";
+const COLLISION_LABEL: &str = "Show Collision";
+const COLLISION_HINT: &str = "Draws every unit's collision boxes over this replay and its exported video\nFollows the Combat options under Settings > Animation";
+const ON: &str = "On";
+const OFF: &str = "Off";
 const COMPRESSION_LABEL: &str = "Compression %";
 const QUALITY_HINT: &str = "80";
 const COMPRESSION_HINT: &str = "30";
@@ -249,6 +253,8 @@ pub(crate) fn Replays(globals: Shared, cats: Option<Cats>) -> Element {
     let job = (battle.job)();
     let video = (battle.video)();
     let settings = context::settings();
+    let mut sandbox = super::state::state();
+    let collision = sandbox.read().replay_collision;
     let confirming: Signal<Option<Confirm>> = use_signal(|| None);
     let confirm_round = use_signal(|| 0u32);
     let mut quality_text = use_signal(|| settings.peek().sandbox.video_quality.map(|value| value.to_string()).unwrap_or_default());
@@ -443,6 +449,18 @@ pub(crate) fn Replays(globals: Shared, cats: Option<Cats>) -> Element {
             Card { title: "Manage",
                 div { class: "replay-manage-column",
                     div { class: "replay-manage-buttons",
+                        label { class: "replay-knob", title: COLLISION_HINT,
+                            span { "{COLLISION_LABEL}" }
+                            select { class: "combo replay-knob-select", value: if collision { ON } else { OFF },
+                                onchange: move |event| {
+                                    let shown = event.value() == ON;
+
+                                    sandbox.write().replay_collision = shown;
+                                },
+                                option { value: ON, selected: collision, "{ON}" }
+                                option { value: OFF, selected: !collision, "{OFF}" }
+                            }
+                        }
                         button { class: "{export_class}", disabled: !ready || busy, onclick: move |_| battle.export(&exporter), "{export_label}" }
                         div { class: "replay-hint", title: video_hint,
                             button {
@@ -458,6 +476,7 @@ pub(crate) fn Replays(globals: Shared, cats: Option<Cats>) -> Element {
                                             priority: held.general.language_priority.clone(),
                                             quality: held.sandbox.video_quality.unwrap_or(DEFAULT_QUALITY),
                                             compression: held.sandbox.video_compression.unwrap_or(DEFAULT_COMPRESSION),
+                                            collision: sandbox.peek().replay_collision.then(|| held.animation.combat_look()),
                                         };
 
                                         drop(held);

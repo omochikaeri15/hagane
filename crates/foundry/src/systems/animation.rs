@@ -1,5 +1,6 @@
 pub mod alpha;
 pub mod authoring;
+pub mod collision;
 #[cfg(feature = "export")]
 pub mod export;
 pub mod posing;
@@ -61,6 +62,7 @@ pub struct Motion {
     pub looping: Loop,
     pub rig: Arc<Rigging>,
     pub file: Option<Source>,
+    pub combat: Option<collision::Combatant>,
 }
 
 #[derive(Default)]
@@ -115,7 +117,15 @@ impl Motion {
             looping: Loop::Frames,
             rig,
             file: None,
+            combat: None,
         }
+    }
+
+    pub fn fought_by(mut self, profile: Option<&Arc<collision::Profile>>) -> Self {
+        let attacking = self.role == Some(Role::Attack);
+
+        self.combat = profile.map(|profile| collision::Combatant { profile: Arc::clone(profile), attacking });
+        self
     }
 
     pub fn label(&self) -> String {

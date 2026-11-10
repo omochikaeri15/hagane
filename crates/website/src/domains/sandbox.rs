@@ -420,8 +420,11 @@ pub(crate) fn Sandbox() -> Element {
         jail.0.set(board.clone());
     }
 
+    let parts_shared = globals.clone();
+    let parts = use_memo(use_reactive!(|parts_shared| Parts::load(&parts_shared.0.vault().vfs)));
+    let tabled = !parts.read().cannons.is_empty();
     let budgeted = board.as_ref().is_none_or(|board| jailbreak::within_budget(sandbox, &board.0, staging.stage));
-    let playable = staging.entry.is_some() && (fielded || board.is_some()) && budgeted && cats.is_some();
+    let playable = staging.entry.is_some() && (fielded || board.is_some()) && budgeted && cats.is_some() && tabled;
     let usable = state::usable();
 
     if *usable.0.peek() != staging.usable {

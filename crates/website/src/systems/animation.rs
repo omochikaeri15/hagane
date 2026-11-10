@@ -17,8 +17,9 @@ use codex::graphics::animate::{FrameData, resolve_frame};
 use codex::graphics::rig::{Animation, BoundingBox, Model, Rig};
 use foundry::domains::cat::animation as cat_animation;
 use foundry::domains::enemy::animation as enemy_animation;
-use foundry::domains::settings::Settings;
+use foundry::domains::settings::{CombatLayer, Settings};
 use foundry::Source;
+use foundry::systems::animation::collision::{self, Combatant};
 use foundry::systems::animation::{Loop, MotionSet, NO_OFFSET, Placement, Rigging, cycle, loop_frame, restart, restart_frame};
 
 use crate::app::remember_settings;
@@ -200,6 +201,7 @@ struct Active {
     model: bool,
     looping: Loop,
     anim: Option<Arc<Animation>>,
+    combat: Option<Combatant>,
 }
 
 impl Active {
@@ -544,13 +546,14 @@ pub(crate) fn DebugToggles() -> Element {
             remember_settings(&platform, &settings.read());
         }
     };
-    let (rig, origin, world) = (platform.clone(), platform.clone(), platform.clone());
+    let (rig, origin, world, combat) = (platform.clone(), platform.clone(), platform.clone(), platform.clone());
 
     rsx! {
         div { class: "debug-toggles",
             Toggle { value: held.show_rig, label: "Show Rig", onchange: apply(rig, |next, value| next.animation.show_rig = value) }
             Toggle { value: held.show_origin, label: "Show Origin", onchange: apply(origin, |next, value| next.animation.show_origin = value) }
             Toggle { value: held.show_world, label: "Show World", onchange: apply(world, |next, value| next.animation.show_world = value) }
+            Toggle { value: held.show_combat, label: "Show Combat", onchange: apply(combat, |next, value| next.animation.show_combat = value) }
         }
     }
 }
@@ -602,7 +605,12 @@ fn Viewer(motions: Memo<Motions>) -> Element {
         let label = state.selected_label.peek().clone();
         let index = selected_index(&motions.set, &slots.peek(), label.as_deref());
         let motion = index.and_then(|index| motions.set.motions.get(index));
-        let active = motion.map(|motion| Active { model: motion.file.is_none(), looping: motion.looping, anim: held.0.anim.clone() });
+        let active = motion.map(|motion| Active {
+            model: motion.file.is_none(),
+            looping: motion.looping,
+            anim: held.0.anim.clone(),
+            combat: motion.combat.clone(),
+        });
 
         state.active.set(active);
 
@@ -849,7 +857,9 @@ struct Reach {
     bounds: Option<BoundingBox>,
 }
 
-type Stamp = (usize, usize, i32, (f32, f32), f32, (u32, u32), bool, bool, bool, bool, Option<Drag>, Option<Region>);
+type Lit = (bool, u32, [i32; 4], u8, [bool; 12]);
+type Shown = (bool, bool, bool, Lit);
+type Stamp = (usize, usize, i32, (f32, f32), f32, (u32, u32), Shown, bool, Option<Drag>, Option<Region>);
 
 async fn run(
     platform: Platform,
@@ -922,7 +932,17 @@ async fn run(
         let selecting = *state.selecting.peek();
         let selection = *state.selection.peek();
         let region = *state.region.peek();
-        let stamp: Stamp = (rig_key, anim_key, frame, pan, zoom, pixels, show.show_rig, show.show_origin, show.show_world, selecting, selection, region);
+        let played = *state.frame.peek();
+        let combat = active.as_ref().and_then(|active| active.combat.clone()).filter(|_| show.show_combat);
+        let look = show.combat_look();
+        let lit: Lit = (
+            combat.is_some(),
+            if combat.is_some() { played.to_bits() } else { 0 },
+            [show.combat_hit_fade, show.combat_height, show.combat_offset, show.combat_opacity],
+            show.combat_hit_positions as u8,
+            CombatLayer::ALL.map(|layer| show.combat_layer(layer)),
+        );
+        let stamp: Stamp = (rig_key, anim_key, frame, pan, zoom, pixels, (show.show_rig, show.show_origin, show.show_world, lit), selecting, selection, region);
 
         if last_drawn == Some(stamp) && reach.as_ref().is_none_or(|held| held.offset == offset) {
             continue;
@@ -950,7 +970,7 @@ async fn run(
 
         let frames: Vec<FrameData> = resolve_frame(rig, anim, frame, offset);
         let parts: Vec<Painted> = frames.iter().map(|frame| Painted { frame: frame.clone(), tint: NO_TINT }).collect();
-        let bounds = show.show_world.then(|| {
+        let bounds = (show.show_world || combat.is_some()).then(|| {
             let stale = reach.as_ref().is_none_or(|held| held.rig != rig_key || held.anim != anim_key || held.offset != offset);
 
             if stale {
@@ -963,7 +983,24 @@ async fn run(
             reach.as_ref().and_then(|held| held.bounds)
         });
         let pose = Pose { rig, anim, frame, offset, frames: &frames };
-        let mut shapes = overlay::shapes(&pose, bounds.flatten(), &view, &show);
+        let mut shapes = Vec::new();
+
+        if let Some(combatant) = combat.as_ref() {
+            let settled = active.as_ref().is_some_and(|active| active.anim.as_ref().map(Arc::as_ptr) == held.0.anim.as_ref().map(Arc::as_ptr));
+            let attacking = combatant.attacking && settled;
+            let start = state.loop_start.peek().unwrap_or(0.0);
+            let end = state.loop_end.peek().or_else(|| active.as_ref().and_then(Active::loop_bound).map(|bound| bound.max(0) as f32));
+            let period = end.map(|end| (end - start).floor() as i32 + 1);
+            let stance = collision::Pose { rig, anim, frame, offset, zoom, crest: bounds.flatten().map(|reach| reach.min_y) };
+            let glow = |_: usize, landed: i32| match attacking {
+                true => collision::glow(look.fade, period, played, landed),
+                false => 0.0,
+            };
+
+            shapes.extend(overlay::combat(collision::posed(&combatant.profile, look, &stance, |x, y| view.to_screen(x, y), glow)));
+        }
+
+        shapes.extend(overlay::shapes(&pose, bounds.flatten(), &view, &show));
 
         shapes.extend(camera);
         let atlas = rig.sheet.image_data.as_ref().map(|image| Atlas { key: Arc::as_ptr(image) as usize, width: image.width(), height: image.height(), pixels: image.as_raw() });
