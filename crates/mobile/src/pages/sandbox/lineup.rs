@@ -144,20 +144,19 @@ pub fn fill_roster(ui: &AppWindow, state: &Shared, context: &Rc<Context>) {
             Entry { id: cat.id, banner: cat.banner_paths.get(form).cloned().flatten().or_else(|| cat.image_path.clone()), tooltip: cat.display_name(form).into() }
         })
         .collect();
-    let shown = shown_rows(state, context, &cats);
+    let shown = shown_rows(state, &cats);
 
     state.borrow().roster.fill(context.engine.vault(), entries, shown.clone());
     ui.global::<Sandbox>().set_roster_count(shown.len() as i32);
 }
 
-fn shown_rows(state: &Shared, context: &Rc<Context>, cats: &[CatEntry]) -> Vec<usize> {
-    let query = state.borrow().saved().search.to_lowercase();
-    let pages = context.pages();
-    let filter = pages.as_ref().map(|pages| pages.cats.borrow().filter.clone());
+fn shown_rows(state: &Shared, cats: &[CatEntry]) -> Vec<usize> {
+    let held = state.borrow();
+    let query = held.saved().search.to_lowercase();
 
     cats.iter()
         .enumerate()
-        .filter(|(_, cat)| filter.as_ref().is_none_or(|filter| entity_passes_filter(cat, filter)))
+        .filter(|(_, cat)| entity_passes_filter(cat, &held.filter))
         .filter(|(_, cat)| query.is_empty() || matches(cat, &query))
         .map(|(index, _)| index)
         .collect()
@@ -171,7 +170,7 @@ pub fn refilter(ui: &AppWindow, state: &Shared, context: &Rc<Context>) {
     let Some(cats) = state.borrow().cats.clone() else {
         return;
     };
-    let shown = shown_rows(state, context, &cats);
+    let shown = shown_rows(state, &cats);
 
     state.borrow().roster.show(shown.clone());
     ui.global::<Sandbox>().set_roster_count(shown.len() as i32);
@@ -336,7 +335,7 @@ pub fn wire(window: &AppWindow, state: &Shared, context: &Rc<Context>) {
     let (_, ctx, weak) = on(state, context, window);
     sandbox.on_open_filter(move || {
         if let (Some(ui), Some(pages)) = (weak.upgrade(), ctx.pages()) {
-            cats::open_filter(&ui, &pages.cats, &ctx);
+            cats::open_lineup_filter(&ui, &pages.cats, &ctx);
         }
     });
 
@@ -957,7 +956,7 @@ pub fn sync(ui: &AppWindow, state: &Shared, context: &Rc<Context>, staging: Opti
     show_deck(ui, state);
     sandbox.set_lineup_name(lineup.name.as_str().into());
     sandbox.set_search(state.borrow().saved().search.as_str().into());
-    sandbox.set_filter_active(context.pages().is_some_and(|pages| pages.cats.borrow().filter.is_active()));
+    sandbox.set_filter_active(state.borrow().filter.is_active());
 
     let focus = editing.and_then(|(cell, id)| lineup.get(cell).filter(|member| member.id == id).map(|member| (id, member.form)));
 

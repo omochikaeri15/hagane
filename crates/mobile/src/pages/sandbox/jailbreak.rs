@@ -116,7 +116,6 @@ pub fn fill_roster(ui: &AppWindow, state: &Shared, context: &Rc<Context>) {
     };
     let run = run(&state.borrow().saved(), &board);
     let query = state.borrow().saved().search.to_lowercase();
-    let filter = context.pages().map(|pages| pages.cats.borrow().filter.clone());
     let all = listed(&board, &run, &cats);
     let forms: HashMap<usize, usize> = all.iter().copied().collect();
     let entries: Vec<Entry> = cats
@@ -129,11 +128,14 @@ pub fn fill_roster(ui: &AppWindow, state: &Shared, context: &Rc<Context>) {
             Entry { id: cat.id, banner: banner.or_else(|| cat.image_path.clone()), tooltip: cat.display_name(form).into() }
         })
         .collect();
-    let rows: Vec<usize> = all
-        .iter()
-        .map(|(index, _)| *index)
-        .filter(|index| cats.get(*index).is_some_and(|cat| filter.as_ref().is_none_or(|filter| entity_passes_filter(cat, filter)) && (query.is_empty() || lineup::matches(cat, &query))))
-        .collect();
+    let rows: Vec<usize> = {
+        let held = state.borrow();
+
+        all.iter()
+            .map(|(index, _)| *index)
+            .filter(|index| cats.get(*index).is_some_and(|cat| entity_passes_filter(cat, &held.filter) && (query.is_empty() || lineup::matches(cat, &query))))
+            .collect()
+    };
 
     state.borrow_mut().jail_listed = all;
     state.borrow().roster.fill(context.engine.vault(), entries, rows.clone());
@@ -186,7 +188,7 @@ pub fn sync_deck(ui: &AppWindow, state: &Shared, context: &Rc<Context>) {
     state.borrow_mut().resting = (slots, bench);
     lineup::show_deck(ui, state);
     sandbox.set_search(state.borrow().saved().search.as_str().into());
-    sandbox.set_filter_active(context.pages().is_some_and(|pages| pages.cats.borrow().filter.is_active()));
+    sandbox.set_filter_active(state.borrow().filter.is_active());
 
     let viewed = state.borrow().jail_viewing.and_then(|unit| lineup.find(unit)).and_then(|cell| lineup.get(cell).cloned());
 

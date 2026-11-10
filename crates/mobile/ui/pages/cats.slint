@@ -142,7 +142,6 @@ component ToggleGrid inherits Rectangle {
 
 export component FilterDialog inherits Dialog {
     title: "Advanced Cat Filter";
-    open <=> Cats.filter-open;
     body-height: Shell.app-height / 2;
     VerticalLayout {
         host := Rectangle {
@@ -568,5 +567,5 @@ export component CatsPage inherits Rectangle {
         panel-width: 152px;
         Roster { width: 100%; height: 100%; }
     }
-    FilterDialog { }
+    FilterDialog { open <=> Cats.filter-open; }
 }

@@ -39,6 +39,7 @@ export global Sandbox {
     in property <int> roster-count;
     in-out property <string> search;
     in property <bool> filter-active;
+    in-out property <bool> filter-open;
     in property <[ComboRow]> combos;
     in property <[ComboSample]> combo-samples;
     in-out property <string> combo-search;
@@ -1291,7 +1292,7 @@ export component SandboxPage inherits Rectangle {
         }
     }
     LineupsDialog { }
-    FilterDialog { }
+    FilterDialog { open <=> Sandbox.filter-open; }
     JailBonusDialog { }
     UnitDialog { }
     OrbDialog { }

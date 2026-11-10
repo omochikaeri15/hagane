@@ -34,9 +34,9 @@ use crate::catalog::Load;
 use crate::context::Globals;
 use crate::images::{self, Images};
 use crate::pages::detail::{self, IMG015, IMG022};
-use crate::pages::Context;
+use crate::pages::{Context, sandbox};
 use crate::roster::{Entry, Roster};
-use crate::{AbilityIcon, AbilityLine, AppWindow, Cats, ComboCard, ComboEffect, ComboSlot, FilterIcon, FilterLabeled, HeaderBtn, Material, Page, RangeField, Shell, StatCell, TalentRow, Tone};
+use crate::{AbilityIcon, AbilityLine, AppWindow, Cats, ComboCard, ComboEffect, ComboSlot, FilterIcon, FilterLabeled, HeaderBtn, Material, Page, RangeField, Sandbox, Shell, StatCell, TalentRow, Tone};
 
 const FORM_LABELS: [&str; 4] = ["Normal", "Evolved", "True", "Ultra"];
 const TAB_LABELS: [&str; 4] = ["Abilities", "Talents", "Details", "Animation"];
@@ -97,6 +97,7 @@ pub struct State {
     pub level: i32,
     search: String,
     pub filter: CatFilterState,
+    for_lineup: bool,
     talent_levels: HashMap<u32, HashMap<u8, u8>>,
     talent_inputs: HashMap<u8, String>,
     talent_history: Vec<u32>,
@@ -224,9 +225,20 @@ pub fn set_edited(state: &Shared, edited: Option<Edited>) {
     state.borrow_mut().edited = edited;
 }
 
-pub fn open_filter(ui: &AppWindow, state: &Shared, context: &Rc<Context>) {
+pub fn open_lineup_filter(ui: &AppWindow, state: &Shared, context: &Rc<Context>) {
+    state.borrow_mut().for_lineup = true;
     refresh_filter(ui, state, context);
-    ui.global::<Cats>().set_filter_open(true);
+    ui.global::<Cats>().set_filter_open(false);
+    ui.global::<Sandbox>().set_filter_open(true);
+}
+
+fn with_filter<T>(state: &Shared, context: &Rc<Context>, act: impl FnOnce(&mut CatFilterState) -> T) -> T {
+    let for_lineup = state.borrow().for_lineup;
+
+    match context.pages().filter(|_| for_lineup) {
+        Some(pages) => act(&mut pages.sandbox.borrow_mut().filter),
+        None => act(&mut state.borrow_mut().filter),
+    }
 }
 
 pub struct Seed<'a> {
@@ -480,6 +492,7 @@ impl State {
             level: 1,
             search: String::new(),
             filter: CatFilterState::default(),
+            for_lineup: false,
             talent_levels: HashMap::new(),
             talent_inputs: HashMap::new(),
             talent_history: Vec::new(),
@@ -715,7 +728,9 @@ pub fn wire(window: &AppWindow, context: &Rc<Context>) -> Shared {
     let (held, ctx, weak) = on(&state, context, window);
     cats.on_open_filter(move || {
         if let Some(ui) = weak.upgrade() {
+            held.borrow_mut().for_lineup = false;
             refresh_filter(&ui, &held, &ctx);
+            ui.global::<Sandbox>().set_filter_open(false);
             ui.global::<Cats>().set_filter_open(true);
         }
     });
@@ -931,13 +946,23 @@ fn wire_filter(window: &AppWindow, state: &Shared, context: &Rc<Context>) {
     let on = |state: &Shared, context: &Rc<Context>, window: &AppWindow| (Rc::clone(state), Rc::clone(context), window.as_weak());
 
     fn edited(ui: &AppWindow, held: &Shared, ctx: &Rc<Context>, change: impl FnOnce(&mut CatFilterState)) {
-        change(&mut held.borrow_mut().filter);
+        let active = with_filter(held, ctx, |filter| {
+            change(filter);
+            filter.is_active()
+        });
+        let for_lineup = held.borrow().for_lineup;
 
-        let shown = held.borrow().shown();
+        if let Some(pages) = ctx.pages().filter(|_| for_lineup) {
+            ui.global::<Sandbox>().set_filter_active(active);
+            sandbox::refilter(ui, &pages.sandbox, ctx);
+        } else {
+            let shown = held.borrow().shown();
 
-        held.borrow().roster.show(shown.clone());
-        ui.global::<Cats>().set_roster_count(shown.len() as i32);
-        ui.global::<Cats>().set_filter_active(held.borrow().filter.is_active());
+            held.borrow().roster.show(shown.clone());
+            ui.global::<Cats>().set_roster_count(shown.len() as i32);
+            ui.global::<Cats>().set_filter_active(active);
+        }
+
         refresh_filter(ui, held, ctx);
     }
 
@@ -1594,14 +1619,12 @@ fn refresh_filter(ui: &AppWindow, state: &Shared, context: &Rc<Context>) {
         return;
     };
 
-    {
-        let mut held = state.borrow_mut();
+    state.borrow_mut().available = Some(Rc::clone(&available));
 
-        held.available = Some(Rc::clone(&available));
-        held.filter.treasure = globals.treasure;
-    }
-
-    let filter = state.borrow().filter.clone();
+    let filter = with_filter(state, context, |filter| {
+        filter.treasure = globals.treasure;
+        filter.clone()
+    });
     let icon_item = |icon: RegistryIcon| {
         let name = filter_icons::get_icon_name(&icon, &globals.names);
 

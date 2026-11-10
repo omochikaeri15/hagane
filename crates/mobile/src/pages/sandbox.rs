@@ -16,6 +16,7 @@ use tracing::info;
 
 use codex::chapter::Category;
 use emulator::runtime::{BattleOptions, CASTLE_PART, CatGod as EngineGod, Setup, SetupUnit, StageEntry, StageVariant, TechLevel, TutorialFlags, offers_cat_god, usable_items};
+use foundry::domains::cat::filter::CatFilterState;
 use foundry::domains::cat::scanner::CatEntry;
 use foundry::domains::sandbox::altar::Altars;
 use foundry::domains::sandbox::base::Parts;
@@ -67,6 +68,7 @@ pub struct State {
     pub resting: (Vec<DeckCell>, Vec<DeckCell>),
     pub plan: Option<Arrangement>,
     pub combos: lineup::ComboFilters,
+    pub filter: CatFilterState,
     pub orb_slot: Option<usize>,
     pub deleting: bool,
     pub saved_search: String,
@@ -105,6 +107,7 @@ impl State {
             resting: (Vec::new(), Vec::new()),
             plan: None,
             combos: lineup::ComboFilters::default(),
+            filter: CatFilterState::default(),
             orb_slot: None,
             deleting: false,
             saved_search: String::new(),
@@ -462,6 +465,10 @@ fn sync(ui: &AppWindow, state: &Shared, context: &Rc<Context>) {
     }
 
     refresh(ui, state, context);
+}
+
+pub fn refilter(ui: &AppWindow, state: &Shared, context: &Rc<Context>) {
+    lineup::refilter(ui, state, context);
 }
 
 pub fn entered(ui: &AppWindow, state: &Shared, context: &Rc<Context>) {
