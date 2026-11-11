@@ -178,7 +178,7 @@ impl State {
                 button(text("Discord").size(13.0))
                     .style(button::text)
                     .padding(0.0)
-                    .on_press(Message::OpenUrl("https://discord.com/invite/SNSE8HNhmP".to_string())),
+                    .on_press(Message::OpenUrl("https://discord.gg/MyPwdv2j4s".to_string())),
                 text(" | ").size(13.0),
                 button(text("GitHub").size(13.0))
                     .style(button::text)
