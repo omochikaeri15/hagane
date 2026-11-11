@@ -296,6 +296,9 @@ fn publish(version: &str, released: &[(u64, u64, u64)], everything: bool, retryi
     println!("> Returning to {APP_DEV_BRANCH} branch...");
     run_git(&["checkout", APP_DEV_BRANCH]);
 
+    println!("> Pushing {APP_DEV_BRANCH} to remote...");
+    run_git(&["push", APP_REMOTE, APP_DEV_BRANCH]);
+
     println!("{tag} shipped! The release workflow builds and publishes it with {CHANGELOG} as the notes.");
 }
 
