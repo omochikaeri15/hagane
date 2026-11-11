@@ -41,7 +41,7 @@ pub fn stat_shield_hitpoints(
         let crown = get_crown_level(ctx)?;
 
         return Ok(ops::div_100(
-            get_crown_multiplier(&ctx.crown_multipliers, map_id, crown)?.wrapping_mul(scaled),
+            get_crown_multiplier(&ctx.map_options.crown_multipliers, map_id, crown)?.wrapping_mul(scaled),
         ));
     }
 

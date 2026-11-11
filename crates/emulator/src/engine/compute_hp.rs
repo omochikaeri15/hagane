@@ -105,7 +105,7 @@ pub fn compute_hp(
             let crown = get_crown_level(ctx)?;
 
             scaled = ops::div_100(scaled.wrapping_mul(get_crown_multiplier(
-                &ctx.crown_multipliers,
+                &ctx.map_options.crown_multipliers,
                 map_id,
                 crown,
             )? as i64));

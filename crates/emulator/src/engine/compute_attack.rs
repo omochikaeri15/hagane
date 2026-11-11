@@ -127,7 +127,7 @@ pub fn compute_attack(
                 let map_id = get_global_map_id(ctx, 0)?;
                 let crown = get_crown_level(ctx)?;
 
-                multiplier = get_crown_multiplier(&ctx.crown_multipliers, map_id, crown)? as i64;
+                multiplier = get_crown_multiplier(&ctx.map_options.crown_multipliers, map_id, crown)? as i64;
             }
 
             scaled = ops::div_100(multiplier.wrapping_mul(scaled));
