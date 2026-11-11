@@ -1809,6 +1809,9 @@ impl HaganeApp {
                 if let sandbox::Message::Watch(checked) = msg {
                     let source = self.settings.sandbox.replay_source;
 
+                    let look = self.sandbox_state.replay_collision().then(|| self.settings.animation.combat_look());
+
+                    self.sandbox_state.set_collision(look);
                     self.sandbox_state.watch(self.window_size.width, self.window_size.height, &self.app_state.sandbox, source, checked);
                 }
 
@@ -1825,6 +1828,9 @@ impl HaganeApp {
 
                     let auto_save = self.settings.sandbox.auto_save_bcv.then_some(self.settings.sandbox.saved_bcv_name);
 
+                    let look = self.app_state.sandbox.show_collision.then(|| self.settings.animation.combat_look());
+
+                    self.sandbox_state.set_collision(look);
                     self.sandbox_state.start(self.window_size.width, self.window_size.height, &self.app_state.sandbox, setup, label, auto_save);
 
                     if recording {
@@ -1997,6 +2003,7 @@ impl HaganeApp {
         let expanded: Option<Element<'_, Message>> = match self.current_page {
             Page::Cats => self.cat_state.expanded_animation_view(&self.settings, &self.app_state).map(|view| view.map(Message::Cat)),
             Page::Enemies => self.enemy_state.expanded_animation_view(&self.settings, &self.app_state).map(|view| view.map(Message::Enemy)),
+            Page::Sandbox => self.sandbox_state.expanded_animation_view(&self.settings, &self.app_state).map(|view| view.map(Message::Sandbox)),
             Page::Utilities => self.utilities_state.expanded_view(&self.settings, &self.app_state).map(|view| view.map(Message::Utilities)),
             Page::Studio => self
                 .studio_state
@@ -2417,6 +2424,7 @@ impl HaganeApp {
                     ActivePopup::SandboxUnit => {
                         if !matches!(self.current_page, Page::Sandbox)
                             || self.app_state.sandbox.tab != crate::app::state::SandboxTab::Lineup
+                            || self.sandbox_state.animation_expanded(&self.app_state)
                         {
                             return None;
                         }
@@ -2463,7 +2471,11 @@ impl HaganeApp {
                         self.sandbox_state.jailbreak_cat_view(self.window_size).map(|view| view.map(Message::Sandbox))
                     }
                     ActivePopup::SandboxJailbreakUnit => {
-                        if !matches!(self.current_page, Page::Sandbox) || self.app_state.sandbox.tab != crate::app::state::SandboxTab::Lineup || !self.sandbox_state.jailbreak_ready() {
+                        if !matches!(self.current_page, Page::Sandbox)
+                            || self.app_state.sandbox.tab != crate::app::state::SandboxTab::Lineup
+                            || !self.sandbox_state.jailbreak_ready()
+                            || self.sandbox_state.animation_expanded(&self.app_state)
+                        {
                             return None;
                         }
 
@@ -2502,6 +2514,7 @@ impl HaganeApp {
                     ActivePopup::SandboxReplayUnit => {
                         if !matches!(self.current_page, Page::Sandbox)
                             || self.app_state.sandbox.tab != crate::app::state::SandboxTab::Replay
+                            || self.sandbox_state.animation_expanded(&self.app_state)
                         {
                             return None;
                         }

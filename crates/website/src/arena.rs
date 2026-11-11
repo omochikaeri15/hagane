@@ -281,7 +281,6 @@ thread_local! {
     static FONTS: RefCell<Vec<Arc<[u8]>>> = const { RefCell::new(Vec::new()) };
     static LATEST: RefCell<Option<Option<Kept>>> = const { RefCell::new(None) };
     static HELD: RefCell<Option<Reel>> = const { RefCell::new(None) };
-    static COLLISION: Cell<Option<CombatLook>> = const { Cell::new(None) };
 }
 
 fn post(event: BattleEvent) {
@@ -318,10 +317,10 @@ pub(crate) fn command(engine: &Rc<Engine>, command: BattleCommand) {
     match command {
         BattleCommand::Prepare { fonts } => spawn_local(prepare(fonts)),
         BattleCommand::Start(launch) => start(engine, *launch),
-        BattleCommand::Watch { reel, checked, source, phone, width, height, priority } => {
+        BattleCommand::Watch { reel, checked, source, phone, width, height, priority, collision } => {
             let engine = Rc::clone(engine);
 
-            spawn_local(async move { watch(&engine, reel, checked, source, phone, (width, height), priority).await });
+            spawn_local(async move { watch(&engine, reel, checked, Showing { source, phone, size: (width, height), priority, collision }).await });
         }
         BattleCommand::Latest => {
             let engine = Rc::clone(engine);
@@ -376,10 +375,7 @@ pub(crate) fn command(engine: &Rc<Engine>, command: BattleCommand) {
         BattleCommand::Phone(phone) => with(|arena| arena.session.set_phone(phone)),
         BattleCommand::Volumes(music, effects) => with(|arena| arena.session.retune(music, effects)),
         BattleCommand::Lag(lag) => with(|arena| arena.session.set_lag(lag)),
-        BattleCommand::Collision(look) => {
-            COLLISION.with(|held| held.set(look));
-            with(|arena| arena.session.set_collision(look));
-        }
+        BattleCommand::Collision(look) => with(|arena| arena.session.set_collision(look)),
         BattleCommand::Presented => with(|arena| arena.session.presented()),
         BattleCommand::Resend => with(|arena| arena.sent.clear()),
         BattleCommand::Turned(rotated) => with(|arena| arena.session.turned(rotated)),
@@ -441,13 +437,13 @@ fn ensure(engine: &Rc<Engine>, priority: Vec<String>) {
 }
 
 fn start(engine: &Rc<Engine>, launch: Launch) {
-    let Launch { setup, options, phone, width, height, prefixes, pools, priority, record, app, map, stage } = launch;
+    let Launch { setup, options, phone, width, height, prefixes, pools, priority, record, app, map, stage, collision } = launch;
     let frames = engine.loader.warmable(&prefixes, &pools);
 
     ensure(engine, priority);
     with(|arena| {
         arena.session.equip(setup.into());
-        arena.session.set_collision(COLLISION.with(Cell::get));
+        arena.session.set_collision(collision);
         arena.session.set_phone(phone);
         arena.session.resize(width, height);
         arena.session.configure(options.into());
@@ -652,7 +648,16 @@ async fn export(engine: &Rc<Engine>) -> Result<Vec<u8>, String> {
     Ok(packed)
 }
 
-async fn watch(engine: &Rc<Engine>, reel: ReelWire, checked: bool, source: ReplaySource, phone: bool, size: (f32, f32), priority: Vec<String>) {
+struct Showing {
+    source: ReplaySource,
+    phone: bool,
+    size: (f32, f32),
+    priority: Vec<String>,
+    collision: Option<CombatLook>,
+}
+
+async fn watch(engine: &Rc<Engine>, reel: ReelWire, checked: bool, showing: Showing) {
+    let Showing { source, phone, size, priority, collision } = showing;
     let opened = match reel {
         ReelWire::Latest => latest(engine).await.map(|kept| kept.reel()).ok_or_else(|| "there is no latest battle".to_owned()),
         ReelWire::Held => HELD.with(|held| held.borrow_mut().take()).ok_or_else(|| "the replay is no longer held".to_owned()),
@@ -690,7 +695,7 @@ async fn watch(engine: &Rc<Engine>, reel: ReelWire, checked: bool, source: Repla
             arena.sent.clear();
         }
 
-        arena.session.set_collision(COLLISION.with(Cell::get));
+        arena.session.set_collision(collision);
         arena.session.set_phone(phone);
         arena.session.resize(size.0, size.1);
         arena.session.expect_warmth();

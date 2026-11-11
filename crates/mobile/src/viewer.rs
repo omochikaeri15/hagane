@@ -22,7 +22,7 @@ use foundry::systems::animation::{Loop, MotionSet, NO_OFFSET, Placement, Rigging
 
 use crate::host;
 use crate::pages::Context;
-use crate::{AppWindow, MotionTile, Theme, Viewer, bridge};
+use crate::{AppWindow, MotionTile, Sandbox, Theme, Viewer, bridge};
 
 use scene::View;
 
@@ -872,6 +872,15 @@ pub fn begin_selecting(ui: &AppWindow, context: &Rc<Context>) {
 }
 
 fn tick(ui: &AppWindow, context: &Rc<Context>) {
+    if ui.global::<Sandbox>().get_surfaced() {
+        let mut state = context.viewer.borrow_mut();
+
+        state.last_time = None;
+        state.last_stamp = None;
+
+        return;
+    }
+
     let now = Instant::now();
     let show = state_settings(context);
     let theme = ui.global::<Theme>();

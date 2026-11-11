@@ -243,13 +243,14 @@ pub struct Launch {
     pub app: String,
     pub map: String,
     pub stage: String,
+    pub collision: Option<CombatLook>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub enum BattleCommand {
     Prepare { fonts: Vec<Box<str>> },
     Start(Box<Launch>),
-    Watch { reel: ReelWire, checked: bool, source: ReplaySource, phone: bool, width: f32, height: f32, priority: Vec<String> },
+    Watch { reel: ReelWire, checked: bool, source: ReplaySource, phone: bool, width: f32, height: f32, priority: Vec<String>, collision: Option<CombatLook> },
     Latest,
     ExportLatest,
     Upload { name: String, bytes: Vec<u8> },

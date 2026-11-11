@@ -491,6 +491,7 @@ pub(crate) fn Sandbox() -> Element {
             app: modding.app(),
             map,
             stage,
+            collision: held.show_collision.then(|| held_settings.animation.combat_look()),
         })));
     };
     let watch_size = size;
@@ -577,7 +578,7 @@ pub(crate) fn Sandbox() -> Element {
 }
 
 #[component]
-pub(super) fn Dialog(title: String, width: f32, #[props(default)] modal: bool, #[props(default)] class: String, onclose: EventHandler<()>, children: Element) -> Element {
+pub(super) fn Dialog(title: String, width: f32, #[props(default)] modal: bool, #[props(default)] over_battle: bool, #[props(default)] class: String, onclose: EventHandler<()>, children: Element) -> Element {
     let open = use_signal(|| true);
 
     use_effect(move || {
@@ -587,7 +588,7 @@ pub(super) fn Dialog(title: String, width: f32, #[props(default)] modal: bool, #
     });
 
     rsx! {
-        Popup { title, open, width, modal, class,
+        Popup { title, open, over_battle, width, modal, class,
             div { class: "dialog-body", {children} }
         }
     }
@@ -598,9 +599,10 @@ fn watch(platform: &Platform, sandbox: Signal<SandboxState>, settings: Signal<fo
     let held = settings.peek();
     let priority = held.general.language_priority.clone();
     let source = held.sandbox.replay_source;
+    let collision = sandbox.peek().replay_collision.then(|| held.animation.combat_look());
     let ratio = platform.host().pixel_ratio();
 
-    platform.host().battle(BattleCommand::Watch { reel, checked, source, phone, width: (size.0 * ratio).round(), height: (size.1 * ratio).round(), priority });
+    platform.host().battle(BattleCommand::Watch { reel, checked, source, phone, width: (size.0 * ratio).round(), height: (size.1 * ratio).round(), priority, collision });
 }
 
 #[component]
@@ -658,7 +660,7 @@ fn FaultDialog(battle: Battle) -> Element {
     let terminator = platform.clone();
 
     rsx! {
-        Dialog { title: "FAULT", width: FAULT_WIDTH, onclose: move |()| terminator.host().battle(BattleCommand::Stop),
+        Dialog { title: "FAULT", width: FAULT_WIDTH, over_battle: true, onclose: move |()| terminator.host().battle(BattleCommand::Stop),
             div { class: "sandbox-fault",
                 div { "The game attempted to crash due to a fault" }
                 div { class: "sandbox-fault-reason scroll", "{reason}" }
@@ -705,7 +707,7 @@ fn DiagnosticsDialog(battle: Battle) -> Element {
     let seed = probe.rng.to_string();
 
     rsx! {
-        Dialog { title: "Live Diagnostics", width: DIAGNOSTICS_WIDTH, onclose: move |()| {
+        Dialog { title: "Live Diagnostics", width: DIAGNOSTICS_WIDTH, over_battle: true, onclose: move |()| {
                 battle.diagnosing.set(false);
                 platform.host().battle(BattleCommand::Diagnose(false));
             },

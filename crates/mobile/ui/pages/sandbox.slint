@@ -54,6 +54,7 @@ export global Sandbox {
     in-out property <string> rename;
 
     in-out property <bool> unit-open;
+    in property <int> unit-tab;
     in property <string> unit-title;
     in property <bool> unit-locked;
     in-out property <bool> orb-open;
@@ -156,6 +157,7 @@ export global Sandbox {
     in property <string> replay-failure;
 
     in property <bool> active;
+    in property <bool> surfaced;
     in property <bool> blackout;
     in property <image> frame;
     in property <bool> has-frame;
@@ -1148,6 +1150,7 @@ component LineupsDialog inherits Dialog {
 
 component UnitDialog inherits Dialog {
     open <=> Sandbox.unit-open;
+    shown: Sandbox.tab == Sandbox.unit-tab;
     title: Sandbox.unit-title;
     panel-width: 760px;
     body-height: 560px;
@@ -1161,6 +1164,7 @@ component UnitDialog inherits Dialog {
 
 component OrbDialog inherits Dialog {
     open <=> Sandbox.orb-open;
+    shown: Sandbox.tab == Sandbox.unit-tab;
     title: "Orb";
     panel-width: 320px;
     VerticalLayout {

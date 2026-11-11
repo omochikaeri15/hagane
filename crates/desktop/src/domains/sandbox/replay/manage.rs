@@ -256,6 +256,11 @@ impl State {
         self.collision
     }
 
+    pub fn flip_collision(&mut self) -> bool {
+        self.collision = !self.collision;
+        self.collision
+    }
+
     pub fn forget_confirm(&mut self) {
         self.deleting.clear();
     }

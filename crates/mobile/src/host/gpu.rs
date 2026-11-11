@@ -68,12 +68,13 @@ const RESOLVE_CORNERS: i32 = 3;
 
 const PACE_WINDOW: Duration = Duration::from_secs(2);
 const PACE_GAP: Duration = Duration::from_secs(4);
+const SLOTS: usize = 2;
 
 static AVAILABLE: AtomicBool = AtomicBool::new(false);
 static PRESENTED: AtomicU64 = AtomicU64::new(0);
 
 thread_local! {
-    static PENDING: RefCell<Option<Scene>> = RefCell::default();
+    static PENDING: RefCell<[Option<Scene>; SLOTS]> = RefCell::default();
     static FORGET: Cell<bool> = Cell::default();
 }
 
@@ -143,11 +144,13 @@ pub fn note_presented() {
 }
 
 pub fn submit(scene: Scene) {
-    PENDING.with(|pending| *pending.borrow_mut() = Some(scene));
+    let at = scene.slot as usize;
+
+    PENDING.with(|pending| pending.borrow_mut()[at] = Some(scene));
 }
 
 pub fn forget() {
-    PENDING.with(|pending| *pending.borrow_mut() = None);
+    PENDING.with(|pending| *pending.borrow_mut() = Default::default());
     FORGET.with(|forget| forget.set(true));
 }
 
@@ -193,12 +196,14 @@ struct Objects {
     white: glow::Texture,
 }
 
+type Uploads = HashMap<usize, (Arc<[u8]>, glow::Texture)>;
+
 struct Renderer {
     gl: glow::Context,
     objects: Objects,
-    sheets: HashMap<usize, (Arc<[u8]>, glow::Texture)>,
-    drawn: Option<Target>,
-    shown: Option<Target>,
+    sheets: [Uploads; SLOTS],
+    targets: [Option<(Target, Target)>; SLOTS],
+    battling: bool,
 }
 
 fn compile(gl: &glow::Context, vertex: &str, fragment: &str) -> Result<glow::Program, String> {
@@ -392,7 +397,7 @@ impl Renderer {
 
         saved.restore(&gl);
 
-        Ok(Self { objects: built?, gl, sheets: HashMap::new(), drawn: None, shown: None })
+        Ok(Self { objects: built?, gl, sheets: Default::default(), targets: Default::default(), battling: false })
     }
 
     fn build(gl: &glow::Context) -> Result<Objects, String> {
@@ -431,13 +436,16 @@ impl Renderer {
 
     fn forget(&mut self) {
         unsafe {
-            for (_, (_, texture)) in self.sheets.drain() {
-                self.gl.delete_texture(texture);
+            for sheets in &mut self.sheets {
+                for (_, (_, texture)) in sheets.drain() {
+                    self.gl.delete_texture(texture);
+                }
             }
         }
 
-        for held in [self.drawn.take(), self.shown.take()].into_iter().flatten() {
-            self.release(&held);
+        for (drawn, shown) in std::mem::take(&mut self.targets).into_iter().flatten() {
+            self.release(&drawn);
+            self.release(&shown);
         }
     }
 
@@ -448,33 +456,33 @@ impl Renderer {
         }
     }
 
-    fn sized(&mut self, width: u32, height: u32) -> Result<(), String> {
-        let current = self.drawn.as_ref().is_some_and(|held| held.width == width && held.height == height);
+    fn sized(&mut self, at: usize, width: u32, height: u32) -> Result<(), String> {
+        let current = self.targets[at].as_ref().is_some_and(|(held, _)| held.width == width && held.height == height);
 
         if current {
             return Ok(());
         }
 
-        for held in [self.drawn.take(), self.shown.take()].into_iter().flatten() {
-            self.release(&held);
+        if let Some((drawn, shown)) = self.targets[at].take() {
+            self.release(&drawn);
+            self.release(&shown);
         }
 
-        self.drawn = Some(target(&self.gl, width, height)?);
-        self.shown = Some(target(&self.gl, width, height)?);
+        self.targets[at] = Some((target(&self.gl, width, height)?, target(&self.gl, width, height)?));
 
         Ok(())
     }
 
-    fn sheet(&mut self, sheet: &SceneSheet) -> Result<glow::Texture, String> {
+    fn sheet(&mut self, at: usize, sheet: &SceneSheet) -> Result<glow::Texture, String> {
         let key = Arc::as_ptr(&sheet.pixels).cast::<u8>() as usize;
 
-        if let Some((_, texture)) = self.sheets.get(&key) {
+        if let Some((_, texture)) = self.sheets[at].get(&key) {
             return Ok(*texture);
         }
 
         let made = texture(&self.gl, sheet.width, sheet.height, Some(&sheet.pixels))?;
 
-        self.sheets.insert(key, (Arc::clone(&sheet.pixels), made));
+        self.sheets[at].insert(key, (Arc::clone(&sheet.pixels), made));
 
         Ok(made)
     }
@@ -487,14 +495,24 @@ impl Renderer {
             self.gl.pixel_store_i32(glow::UNPACK_ROW_LENGTH, 0);
         }
 
-        self.sized(scene.width, scene.height)?;
+        let at = scene.slot as usize;
+
+        self.sized(at, scene.width, scene.height)?;
 
         if scene.slot == SceneSlot::Viewer {
             let kept: Vec<usize> = scene.sheets.iter().map(|sheet| Arc::as_ptr(&sheet.pixels).cast::<u8>() as usize).collect();
-            let dropped: Vec<usize> = self.sheets.keys().copied().filter(|key| !kept.contains(key)).collect();
+            let dropped: Vec<usize> = self.sheets[at].keys().copied().filter(|key| !kept.contains(key)).collect();
 
             for key in dropped {
-                if let Some((_, texture)) = self.sheets.remove(&key) {
+                if let Some((_, texture)) = self.sheets[at].remove(&key) {
+                    unsafe {
+                        self.gl.delete_texture(texture);
+                    }
+                }
+            }
+
+            if !self.battling {
+                for (_, (_, texture)) in self.sheets[SceneSlot::Battle as usize].drain() {
                     unsafe {
                         self.gl.delete_texture(texture);
                     }
@@ -502,13 +520,13 @@ impl Renderer {
             }
         }
 
-        let drawn = self.drawn.as_ref().map(|held| held.framebuffer);
-        let shown = self.shown.as_ref().map(|held| held.framebuffer);
-        let source = self.drawn.as_ref().map(|held| held.texture);
+        let drawn = self.targets[at].as_ref().map(|(held, _)| held.framebuffer);
+        let shown = self.targets[at].as_ref().map(|(_, held)| held.framebuffer);
+        let source = self.targets[at].as_ref().map(|(held, _)| held.texture);
         let bindings: Vec<Option<glow::Texture>> = scene
             .runs
             .iter()
-            .map(|run| run.sheet.and_then(|index| scene.sheets.get(index)).map(|sheet| self.sheet(sheet)).transpose())
+            .map(|run| run.sheet.and_then(|index| scene.sheets.get(index)).map(|sheet| self.sheet(at, sheet)).transpose())
             .collect::<Result<_, _>>()?;
         let (width, height) = (scene.width as i32, scene.height as i32);
         let gl = &self.gl;
@@ -560,7 +578,7 @@ impl Renderer {
             return None;
         }
 
-        self.shown.as_ref().map(|held| (held.texture, held.width, held.height))
+        self.targets[scene.slot as usize].as_ref().map(|(_, held)| (held.texture, held.width, held.height))
     }
 
     fn dispose(mut self) {
@@ -581,9 +599,9 @@ impl Renderer {
 #[derive(Default)]
 struct Presenter {
     renderer: Option<Renderer>,
-    latest: Option<Scene>,
-    fresh: bool,
-    bound: Option<(SceneSlot, glow::Texture, u32, u32)>,
+    latest: [Option<Scene>; SLOTS],
+    fresh: [bool; SLOTS],
+    bound: [Option<(glow::Texture, u32, u32)>; SLOTS],
 }
 
 impl Presenter {
@@ -599,8 +617,8 @@ impl Presenter {
             Ok(renderer) => {
                 info!("emu: battles draw on the GPU");
                 self.renderer = Some(renderer);
-                self.fresh = self.latest.is_some();
-                self.bound = None;
+                self.fresh = self.latest.each_ref().map(Option::is_some);
+                self.bound = [None; SLOTS];
                 AVAILABLE.store(true, Ordering::Release);
             }
             Err(err) => {
@@ -611,7 +629,7 @@ impl Presenter {
     }
 
     fn teardown(&mut self) {
-        self.bound = None;
+        self.bound = [None; SLOTS];
 
         if let Some(renderer) = self.renderer.take() {
             renderer.dispose();
@@ -624,9 +642,9 @@ impl Presenter {
         };
 
         if FORGET.with(|forget| forget.take()) {
-            self.latest = None;
-            self.fresh = false;
-            self.bound = None;
+            self.latest = Default::default();
+            self.fresh = [false; SLOTS];
+            self.bound = [None; SLOTS];
             let saved = Saved::take(&renderer.gl);
 
             renderer.forget();
@@ -634,33 +652,45 @@ impl Presenter {
             ui.global::<Viewer>().set_frame(Image::default());
         }
 
-        if let Some(scene) = PENDING.with(|pending| pending.borrow_mut().take()) {
-            self.latest = Some(scene);
-            self.fresh = true;
-        }
+        PENDING.with(|pending| {
+            for (at, scene) in pending.borrow_mut().iter_mut().enumerate() {
+                if let Some(scene) = scene.take() {
+                    self.latest[at] = Some(scene);
+                    self.fresh[at] = true;
+                }
+            }
+        });
 
-        if !std::mem::take(&mut self.fresh) {
-            return;
-        }
+        renderer.battling = ui.global::<Sandbox>().get_active();
 
-        let Some((slot, (texture, width, height))) = self.latest.as_ref().and_then(|scene| Some((scene.slot, renderer.render(scene)?))) else {
-            return;
-        };
-        let rendered = (slot, texture, width, height);
+        for slot in [SceneSlot::Battle, SceneSlot::Viewer] {
+            let at = slot as usize;
 
-        note_presented();
-
-        if self.bound != Some(rendered) || slot == SceneSlot::Viewer {
-            let image: Image = unsafe {
-                BorrowedOpenGLTextureBuilder::new_gl_2d_rgba_texture(texture.0, (width, height).into()).origin(BorrowedOpenGLTextureOrigin::BottomLeft).build()
-            };
-
-            match slot {
-                SceneSlot::Battle => ui.global::<Sandbox>().set_frame(image),
-                SceneSlot::Viewer => ui.global::<Viewer>().set_frame(image),
+            if !std::mem::take(&mut self.fresh[at]) {
+                continue;
             }
 
-            self.bound = Some(rendered);
+            let Some(rendered) = self.latest[at].as_ref().and_then(|scene| renderer.render(scene)) else {
+                continue;
+            };
+            let (texture, width, height) = rendered;
+
+            if slot == SceneSlot::Battle {
+                note_presented();
+            }
+
+            if self.bound[at] != Some(rendered) || slot == SceneSlot::Viewer {
+                let image: Image = unsafe {
+                    BorrowedOpenGLTextureBuilder::new_gl_2d_rgba_texture(texture.0, (width, height).into()).origin(BorrowedOpenGLTextureOrigin::BottomLeft).build()
+                };
+
+                match slot {
+                    SceneSlot::Battle => ui.global::<Sandbox>().set_frame(image),
+                    SceneSlot::Viewer => ui.global::<Viewer>().set_frame(image),
+                }
+
+                self.bound[at] = Some(rendered);
+            }
         }
     }
 }

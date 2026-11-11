@@ -449,6 +449,7 @@ pub fn tapped(ui: &AppWindow, state: &Shared, context: &Rc<Context>, cell: Cell)
     state.borrow_mut().jail_shown = Some((member.clone(), grants));
     state.borrow_mut().jail_viewing = Some(member.id);
     ui.global::<Sandbox>().set_unit_locked(true);
+    ui.global::<Sandbox>().set_unit_tab(Tab::Lineup.index());
     ui.global::<Sandbox>().set_unit_open(true);
 }
 

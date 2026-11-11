@@ -20,6 +20,7 @@ use crate::roster::Entry;
 use crate::{AppWindow, Cats, ComboRow, ComboSample, DeckCell, OrbSlot, Sandbox, SavedRow};
 
 use super::orbs::{BEST_GRADE, Book};
+use super::state::Tab;
 use super::{Shared, Staging, jailbreak, refresh};
 
 const NP_ICON: &str = "gatyaitemD_07_f.png";
@@ -227,6 +228,7 @@ fn open_unit(ui: &AppWindow, state: &Shared, context: &Rc<Context>, cell: Cell, 
     cats::set_edited(&pages.cats, Some(Rc::new(move |ui: &AppWindow| sync_back(ui, &landing, &ctx, cell, id))));
     state.borrow_mut().editing = Some((cell, member.id));
     state.borrow_mut().orb_slot = None;
+    ui.global::<Sandbox>().set_unit_tab(Tab::Lineup.index());
     ui.global::<Sandbox>().set_unit_open(true);
     refresh(ui, state, context);
 }

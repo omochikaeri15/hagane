@@ -10,6 +10,7 @@ const KEPT_ACROSS: f64 = 50.0;
 const KEPT_DOWN: f64 = 30.0;
 const BASE_LAYER: usize = 50;
 const TOP_LAYER: usize = 59;
+const BATTLE_CLEARANCE: usize = 12;
 
 #[derive(Clone, Copy)]
 pub(crate) struct Popups {
@@ -72,7 +73,7 @@ impl Grip {
 }
 
 #[component]
-pub(crate) fn Popup(title: String, open: Signal<bool>, #[props(default = 600.0)] width: f32, #[props(default)] modal: bool, #[props(default)] class: String, children: Element) -> Element {
+pub(crate) fn Popup(title: String, open: Signal<bool>, #[props(default)] over_battle: bool, #[props(default = 600.0)] width: f32, #[props(default)] modal: bool, #[props(default)] class: String, children: Element) -> Element {
     let platform = use_context::<Platform>();
     let drawers = drawer::drawers();
     let stack = use_context::<Popups>();
@@ -96,7 +97,7 @@ pub(crate) fn Popup(title: String, open: Signal<bool>, #[props(default = 600.0)]
     }
 
     let backdrop = if modal { "scrim modal" } else { "scrim" };
-    let layer = stack.layer(id);
+    let layer = stack.layer(id) + if over_battle { BATTLE_CLEARANCE } else { 0 };
     let (across, down) = offset();
     let handle = format!("popup-handle-{id}");
     let gripped = handle.clone();

@@ -21,7 +21,7 @@ use crate::host::{Command, Reel};
 use crate::pages::{Context, cats, detail};
 use crate::{AppWindow, Cats, DeckCell, Field, OrbSlot, ReplayRow, Sandbox, Tone, bridge, delivery, paths};
 
-use super::state::{Device, Volume};
+use super::state::{Device, Tab, Volume};
 use super::{Shared, battle, refresh, report};
 
 const NP_ICON: &str = "gatyaitemD_07_f.png";
@@ -294,9 +294,7 @@ pub fn watch(ui: &AppWindow, state: &Shared, context: &Rc<Context>, checked: boo
             arena.send(Command::Density(density));
             arena.send(Command::Insets(battle::device_insets(saved.fullscreen, width, height, density)));
             arena.send(Command::Volumes(Volume::nearest(saved.music_volume).percent(), Volume::nearest(saved.effects_volume).percent()));
-            let shown = saved.show_collision || held.replay.collision;
-
-            arena.send(Command::Collision(shown.then(|| settings.animation.combat_look())));
+            arena.send(Command::Collision(held.replay.collision.then(|| settings.animation.combat_look())));
             arena.send(Command::Watch { reel, source: settings.sandbox.replay_source, phone: saved.device() == Device::Phone, lag: saved.lag, width, height });
         }
     }
@@ -764,6 +762,7 @@ pub fn wire(window: &AppWindow, state: &Shared, context: &Rc<Context>) {
 
         cats::seed_member(&ui, &pages.cats, &ctx, cats::Seed { cat: &cat, form, level: &inspected, talents: &levels, locked: true, grants });
         held.borrow_mut().replay.opened = Some(slot);
+        ui.global::<Sandbox>().set_unit_tab(Tab::Replay.index());
         ui.global::<Sandbox>().set_unit_open(true);
         refresh(&ui, &held, &ctx);
     });

@@ -471,6 +471,7 @@ pub fn sync(ui: &AppWindow, state: &Shared) {
     let standing = battle.standing;
 
     sandbox.set_active(standing.phase != Phase::Idle);
+    sandbox.set_surfaced(standing.surfaced);
     sandbox.set_blackout(battle.blackout);
     sandbox.set_immersed(battle.immersed);
     sandbox.set_has_frame(battle.frame.is_some() || battle.scene_live);

@@ -1289,6 +1289,10 @@ fn channel_target(app: &HaganeApp, target: Option<Target>) -> Option<ChannelTarg
 }
 
 fn expanded(app: &HaganeApp) -> bool {
+    if app.current_page == Page::Sandbox {
+        return app.sandbox_state.animation_expanded(&app.app_state);
+    }
+
     match scene(app) {
         Page::Cats => app.cat_state.animation_expanded(),
         Page::Enemies => app.enemy_state.animation_expanded(),

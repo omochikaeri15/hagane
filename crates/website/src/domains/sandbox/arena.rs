@@ -407,16 +407,6 @@ pub(crate) fn Arena() -> Element {
         devicer.host().battle(BattleCommand::Lag(held.lag));
     });
 
-    let collider = platform.clone();
-
-    use_effect(move || {
-        let held = sandbox.read();
-        let shown = held.show_collision || ((battle.standing)().watching && held.replay_collision);
-        let look = shown.then(|| settings.read().animation.combat_look());
-
-        collider.host().battle(BattleCommand::Collision(look));
-    });
-
     let standing = (battle.standing)();
     let idle = standing.phase == Phase::Idle;
     let mut layer: Signal<Option<MountedEvent>> = use_signal(|| None);
@@ -519,8 +509,20 @@ pub(crate) fn Arena() -> Element {
             }
             Bind::Collision => {
                 if pressed_now && !repeat {
-                    state::apply(&keyer, sandbox, |next| next.show_collision = !next.show_collision);
-                    battle.notify(&keyer, if sandbox.peek().show_collision { "Collision On".to_owned() } else { "Collision Off".to_owned() });
+                    let watching = battle.standing.peek().watching;
+
+                    state::apply(&keyer, sandbox, |next| {
+                        if watching {
+                            next.replay_collision = !next.replay_collision;
+                        } else {
+                            next.show_collision = !next.show_collision;
+                        }
+                    });
+
+                    let shown = if watching { sandbox.peek().replay_collision } else { sandbox.peek().show_collision };
+
+                    keyer.host().battle(BattleCommand::Collision(shown.then(|| settings.peek().animation.combat_look())));
+                    battle.notify(&keyer, if shown { "Collision On".to_owned() } else { "Collision Off".to_owned() });
                 }
 
                 return;

@@ -26,7 +26,7 @@ use foundry::domains::sandbox::altar::Altars;
 use foundry::domains::sandbox::jailbreak::Board;
 use foundry::domains::sandbox::TECHS;
 use foundry::domains::sandbox::replay as replay_tape;
-use foundry::domains::settings::{ReplaySource, SavedBcvName, ScannerConfig, Settings};
+use foundry::domains::settings::{CombatLook, ReplaySource, SavedBcvName, ScannerConfig, Settings};
 use foundry::domains::stage::StageRegistry;
 use foundry::Vault;
 use codex::files::Localizable;
@@ -391,6 +391,26 @@ impl State {
         self.lineup.unit_open().then(|| self.lineup.inspector())
     }
 
+    pub(crate) fn animation_expanded(&self, app_state: &AppState) -> bool {
+        match app_state.sandbox.tab {
+            SandboxTab::Lineup => self.lineup.unit_expanded() || (self.jailbreak_ready() && self.jailbreak.unit_expanded()),
+            SandboxTab::Replay => self.replay.unit_expanded(),
+            _ => false,
+        }
+    }
+
+    pub(crate) fn expanded_animation_view<'a>(&'a self, settings: &'a Settings, app_state: &'a AppState) -> Option<Element<'a, Message>> {
+        match app_state.sandbox.tab {
+            SandboxTab::Lineup => self
+                .lineup
+                .expanded_view(settings, app_state)
+                .map(|view| view.map(Message::Lineup))
+                .or_else(|| self.jailbreak_ready().then(|| self.jailbreak.expanded_view(settings, app_state)).flatten().map(|view| view.map(jailbroken))),
+            SandboxTab::Replay => self.replay.expanded_view(settings, app_state).map(|view| view.map(Message::Replay)),
+            _ => None,
+        }
+    }
+
     pub(crate) fn unit_popup_open(&self) -> bool {
         self.lineup.unit_open()
     }
@@ -587,6 +607,14 @@ impl State {
         ctx: GlobalContext<'a>,
     ) -> Option<Element<'a, Message>> {
         self.replay.unit_popup_view(window, settings, app_state, ctx).map(|view| view.map(Message::Replay))
+    }
+
+    pub(crate) fn replay_collision(&self) -> bool {
+        self.replay.collision()
+    }
+
+    pub(crate) fn set_collision(&mut self, look: Option<CombatLook>) {
+        self.session.get_or_insert_with(Session::new).set_collision(look);
     }
 
     pub(crate) fn watch(&mut self, width: f32, height: f32, options: &SandboxState, source: ReplaySource, checked: bool) {
@@ -814,8 +842,15 @@ impl State {
                             return Task::none();
                         }
 
-                        app_state.sandbox.show_collision = !app_state.sandbox.show_collision;
-                        self.quality_notice = match app_state.sandbox.show_collision {
+                        let shown = if session.watching() {
+                            self.replay.flip_collision()
+                        } else {
+                            app_state.sandbox.show_collision = !app_state.sandbox.show_collision;
+                            app_state.sandbox.show_collision
+                        };
+
+                        session.set_collision(shown.then(|| settings.animation.combat_look()));
+                        self.quality_notice = match shown {
                             true => "Collision On".to_owned(),
                             false => "Collision Off".to_owned(),
                         };
@@ -885,12 +920,7 @@ impl State {
 
                 self.was_running = running;
 
-                let replayed = self.replay.collision();
-
                 if let Some(session) = self.session.as_mut() {
-                    let shown = app_state.sandbox.show_collision || (session.watching() && replayed);
-
-                    session.set_collision(shown.then(|| settings.animation.combat_look()));
                     session.tick(&ctx.vault.vfs);
 
                     match session.diagnose().filter(|_| self.diagnosing) {

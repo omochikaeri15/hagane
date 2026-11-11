@@ -239,6 +239,14 @@ impl State {
         self.board.is_some() && self.viewing.is_some()
     }
 
+    pub fn unit_expanded(&self) -> bool {
+        self.unit_open() && self.inspector.animation_expanded()
+    }
+
+    pub fn expanded_view<'a>(&'a self, settings: &'a Settings, app_state: &'a AppState) -> Option<Element<'a, Message>> {
+        self.unit_open().then(|| self.inspector.expanded_animation_view(settings, app_state)).flatten().map(|view| view.map(Message::Cat))
+    }
+
     pub fn export_open(&self) -> bool {
         self.unit_open() && self.inspector.export_popup_open()
     }

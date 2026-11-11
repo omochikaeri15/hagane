@@ -451,6 +451,14 @@ impl State {
         self.editing.is_some()
     }
 
+    pub fn unit_expanded(&self) -> bool {
+        self.unit_open() && self.inspector.animation_expanded()
+    }
+
+    pub fn expanded_view<'a>(&'a self, settings: &'a Settings, app_state: &'a AppState) -> Option<Element<'a, Message>> {
+        self.unit_open().then(|| self.inspector.expanded_animation_view(settings, app_state)).flatten().map(|view| view.map(Message::Cat))
+    }
+
     pub fn orb_open(&self) -> bool {
         self.editing.is_some() && self.orb_slot.is_some()
     }
