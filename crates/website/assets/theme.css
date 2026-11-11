@@ -539,6 +539,17 @@ img { user-select: none; -webkit-user-select: none; }
 .jail-tally { padding: 4px 10px; border-radius: var(--radius-sm); font-size: 13px; white-space: nowrap; background: var(--success); color: var(--text); }
 .jail-tally.over { background: var(--danger); color: #fff; }
 .jail-bonuses { display: flex; flex-direction: column; gap: 14px; padding: 16px; overflow-y: auto; max-height: min(480px, 78cqh); }
+.jail-search-row { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
+.jail-search-row .input { flex: 1; min-width: 0; }
+.jail-clears { display: flex; gap: 8px; flex-shrink: 0; }
+.jail-clear { width: 110px; }
+.jail-clear:disabled { pointer-events: none; }
+@container app (max-width: 599px) {
+  .jail-search-row { flex-direction: column; align-items: stretch; }
+  .jail-search-row .input { flex: none; }
+  .jail-clears > * { flex: 1 1 0; min-width: 0; }
+  .jail-clear { width: 100%; }
+}
 .bonus-group { display: flex; flex-direction: column; gap: 8px; }
 .bonus-group-title { font-size: 14px; }
 .bonus-tiles { display: flex; flex-wrap: wrap; gap: 8px; }

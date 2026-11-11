@@ -46,6 +46,7 @@ const TITLE_SIZE: f32 = 14.0;
 const ICON_SIZE: f32 = 36.0;
 const SLIDER_WIDTH: f32 = 110.0;
 const COUNT_WIDTH: f32 = 30.0;
+const CLEAR_WIDTH: f32 = 110.0;
 const TALLY_SIZE: f32 = 11.0;
 const TALLY_PADDING: [f32; 2] = [4.0, 10.0];
 const TALLY_CLEARANCE: f32 = 36.0;
@@ -98,6 +99,8 @@ pub enum Message {
     DragCancel,
     Held,
     Raise(i32, i32),
+    Clear(bool, bool),
+    ClearExpired(bool, bool),
     GlobalQuery(String),
     CatQuery(String),
     Create,
@@ -128,6 +131,35 @@ struct Offer {
 struct Group {
     title: String,
     offers: Vec<Offer>,
+}
+
+#[derive(Default)]
+struct Clear {
+    active: bool,
+    armed: Confirm<()>,
+}
+
+#[derive(Default)]
+struct Clears {
+    temp: Clear,
+    perma: Clear,
+}
+
+impl Clears {
+    fn reset(&mut self) {
+        self.temp.armed.clear();
+        self.perma.armed.clear();
+    }
+
+    fn refresh(&mut self, board: &Board, run: &Run, global: bool) {
+        for (clear, permanent) in [(&mut self.temp, false), (&mut self.perma, true)] {
+            clear.active = board.has_bonuses(run, global, permanent);
+
+            if !clear.active {
+                clear.armed.clear();
+            }
+        }
+    }
 }
 
 pub struct State {
@@ -162,6 +194,8 @@ pub struct State {
     cat_query: String,
     global: Vec<Group>,
     cat: Vec<Group>,
+    global_clears: Clears,
+    cat_clears: Clears,
     deleting: Confirm<()>,
     search: String,
     saved: Vec<Saved>,
@@ -204,6 +238,8 @@ impl Default for State {
             cat_query: String::new(),
             global: Vec::new(),
             cat: Vec::new(),
+            global_clears: Clears::default(),
+            cat_clears: Clears::default(),
             deleting: Confirm::default(),
             search: String::new(),
             saved: Vec::new(),
@@ -281,6 +317,8 @@ impl State {
         self.base_icons.clear();
         self.decoded.borrow_mut().clear();
         self.deleting.clear();
+        self.global_clears.reset();
+        self.cat_clears.reset();
         self.stale = true;
         self.settle(config);
     }
@@ -337,6 +375,8 @@ impl State {
             self.cat.clear();
             self.saved.clear();
             self.tally = None;
+            self.global_clears = Clears::default();
+            self.cat_clears = Clears::default();
 
             return;
         };
@@ -348,6 +388,8 @@ impl State {
         self.global = grouped(board, &self.run, &self.global_query, true);
         self.cat = grouped(board, &self.run, &self.cat_query, false);
         self.tally = board.tally(&self.run, self.stage);
+        self.global_clears.refresh(board, &self.run, true);
+        self.cat_clears.refresh(board, &self.run, false);
         self.selected = runs.selected;
         self.named.clone_from(&self.run.name);
 
@@ -465,6 +507,14 @@ impl State {
         self.drag = Drag::Idle;
         self.plan = None;
         self.combos.focus(None);
+        self.global_clears.reset();
+        self.cat_clears.reset();
+    }
+
+    fn clearing(&mut self, global: bool, permanent: bool) -> &mut Confirm<()> {
+        let clears = if global { &mut self.global_clears } else { &mut self.cat_clears };
+
+        if permanent { &mut clears.perma.armed } else { &mut clears.temp.armed }
     }
 
     fn landing(&self, at: Point) -> Landing {
@@ -561,6 +611,7 @@ impl State {
             Message::GlobalPopup(msg) => {
                 if self.global_popup.update(msg, GLOBAL_POPUP) {
                     self.global_open = false;
+                    self.global_clears.reset();
                 }
 
                 Task::none()
@@ -568,6 +619,7 @@ impl State {
             Message::CatPopup(msg) => {
                 if self.cat_popup.update(msg, CAT_POPUP) {
                     self.cat_open = false;
+                    self.cat_clears.reset();
                 }
 
                 Task::none()
@@ -695,6 +747,23 @@ impl State {
 
                 Task::none()
             }
+            Message::Clear(global, permanent) => {
+                let slot = self.clearing(global, permanent);
+
+                if !slot.is_set() {
+                    return slot.set((), Message::ClearExpired(global, permanent));
+                }
+
+                slot.clear();
+                self.edit(&mut app_state.sandbox.config, |board, run| board.clear_bonuses(run, global, permanent));
+
+                Task::none()
+            }
+            Message::ClearExpired(global, permanent) => {
+                self.clearing(global, permanent).expire();
+
+                Task::none()
+            }
             Message::GlobalQuery(query) => {
                 self.global_query = query;
                 self.stale = true;
@@ -808,13 +877,13 @@ impl State {
     pub fn global_view(&self, window: Size) -> Option<Element<'_, Message>> {
         let board = self.board.as_ref().filter(|_| self.global_open)?;
 
-        Some(self.global_popup.view(rules::GLOBAL_TITLE, GLOBAL_POPUP, window, Message::GlobalPopup, move || self.bonus_content(board, &self.global, &self.global_query, Message::GlobalQuery), None))
+        Some(self.global_popup.view(rules::GLOBAL_TITLE, GLOBAL_POPUP, window, Message::GlobalPopup, move || self.bonus_content(board, &self.global, &self.global_query, Message::GlobalQuery, true), None))
     }
 
     pub fn cat_view(&self, window: Size) -> Option<Element<'_, Message>> {
         let board = self.board.as_ref().filter(|_| self.cat_open)?;
 
-        Some(self.cat_popup.view(rules::CAT_TITLE, CAT_POPUP, window, Message::CatPopup, move || self.bonus_content(board, &self.cat, &self.cat_query, Message::CatQuery), None))
+        Some(self.cat_popup.view(rules::CAT_TITLE, CAT_POPUP, window, Message::CatPopup, move || self.bonus_content(board, &self.cat, &self.cat_query, Message::CatQuery, false), None))
     }
 
     pub fn unit_view<'a>(&'a self, window: Size, settings: &'a Settings, app_state: &'a AppState, ctx: GlobalContext<'a>) -> Option<Element<'a, Message>> {
@@ -950,7 +1019,19 @@ impl State {
         mouse_area(tile).interaction(mouse::Interaction::Grab).on_press(Message::PressCell(cell)).into()
     }
 
-    fn bonus_content<'a>(&'a self, board: &'a Board, groups: &'a [Group], query: &'a str, on_query: fn(String) -> Message) -> Element<'a, Message> {
+    fn clear_button(&self, global: bool, permanent: bool) -> Element<'_, Message> {
+        let clears = if global { &self.global_clears } else { &self.cat_clears };
+        let (clear, idle) = if permanent { (&clears.perma, rules::CLEAR_PERMA_LABEL) } else { (&clears.temp, rules::CLEAR_TEMP_LABEL) };
+        let label = if clear.armed.is_set() { rules::CLEAR_CONFIRM } else { idle };
+        let pressable = button(theme::centered_text(label).size(TEXT_SIZE).width(Length::Fill))
+            .width(Length::Fixed(CLEAR_WIDTH))
+            .style(theme::danger_button)
+            .on_press_maybe(clear.active.then_some(Message::Clear(global, permanent)));
+
+        if clear.active { pressable.into() } else { hover_hint(pressable, rules::NOTHING_TO_CLEAR) }
+    }
+
+    fn bonus_content<'a>(&'a self, board: &'a Board, groups: &'a [Group], query: &'a str, on_query: fn(String) -> Message, global: bool) -> Element<'a, Message> {
         let mut listed = Column::new().spacing(GROUP_SPACING).width(Length::Fill);
 
         for group in groups {
@@ -982,7 +1063,13 @@ impl State {
         }
 
         column![
-            text_input("Search bonuses", query).on_input(on_query).size(TEXT_SIZE).style(theme::rounded_input),
+            row![
+                text_input("Search bonuses", query).on_input(on_query).size(TEXT_SIZE).style(theme::rounded_input),
+                self.clear_button(global, false),
+                self.clear_button(global, true),
+            ]
+                .spacing(LIST_SPACING)
+                .align_y(Vertical::Center),
             layered,
         ]
             .spacing(LIST_SPACING)

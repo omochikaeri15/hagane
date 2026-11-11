@@ -31,6 +31,10 @@ pub const OVERRIDDEN: &str = "A Jailbreak run brings its own, the ones here are 
 pub const REGISTERED: &str = "REG";
 pub const BENCH_NOTE: &str = "Not part of the run";
 pub const PERMANENT: &str = "Permanent";
+pub const CLEAR_TEMP_LABEL: &str = "Clear Temp";
+pub const CLEAR_PERMA_LABEL: &str = "Clear Perma";
+pub const CLEAR_CONFIRM: &str = "Continue?";
+pub const NOTHING_TO_CLEAR: &str = "No Bonuses to clear!";
 pub const RECRUITS_LABEL: &str = "Recruits";
 pub const BONUSES_LABEL: &str = "Bonuses";
 pub const TOO_MANY_RECRUITS: &str = "Too many Recruits!";
@@ -756,6 +760,22 @@ impl Board {
         run.cannon = run.cannon.filter(|cannon| *cannon != BASIC_CANNON && self.unlocked(run).contains(cannon));
     }
 
+    fn is_kind(&self, id: i32, global: bool, permanent: bool) -> bool {
+        self.bonus(id).is_some_and(|bonus| bonus.target.is_none() == global && bonus.permanent == permanent)
+    }
+
+    pub fn has_bonuses(&self, run: &Run, global: bool, permanent: bool) -> bool {
+        run.bonuses.keys().any(|id| self.is_kind(*id, global, permanent))
+    }
+
+    pub fn clear_bonuses(&self, run: &mut Run, global: bool, permanent: bool) {
+        let held: Vec<i32> = run.bonuses.keys().copied().filter(|id| self.is_kind(*id, global, permanent)).collect();
+
+        for id in held {
+            self.raise(run, id, 0);
+        }
+    }
+
     pub fn settle(&self, run: &mut Run) {
         let seats = self.starters.len().min(LINEUP_SLOTS);
         let mut slots: Vec<u32> = Vec::new();
@@ -851,6 +871,30 @@ mod tests {
             registered_plus: 5,
             picks: Some(BTreeMap::from([(-1, Budget { recruits: 1, bonuses: 1 })])),
         }
+    }
+
+    // Each button clears one kind in one popup and has to leave the other three alone.
+    #[test]
+    fn clearing_bonuses_stops_at_its_own_kind() {
+        let mut board = board();
+        let rule = RoguelikeBonusBuff { buff_type: Some(0), level_up: Some(5), target_rarity: Some(-1), ..RoguelikeBonusBuff::default() };
+
+        board.bonuses.push(Bonus { permanent: true, ..bonus(90, 3, None, rule.clone()) });
+        board.bonuses.push(Bonus { permanent: true, ..bonus(91, 3, Some(9), rule) });
+
+        let mut run = Run { bonuses: BTreeMap::from([(0, 3), (86, 1), (90, 2), (91, 1)]), ..Run::default() };
+
+        board.clear_bonuses(&mut run, true, false);
+
+        assert_eq!(run.bonuses, BTreeMap::from([(86, 1), (90, 2), (91, 1)]));
+        assert!(!board.has_bonuses(&run, true, false));
+        assert!(board.has_bonuses(&run, true, true));
+
+        board.clear_bonuses(&mut run, false, true);
+
+        assert_eq!(run.bonuses, BTreeMap::from([(86, 1), (90, 2)]));
+        assert!(board.has_bonuses(&run, false, false));
+        assert!(!board.has_bonuses(&run, false, true));
     }
 
     // Only the maps the settings name are challenges, and a broken file names none.

@@ -86,6 +86,8 @@ pub struct State {
     pub jail_viewing: Option<u32>,
     pub jail_shown: Option<(Member, Rc<Grants>)>,
     pub jail_global: bool,
+    pub jail_clearing: [bool; 2],
+    pub jail_clear_timers: [Timer; 2],
     pub jail_rows: Option<Rc<VecModel<JailBonus>>>,
     pub jail_listed: Vec<(usize, usize)>,
 }
@@ -125,6 +127,8 @@ impl State {
             jail_viewing: None,
             jail_shown: None,
             jail_global: false,
+            jail_clearing: [false; 2],
+            jail_clear_timers: [Timer::default(), Timer::default()],
             jail_rows: None,
             jail_listed: Vec::new(),
         }

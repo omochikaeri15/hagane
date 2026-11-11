@@ -1,7 +1,7 @@
 import { ListView, ScrollView } from "std-widgets.slint";
 import { Theme } from "../theme.slint";
 import { SwipeGuard, Tap } from "../shell.slint";
-import { Btn, Tone, Input, Combo, Toggle, Label, Dialog, Rule, Progress, OutlinedCard, Card, Panel, Status, Slider } from "../widgets/basics.slint";
+import { Btn, Tone, Input, Combo, Toggle, Label, Dialog, Rule, Progress, OutlinedCard, Card, Panel, Status, Slider, Tip } from "../widgets/basics.slint";
 import { HeaderToggle, RosterRow, OrbSlot, OrbPicture, Line, Lines } from "../widgets/detail.slint";
 import { Drawer, EdgeGrab } from "../widgets/drawer.slint";
 import { Shell } from "../shell.slint";
@@ -80,9 +80,14 @@ export global Sandbox {
     in property <bool> jail-bonuses-over;
     in property <string> jail-recruits;
     in property <string> jail-bonuses-text;
+    in property <bool> jail-temp-clearable;
+    in property <bool> jail-perma-clearable;
+    in property <string> jail-temp-label;
+    in property <string> jail-perma-label;
     callback jail-open-bonuses(bool);
     callback jail-raise(int, int);
     callback jail-search-changed(string);
+    callback jail-clear(bool);
     in property <[string]> panels: ["Settings", "Treasure", "Tech", "Base", "Items", "Gimmick", "Invasions", "Tutorial"];
     in property <[string]> volumes: ["Off", "Low", "Medium", "High"];
     in-out property <int> music;
@@ -1204,16 +1209,34 @@ component AgreementDialog inherits Dialog {
     }
 }
 
+component JailClear inherits Rectangle {
+    in property <string> label;
+    in property <bool> clearable;
+    callback clear;
+    callback told;
+    horizontal-stretch: 1;
+    height: 32px;
+    Btn { width: parent.width; height: parent.height; tone: Tone.danger; label: root.label; text-size: 13px; enabled: root.clearable; clicked => { root.clear(); } }
+    Tap { enabled: !root.clearable && !Shell.swiping; tapped => { root.told(); } }
+}
+
 component JailBonusDialog inherits Dialog {
     open <=> Sandbox.jail-bonuses-open;
     title: Sandbox.jail-global ? "Global Bonuses" : "Cat Bonuses";
     panel-width: 290px;
     body-height: 460px;
+    property <int> clear-told: -1;
     Rectangle {
     VerticalLayout {
         padding: 12px;
         spacing: 8px;
         Input { text <=> Sandbox.jail-search; placeholder: "Search bonuses"; text-size: 13px; height: 32px; edited(value) => { Sandbox.jail-search-changed(value); } }
+        HorizontalLayout {
+            spacing: 8px;
+            height: 32px;
+            JailClear { label: Sandbox.jail-temp-label; clearable: Sandbox.jail-temp-clearable; clear => { Sandbox.jail-clear(false); } told => { root.clear-told = root.clear-told == 0 ? -1 : 0; } }
+            JailClear { label: Sandbox.jail-perma-label; clearable: Sandbox.jail-perma-clearable; clear => { Sandbox.jail-clear(true); } told => { root.clear-told = root.clear-told == 1 ? -1 : 1; } }
+        }
         if Sandbox.jail-bonuses.length == 0: Label { text: "No bonus matches"; weak: true; horizontal-alignment: center; vertical-stretch: 1; vertical-alignment: center; }
         if Sandbox.jail-bonuses.length > 0: Flickable {
             interactive: !Shell.swiping && !Shell.sliding;
@@ -1262,6 +1285,17 @@ component JailBonusDialog inherits Dialog {
         border-radius: Theme.radius-sm;
         background: Sandbox.jail-bonuses-over ? Theme.danger : Theme.success;
         Label { width: parent.width; height: parent.height; text: Sandbox.jail-bonuses-text; color: Sandbox.jail-bonuses-over ? Theme.white : Theme.text; font-size: 13px; horizontal-alignment: center; vertical-alignment: center; }
+    }
+    if (root.clear-told == 0 && !Sandbox.jail-temp-clearable) || (root.clear-told == 1 && !Sandbox.jail-perma-clearable): Tip {
+        shown: true;
+        text: "No Bonuses to clear!";
+        x: root.clear-told == 0 ? 12px : parent.width - self.width - 12px;
+        y: 88px;
+    }
+    Timer {
+        interval: 2s;
+        running: root.clear-told >= 0;
+        triggered => { root.clear-told = -1; }
     }
     }
 }

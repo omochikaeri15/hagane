@@ -627,6 +627,51 @@ fn grouped(board: &Board, run: &Run, query: &str, global: bool) -> Offers {
 }
 
 #[component]
+fn ClearButton(board: Held, global: bool, permanent: bool, active: bool, selected: usize) -> Element {
+    let platform = use_context::<Platform>();
+    let sandbox = state::state();
+    let mut clearing: Signal<Option<usize>> = use_signal(|| None);
+    let mut round = use_signal(|| 0u32);
+    let armed = clearing() == Some(selected);
+    let idle = if permanent { rules::CLEAR_PERMA_LABEL } else { rules::CLEAR_TEMP_LABEL };
+    let label = if armed { rules::CLEAR_CONFIRM } else { idle };
+
+    if !active {
+        return rsx! {
+            Tip { text: rules::NOTHING_TO_CLEAR,
+                button { class: "btn btn-danger jail-clear", disabled: true, "{idle}" }
+            }
+        };
+    }
+
+    rsx! {
+        button { class: "btn btn-danger jail-clear", onclick: move |_| {
+            if !armed {
+                let next = round() + 1;
+
+                round.set(next);
+                clearing.set(Some(selected));
+
+                let sleeper = platform.clone();
+
+                spawn(async move {
+                    sleeper.host().sleep(CONFIRM_MS).await;
+
+                    if round() == next {
+                        clearing.set(None);
+                    }
+                });
+
+                return;
+            }
+
+            clearing.set(None);
+            edit(&platform, sandbox, &board.0, |board, run| board.clear_bonuses(run, global, permanent));
+        }, "{label}" }
+    }
+}
+
+#[component]
 fn BonusPopup(board: Held, open: Signal<bool>, global: bool, stage: i32) -> Element {
     let platform = use_context::<Platform>();
     let sandbox = state::state();
@@ -637,14 +682,23 @@ fn BonusPopup(board: Held, open: Signal<bool>, global: bool, stage: i32) -> Elem
     let shown_board = board.clone();
     let sought = searched.clone();
     let tally = board.0.tally(&run, stage);
+    let temp_active = board.0.has_bonuses(&run, global, false);
+    let perma_active = board.0.has_bonuses(&run, global, true);
     let groups = use_memo(use_reactive!(|(run, sought, global)| Rc::new(grouped(&shown_board.0, &run, &sought, global))));
     let title = if global { rules::GLOBAL_TITLE } else { rules::CAT_TITLE };
     let groups = groups();
+    let selected = sandbox.read().config.jailbreak.get(&board.0.map_id).map_or(0, |runs| runs.selected);
 
     rsx! {
         Popup { title, open, width: BONUS_WIDTH, class: "jail-popup",
             div { class: "jail-bonuses",
-                input { class: "input", r#type: "search", placeholder: "Search bonuses", value: "{searched}", oninput: move |event| query.set(event.value()) }
+                div { class: "jail-search-row",
+                    input { class: "input", r#type: "search", placeholder: "Search bonuses", value: "{searched}", oninput: move |event| query.set(event.value()) }
+                    div { class: "jail-clears",
+                        ClearButton { board: board.clone(), global, permanent: false, active: temp_active, selected }
+                        ClearButton { board: board.clone(), global, permanent: true, active: perma_active, selected }
+                    }
+                }
                 if groups.is_empty() {
                     div { class: "weak", "{NO_BONUSES}" }
                 }

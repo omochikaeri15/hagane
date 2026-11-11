@@ -1,11 +1,12 @@
 use std::collections::HashMap;
 use std::rc::Rc;
-use slint::{ComponentHandle, Model, ModelRc, VecModel};
+use std::time::Duration;
+use slint::{ComponentHandle, Model, ModelRc, TimerMode, VecModel};
 
 use emulator::runtime::{RoguelikePicks, RosterPick, SetupUnit};
 use foundry::domains::cat::filter::evaluation::entity_passes_filter;
 use foundry::domains::cat::scanner::{self, CatEntry};
-use foundry::domains::sandbox::jailbreak::{Board, Grants, Run, Runs, is_challenge_map};
+use foundry::domains::sandbox::jailbreak::{Board, CLEAR_CONFIRM, CLEAR_PERMA_LABEL, CLEAR_TEMP_LABEL, Grants, Run, Runs, is_challenge_map};
 use foundry::domains::sandbox::{BENCH_SLOTS, Cell, Edge, LINEUP_SLOTS, Member};
 use foundry::systems::combat::registry::AbilityIcon;
 
@@ -17,6 +18,8 @@ use super::state::{Saved, Tab};
 use super::{Shared, Staging, lineup, refresh};
 
 pub type Key = (i32, i32, u64, usize);
+
+const CONFIRM_MS: u64 = 2000;
 
 fn roamed(state: &Shared, context: &Rc<Context>) -> Option<(i32, i32)> {
     let (map, crown) = context.pages()?.stages.borrow().roamed()?;
@@ -100,6 +103,7 @@ pub fn shelve(state: &Shared, change: impl FnOnce(&mut Runs)) {
     state.borrow().store.update(|saved| change(saved.config.jailbreak.entry(board.map_id).or_default()));
     state.borrow_mut().jail_viewing = None;
     state.borrow_mut().jail_shown = None;
+    state.borrow_mut().jail_clearing = [false; 2];
 }
 
 pub fn editing(state: &Shared) -> bool {
@@ -311,7 +315,19 @@ pub fn sync(ui: &AppWindow, state: &Shared, context: &Rc<Context>, staging: Opti
     };
     let run = run(&state.borrow().saved(), &board);
     let tally = board.tally(&run, stage_of(context));
+    let [temp_clearable, perma_clearable] = [false, true].map(|permanent| board.has_bonuses(&run, global, permanent));
+    let [temp_armed, perma_armed] = {
+        let mut held = state.borrow_mut();
+        let [temp, perma] = held.jail_clearing;
 
+        held.jail_clearing = [temp && temp_clearable, perma && perma_clearable];
+        held.jail_clearing
+    };
+
+    sandbox.set_jail_temp_clearable(temp_clearable);
+    sandbox.set_jail_perma_clearable(perma_clearable);
+    sandbox.set_jail_temp_label(if temp_armed { CLEAR_CONFIRM.into() } else { CLEAR_TEMP_LABEL.into() });
+    sandbox.set_jail_perma_label(if perma_armed { CLEAR_CONFIRM.into() } else { CLEAR_PERMA_LABEL.into() });
     sandbox.set_jail_tallied(tally.is_some());
     sandbox.set_jail_recruits_over(tally.as_ref().is_some_and(|tally| tally.recruits_over));
     sandbox.set_jail_bonuses_over(tally.as_ref().is_some_and(|tally| tally.bonuses_over));
@@ -460,6 +476,7 @@ pub fn wire(window: &AppWindow, state: &Shared, context: &Rc<Context>) {
     let (held_state, ctx, weak) = on(state, context, window);
     sandbox.on_jail_open_bonuses(move |global| {
         held_state.borrow_mut().jail_global = global;
+        held_state.borrow_mut().jail_clearing = [false; 2];
 
         if let Some(ui) = weak.upgrade() {
             ui.global::<Sandbox>().set_jail_bonuses_open(true);
@@ -483,5 +500,38 @@ pub fn wire(window: &AppWindow, state: &Shared, context: &Rc<Context>) {
         if let Some(ui) = weak.upgrade() {
             refresh(&ui, &held_state, &ctx);
         }
+    });
+
+    let (held_state, ctx, weak) = on(state, context, window);
+    sandbox.on_jail_clear(move |permanent| {
+        let (Some(ui), Some(board)) = (weak.upgrade(), held(&held_state)) else {
+            return;
+        };
+        let side = usize::from(permanent);
+
+        if !held_state.borrow().jail_clearing[side] {
+            held_state.borrow_mut().jail_clearing[side] = true;
+
+            let landing = Rc::clone(&held_state);
+            let ctx_inner = Rc::clone(&ctx);
+            let weak_inner = ui.as_weak();
+
+            held_state.borrow().jail_clear_timers[side].start(TimerMode::SingleShot, Duration::from_millis(CONFIRM_MS), move || {
+                landing.borrow_mut().jail_clearing[side] = false;
+
+                if let Some(ui) = weak_inner.upgrade() {
+                    refresh(&ui, &landing, &ctx_inner);
+                }
+            });
+            refresh(&ui, &held_state, &ctx);
+
+            return;
+        }
+
+        let global = held_state.borrow().jail_global;
+
+        held_state.borrow_mut().jail_clearing[side] = false;
+        edit(&held_state, &board, |board, run| board.clear_bonuses(run, global, permanent));
+        refresh(&ui, &held_state, &ctx);
     });
 }
