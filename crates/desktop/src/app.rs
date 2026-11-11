@@ -1537,11 +1537,14 @@ impl HaganeApp {
                     let mined_ms = started.elapsed().as_millis();
                     let adopted = self.adopt_sandbox_cats();
                     let adopted_ms = started.elapsed().as_millis() - mined_ms;
+                    let ruled = self.sync_sandbox_rules();
                     let reconciled = self.reconcile_caches();
+
+                    self.sync_sandbox_popups();
 
                     debug!(mined_ms, adopted_ms, total_ms = started.elapsed().as_millis(), "Cat list handed to mining and sandbox");
 
-                    return Task::batch([task, mined, adopted, reconciled]);
+                    return Task::batch([task, mined, adopted, ruled, reconciled]);
                 }
 
                 if retabbed {
@@ -2112,7 +2115,7 @@ impl HaganeApp {
             Task::none()
         } else {
             let global_ctx = GlobalContext { param: &self.param, localizable: &self.localizable, vault: &self.vault, treasure: &self.sandbox_treasure, names: &self.names };
-            let board = jailbreak.and_then(|(map_id, crown, ..)| foundry::domains::sandbox::jailbreak::Board::load(global_ctx, &self.cat_state.data.cats, map_id, crown));
+            let board = jailbreak.filter(|_| !self.cat_state.data.cats.is_empty()).and_then(|(map_id, crown, ..)| foundry::domains::sandbox::jailbreak::Board::load(global_ctx, &self.cat_state.data.cats, map_id, crown));
 
             self.sandbox_state.set_jailbreak(jailbreak, board, &self.app_state, global_ctx).map(Message::Sandbox)
         };
