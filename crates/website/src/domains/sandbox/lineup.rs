@@ -298,6 +298,13 @@ pub(crate) fn Editor(cats: Cats, globals: Shared, rules: Ruled, altar: Option<u3
     let sandbox = state::state();
     let pictures = images::pictures();
     let mut cat_state = cat::provide();
+    let treasure_config = use_memo(move || sandbox.read().config.treasure.clone());
+    let treasure_globals = globals.clone();
+
+    use_effect(use_reactive!(|treasure_globals| {
+        cat_state.treasure.set(Some(Bonus::resolve(&treasure_globals.0.catalog, &treasure_config.read())));
+    }));
+
     let mut drag = use_signal(Drag::default);
     let mut plan_held: Signal<Option<Arrangement>> = use_signal(|| None);
     let mut editing: Signal<Option<u32>> = use_signal(|| None);
@@ -835,9 +842,12 @@ pub(super) fn SandboxRoster(
     let mut cat_state = cat::state();
     let pictures = images::pictures();
     let search = (cat_state.search)();
-    let shown = use_memo(use_reactive!(|(cats, banner_form)| {
+    let general = context::globals().map_or_else(Bonus::default, |globals| globals.0.treasure);
+    let shown = use_memo(use_reactive!(|(cats, banner_form, general)| {
         let query = cat_state.search.read().to_lowercase();
-        let filter = cat_state.filter.read();
+        let mut filter = cat_state.filter.read().clone();
+
+        filter.treasure = cat_state.treasure_or(general);
 
         Rc::new(
             cats.0

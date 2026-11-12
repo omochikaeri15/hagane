@@ -52,6 +52,7 @@ pub fn fill_dummy_save(ctx: &mut AppContext, setup: &Setup) -> Result<(), Fault>
     let tutorial = &setup.tutorial;
 
     ctx.image_address_high = IMAGE_ADDRESS_HIGH;
+    ctx.set_block_at::<1>(AppContext::EX_REDIRECT_ENABLED, [1])?;
 
     for (seen, done) in [
         (AppContext::TUTORIAL_CLEARED, tutorial.battle_cleared),

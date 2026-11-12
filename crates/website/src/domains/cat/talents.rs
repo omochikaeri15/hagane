@@ -97,7 +97,8 @@ pub(crate) fn Talents(selected: Picked, globals: Shared) -> Element {
     let form = (state.form)();
     let levels = state.levels_for(cat.id);
     let base = selected.0.stats.as_ref().and_then(|stats| stats.get(form));
-    let traits = base.map(|base| get_final_stats(base, cat.curve.as_ref(), (state.level)(), Some(talent_data), Some(&levels), &globals.0.treasure));
+    let treasure = state.treasure_or(globals.0.treasure);
+    let traits = base.map(|base| get_final_stats(base, cat.curve.as_ref(), (state.level)(), Some(talent_data), Some(&levels), &treasure));
 
     rsx! {
         div { class: "talent-groups",
@@ -188,9 +189,10 @@ fn body(
     let input = state.talent_inputs.read().get(&index).cloned().unwrap_or_else(|| current.to_string());
     let form = (state.form)();
     let unit_level = (state.level)();
+    let treasure = state.treasure_or(globals.0.treasure);
     let shown = selected.0.stats.as_ref().and_then(|stats| stats.get(form)).map(|stats| {
         let traits = traits.unwrap_or(stats);
-        let scaling = talent_logic::Scaling { curve: cat.curve.as_ref(), level: unit_level, treasure: &globals.0.treasure };
+        let scaling = talent_logic::Scaling { curve: cat.curve.as_ref(), level: unit_level, treasure: &treasure };
 
         talent_logic::calculate_linked_display(talent_data, &levels, usize::from(index), stats, scaling, traits)
     });

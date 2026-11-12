@@ -16,7 +16,7 @@ use foundry::common::job::JobOutcome;
 use foundry::domains::cat::scanner::{self, CatEntry};
 use foundry::domains::sandbox::jailbreak::Board;
 use foundry::domains::sandbox::replay::{self as tape, Save, Summary, Unit};
-use foundry::systems::treasure;
+use foundry::systems::treasure::{self, Bonus};
 
 use crate::host::{Command, Reel};
 use crate::pages::{Context, cats, detail};
@@ -753,12 +753,14 @@ pub fn wire(window: &AppWindow, state: &Shared, context: &Rc<Context>) {
         let recorded = held.borrow().replay.summary.as_ref().and_then(|summary| summary.save.as_ref()).map(|save| (save.setup.stage.map_id, save.setup.stage.crown, save.setup.jailbreak.clone(), treasure::recorded_levels(&save.setup.treasures)));
         let roster = held.borrow().cats.clone();
         let vault = ctx.engine.vault();
+        let kept = recorded.as_ref().map(|(.., levels)| *levels).zip(ctx.globals()).map(|(levels, globals)| Bonus::from_levels(&globals.catalog, &levels));
         let (grants, treasure) = recorded.zip(roster).zip(ctx.globals()).and_then(|(((map_id, crown, picks, levels), roster), globals)| {
             let board = Board::load(globals.context(&vault), &roster, map_id, crown)?;
             let run = board.run_from(&picks.roster, &picks.bonuses, picks.cannon, &picks.registered);
 
             Some((Rc::new(board.grants(&run, cat.id)), board.treasure(&globals.catalog, &levels)))
         }).unzip();
+        let treasure = treasure.or(kept);
         let levels = grants.as_ref().map_or_else(|| talent_levels(&cat, &unit.talents), |grants| grants.levels.clone());
 
         cats::seed_member(&ui, &pages.cats, &ctx, cats::Seed { cat: &cat, form, level: &inspected, talents: &levels, locked: true, grants, treasure });

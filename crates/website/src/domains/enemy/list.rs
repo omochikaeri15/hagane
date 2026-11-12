@@ -5,9 +5,11 @@ use dioxus::prelude::*;
 
 use foundry::domains::enemy::filter::evaluation::entity_passes_filter;
 use foundry::domains::enemy::scanner::EnemyEntry;
+use foundry::systems::treasure::Bonus;
 
 use crate::app::Route;
 use crate::platform::Picture;
+use crate::systems::context;
 use crate::systems::picture::Pic;
 use crate::systems::images::{self, Pictures};
 use crate::widget::{RowList, drawer};
@@ -34,9 +36,13 @@ pub(crate) fn Roster(enemies: Entries, selected: Option<u32>) -> Element {
     let mut state = state();
     let search = (state.search)();
     let active = state.filter.read().is_active();
-    let shown = use_memo(use_reactive!(|enemies| {
+    let general = context::globals().map_or_else(Bonus::default, |globals| globals.0.treasure);
+    let entries = Rc::clone(&enemies.0);
+    let shown = use_memo(use_reactive!(|(enemies, general)| {
         let query = state.search.read().to_lowercase();
-        let filter = state.filter.read();
+        let mut filter = state.filter.read().clone();
+
+        filter.treasure = general;
 
         Rc::new(
             enemies
@@ -54,7 +60,6 @@ pub(crate) fn Roster(enemies: Entries, selected: Option<u32>) -> Element {
     let filter_class = if active { "btn btn-toggle active roster-filter" } else { "btn btn-toggle roster-filter" };
 
     let count = shown.len();
-    let entries = Rc::clone(&enemies.0);
     let row = Callback::new(move |index: usize| {
         let Some(enemy) = shown.get(index).and_then(|at| entries.get(*at)) else {
             return rsx! {};

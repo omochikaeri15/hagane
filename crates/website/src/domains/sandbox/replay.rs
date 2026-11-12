@@ -8,7 +8,7 @@ use foundry::common::frames;
 use foundry::domains::cat::scanner::{self, CatEntry};
 use foundry::domains::sandbox::jailbreak::Board;
 use foundry::domains::sandbox::replay::{Save, Unit};
-use foundry::systems::treasure;
+use foundry::systems::treasure::{self, Bonus};
 
 use crate::domains::cat::{self, SelectedCat};
 use crate::domains::settings;
@@ -401,6 +401,7 @@ pub(crate) fn Replays(globals: Shared, cats: Option<Cats>) -> Element {
 
                                                                     Some((board.grants(&run, seeded.id), board.treasure(&tables.0.catalog, levels)))
                                                                 }).unzip();
+                                                                let treasure = treasure.or_else(|| recorded.as_ref().as_ref().map(|(.., levels)| Bonus::from_levels(&tables.0.catalog, levels)));
                                                                 let mut cat = cat.clone();
 
                                                                 if let Some(grants) = grants.as_ref() {

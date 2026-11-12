@@ -5,9 +5,11 @@ use dioxus::prelude::*;
 
 use foundry::domains::cat::filter::evaluation;
 use foundry::domains::cat::scanner::CatEntry;
+use foundry::systems::treasure::Bonus;
 
 use crate::app::Route;
 use crate::platform::Picture;
+use crate::systems::context;
 use crate::systems::picture::Pic;
 use crate::systems::images::{self, Pictures};
 use crate::widget::{RowList, drawer};
@@ -44,9 +46,13 @@ pub(crate) fn Roster(cats: Entries, selected: Option<u32>) -> Element {
     let mut state = state();
     let search = (state.search)();
     let active = state.filter.read().is_active();
-    let shown = use_memo(use_reactive!(|cats| {
+    let general = context::globals().map_or_else(Bonus::default, |globals| globals.0.treasure);
+    let entries = Rc::clone(&cats.0);
+    let shown = use_memo(use_reactive!(|(cats, general)| {
         let query = state.search.read().to_lowercase();
-        let filter = state.filter.read();
+        let mut filter = state.filter.read().clone();
+
+        filter.treasure = state.treasure_or(general);
 
         Rc::new(
             cats.0
@@ -62,7 +68,6 @@ pub(crate) fn Roster(cats: Entries, selected: Option<u32>) -> Element {
     let frame_style = images::pictures().frame_url().map_or_else(String::new, |url| format!("--banner-frame: url({url});"));
     let filter_class = if active { "btn btn-toggle active roster-filter" } else { "btn btn-toggle roster-filter" };
     let count = shown.len();
-    let entries = Rc::clone(&cats.0);
     let row = Callback::new(move |index: usize| {
         let Some(cat) = shown.get(index).and_then(|at| entries.get(*at)) else {
             return rsx! {};

@@ -145,19 +145,22 @@ pub fn fill_roster(ui: &AppWindow, state: &Shared, context: &Rc<Context>) {
             Entry { id: cat.id, banner: cat.banner_paths.get(form).cloned().flatten().or_else(|| cat.image_path.clone()), tooltip: cat.display_name(form).into() }
         })
         .collect();
-    let shown = shown_rows(state, &cats);
+    let shown = shown_rows(state, &cats, super::treasure(state, context));
 
     state.borrow().roster.fill(context.engine.vault(), entries, shown.clone());
     ui.global::<Sandbox>().set_roster_count(shown.len() as i32);
 }
 
-fn shown_rows(state: &Shared, cats: &[CatEntry]) -> Vec<usize> {
+fn shown_rows(state: &Shared, cats: &[CatEntry], treasure: Bonus) -> Vec<usize> {
     let held = state.borrow();
     let query = held.saved().search.to_lowercase();
+    let mut filter = held.filter.clone();
+
+    filter.treasure = treasure;
 
     cats.iter()
         .enumerate()
-        .filter(|(_, cat)| entity_passes_filter(cat, &held.filter))
+        .filter(|(_, cat)| entity_passes_filter(cat, &filter))
         .filter(|(_, cat)| query.is_empty() || matches(cat, &query))
         .map(|(index, _)| index)
         .collect()
@@ -171,7 +174,7 @@ pub fn refilter(ui: &AppWindow, state: &Shared, context: &Rc<Context>) {
     let Some(cats) = state.borrow().cats.clone() else {
         return;
     };
-    let shown = shown_rows(state, &cats);
+    let shown = shown_rows(state, &cats, super::treasure(state, context));
 
     state.borrow().roster.show(shown.clone());
     ui.global::<Sandbox>().set_roster_count(shown.len() as i32);
@@ -219,7 +222,7 @@ fn open_unit(ui: &AppWindow, state: &Shared, context: &Rc<Context>, cell: Cell, 
         return;
     };
 
-    cats::seed_member(ui, &pages.cats, context, cats::Seed { cat: &cat, form: member.form, level: &member.level, talents: &member.talents, locked: false, grants: None, treasure: None });
+    cats::seed_member(ui, &pages.cats, context, cats::Seed { cat: &cat, form: member.form, level: &member.level, talents: &member.talents, locked: false, grants: None, treasure: Some(super::treasure(state, context)) });
 
     let landing = Rc::clone(state);
     let ctx = Rc::clone(context);

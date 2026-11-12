@@ -1457,7 +1457,8 @@ fn refresh_talents(ui: &AppWindow, state: &Shared, globals: &Rc<Globals>, vault:
     cats.set_ultra_label(if availability.has_ultra_enabled { "No Ultra".into() } else { "All Ultra".into() });
     cats.set_ultra_available(availability.has_ultra_talents);
 
-    let traits = base.map(|base| get_final_stats(base, cat.curve.as_ref(), level, Some(talent_data), Some(&levels), &globals.treasure));
+    let treasure = state.borrow().treasure.unwrap_or(globals.treasure);
+    let traits = base.map(|base| get_final_stats(base, cat.curve.as_ref(), level, Some(talent_data), Some(&levels), &treasure));
     let expanded = state.borrow().expanded_groups.clone();
     let inputs = state.borrow().talent_inputs.clone();
     let rows: Vec<TalentRow> = talent_data
@@ -1471,7 +1472,7 @@ fn refresh_talents(ui: &AppWindow, state: &Shared, globals: &Rc<Globals>, vault:
             let input = inputs.get(&(index as u8)).cloned().unwrap_or_else(|| current.to_string());
             let shown = base.and_then(|stats| {
                 let traits = traits.as_ref().unwrap_or(stats);
-                let scaling = talent_logic::Scaling { curve: cat.curve.as_ref(), level, treasure: &globals.treasure };
+                let scaling = talent_logic::Scaling { curve: cat.curve.as_ref(), level, treasure: &treasure };
 
                 talent_logic::calculate_linked_display(talent_data, &levels, index, stats, scaling, traits)
             });

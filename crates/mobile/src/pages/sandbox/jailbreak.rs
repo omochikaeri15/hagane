@@ -133,12 +133,16 @@ pub fn fill_roster(ui: &AppWindow, state: &Shared, context: &Rc<Context>) {
             Entry { id: cat.id, banner: banner.or_else(|| cat.image_path.clone()), tooltip: cat.display_name(form).into() }
         })
         .collect();
+    let fixed = treasure(state, context, &board);
     let rows: Vec<usize> = {
         let held = state.borrow();
+        let mut filter = held.filter.clone();
+
+        filter.treasure = fixed;
 
         all.iter()
             .map(|(index, _)| *index)
-            .filter(|index| cats.get(*index).is_some_and(|cat| entity_passes_filter(cat, &held.filter) && (query.is_empty() || lineup::matches(cat, &query))))
+            .filter(|index| cats.get(*index).is_some_and(|cat| entity_passes_filter(cat, &filter) && (query.is_empty() || lineup::matches(cat, &query))))
             .collect()
     };
 

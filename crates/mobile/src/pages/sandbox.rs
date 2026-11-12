@@ -525,6 +525,10 @@ pub fn invalidate(ui: &AppWindow, state: &Shared, context: &Rc<Context>) {
     }
 }
 
+pub fn treasure(state: &Shared, context: &Rc<Context>) -> Bonus {
+    context.globals().map_or_else(Bonus::default, |globals| Bonus::resolve(&globals.catalog, &state.borrow().saved().config.treasure))
+}
+
 pub fn book(state: &Shared, context: &Rc<Context>) -> Option<Rc<Book>> {
     if let Some(book) = &state.borrow().book {
         return Some(Rc::clone(book));
