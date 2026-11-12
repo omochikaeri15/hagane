@@ -17,8 +17,12 @@ pub mod rules;
 pub mod replay;
 #[cfg(feature = "sandbox")]
 pub mod scored;
+#[cfg(feature = "sandbox")]
+mod terms;
 
 #[cfg(feature = "sandbox")]
 pub use config::{Config, Tech, ITEMS, TECHS};
+#[cfg(feature = "sandbox")]
+pub use terms::TERMS;
 #[cfg(feature = "sandbox")]
 pub use lineup::{mount_of, Arrangement, Cell, Edge, Lineup, Member, Placed, Roster, BENCH_SLOTS, LINEUP_SLOTS, TOP_ROW};

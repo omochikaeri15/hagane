@@ -42,45 +42,92 @@ pub fn roguelike_form(total: i32, forms: i32) -> i32 {
     reached.min(forms.saturating_sub(1))
 }
 
-pub fn roguelike_grants(stats: &mut Entity, grants: &[(i32, Vec<i32>, bool)]) {
-    for (index, (ability, _, _)) in grants.iter().enumerate() {
-        if grants[..index].iter().any(|(earlier, _, _)| earlier == ability) {
-            continue;
-        }
-
-        let mut total: Vec<i32> = Vec::new();
-        let mut maxed = true;
-
-        for (_, values, full) in grants.iter().filter(|(other, _, _)| other == ability) {
-            if total.len() < values.len() {
-                total.resize(values.len(), 0);
-            }
-
-            for (cell, value) in total.iter_mut().zip(values) {
-                *cell = cell.saturating_add(*value);
-            }
-
-            maxed &= *full;
-        }
-
-        grant(stats, *ability, &total, maxed);
-    }
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RoguelikeStack {
+    pub ability_id: i32,
+    pub values: Vec<i32>,
+    pub maxed: bool,
+    pub talent: Option<(TalentGroup, u8)>,
 }
 
-fn grant(stats: &mut Entity, ability: i32, values: &[i32], maxed: bool) {
+pub fn roguelike_stacks(held: &[(&RoguelikeBonusBuffSkill, i32)]) -> Vec<RoguelikeStack> {
+    let mut grouped: Vec<(i32, Vec<(&RoguelikeBonusBuffSkill, i32)>)> = Vec::new();
+
+    for (skill, level) in held.iter().filter(|(_, level)| *level > 0) {
+        let ability = skill.ability_id.unwrap_or(0);
+
+        if let Some((_, members)) = grouped.iter_mut().find(|(known, _)| *known == ability) {
+            members.push((skill, *level));
+        } else {
+            grouped.push((ability, vec![(skill, *level)]));
+        }
+    }
+
+    grouped
+        .into_iter()
+        .map(|(ability_id, members)| {
+            let mut values: Vec<i32> = Vec::new();
+
+            for (skill, level) in &members {
+                let more = skill.values(*level);
+
+                if values.len() < more.len() {
+                    values.resize(more.len(), 0);
+                }
+
+                for (cell, value) in values.iter_mut().zip(more) {
+                    *cell = cell.saturating_add(value);
+                }
+            }
+
+            let maxed = members.iter().all(|(skill, level)| *level >= skill.max_level.unwrap_or(1));
+            let talent = members.first().and_then(|(skill, level)| {
+                let group = skill.talent()?;
+
+                if members.len() == 1 {
+                    let level = u8::try_from(*level).unwrap_or(u8::MAX).min(group.max_level);
+
+                    return Some((group, level));
+                }
+
+                let cell = |index: usize| values.get(index).map_or(0, |value| u16::try_from(*value).unwrap_or(u16::MAX));
+                let stacked = TalentGroup {
+                    max_level: if maxed { 1 } else { 2 },
+                    min_1: cell(0),
+                    max_1: cell(0),
+                    min_2: cell(1),
+                    max_2: cell(1),
+                    min_3: cell(2),
+                    max_3: cell(2),
+                    min_4: cell(3),
+                    max_4: cell(3),
+                    ..group
+                };
+
+                Some((stacked, 1))
+            });
+
+            RoguelikeStack { ability_id, values, maxed, talent }
+        })
+        .collect()
+}
+
+pub fn roguelike_grant(stats: &mut Entity, ability: i32, values: &[i32], maxed: bool) {
     let first = values.first().copied().unwrap_or(0);
     let cut = WHOLE.saturating_sub(first);
     let raised = usize::try_from(ability.saturating_sub(FIRST_EFFECT_UP)).ok().filter(|index| *index < stats.effect_ups.len());
     let granted = match ability {
         COST_DOWN | COST_DISCOUNT => {
             stats.eoc1_cost = (cut.saturating_mul(stats.eoc1_cost.max(0)) / WHOLE).max(0);
+            stats.run_cost_cut = stats.run_cost_cut.saturating_add(first);
 
-            None
+            Some(Identity::CostDown)
         }
         PRODUCTION_UP => {
             stats.cooldown = cut.saturating_mul(stats.cooldown.max(0)) / WHOLE;
+            stats.run_recharge_cut = stats.run_recharge_cut.saturating_add(first);
 
-            None
+            Some(Identity::RecoverSpeedUp)
         }
         KILL_ATTACK_UP => {
             stats.kill_attack_up = stats.kill_attack_up.saturating_add(first);
@@ -664,39 +711,60 @@ mod tests {
 
         let mut stats = Entity { eoc1_cost: 75, cooldown: 300, ..Entity::default() };
 
-        roguelike_grants(&mut stats, &[(1012, vec![45], false), (1013, vec![15], false), (1010, vec![], true), (1009, vec![2, 60], false)]);
+        roguelike_grant(&mut stats, 1012, &[45], false);
+        roguelike_grant(&mut stats, 1013, &[15], false);
+        roguelike_grant(&mut stats, 1010, &[], true);
+        roguelike_grant(&mut stats, 1009, &[2, 60], false);
 
         assert_eq!((stats.eoc1_cost, stats.cooldown, stats.insane_damage), (41, 255, 1), "a cheap cat keeps a price, it does not round down to nothing");
-        roguelike_grants(&mut stats, &[(1008, vec![100], true), (1005, vec![20], false)]);
+        roguelike_grant(&mut stats, 1008, &[100], true);
+
+        roguelike_grant(&mut stats, 1005, &[20], false);
 
         assert_eq!((stats.extra_spawn, stats.extra_spawn_delay, stats.kill_attack_up), (2, 60, 100));
         assert_eq!(stats.effect_ups, [0, 0, 0, 0, 20, 0, 0], "1005 is the slow one");
-        assert_eq!(stats.run_marks, vec![(Identity::InsaneDamage, true), (Identity::ExtraSpawn, false), (Identity::KillAttackUp, true), (Identity::SlowUp, false)], "a price or a recharge is a number, not an ability to mark");
+        assert_eq!((stats.run_cost_cut, stats.run_recharge_cut), (45, 15));
+        assert_eq!(
+            stats.run_marks,
+            vec![(Identity::CostDown, false), (Identity::RecoverSpeedUp, false), (Identity::InsaneDamage, true), (Identity::ExtraSpawn, false), (Identity::KillAttackUp, true), (Identity::SlowUp, false)],
+            "a price or a recharge cut is marked with the talent icon the game draws for it"
+        );
         assert!(skills[&7].percent() && !RoguelikeBonusBuffSkill { ability_id: Some(1009), ..RoguelikeBonusBuffSkill::default() }.percent());
         assert!(RoguelikeBonusBuffSkill { ability_id: Some(1012), ..RoguelikeBonusBuffSkill::default() }.percent());
     }
 
-    // The game adds every bonus for one ability into a single percentage before it cuts, so two cuts never compound.
+    // The game adds every bonus for one ability into one value before it uses it, so two cuts or two boosts never compound.
     #[test]
-    fn bonuses_for_one_ability_add_up_before_they_cut() {
-        let mut stats = Entity { eoc1_cost: 3600, cooldown: 300, ..Entity::default() };
+    fn bonuses_for_one_ability_add_up_before_they_apply() {
+        let wide = RoguelikeBonusBuffSkill { ability_id: Some(1012), max_level: Some(5), parameters: vec![15, 75] };
+        let own = RoguelikeBonusBuffSkill { ability_id: Some(1012), max_level: Some(1), parameters: vec![60, 60] };
+        let stacks = roguelike_stacks(&[(&wide, 5), (&own, 1)]);
 
-        roguelike_grants(&mut stats, &[(1012, vec![75], true), (1013, vec![15], false), (1012, vec![20], true), (1013, vec![60], true)]);
+        assert_eq!(stacks, vec![RoguelikeStack { ability_id: 1012, values: vec![135], maxed: true, talent: None }]);
 
-        assert_eq!((stats.eoc1_cost, stats.cooldown), (180, 75));
+        let mut stats = Entity { eoc1_cost: 3600, ..Entity::default() };
 
-        let mut free = Entity { eoc1_cost: 3600, ..Entity::default() };
+        roguelike_grant(&mut stats, 1012, &stacks[0].values, true);
 
-        roguelike_grants(&mut free, &[(1012, vec![75], true), (1012, vec![60], true)]);
+        assert_eq!(stats.eoc1_cost, 0, "past a full cut the price bottoms out at nothing");
 
-        assert_eq!(free.eoc1_cost, 0, "past a full cut the price bottoms out at nothing");
+        let health = RoguelikeBonusBuffSkill { ability_id: Some(32), max_level: Some(5), parameters: vec![20, 100] };
+        let boost = RoguelikeBonusBuffSkill { ability_id: Some(32), max_level: Some(1), parameters: vec![300, 300] };
+        let wave = RoguelikeBonusBuffSkill { ability_id: Some(17), max_level: Some(1), parameters: vec![75, 75, 3, 3] };
+        let stacks = roguelike_stacks(&[(&health, 3), (&wave, 1), (&boost, 1), (&wave, 1), (&health, 0)]);
+        let (group, level) = stacks[0].talent.clone().unwrap();
 
-        let mut spawns = Entity::default();
+        assert_eq!(stacks.iter().map(|stack| stack.ability_id).collect::<Vec<_>>(), vec![32, 17], "one entry per ability, in the order they were picked");
+        assert_eq!((group.min_1, group.max_1, level), (360, 360, 1), "level 3 of 20..100 is 60, plus the 300");
+        assert!(TalentGroup::calculate_value(group.min_1, group.max_1, level, group.max_level) == 360 && group.max_level > level, "not every bonus behind it is maxed");
 
-        roguelike_grants(&mut spawns, &[(1009, vec![1, 60], true), (1009, vec![2, 60], false)]);
+        let (group, level) = stacks[1].talent.clone().unwrap();
 
-        assert_eq!((spawns.extra_spawn, spawns.extra_spawn_delay), (3, 120));
-        assert_eq!(spawns.run_marks, vec![(Identity::ExtraSpawn, false)], "one mark per ability, gold only when every bonus behind it is maxed");
+        assert_eq!((group.min_1, group.min_2, group.max_level, level), (150, 6, 1, 1));
+
+        let (group, level) = roguelike_stacks(&[(&health, 3)])[0].talent.clone().unwrap();
+
+        assert_eq!((group.min_1, group.max_1, group.max_level, level), (20, 100, 5, 3), "a lone bonus keeps its own levels");
     }
 
     // Each map draws from its own groups, which is what keeps two maps' copies of a bonus apart.

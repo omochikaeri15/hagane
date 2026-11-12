@@ -2036,7 +2036,7 @@ pub use app_context::{
     SLOTS_PER_FACTION, STAGE_ENEMY_COLUMNS, TALENT_GROUPS, UNIT_BUY, UNIT_BUY_STRIDE, UNIT_CAPACITY, UNITS, UnitBuy, VfxSlot, WaveRecord,
     WaveSprite, BaseGuardNotice, BgDrifter, BgParticle, BgSetup, BgSprite, BgStar, CatGodButton, Cells, DrawEntry, HitEntry,
     Labyrinth, FloorCell, MapStageRow, Matrix, PowerupGrant, ProcRolls, Quad, Rect, SniperCasing, StageRecordRow,
-    StampEntry, StrikeSparks, TechMax, TreasureRow, Vector,
+    StampEntry, StrikeSparks, TreasureRow, Vector, AbilityRow,
 };
 pub use app_on_draw::app_on_draw;
 pub use app_on_focus_lost::app_on_focus_lost;

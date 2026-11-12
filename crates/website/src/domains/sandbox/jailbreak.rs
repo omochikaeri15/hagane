@@ -418,22 +418,25 @@ pub(crate) fn Editor(board: Held, cats: Cats, globals: Shared, ruled: Ruled, sta
     let viewed = viewing().and_then(|id| lineup.find(id)).and_then(|cell| lineup.get(cell).cloned());
     let grants_board = board.clone();
     let grants_cats = cats.clone();
+    let grants_globals = globals.clone();
     let seen = use_memo(use_reactive!(|(viewed, run)| {
         let member = viewed?;
         let grants = grants_board.0.grants(&run, member.id);
         let mut cat = grants_cats.0.iter().find(|cat| cat.id == member.id)?.clone();
+        let treasure = grants_board.0.treasure(&grants_globals.0.catalog, &sandbox.read().config.treasure.levels());
 
         cat.talent_data = (!grants.talent.groups.is_empty()).then(|| grants.talent.clone());
 
-        Some((member, SelectedCat(Rc::new(cat)), Rc::new(grants)))
+        Some((member, SelectedCat(Rc::new(cat)), Rc::new(grants), treasure))
     }));
     let seen = seen();
     let seeded = seen.clone();
 
     use_effect(use_reactive!(|seeded| {
-        if let Some((member, cat, grants)) = seeded {
+        if let Some((member, cat, grants, treasure)) = seeded {
             cat_state.seed(&cat.0, member.form, &member.level, &member.talents);
             cat_state.granted.set(Some(grants));
+            cat_state.treasure.set(Some(treasure));
         }
     }));
 
@@ -591,7 +594,7 @@ pub(crate) fn Editor(board: Held, cats: Cats, globals: Shared, ruled: Ruled, sta
             BonusPopup { board: board.clone(), open: cat_open, global: false, stage }
         }
         FilterPopup { cats: cat::list::Entries(Rc::clone(&listed.0)), globals: globals.clone() }
-        if let Some((member, cat, _)) = seen {
+        if let Some((member, cat, ..)) = seen {
             Dialog { title: cat.0.display_name(member.form), width: UNIT_WIDTH, class: "unit-popup", onclose: move |()| viewing.set(None),
                 cat::Detail { cat, globals: globals.clone() }
             }

@@ -3,7 +3,7 @@ use std::collections::BTreeMap;
 use crate::Fault;
 
 use super::{
-    AppContext, FixedLineupUnit, JsonNode, LineupPreset, TechMax, get_unit_form_count, get_unit_guide_order,
+    AbilityRow, AppContext, FixedLineupUnit, JsonNode, LineupPreset, get_unit_form_count, get_unit_guide_order,
     get_unit_max_level, get_unit_max_plus_level, is_unit_available, json_container_as_bool,
     json_container_as_int, json_string_as_bool, json_string_as_int, json_value_as_bool,
     json_value_as_int, string_to_int,
@@ -195,10 +195,10 @@ pub fn parse_lineup_preset(
             }
 
             let row = (kind as usize)
-                .wrapping_mul(0x14)
-                .wrapping_add(AppContext::TECH_MAX_LEVELS);
+                .wrapping_mul(AbilityRow::STRIDE)
+                .wrapping_add(AppContext::ABILITY_DATA);
 
-            if level > ctx.i32_at(row)? || plus > ctx.i32_at(row + TechMax::PLUS)? {
+            if level > ctx.i32_at(row + AbilityRow::LEVEL_CAP)? || plus > ctx.i32_at(row + AbilityRow::PLUS_CAP)? {
                 return Ok(false);
             }
 

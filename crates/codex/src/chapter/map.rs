@@ -25,8 +25,8 @@ pub use map_name::{MapName, MapNameError};
 pub use map_option::{MapOption, MapOptionEntry, MapOptionError, ResetType};
 pub use redirect::redirect_map_id;
 pub use roguelikebonus::{
-    roguelike_form, roguelike_grants, RoguelikeBonusBuff, RoguelikeBonusBuffSkill, RoguelikeBonusBuffSkills, RoguelikeBonusBuffs, RoguelikeBonusChara, RoguelikeBonusCharas, RoguelikeBonusDraw, RoguelikeBonusEffect,
-    RoguelikeBonusEffectAbilities, RoguelikeBonusEffectAbility, RoguelikeBonusError, RoguelikeBonusLotteryGroup, RoguelikeBonusLotteryGroups, RoguelikeBonusMapStageLottery, RoguelikeBonusPermanent, RoguelikeBonusTokens,
+    roguelike_form, roguelike_grant, roguelike_stacks, RoguelikeBonusBuff, RoguelikeBonusBuffSkill, RoguelikeBonusBuffSkills, RoguelikeBonusBuffs, RoguelikeBonusChara, RoguelikeBonusCharas, RoguelikeBonusDraw, RoguelikeBonusEffect,
+    RoguelikeBonusEffectAbilities, RoguelikeBonusEffectAbility, RoguelikeBonusError, RoguelikeBonusLotteryGroup, RoguelikeBonusLotteryGroups, RoguelikeBonusMapStageLottery, RoguelikeBonusPermanent, RoguelikeBonusTokens, RoguelikeStack,
 };
 pub use roguelikemapsettings::{RoguelikeEvent, RoguelikeMapEntry, RoguelikeMapSettings, RoguelikeMapSettingsError};
 pub use scorebonusmap::{BonusType, ScoreBonusMap, ScoreBonusMapEntry, ScoreBonusMapError};

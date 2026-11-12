@@ -19,6 +19,7 @@ pub(crate) mod http;
 pub mod io;
 pub mod job;
 pub mod superscript;
+pub mod terms;
 pub mod junk;
 pub mod keys;
 pub mod payload;

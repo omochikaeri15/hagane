@@ -1,4 +1,5 @@
 mod ledger;
+mod terms;
 
 use std::collections::HashSet;
 use std::ffi::OsString;
@@ -95,6 +96,7 @@ impl Partial {
 }
 
 pub use crate::domains::settings::Stamp;
+pub use terms::{MINING_TERMS, TERMS};
 
 #[derive(Clone, Copy, Debug)]
 pub enum Step {

@@ -8,6 +8,7 @@ use foundry::common::frames;
 use foundry::domains::cat::scanner::{self, CatEntry};
 use foundry::domains::sandbox::jailbreak::Board;
 use foundry::domains::sandbox::replay::{Save, Unit};
+use foundry::systems::treasure;
 
 use crate::domains::cat::{self, SelectedCat};
 use crate::domains::settings;
@@ -316,7 +317,7 @@ pub(crate) fn Replays(globals: Shared, cats: Option<Cats>) -> Element {
 
         granted.or_else(|| cat_of(tile.id).cloned().map(Rc::new)).map(|cat| (tile, cat))
     });
-    let recorded = Rc::new(save.map(|save| (save.setup.stage.map_id, save.setup.stage.crown, save.setup.jailbreak.clone())));
+    let recorded = Rc::new(save.map(|save| (save.setup.stage.map_id, save.setup.stage.crown, save.setup.jailbreak.clone(), treasure::recorded_levels(&save.setup.treasures))));
 
     rsx! {
         div { class: "replay-page scroll",
@@ -394,12 +395,12 @@ pub(crate) fn Replays(globals: Shared, cats: Option<Cats>) -> Element {
 
                                                         if doubled {
                                                             if let Some((roster, cat)) = roster.as_ref().and_then(|roster| Some((roster, roster.iter().find(|cat| cat.id == seeded.id)?))) {
-                                                                let grants = recorded.as_ref().as_ref().and_then(|(map_id, crown, picks)| {
+                                                                let (grants, treasure) = recorded.as_ref().as_ref().and_then(|(map_id, crown, picks, levels)| {
                                                                     let board = Board::load(tables.0.context(), roster, *map_id, *crown)?;
                                                                     let run = board.run_from(&picks.roster, &picks.bonuses, picks.cannon, &picks.registered);
 
-                                                                    Some(board.grants(&run, seeded.id))
-                                                                });
+                                                                    Some((board.grants(&run, seeded.id), board.treasure(&tables.0.catalog, levels)))
+                                                                }).unzip();
                                                                 let mut cat = cat.clone();
 
                                                                 if let Some(grants) = grants.as_ref() {
@@ -410,6 +411,7 @@ pub(crate) fn Replays(globals: Shared, cats: Option<Cats>) -> Element {
 
                                                                 cat_state.seed(&cat, seeded.form, &seeded.inspected, &levels);
                                                                 cat_state.granted.set(grants.map(Rc::new));
+                                                                cat_state.treasure.set(treasure);
                                                                 shown.set(Some(Rc::new(cat)));
                                                             }
 

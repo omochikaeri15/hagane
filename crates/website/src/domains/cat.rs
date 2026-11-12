@@ -13,6 +13,7 @@ use dioxus::prelude::*;
 use dioxus::router::Navigator;
 
 use codex::combat::Entity;
+use foundry::common::context::GlobalContext;
 use foundry::domains::cat::filter::CatFilterState;
 use foundry::domains::cat::game::stats::seeded_level;
 use foundry::domains::cat::level;
@@ -22,6 +23,7 @@ use foundry::domains::cat::statblock::{self as cat_statblock, Subject};
 use foundry::domains::cat::waiter::unitid;
 use foundry::domains::sandbox::jailbreak::Grants;
 use foundry::domains::settings::Settings;
+use foundry::systems::treasure::Bonus;
 
 use crate::app::{self, Route};
 use crate::platform::Platform;
@@ -70,6 +72,7 @@ pub(crate) struct CatState {
     pub(crate) seeded_for: Signal<Option<u32>>,
     pub(crate) locked: bool,
     pub(crate) granted: Signal<Option<Rc<Grants>>>,
+    pub(crate) treasure: Signal<Option<Bonus>>,
     ultra_active: Signal<bool>,
     saved_level: Signal<Option<(i32, String)>>,
 }
@@ -99,6 +102,7 @@ fn provided(locked: bool) -> CatState {
         seeded_for: Signal::new(None),
         locked,
         granted: Signal::new(None),
+        treasure: Signal::new(None),
         ultra_active: Signal::new(false),
         saved_level: Signal::new(None),
     })
@@ -152,6 +156,10 @@ impl CatState {
         self.ultra_active.set(false);
         self.saved_level.set(None);
         self.sync_ultra(cat, settings);
+    }
+
+    pub(crate) fn treasure_or(&self, fallback: Bonus) -> Bonus {
+        (self.treasure)().unwrap_or(fallback)
     }
 
     pub(crate) fn talented(&self, form: usize) -> bool {
@@ -458,6 +466,7 @@ fn statblock_request(cat: Rc<CatEntry>, globals: Shared, settings: Signal<Settin
         let form = *state.form.peek();
         let level_input = state.level_input.peek().clone();
         let granted = state.granted.peek().clone();
+        let treasure = state.treasure.peek().unwrap_or(globals.0.treasure);
         let talent_levels = (granted.is_some() || form >= 2).then(|| state.levels_for(cat.id));
         let is_conjure_expanded = state.conjure_expanded.peek().get(&cat.id).copied().unwrap_or(settings.peek().cat_data.expand_spirit_details);
         let data = cat_statblock::build(Subject {
@@ -467,7 +476,7 @@ fn statblock_request(cat: Rc<CatEntry>, globals: Shared, settings: Signal<Settin
             level_input: &level_input,
             talent_levels: talent_levels.as_ref(),
             is_conjure_expanded,
-            global: globals.0.context(),
+            global: GlobalContext { treasure: &treasure, ..globals.0.context() },
             grants: granted.as_deref(),
         })?;
 

@@ -219,7 +219,7 @@ fn open_unit(ui: &AppWindow, state: &Shared, context: &Rc<Context>, cell: Cell, 
         return;
     };
 
-    cats::seed_member(ui, &pages.cats, context, cats::Seed { cat: &cat, form: member.form, level: &member.level, talents: &member.talents, locked: false, grants: None });
+    cats::seed_member(ui, &pages.cats, context, cats::Seed { cat: &cat, form: member.form, level: &member.level, talents: &member.talents, locked: false, grants: None, treasure: None });
 
     let landing = Rc::clone(state);
     let ctx = Rc::clone(context);

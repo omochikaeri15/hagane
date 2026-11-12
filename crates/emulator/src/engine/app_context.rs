@@ -450,11 +450,12 @@ impl TreasureRow {
     pub const KEY: usize = 0xc4;
 }
 
-pub struct TechMax;
+pub struct AbilityRow;
 
-impl TechMax {
-    pub const LEVEL: usize = 0x0;
-    pub const PLUS: usize = 0x4;
+impl AbilityRow {
+    pub const STRIDE: usize = 0x14;
+    pub const LEVEL_CAP: usize = 0x8;
+    pub const PLUS_CAP: usize = 0xc;
 }
 
 pub struct StampEntry;
@@ -1143,7 +1144,6 @@ pub struct AppContext {
     pub event_gatya_settings: BTreeMap<i32, BTreeMap<i32, BTreeMap<i32, i32>>>,
     pub orb_effects: [OrbEffectStore; 2],
     pub catseye_behavior: BTreeMap<i32, BTreeMap<i32, Vec<CatseyeStep>>>,
-    pub ability_data_rows: [[i32; 5]; 10],
     pub gatya_data_sets: BTreeMap<i32, Vec<GatyaDataSet>>,
     pub gatya_chance_animations: Vec<GatyaChanceAnimation>,
     pub recommended_powerup_rows: Vec<[i32; 4]>,
@@ -1909,7 +1909,7 @@ impl AppContext {
     pub const OPTION_WINDOW_KIND: usize = 0x4776bc;
     pub const BG_IMAGE_ID: usize = 0x3372ec;
     pub const BG_MODEL_ID: usize = 0x3372e4;
-    pub const TECH_MAX_LEVELS: usize = 0x3964c0;
+    pub const ABILITY_DATA: usize = 0x3964b8;
     pub const UNIT_BOOK_DATA: usize = moved(0x407e08, TAIL_UNIT_BOOK_DATA);
     pub const UNIT_BOOK_STRIDE: usize = 0x20;
     pub const UNIT_FORM_COUNTS: usize = moved(0x407e10, TAIL_UNIT_BOOK_DATA + 8);
@@ -2295,7 +2295,6 @@ impl AppContext {
             event_gatya_settings: BTreeMap::new(),
             orb_effects: Default::default(),
             catseye_behavior: BTreeMap::new(),
-            ability_data_rows: [[0; 5]; 10],
             gatya_data_sets: BTreeMap::new(),
             gatya_chance_animations: Vec::new(),
             recommended_powerup_rows: Vec::new(),

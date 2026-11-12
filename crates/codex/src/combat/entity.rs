@@ -187,6 +187,10 @@ pub struct Entity {
     #[serde(skip)]
     pub effect_ups: [i32; 7],
     #[serde(skip)]
+    pub run_cost_cut: i32,
+    #[serde(skip)]
+    pub run_recharge_cut: i32,
+    #[serde(skip)]
     pub run_marks: Vec<(Identity, bool)>,
 }
 

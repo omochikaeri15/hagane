@@ -19,12 +19,12 @@ use emulator::runtime::{BattleOptions, CASTLE_PART, Setup, SetupUnit, StageEntry
 use foundry::common::context::GlobalContext;
 use foundry::systems::combat::NameBook;
 use foundry::domains::cat::scanner::CatEntry;
-use foundry::domains::sandbox::config::CatGod;
+use foundry::domains::sandbox::config::{CatGod, Config};
 use foundry::systems::treasure::{Bonus, Catalog};
 use foundry::domains::sandbox::keybind::Bind;
 use foundry::domains::sandbox::altar::Altars;
 use foundry::domains::sandbox::jailbreak::Board;
-use foundry::domains::sandbox::TECHS;
+use foundry::domains::sandbox::{TECHS, TERMS};
 use foundry::domains::sandbox::replay as replay_tape;
 use foundry::domains::settings::{CombatLook, ReplaySource, SavedBcvName, ScannerConfig, Settings};
 use foundry::domains::stage::StageRegistry;
@@ -36,21 +36,11 @@ use crate::app::theme;
 use crate::domains::{cat, stage};
 use crate::systems::host::{Action, Diagnostics, Frame as EmuFrame, Label, Occupant, Session, Vitals};
 use crate::systems::host::SheetCache;
-use crate::common::{digest, feedback::Slot};
+use crate::common::feedback::Slot;
 use crate::widget::{headline, popup, smooth_scroll, toast, Tone};
 
-const ACKNOWLEDGMENT: &str = r#"
-The purpose of this agreement is to ensure that you, the User, are aware of the potential quirks regarding Sandbox.
-By accepting this agreement, you must have read, understood, and accepted the following facts about Sandbox:
-
-- Sandbox may have known but subtle inaccuracies, mechanical bugs, or logical quirks when compared to the real game.
-- Sandbox may not be updated to support features and/or mechanics from the latest game version(s) within a timely manner.
-- Sandbox is representative of the vanilla game logic and it's capabilities only, with no custom functionality added or planned.
-- Sandbox is not an avenue that replaces the appeal and purpose of the game in any capacity, whether that be vanilla or modded.
-
-You can accept the agreement by clicking the "Agree" button below. Selecting "Disagree" will redirect you to the Home menu.
-"#;
-const ACKNOWLEDGE_POPUP: popup::Spec = popup::Spec::new(popup::Kind::Acknowledgment, Size::new(560.0, 435.0));
+const BULLET: &str = "- ";
+const ACKNOWLEDGE_POPUP: popup::Spec = popup::Spec::new(popup::Kind::Acknowledgment, Size::new(560.0, 485.0));
 const FAULT_POPUP: popup::Spec = popup::Spec::new(popup::Kind::Fault, Size::new(460.0, 260.0));
 const DIAGNOSTICS_POPUP: popup::Spec = popup::Spec::new(popup::Kind::Diagnostics, Size::new(520.0, 360.0));
 const VERSION_POPUP: popup::Spec = popup::Spec::new(popup::Kind::ReplayVersion, Size::new(460.0, 372.0));
@@ -156,7 +146,7 @@ impl Default for State {
             diagnosing: false,
             probe: None,
             readout: Readout::default(),
-            terms: crate::common::markdown::parse(ACKNOWLEDGMENT),
+            terms: crate::common::markdown::parse(&TERMS.text(BULLET)),
             status: String::new(),
             reported: String::new(),
             cut: Slot::default(),
@@ -226,7 +216,7 @@ fn game_key(event: iced::Event, _status: iced::event::Status, _window: iced::win
 }
 
 fn agreement() -> String {
-    digest::hash(&[ACKNOWLEDGMENT])
+    TERMS.agreement()
 }
 
 impl Message {
@@ -287,7 +277,15 @@ impl State {
     }
 
     pub(crate) fn set_jailbreak(&mut self, key: Option<jailbreak::Key>, board: Option<Board>, app_state: &AppState, ctx: GlobalContext<'_>) -> Task<Message> {
+        let shown = self.jailbreak.ready();
+
         self.jailbreak.set_board(key, board, &app_state.sandbox.config);
+
+        match (shown, self.jailbreak.ready()) {
+            (false, true) => self.jailbreak.fit(self.lineup.area()),
+            (true, false) => self.lineup.fit(self.jailbreak.area()),
+            _ => {}
+        }
 
         if self.jailbreak.ready() {
             self.lineup.close();
@@ -379,8 +377,9 @@ impl State {
         self.lineup.set_banner_form(banner_form);
     }
 
-    pub(crate) fn set_treasure(&mut self, treasure: Bonus) {
+    pub(crate) fn set_treasure(&mut self, treasure: Bonus, catalog: &Catalog, config: &Config) {
         self.lineup.set_treasure(treasure);
+        self.jailbreak.retreasure(catalog, config);
     }
 
     pub(crate) fn set_names_dynamic(&mut self, dynamic: bool) {

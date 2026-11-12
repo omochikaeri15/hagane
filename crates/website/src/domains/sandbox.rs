@@ -20,7 +20,7 @@ use foundry::domains::sandbox::altar::Altars;
 use foundry::domains::sandbox::base::Parts;
 use foundry::domains::sandbox::config::{self as sandbox_config, CatGod, Gimmicks};
 use foundry::domains::sandbox::rules::Rules;
-use foundry::domains::sandbox::{TECHS, scored};
+use foundry::domains::sandbox::{TECHS, TERMS, scored};
 use foundry::domains::stage::lottery::Lottery;
 use foundry::domains::stage::scanner::StageBundle;
 use foundry::domains::stage::{GlobalMapId, GlobalStageId, StageRegistry, navigate};
@@ -41,17 +41,6 @@ use self::arena::Battle;
 use self::jailbreak::Held;
 use self::state::{Device, Tab, Volume};
 
-const ACKNOWLEDGMENT_INTRO: [&str; 2] = [
-    "The purpose of this agreement is to ensure that you, the User, are aware of the potential quirks regarding Sandbox.",
-    "By accepting this agreement, you must have read, understood, and accepted the following facts about Sandbox:",
-];
-const ACKNOWLEDGMENT_FACTS: [&str; 4] = [
-    "Sandbox may have known but subtle inaccuracies, mechanical bugs, or logical quirks when compared to the real game.",
-    "Sandbox may not be updated to support features and/or mechanics from the latest game version(s) within a timely manner.",
-    "Sandbox is representative of the vanilla game logic and it's capabilities only, with no custom functionality added or planned.",
-    "Sandbox is not an avenue that replaces the appeal and purpose of the game in any capacity, whether that be vanilla or modded.",
-];
-const ACKNOWLEDGMENT_CLOSING: &str = "You can accept the agreement by clicking the \"Agree\" button below. Selecting \"Disagree\" will redirect you to the Home menu.";
 const ACKNOWLEDGE_WIDTH: f32 = 560.0;
 const FAULT_WIDTH: f32 = 460.0;
 const VERSION_WIDTH: f32 = 460.0;
@@ -59,21 +48,10 @@ const OUTBREAK_TAG: &str = "Outbreak";
 const INVASION_TAG: &str = "Invasion";
 const REPLAY_TERMINATED: &str = "Replay Terminated!";
 const DIAGNOSTICS_WIDTH: f32 = 520.0;
-const FNV_OFFSET: u64 = 0xcbf2_9ce4_8422_2325;
-const FNV_PRIME: u64 = 0x0100_0000_01b3;
 const TABS: [(Tab, &str); 4] = [(Tab::Lineup, "Lineup"), (Tab::Stage, "Stage"), (Tab::Config, "Config"), (Tab::Replay, "Replay")];
 
 fn agreement() -> String {
-    let mut hash = FNV_OFFSET;
-
-    for text in ACKNOWLEDGMENT_INTRO.iter().chain(ACKNOWLEDGMENT_FACTS.iter()).chain(std::iter::once(&ACKNOWLEDGMENT_CLOSING)) {
-        for byte in text.bytes() {
-            hash ^= u64::from(byte);
-            hash = hash.wrapping_mul(FNV_PRIME);
-        }
-    }
-
-    format!("{hash:016x}")
+    TERMS.agreement()
 }
 
 #[derive(Clone)]
@@ -552,15 +530,15 @@ pub(crate) fn Sandbox() -> Element {
         if !agreed {
             Dialog { title: "Acknowledgment", width: ACKNOWLEDGE_WIDTH, modal: true, onclose: move |()| { navigator.push(Route::Home {}); },
                 div { class: "sandbox-terms scroll",
-                    for line in ACKNOWLEDGMENT_INTRO {
+                    for line in TERMS.intro {
                         p { "{line}" }
                     }
                     ul {
-                        for fact in ACKNOWLEDGMENT_FACTS {
+                        for fact in TERMS.facts {
                             li { "{fact}" }
                         }
                     }
-                    p { "{ACKNOWLEDGMENT_CLOSING}" }
+                    p { {TERMS.closing} }
                 }
                 div { class: "sandbox-choices",
                     button { class: "btn btn-success btn-popup-action", onclick: move |_| state::apply(&agree_platform, sandbox, |next| next.agreement = agreement()), "Agree" }

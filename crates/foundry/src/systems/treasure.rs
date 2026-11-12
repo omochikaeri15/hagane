@@ -1,7 +1,8 @@
 mod catalog;
 mod config;
 
-use codex::chapter::treasure::{enemy_money, unit_recharge, TraitBonus, TreasureEffect, TreasureLevels, ARC_SLOTS, SLOTS, STAGES};
+use codex::chapter::stage::CertificationPreset;
+use codex::chapter::treasure::{enemy_money, unit_recharge, TraitBonus, TreasureEffect, TreasureLevels, TreasureProgress, ARC_SLOTS, SLOTS, STAGES};
 use codex::chapter::Category;
 use codex::combat::{Entity, Faction};
 
@@ -47,8 +48,18 @@ impl Bonus {
     }
 
     pub fn from_levels(catalog: &Catalog, levels: &TreasureLevels) -> Self {
+        Self::from_progress(catalog, &catalog.treasures.progress(levels))
+    }
+
+    pub fn preset(catalog: &Catalog, levels: &TreasureLevels, preset: &CertificationPreset) -> Self {
         let treasures = &catalog.treasures;
-        let value = |effect| treasures.value(levels, effect, None);
+
+        Self::from_progress(catalog, &preset.treasure_progress(treasures, &treasures.progress(levels)))
+    }
+
+    fn from_progress(catalog: &Catalog, progress: &TreasureProgress) -> Self {
+        let treasures = &catalog.treasures;
+        let value = |effect| treasures.value_at(progress, effect, None);
 
         let mut weakenings = [[0; WEAKENINGS.len()]; SLOTS + 1];
 
@@ -56,7 +67,7 @@ impl Bonus {
             let chapter = (index != OUTSIDE_STORY).then_some(index);
 
             for (gap, effect) in row.iter_mut().zip(WEAKENINGS) {
-                *gap = treasures.uncapped(effect, chapter) - treasures.value(levels, effect, chapter);
+                *gap = treasures.uncapped(effect, chapter) - treasures.value_at(progress, effect, chapter);
             }
         }
 
@@ -65,7 +76,7 @@ impl Bonus {
             cat_attack: value(TreasureEffect::CatAttack),
             enemy_money: value(TreasureEffect::EnemyMoney),
             cat_recharge: value(TreasureEffect::CatRecharge),
-            fruits: FRUITS.map(|effect| treasures.capped(levels, effect, FRUIT_PERCENT, None)),
+            fruits: FRUITS.map(|effect| treasures.capped_at(progress, effect, FRUIT_PERCENT, None)),
             weakenings,
         }
     }

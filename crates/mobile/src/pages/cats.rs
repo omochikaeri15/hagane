@@ -11,6 +11,7 @@ use slint::{ComponentHandle, Image, Model, ModelRc, SharedString, VecModel};
 use codex::cat::unit::{Talent, TalentGroup};
 use codex::combat::{AttrUnit, Entity, Faction, Identity, REGISTRY, get_talent};
 use codex::files::{img015, img022};
+use foundry::common::context::GlobalContext;
 use foundry::common::{glyphs, io};
 use foundry::domains::cat::combo::{self, ComboEffects};
 use foundry::domains::cat::filter::evaluation::entity_passes_filter;
@@ -28,6 +29,7 @@ use foundry::systems::combat::registry::{
     STAT_RANGE, STAT_RARITY, STAT_SPEED, StatContext, StatsDef, format_stat, get_display_def, get_fallback_by_icon,
 };
 use foundry::systems::combat::{AbilityItem, CustomIcon, RenderContext, TalentIdentities, present_identities, talent_identities};
+use foundry::systems::treasure::Bonus;
 use foundry::Vault;
 
 use crate::catalog::Load;
@@ -113,6 +115,7 @@ pub struct State {
     edited: Option<Edited>,
     locked: bool,
     granted: Option<Rc<Grants>>,
+    treasure: Option<Bonus>,
 }
 
 pub type Edited = Rc<dyn Fn(&AppWindow)>;
@@ -248,10 +251,11 @@ pub struct Seed<'a> {
     pub talents: &'a HashMap<u8, u8>,
     pub locked: bool,
     pub grants: Option<Rc<Grants>>,
+    pub treasure: Option<Bonus>,
 }
 
 pub fn seed_member(ui: &AppWindow, state: &Shared, context: &Rc<Context>, seed: Seed<'_>) {
-    let Seed { cat, form, level: level_input, talents, locked, grants } = seed;
+    let Seed { cat, form, level: level_input, talents, locked, grants, treasure } = seed;
 
     {
         let mut held = state.borrow_mut();
@@ -271,6 +275,7 @@ pub fn seed_member(ui: &AppWindow, state: &Shared, context: &Rc<Context>, seed: 
         held.saved_level = None;
         held.locked = locked;
         held.granted = grants;
+        held.treasure = treasure;
 
         if held.tab == Tab::Talents && !held.tabbed(held.form) {
             held.tab = Tab::Abilities;
@@ -508,6 +513,7 @@ impl State {
             edited: None,
             locked: false,
             granted: None,
+            treasure: None,
         }
     }
 
@@ -1146,6 +1152,7 @@ fn apply(state: &Shared, context: &Rc<Context>, cat: &CatEntry, form: Option<usi
     held.selected = Some(cat.id);
     held.locked = false;
     held.granted = None;
+    held.treasure = None;
     held.seed(cat, &context.state.settings());
 
     if let Some(form) = form.filter(|form| cat.forms.get(*form).copied().unwrap_or(false)) {
@@ -1175,6 +1182,7 @@ pub fn entered(ui: &AppWindow, state: &Shared, context: &Rc<Context>) {
 
             held.locked = false;
             held.granted = None;
+            held.treasure = None;
             held.seeded_for = None;
         }
 
@@ -1327,13 +1335,14 @@ fn refresh_abilities(ui: &AppWindow, state: &Shared, context: &Rc<Context>, glob
     let allows_talents = state.borrow().talented(form);
     let talent_data = if allows_talents { cat.talent_data.as_ref() } else { None };
     let levels = allows_talents.then(|| state.borrow().levels_for(cat.id));
-    let mut final_stats = get_final_stats(base, cat.curve.as_ref(), level, talent_data, levels.as_ref(), &globals.treasure);
+    let treasure = state.borrow().treasure.unwrap_or(globals.treasure);
+    let mut final_stats = get_final_stats(base, cat.curve.as_ref(), level, talent_data, levels.as_ref(), &treasure);
 
     if let Some(grants) = state.borrow().granted.as_ref() {
         grants.apply(&mut final_stats);
     }
     let ctx = RenderContext {
-        global: globals.context(vault),
+        global: GlobalContext { treasure: &treasure, ..globals.context(vault) },
         base_stats: base,
         final_stats: &final_stats,
         magnification: Magnification::default(),
@@ -1344,7 +1353,7 @@ fn refresh_abilities(ui: &AppWindow, state: &Shared, context: &Rc<Context>, glob
         is_conjure_unit: false,
     };
     let (traits, headline_1, headline_2, body_1, body_2, footer) = collect_ability_data(&ctx);
-    let stat_ctx = StatContext::cat(&final_stats, cat.atk_anim_frames[form], Some(&cat.unitbuy), &globals.treasure);
+    let stat_ctx = StatContext::cat(&final_stats, cat.atk_anim_frames[form], Some(&cat.unitbuy), &treasure);
 
     cats.set_stat_headers_1(headers(&[&STAT_ATTACK, &STAT_DPS, &STAT_RANGE, &STAT_ATK_CYCLE, &STAT_RARITY]));
     cats.set_stat_values_1(ModelRc::new(VecModel::from(vec![
@@ -1379,9 +1388,9 @@ fn refresh_abilities(ui: &AppWindow, state: &Shared, context: &Rc<Context>, glob
         let spirit = unitid(&vault.vfs, base.conjure_unit_id).and_then(|forms| forms.into_iter().next());
 
         if let Some(stats) = spirit {
-            let final_spirit = get_final_stats(&stats, cat.curve.as_ref(), level, None, None, &globals.treasure);
+            let final_spirit = get_final_stats(&stats, cat.curve.as_ref(), level, None, None, &treasure);
             let ctx = RenderContext {
-                global: globals.context(vault),
+                global: GlobalContext { treasure: &treasure, ..globals.context(vault) },
                 base_stats: &stats,
                 final_stats: &final_spirit,
                 magnification: Magnification::default(),
@@ -1745,11 +1754,11 @@ fn export(ui: &AppWindow, state: &Shared, context: &Rc<Context>) {
         return;
     };
     let vault = context.engine.vault();
-    let (form, level, level_input, talent_levels, conjure, granted) = {
+    let (form, level, level_input, talent_levels, conjure, granted, treasure) = {
         let held = state.borrow();
         let talents = held.talented(held.form).then(|| held.levels_for(cat.id));
 
-        (held.form, held.level, held.level_input.clone(), talents, held.conjure_expanded.get(&cat.id).copied().unwrap_or(context.state.settings().cat_data.expand_spirit_details), held.granted.clone())
+        (held.form, held.level, held.level_input.clone(), talents, held.conjure_expanded.get(&cat.id).copied().unwrap_or(context.state.settings().cat_data.expand_spirit_details), held.granted.clone(), held.treasure.unwrap_or(globals.treasure))
     };
     let Some(data) = cat_statblock::build(Subject {
         cat: &cat,
@@ -1758,7 +1767,7 @@ fn export(ui: &AppWindow, state: &Shared, context: &Rc<Context>) {
         level_input: &level_input,
         talent_levels: talent_levels.as_ref(),
         is_conjure_expanded: conjure,
-        global: globals.context(&vault),
+        global: GlobalContext { treasure: &treasure, ..globals.context(&vault) },
         grants: granted.as_deref(),
     }) else {
         context.toast(ui, "The statblock could not be built", true);

@@ -24,10 +24,11 @@ use foundry::domains::sandbox::config::{self as sandbox_config, CatGod, Gimmicks
 use foundry::domains::sandbox::jailbreak::{Board, Grants};
 use foundry::domains::sandbox::replay::VANILLA_APP;
 use foundry::domains::sandbox::rules::Rules;
-use foundry::domains::sandbox::{Arrangement, Cell, Member, TECHS, scored};
+use foundry::domains::sandbox::{Arrangement, Cell, Member, TECHS, TERMS, scored};
 use foundry::domains::stage::lottery::Lottery;
 use foundry::domains::stage::scanner::StageBundle;
 use foundry::domains::stage::{GlobalMapId, GlobalStageId, StageRegistry, navigate};
+use foundry::systems::treasure::Bonus;
 
 use crate::catalog::Load;
 use crate::host::{Arena, Command, Label, Launch, Standing};
@@ -40,8 +41,7 @@ use crate::{AppWindow, DeckCell, JailBonus, Page, Sandbox, Shell, bridge};
 use self::orbs::Book;
 use self::state::{Device, Saved, Store, Tab, Volume};
 
-const ACKNOWLEDGMENT: &str = "The purpose of this agreement is to ensure that you, the User, are aware of the potential quirks regarding Sandbox.\nBy accepting this agreement, you must have read, understood, and accepted the following facts about Sandbox:\n\n\u{2022} Sandbox may have known but subtle inaccuracies, mechanical bugs, or logical quirks when compared to the real game.\n\u{2022} Sandbox may not be updated to support features and/or mechanics from the latest game version(s) within a timely manner.\n\u{2022} Sandbox is representative of the vanilla game logic and it's capabilities only, with no custom functionality added or planned.\n\u{2022} Sandbox is not an avenue that replaces the appeal and purpose of the game in any capacity, whether that be vanilla or modded.\n\nYou can accept the agreement by tapping the \"Agree\" button below. Selecting \"Disagree\" will return you to the Home page.";
-const AGREEMENT: &str = "v1";
+const BULLET: &str = "\u{2022} ";
 const OUTBREAK_TAG: &str = "Outbreak";
 const INVASION_TAG: &str = "Invasion";
 const STATUS_MS: u64 = 2000;
@@ -84,7 +84,7 @@ pub struct State {
     pub jail: Option<(jailbreak::Key, Option<Rc<Board>>)>,
     pub jail_lineup: bool,
     pub jail_viewing: Option<u32>,
-    pub jail_shown: Option<(Member, Rc<Grants>)>,
+    pub jail_shown: Option<(Member, Rc<Grants>, Bonus)>,
     pub jail_global: bool,
     pub jail_clearing: [bool; 2],
     pub jail_clear_timers: [Timer; 2],
@@ -345,7 +345,7 @@ pub fn wire(window: &AppWindow, context: &Rc<Context>) -> Shared {
         }
     }
 
-    sandbox.set_terms(ACKNOWLEDGMENT.into());
+    sandbox.set_terms(TERMS.text(BULLET).into());
     sandbox.set_fullscreen(state.borrow().saved().fullscreen);
     sandbox.set_roster(slint::ModelRc::from(Rc::clone(&state.borrow().roster) as Rc<dyn slint::Model<Data = crate::RosterRow>>));
 
@@ -391,7 +391,7 @@ pub fn wire(window: &AppWindow, context: &Rc<Context>) -> Shared {
 
     let (held, ctx, weak) = on(&state, context, window);
     sandbox.on_agree(move || {
-        held.borrow().store.update(|saved| saved.agreement = AGREEMENT.to_owned());
+        held.borrow().store.update(|saved| saved.agreement = TERMS.agreement());
 
         if let Some(ui) = weak.upgrade() {
             refresh(&ui, &held, &ctx);
@@ -621,7 +621,7 @@ pub fn refresh(ui: &AppWindow, state: &Shared, context: &Rc<Context>) {
         let held = state.borrow();
         let saved = held.saved();
 
-        (saved.tab, saved.agreement == AGREEMENT)
+        (saved.tab, saved.agreement == TERMS.agreement())
     };
     let staged = staging(&state.borrow(), context);
     let fielded = state.borrow().saved().roster.current().is_some_and(|lineup| !lineup.slots.is_empty());

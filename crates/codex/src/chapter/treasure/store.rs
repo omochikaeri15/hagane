@@ -14,6 +14,8 @@ const SUPERIOR: i32 = 3;
 
 pub type TreasureLevels = [[i32; STAGES]; SLOTS];
 
+pub type TreasureProgress = [[i32; GROUPS]; SLOTS];
+
 pub fn data_file(slot: usize) -> Option<String> {
     match slot {
         0..=2 => Some("treasureData0.csv".to_owned()),
@@ -51,7 +53,7 @@ pub struct Treasures {
 }
 
 impl Treasures {
-    pub fn progress(&self, levels: &TreasureLevels) -> [[i32; GROUPS]; SLOTS] {
+    pub fn progress(&self, levels: &TreasureLevels) -> TreasureProgress {
         let mut progress = [[0; GROUPS]; SLOTS];
 
         for (slot, (data, row)) in self.slots.iter().zip(&mut progress).enumerate() {
@@ -82,8 +84,10 @@ impl Treasures {
     }
 
     pub fn value(&self, levels: &TreasureLevels, effect: TreasureEffect, chapter: Option<usize>) -> i32 {
-        let progress = self.progress(levels);
+        self.value_at(&self.progress(levels), effect, chapter)
+    }
 
+    pub fn value_at(&self, progress: &TreasureProgress, effect: TreasureEffect, chapter: Option<usize>) -> i32 {
         self.sum(effect, chapter, |slot, group, percent| {
             let held = progress[slot][group];
 
@@ -92,8 +96,10 @@ impl Treasures {
     }
 
     pub fn capped(&self, levels: &TreasureLevels, effect: TreasureEffect, percent: i32, chapter: Option<usize>) -> i32 {
-        let progress = self.progress(levels);
+        self.capped_at(&self.progress(levels), effect, percent, chapter)
+    }
 
+    pub fn capped_at(&self, progress: &TreasureProgress, effect: TreasureEffect, percent: i32, chapter: Option<usize>) -> i32 {
         self.sum(effect, chapter, |slot, group, _| progress[slot][group].wrapping_mul(percent) / 100)
     }
 

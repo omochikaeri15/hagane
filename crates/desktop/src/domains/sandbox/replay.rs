@@ -20,7 +20,7 @@ use foundry::common::context::GlobalContext;
 use foundry::systems::combat::NameBook;
 use foundry::common::frames;
 use foundry::domains::cat::scanner;
-use foundry::domains::sandbox::jailbreak::{Board, Run};
+use foundry::domains::sandbox::jailbreak::{self, Board, Run};
 use foundry::domains::sandbox::orb::Allowance;
 use foundry::domains::sandbox::replay::{self as tape, Staged, Summary, Unit};
 use foundry::domains::settings::{ScannerConfig, Settings};
@@ -414,11 +414,11 @@ impl State {
 
         let catalog = staged.vault.vds.treasures.catalog(&staged.vault.vfs);
 
-        self.treasure = staged
-            .summary
-            .save
-            .as_ref()
-            .map_or_else(Bonus::default, |save| Bonus::from_levels(&catalog, &treasure::recorded_levels(&save.setup.treasures)));
+        self.treasure = staged.summary.save.as_ref().map_or_else(Bonus::default, |save| {
+            let levels = treasure::recorded_levels(&save.setup.treasures);
+
+            jailbreak::preset(&staged.vault.vfs, save.setup.stage.map_id).map_or_else(|| Bonus::from_levels(&catalog, &levels), |preset| Bonus::preset(&catalog, &levels, &preset))
+        });
         self.inspector.set_treasure(self.treasure);
         self.run = None;
         self.run_read = false;

@@ -2,6 +2,7 @@ use dioxus::prelude::*;
 
 use codex::combat::Entity;
 use codex::files::img015;
+use foundry::common::context::GlobalContext;
 use foundry::domains::cat::game::stats::get_final_stats;
 use foundry::domains::cat::waiter::unitid;
 use foundry::systems::combat::abilities::collect_ability_data;
@@ -36,13 +37,14 @@ pub(crate) fn Abilities(selected: Picked, globals: Shared) -> Element {
     let allows_talents = state.talented(form);
     let talent_data = if allows_talents { cat.talent_data.as_ref() } else { None };
     let levels = allows_talents.then(|| state.levels_for(cat.id));
-    let mut final_stats = get_final_stats(base, cat.curve.as_ref(), level, talent_data, levels.as_ref(), &globals.0.treasure);
+    let treasure = state.treasure_or(globals.0.treasure);
+    let mut final_stats = get_final_stats(base, cat.curve.as_ref(), level, talent_data, levels.as_ref(), &treasure);
 
     if let Some(grants) = state.granted.read().as_ref() {
         grants.apply(&mut final_stats);
     }
     let ctx = RenderContext {
-        global: globals.0.context(),
+        global: GlobalContext { treasure: &treasure, ..globals.0.context() },
         base_stats: base,
         final_stats: &final_stats,
         magnification: Magnification::default(),
@@ -60,7 +62,7 @@ pub(crate) fn Abilities(selected: Picked, globals: Shared) -> Element {
     rsx! {
         FitWidth { natural: span(STAT_COLUMNS),
         div { class: "abilities",
-            {stats_grid(cat, &final_stats, form, &globals.0.treasure)}
+            {stats_grid(cat, &final_stats, form, &treasure)}
             div { class: "ability-groups",
                 if !traits.is_empty() {
                     {icon_row(&pictures, &traits)}
@@ -89,7 +91,7 @@ pub(crate) fn Abilities(selected: Picked, globals: Shared) -> Element {
                                         }
                                     }
                                     if conjure_open {
-                                        {spirit_card(&pictures, &globals, conjure_id, cat.curve.as_ref(), level)}
+                                        {spirit_card(&pictures, &globals, &treasure, conjure_id, cat.curve.as_ref(), level)}
                                     }
                                 } else {
                                     {ability_row(&pictures, item)}
@@ -165,14 +167,14 @@ pub(crate) fn ability_row(pictures: &Pictures, item: &AbilityItem) -> Element {
     }
 }
 
-fn spirit_card(pictures: &Pictures, globals: &Shared, conjure_id: i32, curve: Option<&codex::cat::unit::LevelCurve>, level: i32) -> Element {
+fn spirit_card(pictures: &Pictures, globals: &Shared, treasure: &Bonus, conjure_id: i32, curve: Option<&codex::cat::unit::LevelCurve>, level: i32) -> Element {
     let vfs = &globals.0.vault().vfs;
     let Some(stats) = unitid(vfs, conjure_id).and_then(|forms| forms.into_iter().next()) else {
         return rsx! { div { class: "note", "Spirit data not found" } };
     };
-    let final_stats = get_final_stats(&stats, curve, level, None, None, &globals.0.treasure);
+    let final_stats = get_final_stats(&stats, curve, level, None, None, treasure);
     let ctx = RenderContext {
-        global: globals.0.context(),
+        global: GlobalContext { treasure, ..globals.0.context() },
         base_stats: &stats,
         final_stats: &final_stats,
         magnification: Magnification::default(),

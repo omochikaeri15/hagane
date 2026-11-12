@@ -1157,7 +1157,7 @@ impl HaganeApp {
 
     fn refresh_sandbox_treasure(&mut self) {
         self.sandbox_treasure = Bonus::resolve(&self.treasure_catalog, &self.app_state.sandbox.config.treasure);
-        self.sandbox_state.set_treasure(self.sandbox_treasure);
+        self.sandbox_state.set_treasure(self.sandbox_treasure, &self.treasure_catalog, &self.app_state.sandbox.config);
     }
 
     fn relocalize(&mut self) -> Task<Message> {

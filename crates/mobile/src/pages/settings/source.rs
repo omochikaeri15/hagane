@@ -17,8 +17,7 @@ use crate::{AppWindow, Settings, Source, Tone, bridge};
 
 use super::format_size;
 
-const AGREEMENT: &str = "v3";
-const ACKNOWLEDGMENT: &str = "The purpose of this agreement is to ensure that you, the User, are aware of the potential quirks regarding the use of a Provider.\nBy accepting this agreement, you must have read, understood, and accepted the following facts about Providers:\n\n\u{2022} Providers wipe the import manifest, so the next import has to check every file again.\n\u{2022} Providers may not keep recent or up to date game data.\n\nYou can accept the agreement by tapping the \"Agree\" button below. Selecting \"Disagree\" will close this pop-up.";
+const BULLET: &str = "\u{2022} ";
 const BANNER_MS: u64 = 2000;
 const CONFIRM_MS: u64 = 3000;
 
@@ -142,14 +141,14 @@ impl State {
 }
 
 fn agreed(context: &Context) -> bool {
-    context.memory.get().source_agreement == AGREEMENT
+    context.memory.get().source_agreement == source::TERMS.agreement()
 }
 
 pub(super) fn wire(window: &AppWindow, context: &Rc<Context>) {
     let state: Shared = Rc::new(RefCell::new(State::new()));
     let panel = window.global::<Source>();
 
-    panel.set_terms(ACKNOWLEDGMENT.into());
+    panel.set_terms(source::TERMS.text(BULLET).into());
 
     {
         let (held, ctx) = (Rc::clone(&state), Rc::clone(context));
@@ -290,7 +289,7 @@ pub(super) fn wire(window: &AppWindow, context: &Rc<Context>) {
             return;
         };
 
-        ctx.memory.update(|memory| memory.source_agreement = AGREEMENT.to_owned());
+        ctx.memory.update(|memory| memory.source_agreement = source::TERMS.agreement());
         ui.global::<Source>().set_terms_open(false);
 
         if matches!(held.borrow().status, Status::Found(_)) {

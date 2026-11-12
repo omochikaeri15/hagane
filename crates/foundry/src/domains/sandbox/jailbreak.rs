@@ -2,10 +2,11 @@ use std::collections::{BTreeMap, BTreeSet, HashMap};
 
 use codex::cat::unit::Talent;
 use codex::chapter::map::{
-    roguelike_form, RoguelikeBonusBuff, RoguelikeBonusBuffSkill, RoguelikeBonusBuffSkills, RoguelikeBonusBuffs, RoguelikeBonusCharas, RoguelikeBonusEffect, RoguelikeBonusEffectAbilities,
+    roguelike_form, roguelike_stacks, RoguelikeBonusBuff, RoguelikeBonusBuffSkill, RoguelikeBonusBuffSkills, RoguelikeBonusBuffs, RoguelikeBonusCharas, RoguelikeBonusEffect, RoguelikeBonusEffectAbilities,
     RoguelikeBonusLotteryGroups, RoguelikeBonusMapStageLottery, RoguelikeBonusPermanent, RoguelikeBonusTokens, RoguelikeMapSettings,
 };
 use codex::chapter::stage::CertificationPreset;
+use codex::chapter::treasure::TreasureLevels;
 use codex::combat::{get_talent, AttrUnit};
 use codex::files::img015;
 use serde::{Deserialize, Serialize};
@@ -16,6 +17,7 @@ use crate::domains::cat::waiter::unitexplanation;
 use crate::domains::sandbox::base;
 use crate::domains::sandbox::lineup::{Arrangement, Cell, Edge, Lineup, Member, BENCH_SLOTS, LINEUP_SLOTS, UNNAMED};
 use crate::systems::combat::registry::{get_display_def, AbilityIcon};
+use crate::systems::treasure::{self, Catalog};
 use crate::Vfs;
 
 pub use crate::domains::cat::grants::Grants;
@@ -250,10 +252,17 @@ pub struct Board {
     pub texts: HashMap<u8, (u8, i16)>,
     pub registered_plus: i32,
     pub picks: Option<BTreeMap<i32, Budget>>,
+    pub preset: CertificationPreset,
 }
 
 pub fn is_challenge_map(vfs: &Vfs, map_id: i32) -> bool {
     vfs.load(FILE).is_some_and(|bytes| holds(&bytes, map_id))
+}
+
+pub fn preset(vfs: &Vfs, map_id: i32) -> Option<CertificationPreset> {
+    let settings = RoguelikeMapSettings::parse(vfs.load(FILE)?).ok()?;
+
+    CertificationPreset::parse(vfs.load(&settings.entry(map_id)?.preset_file_name)?).ok()
 }
 
 pub fn holds(bytes: &[u8], map_id: i32) -> bool {
@@ -474,7 +483,7 @@ impl Board {
             told.entry(group.ability_id).or_insert((group.text_id, group.name_id));
         }
 
-        Some(Self { map_id, starters, cats: listed, bonuses, texts: told, registered_plus: ctx.param.registered_plus_levels, picks })
+        Some(Self { map_id, starters, cats: listed, bonuses, texts: told, registered_plus: ctx.param.registered_plus_levels, picks, preset })
     }
 
     pub fn cat(&self, unit: u32) -> Option<&Cat> {
@@ -588,9 +597,9 @@ impl Board {
             .filter_map(|(bonus, level)| Some((bonus.skill.as_ref()?, level)))
             .collect();
 
-        for (skill, level) in held {
-            let Some(mut group) = skill.talent() else {
-                grants.extras.push((skill.ability_id.unwrap_or(0), skill.values(level), level >= skill.max_level.unwrap_or(1)));
+        for stack in roguelike_stacks(&held) {
+            let Some((mut group, level)) = stack.talent else {
+                grants.extras.push((stack.ability_id, stack.values, stack.maxed));
 
                 continue;
             };
@@ -603,11 +612,15 @@ impl Board {
                 group.name_id = *name_id;
             }
 
-            grants.levels.insert(index, u8::try_from(level).unwrap_or(u8::MAX).min(group.max_level));
+            grants.levels.insert(index, level);
             grants.talent.groups.push(group);
         }
 
         grants
+    }
+
+    pub fn treasure(&self, catalog: &Catalog, levels: &TreasureLevels) -> treasure::Bonus {
+        treasure::Bonus::preset(catalog, levels, &self.preset)
     }
 
     fn member(&self, run: &Run, unit: u32) -> Member {
@@ -870,6 +883,7 @@ mod tests {
             texts: HashMap::from([(32, (7, 3))]),
             registered_plus: 5,
             picks: Some(BTreeMap::from([(-1, Budget { recruits: 1, bonuses: 1 })])),
+            preset: CertificationPreset::default(),
         }
     }
 

@@ -1,10 +1,18 @@
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::fmt;
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
+use crate::chapter::treasure::{TreasureEffect, TreasureProgress, Treasures, SLOTS};
 use crate::common::file::scrub;
+
+const FULL_SET: u8 = 48;
+const SUPERIOR_PROGRESS: i32 = 100;
+const NORMAL_PROGRESS: i32 = 66;
+const INFERIOR_PROGRESS: i32 = 33;
+const UNUSED_SLOT: usize = 3;
+const ENERGY: [TreasureEffect; 2] = [TreasureEffect::EnergyRecovery, TreasureEffect::MaxEnergy];
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
@@ -141,27 +149,27 @@ impl From<u8> for EvolutionForm {
     }
 }
 
-#[derive(Default, Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Default, Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct PresetChara {
     pub evolution_form: EvolutionForm,
     pub level: u16,
     pub plus_level: u16,
 }
 
-#[derive(Default, Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Default, Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct PresetAbility {
     pub level: u16,
     pub plus_level: u16,
 }
 
-#[derive(Default, Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Default, Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct PresetTreasure {
     pub inferior_count: u8,
     pub normal_count: u8,
     pub superior_count: u8,
 }
 
-#[derive(Default, Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Default, Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct CertificationPreset {
     pub characters: HashMap<u32, PresetChara>,
     pub slot_units: Vec<u32>,
@@ -169,12 +177,68 @@ pub struct CertificationPreset {
     pub abilities: HashMap<AbilityType, PresetAbility>,
     pub cannon_levels: HashMap<CannonType, u16>,
     pub treasures: HashMap<TreasureType, PresetTreasure>,
+    pub treasure_default_none: bool,
+}
+
+impl TreasureType {
+    pub fn slot(&self) -> usize {
+        match self {
+            Self::EoC1 => 0,
+            Self::EoC2 => 1,
+            Self::EoC3 => 2,
+            Self::ItF1 => 4,
+            Self::ItF2 => 5,
+            Self::ItF3 => 6,
+            Self::CotC1 => 7,
+            Self::CotC2 => 8,
+            Self::CotC3 => 9,
+            Self::Unknown(slot) => usize::from(*slot),
+        }
+    }
+}
+
+impl PresetTreasure {
+    pub fn progress(&self) -> i32 {
+        match (self.superior_count, self.normal_count, self.inferior_count) {
+            (FULL_SET, _, _) => SUPERIOR_PROGRESS,
+            (_, FULL_SET, _) => NORMAL_PROGRESS,
+            (_, _, FULL_SET) => INFERIOR_PROGRESS,
+            _ => 0,
+        }
+    }
 }
 
 impl CertificationPreset {
     pub fn parse<B: AsRef<[u8]>>(bytes: B) -> Result<Self, CertificationPresetError> {
         let clean_json = scrub(bytes.as_ref());
         parse_inner(&clean_json)
+    }
+
+    pub fn treasure_progress(&self, treasures: &Treasures, held: &TreasureProgress) -> TreasureProgress {
+        let mut progress = *held;
+        let mut fixed: BTreeMap<usize, i32> = if self.treasure_default_none { (0..SLOTS).map(|slot| (slot, 0)).collect() } else { BTreeMap::new() };
+
+        for (kind, treasure) in &self.treasures {
+            fixed.insert(kind.slot(), treasure.progress());
+        }
+
+        for (slot, value) in fixed {
+            if slot == UNUSED_SLOT {
+                continue;
+            }
+
+            let (Some(row), Some(Some(data))) = (progress.get_mut(slot), treasures.slots.get(slot)) else {
+                continue;
+            };
+
+            for (cell, group) in row.iter_mut().zip(&data.groups) {
+                if !ENERGY.contains(&group.kind()) {
+                    *cell = value;
+                }
+            }
+        }
+
+        progress
     }
 }
 
@@ -318,6 +382,9 @@ fn extract_cannons(json_root: &Value, lineup: &mut CertificationPreset) {
 
 fn extract_treasures(json_root: &Value, lineup: &mut CertificationPreset) {
     let Some(base_value) = json_root.get("treasure") else { return; };
+
+    lineup.treasure_default_none = base_value.get("defaultData").and_then(|default| default.get("none")).is_some_and(truthy);
+
     let Some(data_value) = base_value.get("data") else { return; };
     let Some(treasure_map) = data_value.as_object() else { return; };
 
@@ -348,5 +415,43 @@ fn extract_treasures(json_root: &Value, lineup: &mut CertificationPreset) {
                 superior_count,
             },
         );
+    }
+}
+
+fn truthy(value: &Value) -> bool {
+    match value {
+        Value::Bool(flag) => *flag,
+        Value::Number(number) => number.as_f64().is_some_and(|held| held != 0.0),
+        Value::String(text) => !text.is_empty(),
+        Value::Null | Value::Array(_) | Value::Object(_) => false,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::chapter::treasure::{TreasureData, TreasureGroup, GROUPS};
+
+    // A run fixes every treasure set it names at the grade it was given, leaves the energy sets alone and wipes the rest.
+    #[test]
+    fn a_preset_fixes_the_treasures_it_names() {
+        let preset = CertificationPreset::parse(r#"{"treasure":{"data":{"0":{"count":["0","0","48"]},"1":{"count":["0","48","0"]},"3":{"count":["0","0","48"]}},"defaultData":{"none":true}}}"#).unwrap();
+        let group = |effect: i32| TreasureGroup { count: 1, stages: vec![0, -1], percent: 100, effect, ..TreasureGroup::default() };
+        let data = TreasureData { groups: vec![group(9), group(7), group(10)] };
+        let mut treasures = Treasures::default();
+
+        for slot in [0, 1, 2, 3] {
+            treasures.slots[slot] = Some(data.clone());
+        }
+
+        let held = [[50; GROUPS]; SLOTS];
+        let progress = preset.treasure_progress(&treasures, &held);
+
+        assert!(preset.treasure_default_none);
+        assert_eq!(progress[0][..3], [100, 50, 100], "energy keeps what the save had");
+        assert_eq!(progress[1][..3], [66, 50, 66]);
+        assert_eq!(progress[2][..3], [0, 50, 0], "a chapter the preset leaves out is wiped");
+        assert_eq!(progress[3][..3], [50, 50, 50], "the empty slot is never touched");
+        assert_eq!(CertificationPreset::default().treasure_progress(&treasures, &held), held);
     }
 }

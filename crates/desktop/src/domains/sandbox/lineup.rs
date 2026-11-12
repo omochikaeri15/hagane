@@ -437,6 +437,15 @@ impl State {
         self.inspector.set_banner_form(banner_form);
     }
 
+    pub(super) fn area(&self) -> Size {
+        self.area
+    }
+
+    pub(super) fn fit(&mut self, area: Size) {
+        self.area = area;
+        self.metrics = Metrics::fitting(area);
+    }
+
     pub fn set_treasure(&mut self, treasure: Bonus) {
         self.inspector.set_treasure(treasure);
     }
@@ -728,8 +737,7 @@ impl State {
                 Task::none()
             }
             Message::Measured(size) => {
-                self.area = size;
-                self.metrics = Metrics::fitting(size);
+                self.fit(size);
 
                 Task::none()
             }

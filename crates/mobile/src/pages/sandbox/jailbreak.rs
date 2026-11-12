@@ -9,6 +9,7 @@ use foundry::domains::cat::scanner::{self, CatEntry};
 use foundry::domains::sandbox::jailbreak::{Board, CLEAR_CONFIRM, CLEAR_PERMA_LABEL, CLEAR_TEMP_LABEL, Grants, Run, Runs, is_challenge_map};
 use foundry::domains::sandbox::{BENCH_SLOTS, Cell, Edge, LINEUP_SLOTS, Member};
 use foundry::systems::combat::registry::AbilityIcon;
+use foundry::systems::treasure::Bonus;
 
 use crate::pages::{Context, cats};
 use crate::roster::Entry;
@@ -199,7 +200,7 @@ pub fn sync_deck(ui: &AppWindow, state: &Shared, context: &Rc<Context>) {
     match viewed {
         Some(member) => {
             sandbox.set_unit_title(cats.iter().find(|cat| cat.id == member.id).map_or_else(|| format!("Unit {:03}", member.id), |cat| cat.display_name(member.form)).into());
-            show(ui, state, context, &member, board.grants(&run, member.id));
+            show(ui, state, context, &member, board.grants(&run, member.id), treasure(state, context, &board));
         }
         None if state.borrow().jail_viewing.is_some() => {
             state.borrow_mut().jail_viewing = None;
@@ -210,8 +211,12 @@ pub fn sync_deck(ui: &AppWindow, state: &Shared, context: &Rc<Context>) {
     }
 }
 
-fn show(ui: &AppWindow, state: &Shared, context: &Rc<Context>, member: &Member, grants: Grants) {
-    let unchanged = state.borrow().jail_shown.as_ref().is_some_and(|(shown, held)| shown == member && **held == grants);
+fn treasure(state: &Shared, context: &Rc<Context>, board: &Board) -> Bonus {
+    context.globals().map_or_else(Bonus::default, |globals| board.treasure(&globals.catalog, &state.borrow().saved().config.treasure.levels()))
+}
+
+fn show(ui: &AppWindow, state: &Shared, context: &Rc<Context>, member: &Member, grants: Grants, treasure: Bonus) {
+    let unchanged = state.borrow().jail_shown.as_ref().is_some_and(|(shown, held, kept)| shown == member && **held == grants && *kept == treasure);
     let (Some(cat), Some(pages)) = (state.borrow().cat(member.id), context.pages()) else {
         return;
     };
@@ -222,8 +227,8 @@ fn show(ui: &AppWindow, state: &Shared, context: &Rc<Context>, member: &Member, 
 
     let grants = Rc::new(grants);
 
-    state.borrow_mut().jail_shown = Some((member.clone(), Rc::clone(&grants)));
-    cats::seed_member(ui, &pages.cats, context, cats::Seed { cat: &cat, form: member.form, level: &member.level, talents: &member.talents, locked: true, grants: Some(grants) });
+    state.borrow_mut().jail_shown = Some((member.clone(), Rc::clone(&grants), treasure));
+    cats::seed_member(ui, &pages.cats, context, cats::Seed { cat: &cat, form: member.form, level: &member.level, talents: &member.talents, locked: true, grants: Some(grants), treasure: Some(treasure) });
 }
 
 fn bonuses(context: &Rc<Context>, board: &Board, run: &Run, query: &str, global: bool) -> Vec<JailBonus> {
@@ -459,10 +464,11 @@ pub fn tapped(ui: &AppWindow, state: &Shared, context: &Rc<Context>, cell: Cell)
         return;
     };
     let grants = Rc::new(board.grants(&run, member.id));
+    let treasure = treasure(state, context, &board);
 
     cats::set_edited(&pages.cats, None);
-    cats::seed_member(ui, &pages.cats, context, cats::Seed { cat: &cat, form: member.form, level: &member.level, talents: &member.talents, locked: true, grants: Some(Rc::clone(&grants)) });
-    state.borrow_mut().jail_shown = Some((member.clone(), grants));
+    cats::seed_member(ui, &pages.cats, context, cats::Seed { cat: &cat, form: member.form, level: &member.level, talents: &member.talents, locked: true, grants: Some(Rc::clone(&grants)), treasure: Some(treasure) });
+    state.borrow_mut().jail_shown = Some((member.clone(), grants, treasure));
     state.borrow_mut().jail_viewing = Some(member.id);
     ui.global::<Sandbox>().set_unit_locked(true);
     ui.global::<Sandbox>().set_unit_tab(Tab::Lineup.index());

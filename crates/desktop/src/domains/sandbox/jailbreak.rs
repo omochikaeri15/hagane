@@ -16,6 +16,7 @@ use foundry::domains::sandbox::{Arrangement, Cell, Lineup, Member, Placed, LINEU
 use foundry::domains::settings::Settings;
 use foundry::systems::combat::registry::AbilityIcon;
 use foundry::systems::combat::NameBook;
+use foundry::systems::treasure::{self, Catalog};
 use foundry::Source;
 
 use crate::app::state::AppState;
@@ -202,6 +203,7 @@ pub struct State {
     selected: usize,
     named: String,
     stale: bool,
+    treasure: treasure::Bonus,
 }
 
 impl Default for State {
@@ -209,6 +211,7 @@ impl Default for State {
         Self {
             inspector: cat::State::inspector(LIST_SCOPE, 0, popup::Kind::JailbreakAnimationExport).granting(),
             combos: combos::State::default(),
+            treasure: treasure::Bonus::default(),
             global_popup: popup::State::default(),
             cat_popup: popup::State::default(),
             unit_popup: popup::State::default(),
@@ -227,7 +230,7 @@ impl Default for State {
             drag: Drag::Idle,
             plan: None,
             area: Size::ZERO,
-            metrics: Metrics::FULL,
+            metrics: Metrics::with_actions(1.0),
             clicked: None,
             holding: Confirm::default(),
             icons: HashMap::new(),
@@ -261,6 +264,15 @@ impl State {
 
     pub fn ready(&self) -> bool {
         self.board.is_some()
+    }
+
+    pub(super) fn area(&self) -> Size {
+        self.area
+    }
+
+    pub(super) fn fit(&mut self, area: Size) {
+        self.area = area;
+        self.metrics = Metrics::fitting_actions(area);
     }
 
     pub fn global_open(&self) -> bool {
@@ -409,8 +421,18 @@ impl State {
         }
     }
 
+    pub fn retreasure(&mut self, catalog: &Catalog, config: &Config) {
+        let Some(board) = self.board.as_ref() else {
+            return;
+        };
+
+        self.treasure = board.treasure(catalog, &config.treasure.levels());
+        self.inspector.set_treasure(self.treasure);
+    }
+
     fn sync(&mut self, cats: &[CatEntry], config: &Config, ctx: GlobalContext<'_>) -> Task<Message> {
         self.settle(config);
+        self.retreasure(&ctx.vault.vds.treasures.catalog(&ctx.vault.vfs), config);
 
         let Some(board) = self.board.as_ref() else {
             return Task::none();
@@ -589,7 +611,7 @@ impl State {
                     return Task::none();
                 }
 
-                self.inspector.update(msg, settings, app_state, ctx).map(Message::Cat)
+                self.inspector.update(msg, settings, app_state, GlobalContext { treasure: &self.treasure, ..ctx }).map(Message::Cat)
             }
             Message::Combos(msg) => {
                 self.combos.update(msg);
@@ -633,8 +655,7 @@ impl State {
                 Task::none()
             }
             Message::Measured(size) => {
-                self.area = size;
-                self.metrics = Metrics::fitting_actions(size);
+                self.fit(size);
 
                 Task::none()
             }
@@ -890,7 +911,7 @@ impl State {
         let member = self.lineup.get(self.lineup.find(self.viewing.filter(|_| self.board.is_some())?)?)?;
         let title = self.inspector.cat(member.id).map_or("Unit", |cat| cat.names.get(member.form).and_then(Option::as_deref).unwrap_or("Unit"));
 
-        Some(self.unit_popup.view(title, UNIT_POPUP, window, Message::UnitPopup, move || self.inspector.detail_view(settings, app_state, ctx, None).map(Message::Cat), None))
+        Some(self.unit_popup.view(title, UNIT_POPUP, window, Message::UnitPopup, move || self.inspector.detail_view(settings, app_state, GlobalContext { treasure: &self.treasure, ..ctx }, None).map(Message::Cat), None))
     }
 
     pub fn export_view(&self, window: Size) -> Option<Element<'_, Message>> {

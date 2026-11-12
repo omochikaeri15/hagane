@@ -5,7 +5,7 @@ use tracing::trace;
 
 use crate::systems::combat::{AbilityGroups, AbilityItem, CustomIcon};
 use crate::domains::cat::game::talents;
-use crate::systems::combat::registry::{self, AbilityIcon, DisplayGroup, FormatContext};
+use crate::systems::combat::registry::{self, AbilityIcon, DisplayGroup, FormatContext, StatContext};
 use crate::systems::combat::RenderContext;
 
 const TRAIT: usize = 0;
@@ -110,6 +110,17 @@ pub fn collect_ability_data(ctx: &RenderContext<'_>) -> AbilityGroups {
         }
 
         groups[HEADLINE_2].append(&mut talent_headline);
+    }
+
+    for (identity, stat, cut) in [(Identity::CostDown, &registry::STAT_COST, ctx.final_stats.run_cost_cut), (Identity::RecoverSpeedUp, &registry::STAT_COOLDOWN, ctx.final_stats.run_recharge_cut)] {
+        let Some(border_id) = run_border(ctx, identity) else {
+            continue;
+        };
+        let icon = registry::get_display_def(identity).icon;
+        let value = (stat.get_value)(&StatContext::cat(ctx.final_stats, 0, None, ctx.global.treasure));
+        let text = format!("{}: {} (-{cut}%)", stat.display_name, stat.under_talent(value));
+
+        groups[HEADLINE_2].push(AbilityItem { identity, icon_id: standard_icon(icon), text, custom_icon: custom_icon(icon), border_id: Some(border_id) });
     }
 
     let [group_trait, headline_1, headline_2, body_1, body_2, footer] = groups;

@@ -1,12 +1,12 @@
 use crate::Fault;
 
 use super::{
-    AppContext, AssetStream, load_gatya_chance_animation_tsv, load_gatya_data_set_csv,
+    AbilityRow, AppContext, AssetStream, load_gatya_chance_animation_tsv, load_gatya_data_set_csv,
     open_asset_stream, parse_gatya_item_row, read_csv_cell, read_csv_row,
 };
 
 pub fn load_gatya_ability_csv(ctx: &mut AppContext) -> Result<(), Fault> {
-    ctx.ability_data_rows = [[0; 5]; 10];
+    ctx.set_block_at::<0xc8>(AppContext::ABILITY_DATA, [0; 0xc8])?;
 
     let bytes = open_asset_stream(ctx, b"AbilityData.csv", 0, 0)?.unwrap_or_default();
     let stm = &mut AssetStream::new(&bytes, b'\n');
@@ -18,14 +18,9 @@ pub fn load_gatya_ability_csv(ctx: &mut AppContext) -> Result<(), Fault> {
         let mut column = 0usize;
 
         while column != 5 {
-            if let Some(slot) = ctx
-                .ability_data_rows
-                .get_mut(row)
-                .and_then(|cells| cells.get_mut(column))
-            {
-                *slot = read_csv_cell(stm, column as i32) as i32;
-            }
+            let cell = read_csv_cell(stm, column as i32) as i32;
 
+            ctx.set_i32_at(AppContext::ABILITY_DATA + row * AbilityRow::STRIDE + column * 4, cell)?;
             column += 1;
         }
 

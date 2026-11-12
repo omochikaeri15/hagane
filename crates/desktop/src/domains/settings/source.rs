@@ -14,21 +14,12 @@ use foundry::domains::settings::{FilesSettings, Settings as CoreSettings, Update
 use crate::app::state::SourceState;
 use crate::app::theme;
 use crate::common::feedback::{Slot, CONFIRM_SHORT_LABEL};
-use crate::common::{digest, watcher};
+use crate::common::watcher;
 use crate::widget::{hover_hint, popup, smooth_scroll};
 
 use super::disk::format_size;
 
-const ACKNOWLEDGMENT: &str = r#"
-The purpose of this agreement is to ensure that you, the User, are aware of the potential quirks regarding the use of a Provider.
-By accepting this agreement, you must have read, understood, and accepted the following facts about Providers:
-
-- Providers are incompatible with the "Mining" page, and will wipe its data.
-- Providers wipe the import manifest, so the next import has to check every file again.
-- Providers may not keep recent or up to date game data.
-
-You can accept the agreement by clicking the "Agree" button below. Selecting "Disagree" will close this pop-up.
-"#;
+const BULLET: &str = "- ";
 const POPUP: popup::Spec = popup::Spec::new(popup::Kind::Source, Size::new(460.0, 270.0));
 const INTERRUPTED_POPUP: popup::Spec = popup::Spec::new(popup::Kind::Source, Size::new(460.0, 200.0));
 const TERMS_POPUP: popup::Spec = popup::Spec::new(popup::Kind::Provider, Size::new(560.0, 420.0));
@@ -121,13 +112,13 @@ impl Default for State {
             refreshed: false,
             terms_open: false,
             terms_popup: popup::State::default(),
-            terms: crate::common::markdown::parse(ACKNOWLEDGMENT),
+            terms: crate::common::markdown::parse(&source::MINING_TERMS.text(BULLET)),
         }
     }
 }
 
 fn agreement() -> String {
-    digest::hash(&[ACKNOWLEDGMENT])
+    source::MINING_TERMS.agreement()
 }
 
 fn uploaded(modified: &str) -> &str {
