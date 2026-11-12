@@ -1,2 +1,2 @@
 Bug Fixes:
-- Changed a stale link to a newer one.
+- Fixed a bug that caused some units to display the wrong cost on stats pages for roguelike mode.

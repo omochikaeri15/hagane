@@ -42,13 +42,38 @@ pub fn roguelike_form(total: i32, forms: i32) -> i32 {
     reached.min(forms.saturating_sub(1))
 }
 
-pub fn roguelike_grant(stats: &mut Entity, ability: i32, values: &[i32], maxed: bool) {
+pub fn roguelike_grants(stats: &mut Entity, grants: &[(i32, Vec<i32>, bool)]) {
+    for (index, (ability, _, _)) in grants.iter().enumerate() {
+        if grants[..index].iter().any(|(earlier, _, _)| earlier == ability) {
+            continue;
+        }
+
+        let mut total: Vec<i32> = Vec::new();
+        let mut maxed = true;
+
+        for (_, values, full) in grants.iter().filter(|(other, _, _)| other == ability) {
+            if total.len() < values.len() {
+                total.resize(values.len(), 0);
+            }
+
+            for (cell, value) in total.iter_mut().zip(values) {
+                *cell = cell.saturating_add(*value);
+            }
+
+            maxed &= *full;
+        }
+
+        grant(stats, *ability, &total, maxed);
+    }
+}
+
+fn grant(stats: &mut Entity, ability: i32, values: &[i32], maxed: bool) {
     let first = values.first().copied().unwrap_or(0);
     let cut = WHOLE.saturating_sub(first);
     let raised = usize::try_from(ability.saturating_sub(FIRST_EFFECT_UP)).ok().filter(|index| *index < stats.effect_ups.len());
     let granted = match ability {
         COST_DOWN | COST_DISCOUNT => {
-            stats.eoc1_cost = cut.saturating_mul(stats.eoc1_cost.max(0)) / WHOLE;
+            stats.eoc1_cost = (cut.saturating_mul(stats.eoc1_cost.max(0)) / WHOLE).max(0);
 
             None
         }
@@ -639,21 +664,39 @@ mod tests {
 
         let mut stats = Entity { eoc1_cost: 75, cooldown: 300, ..Entity::default() };
 
-        roguelike_grant(&mut stats, 1012, &[45], false);
-        roguelike_grant(&mut stats, 1013, &[15], false);
-        roguelike_grant(&mut stats, 1010, &[], true);
-        roguelike_grant(&mut stats, 1009, &[2, 60], false);
+        roguelike_grants(&mut stats, &[(1012, vec![45], false), (1013, vec![15], false), (1010, vec![], true), (1009, vec![2, 60], false)]);
 
         assert_eq!((stats.eoc1_cost, stats.cooldown, stats.insane_damage), (41, 255, 1), "a cheap cat keeps a price, it does not round down to nothing");
-        roguelike_grant(&mut stats, 1008, &[100], true);
-
-        roguelike_grant(&mut stats, 1005, &[20], false);
+        roguelike_grants(&mut stats, &[(1008, vec![100], true), (1005, vec![20], false)]);
 
         assert_eq!((stats.extra_spawn, stats.extra_spawn_delay, stats.kill_attack_up), (2, 60, 100));
         assert_eq!(stats.effect_ups, [0, 0, 0, 0, 20, 0, 0], "1005 is the slow one");
         assert_eq!(stats.run_marks, vec![(Identity::InsaneDamage, true), (Identity::ExtraSpawn, false), (Identity::KillAttackUp, true), (Identity::SlowUp, false)], "a price or a recharge is a number, not an ability to mark");
         assert!(skills[&7].percent() && !RoguelikeBonusBuffSkill { ability_id: Some(1009), ..RoguelikeBonusBuffSkill::default() }.percent());
         assert!(RoguelikeBonusBuffSkill { ability_id: Some(1012), ..RoguelikeBonusBuffSkill::default() }.percent());
+    }
+
+    // The game adds every bonus for one ability into a single percentage before it cuts, so two cuts never compound.
+    #[test]
+    fn bonuses_for_one_ability_add_up_before_they_cut() {
+        let mut stats = Entity { eoc1_cost: 3600, cooldown: 300, ..Entity::default() };
+
+        roguelike_grants(&mut stats, &[(1012, vec![75], true), (1013, vec![15], false), (1012, vec![20], true), (1013, vec![60], true)]);
+
+        assert_eq!((stats.eoc1_cost, stats.cooldown), (180, 75));
+
+        let mut free = Entity { eoc1_cost: 3600, ..Entity::default() };
+
+        roguelike_grants(&mut free, &[(1012, vec![75], true), (1012, vec![60], true)]);
+
+        assert_eq!(free.eoc1_cost, 0, "past a full cut the price bottoms out at nothing");
+
+        let mut spawns = Entity::default();
+
+        roguelike_grants(&mut spawns, &[(1009, vec![1, 60], true), (1009, vec![2, 60], false)]);
+
+        assert_eq!((spawns.extra_spawn, spawns.extra_spawn_delay), (3, 120));
+        assert_eq!(spawns.run_marks, vec![(Identity::ExtraSpawn, false)], "one mark per ability, gold only when every bonus behind it is maxed");
     }
 
     // Each map draws from its own groups, which is what keeps two maps' copies of a bonus apart.
