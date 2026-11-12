@@ -1,2 +1,2 @@
 Bug Fixes:
-- Fixed a bug that caused some units to display the wrong cost on stats pages for roguelike mode.
+- Fixed a few visual and behaviorial roguelike and treasure bugs.

@@ -109,12 +109,12 @@ pub fn roguelike_begin_run(ctx: &mut AppContext, map_id: i32, crown: i32) -> Res
             notice = 2;
         }
 
-        progress.borrow_mut().pending.push_back(RoguelikePending { kind: notice, unknown: [0; 9] });
+        progress.borrow_mut().pending.push_back(RoguelikePending { kind: notice, stage: 0, next_draw: 0, bonus_kind: 0, ids: Vec::new() });
     }
 
-    if ctx.roguelike.start_notice_queued == 0 {
-        progress.borrow_mut().pending.push_back(RoguelikePending { kind: 3, unknown: [0; 9] });
-        ctx.roguelike.start_notice_queued = 1;
+    if ctx.roguelike.notice_step == 0 {
+        progress.borrow_mut().pending.push_back(RoguelikePending { kind: 3, stage: 0, next_draw: 0, bonus_kind: 0, ids: Vec::new() });
+        ctx.roguelike.notice_step = 1;
     }
 
     let mut member = 0usize;

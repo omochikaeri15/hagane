@@ -42,7 +42,10 @@ pub struct RoguelikeBonus {
 #[derive(Clone, Default, PartialEq, Eq, Debug)]
 pub struct RoguelikePending {
     pub kind: i32,
-    pub unknown: [i32; 9],
+    pub stage: i32,
+    pub next_draw: i32,
+    pub bonus_kind: i32,
+    pub ids: Vec<i32>,
 }
 
 #[derive(Clone, Default, PartialEq, Eq, Debug)]
@@ -162,7 +165,7 @@ pub struct Roguelike {
     pub settings: BTreeMap<i32, RoguelikeEvent>,
     pub runs: BTreeMap<i32, RoguelikeRun>,
     pub lineup: LineupPreset,
-    pub start_notice_queued: i32,
+    pub notice_step: i32,
     pub bonus_tutorial_seen: bool,
     pub clear_tutorial_seen: bool,
     pub lose_tutorial_seen: bool,

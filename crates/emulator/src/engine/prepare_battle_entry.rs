@@ -10,9 +10,9 @@ use super::{
 const BATTLE_INTRO_START: i32 = 0x726;
 
 pub fn prepare_battle_entry(ctx: &mut AppContext) -> Result<bool, Fault> {
-    ctx.set_i32_at(AppContext::BATTLE_ENTRY_RESET, 0)?;
+    ctx.set_block_at::<1>(AppContext::BATTLE_ENTRY_RESET, [0])?;
     ctx.set_block_at::<1>(AppContext::CURTAIN_ACTIVE, [1])?;
-    ctx.set_block_at::<1>(AppContext::CURTAIN_STYLE, [1])?;
+    ctx.set_i32_at(AppContext::CURTAIN_STYLE, 1)?;
     altar_recompute(ctx)?;
     load_battle_snapshot(ctx)?;
     load_legend_quest_csvs(ctx)?;

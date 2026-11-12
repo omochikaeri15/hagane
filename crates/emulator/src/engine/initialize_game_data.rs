@@ -76,7 +76,7 @@ pub fn initialize_game_data(ctx: &mut AppContext) -> Result<bool, Fault> {
     let t_unit = open_asset_stream(ctx, b"t_unit.csv", 0, 0)?.unwrap_or_default();
 
     load_enemy_combat_csv(ctx, &mut AssetStream::new(&t_unit, b'\n'))?;
-    ctx.set_i32_at(AppContext::ALL_MAPS_OPEN, 0)?;
+    ctx.set_block_at::<1>(AppContext::ALL_MAPS_OPEN, [0])?;
 
     for chapter in 0..5i32 {
         ctx.set_i32_at(AppContext::SAVED_MAP_TYPE, chapter)?;
@@ -112,7 +112,7 @@ pub fn initialize_game_data(ctx: &mut AppContext) -> Result<bool, Fault> {
     }
 
     ctx.set_i32_at(AppContext::SAVED_MAP_TYPE, 0)?;
-    ctx.set_i32_at(AppContext::ALL_MAPS_OPEN, 1)?;
+    ctx.set_block_at::<1>(AppContext::ALL_MAPS_OPEN, [1])?;
 
     if !load_treasure_data_csv(ctx)? {
         return Ok(false);

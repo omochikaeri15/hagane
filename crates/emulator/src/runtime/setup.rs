@@ -261,9 +261,9 @@ pub fn is_extra_entry(ctx: &AppContext) -> Result<bool, Fault> {
 }
 
 pub fn prepare_extra_entry(ctx: &mut AppContext) -> Result<bool, Fault> {
-    ctx.set_i32_at(AppContext::BATTLE_ENTRY_RESET, 0)?;
+    ctx.set_block_at::<1>(AppContext::BATTLE_ENTRY_RESET, [0])?;
     ctx.set_block_at::<1>(AppContext::CURTAIN_ACTIVE, [1])?;
-    ctx.set_block_at::<1>(AppContext::CURTAIN_STYLE, [1])?;
+    ctx.set_i32_at(AppContext::CURTAIN_STYLE, 1)?;
     altar_recompute(ctx)?;
     texture_cache_load(ctx, b"img015.png", b"img015.imgcut", 0x2601)?;
     ctx.set_i32_at(AppContext::BATTLE_INTRO_FRAME, BATTLE_INTRO_START)?;

@@ -76,7 +76,7 @@ pub fn app_on_draw(ctx: &mut AppContext) -> Result<(), Fault> {
                     set_tint(draw_context(&mut ctx.draw)?, 0, 0, 0, 0xff);
                     fill_rect(draw_context(&mut ctx.draw)?, 0, 0i32.wrapping_sub(shift), width, height);
 
-                    let style = ctx.u8_at(AppContext::CURTAIN_STYLE)? as i32;
+                    let style = ctx.i32_at(AppContext::CURTAIN_STYLE)?;
 
                     draw_screen_transition(ctx, style)?;
                 }
