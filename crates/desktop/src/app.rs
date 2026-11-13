@@ -916,6 +916,7 @@ impl HaganeApp {
 
         self.stage_state.invalidate_assets(&items, &enemies, stage_coarse, &self.vault);
         self.editor.forget_enemies(enemies.union(&enemy_data));
+        self.refresh_finder();
 
         self.index_dirty = true;
         self.last_change_at = Some(Instant::now());
@@ -1047,6 +1048,68 @@ impl HaganeApp {
         info!(key, "Scanner caches drifted from the current settings, rescanning");
         self.vault.vds.clear();
         self.rescan_units()
+    }
+
+    fn open_pick(&mut self, pick: editor::Pick) -> Task<Message> {
+        let Some(planned) = editor::chosen(self, &pick) else {
+            warn!(?pick, "The mod editor found nothing to open for this entry");
+
+            return self.editor.choice_failed().map(Message::Editor);
+        };
+
+        if self.editor.begin_pick(pick, planned, &self.vault.vfs) {
+            return Task::none();
+        }
+
+        self.editor.choice_failed().map(Message::Editor)
+    }
+
+    fn reset_pick(&mut self, pick: editor::Pick) -> Task<Message> {
+        self.editor.flush_mod(&self.vault.vfs);
+
+        let Some(planned) = editor::chosen(self, &pick) else {
+            warn!(?pick, "The mod editor found nothing to sync for this entry");
+
+            return self.editor.reset_failed().map(Message::Editor);
+        };
+
+        if !self.editor.reset_pick(planned, &self.vault.vfs) {
+            warn!(?pick, "The mod editor could not sync this entry with game");
+
+            return self.editor.reset_failed().map(Message::Editor);
+        }
+
+        self.editor.unmark();
+        self.sync_editor(false);
+
+        Task::none()
+    }
+
+    fn refresh_finder(&mut self) {
+        if !self.editor.finding() {
+            return;
+        }
+
+        let catalog = editor::catalog(self);
+
+        self.editor.refind(catalog);
+        self.mark_finder();
+    }
+
+    fn mark_finder(&mut self) {
+        let Some(target) = self.mods_state.editable_mod() else {
+            return;
+        };
+
+        let wanted = self.editor.unmarked();
+
+        if wanted.is_empty() {
+            return;
+        }
+
+        let marks = editor::marks(self, &wanted, &target);
+
+        self.editor.marked(marks);
     }
 
     fn sync_editor(&mut self, force: bool) {
@@ -1528,6 +1591,11 @@ impl HaganeApp {
                 let task = self.cat_state.update(msg, &mut self.settings, &mut self.app_state, global_ctx).map(Message::Cat);
                 self.cat_state.sync_state(&mut self.app_state.cat);
                 self.sync_editor(loaded);
+
+                if loaded {
+                    self.refresh_finder();
+                }
+
                 self.sync_popup(ActivePopup::CatExport, self.cat_state.export_popup_open());
                 self.sync_popup(ActivePopup::CatFilter, self.cat_state.filter_popup_open());
 
@@ -1567,6 +1635,11 @@ impl HaganeApp {
                 }
                 self.enemy_state.sync_state(&mut self.app_state.enemy);
                 self.sync_editor(enemies_loaded);
+
+                if enemies_loaded {
+                    self.refresh_finder();
+                }
+
                 self.sync_popup(ActivePopup::EnemyFilter, self.enemy_state.filter_popup_open());
                 self.sync_popup(ActivePopup::EnemyExport, self.enemy_state.export_popup_open());
 
@@ -1606,6 +1679,11 @@ impl HaganeApp {
                 self.sync_popup(ActivePopup::StageAttributes, self.stage_state.attributes_popup_open());
                 self.sync_editor(stages_loaded);
 
+                if stages_loaded {
+                    self.refresh_finder();
+                }
+
+
                 let task = Task::batch([task, self.sync_sandbox_rules()]);
 
                 if stages_loaded {
@@ -1624,11 +1702,29 @@ impl HaganeApp {
 
                 task
             }
+            Message::Mod(mods::Message::EditMod) => {
+                if self.mods_state.editable_mod().is_none() {
+                    return Task::none();
+                }
+
+                let catalog = (!self.editor.finding()).then(|| editor::catalog(self));
+
+                self.editor.find(catalog);
+                self.mark_finder();
+
+                Task::none()
+            }
             Message::Mod(msg) => {
                 let mount_settled = matches!(msg, mods::Message::MountFinished { .. });
+
+                if msg.leaves() {
+                    self.editor.flush_mod(&self.vault.vfs);
+                }
+
                 let mounted = self.mods_state.active_mod();
                 let task = self.mods_state.update(msg, &self.settings, &self.vault).map(Message::Mod);
                 self.mods_state.sync_state(&mut self.app_state.mods);
+                self.editor.follow_mod(self.mods_state.editable_mod().as_deref(), &self.vault.vfs);
 
                 if self.mods_state.active_mod() != mounted {
                     self.studio_state.remount(self.mods_state.active_mod());
@@ -1871,6 +1967,22 @@ impl HaganeApp {
                     .editor
                     .update(msg, &self.vault.vfs, &mut self.studio_state)
                     .map(Message::Editor);
+
+                let target = self.editor.choosing().then(|| self.mods_state.editable_mod()).flatten();
+
+                let task = match self.editor.take_choice(target) {
+                    Some(pick) => Task::batch([task, self.open_pick(pick)]),
+                    None => task,
+                };
+
+                let target = self.editor.resetting().then(|| self.mods_state.editable_mod()).flatten();
+
+                let task = match self.editor.take_reset(target) {
+                    Some(pick) => Task::batch([task, self.reset_pick(pick)]),
+                    None => task,
+                };
+
+                self.mark_finder();
 
                 let dropped = self.editor.take_dropped().map(|cell| {
                     self.update(Message::Sandbox(sandbox::Message::dropping(cell)))

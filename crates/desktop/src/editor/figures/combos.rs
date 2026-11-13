@@ -63,7 +63,7 @@ pub(super) const RETIRED: i32 = -1;
 const REMOVE_LABEL: &str = "Remove Combo";
 const NOTHING_TO_REMOVE: &str = "This combo is not in the file yet";
 
-const NEW_COMBO: &str = "New Combo\u{2026}";
+pub(crate) const NEW_COMBO: &str = "New Combo\u{2026}";
 
 const EMPTY_SLOT: &str = "+";
 const CLEAR_SLOT: &str = "None";
@@ -164,11 +164,15 @@ fn listing(draft: &Draft, vault: &Vault) -> Vec<Labeled> {
     held
 }
 
-fn titled(rows: &[NyancomboData], names: &[Option<String>], line: usize) -> String {
+pub(crate) fn titled(rows: &[NyancomboData], names: &[Option<String>], line: usize) -> String {
     if let Some(name) = spoken(names, line) {
         return name;
     }
 
+    combo_key(rows, line)
+}
+
+pub(crate) fn combo_key(rows: &[NyancomboData], line: usize) -> String {
     rows.get(line).map_or_else(|| keyed(RETIRED, RETIRED), |row| keyed(row.series, row.combo_id))
 }
 

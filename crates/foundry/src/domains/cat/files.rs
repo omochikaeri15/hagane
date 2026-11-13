@@ -57,6 +57,15 @@ pub fn form_name(form: usize) -> &'static str {
     }
 }
 
+pub fn form_letter(form: usize) -> char {
+    match form {
+        0 => 'f',
+        1 => 'c',
+        2 => 's',
+        _ => 'u',
+    }
+}
+
 pub fn anim_base_filename(id: u32, form: usize, egg_ids: (i32, i32)) -> String {
     let (egg_norm, egg_evol) = egg_ids;
     let form_char = match form { 0 => "f", 1 => "c", 2 => "s", _ => "u" };
@@ -99,7 +108,7 @@ pub fn banner_file(id: u32, form: usize, egg_ids: (i32, i32)) -> String {
     format!("{}.png", image_stem(AssetType::Banner, id, form, egg_ids))
 }
 
-pub(crate) fn icon_file(id: u32, form: usize, egg_ids: (i32, i32)) -> String {
+pub fn icon_file(id: u32, form: usize, egg_ids: (i32, i32)) -> String {
     format!("{}.png", image_stem(AssetType::Icon, id, form, egg_ids))
 }
 

@@ -12,6 +12,7 @@ pub const HEADER_SEPARATOR: &str = " :: ";
 
 pub const RADIUS_SM: f32 = 4.0;
 pub const RADIUS_MD: f32 = 6.0;
+pub const CARD_BORDER_WIDTH: f32 = 3.0;
 pub const RADIUS_LG: f32 = 8.0;
 
 const DISABLED_BUTTON_SHADE: f32 = 0.6;
@@ -451,7 +452,7 @@ pub fn card_container_outlined(theme: &Theme) -> container::Style {
     let border_color = lighten_color(theme.palette().background, 0.4);
 
     container::Style {
-        border: Border { color: border_color, width: 3.0, radius: Radius::from(RADIUS_MD) },
+        border: Border { color: border_color, width: CARD_BORDER_WIDTH, radius: Radius::from(RADIUS_MD) },
         ..card_container(theme)
     }
 }

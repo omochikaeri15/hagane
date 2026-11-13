@@ -80,6 +80,8 @@ pub enum Kind {
     StageFilter,
     ModImport,
     ModExport,
+    ModEdit,
+    Artwork,
     CatAnimationExport,
     EnemyAnimationExport,
     UtilityAnimationExport,
@@ -138,7 +140,7 @@ pub enum Kind {
     JailbreakFilter,
 }
 
-pub(crate) const KIND_COUNT: usize = 61;
+pub(crate) const KIND_COUNT: usize = 63;
 
 const KINDS: [Kind; KIND_COUNT] = [
     Kind::CatFilter,
@@ -146,6 +148,8 @@ const KINDS: [Kind; KIND_COUNT] = [
     Kind::StageFilter,
     Kind::ModImport,
     Kind::ModExport,
+    Kind::ModEdit,
+    Kind::Artwork,
     Kind::CatAnimationExport,
     Kind::EnemyAnimationExport,
     Kind::UtilityAnimationExport,
@@ -214,6 +218,8 @@ impl Kind {
             Self::UtilityAnimationSettings => "utility_animation_settings",
             Self::ModImport => "mod_import",
             Self::ModExport => "mod_export",
+            Self::ModEdit => "mod_edit",
+            Self::Artwork => "artwork",
             Self::CatAnimationExport => "cat_animation_export",
             Self::EnemyAnimationExport => "enemy_animation_export",
             Self::Keys => "keys",

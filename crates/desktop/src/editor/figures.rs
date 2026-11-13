@@ -11,6 +11,7 @@ mod talents;
 mod unitbuy;
 mod unitlevel;
 
+pub(crate) use combos::{combo_key, titled as combo_title, NEW_COMBO};
 pub(crate) use itembuy::ITEM_ID_COLUMN;
 pub(crate) use mapdata::MAP_HEADER_LINES;
 pub(crate) use mapdrops::{MATERIAL_FIRST as MAP_DROPS_MATERIALS, WIDTH as MAP_DROPS_WIDTH};
@@ -35,6 +36,8 @@ use foundry::{Vault, Vfs};
 
 use crate::common::feedback::Slot;
 use crate::widget::popup;
+
+use super::{Mark, Reader};
 
 use cards::CARD_WIDTH;
 use resolved::{Face, Rule};
@@ -776,6 +779,52 @@ fn write_now(path: &Path, body: &[u8], stamp: Stamp) -> Option<Stamp> {
         .ok()
 }
 
+fn located(plan: &Plan, lines: &[String], delimiter: char) -> Option<usize> {
+    plan.address
+        .locate(lines, delimiter)
+        .or_else(|| plan.schema.switches().then(|| plan.address.nearest(lines, delimiter)).flatten())
+}
+
+fn entry(plan: &Plan, body: &str) -> Option<String> {
+    let delimiter = Separator::detect(body).unwrap_or(Separator::Comma).char();
+    let lines: Vec<String> = body.lines().map(str::to_owned).collect();
+    let row = located(plan, &lines, delimiter)?;
+
+    let mut held: Vec<&str> =
+        plan.schema.chrome().iter().filter_map(|(line, _)| lines.get(*line).map(String::as_str)).collect();
+
+    held.push(lines.get(row)?);
+
+    Some(held.join("\n"))
+}
+
+pub(super) fn mark(plan: &Plan, vfs: &Vfs, reader: &mut Reader) -> Mark {
+    let Some(held) = plan.target_mod.as_deref().and_then(|name| mods::find(vfs, name, &plan.game)) else {
+        return Mark::Same;
+    };
+
+    let ours = reader.text(&held).and_then(|body| entry(plan, &body));
+    let theirs = reader.text(&plan.game).and_then(|body| entry(plan, &body));
+
+    Mark::of(ours, theirs)
+}
+
+pub(super) fn reset(plan: Plan, vfs: &Vfs) -> bool {
+    let Some(mut draft) = Draft::load(plan, vfs) else {
+        return false;
+    };
+
+    draft.sync();
+
+    if draft.failed {
+        return false;
+    }
+
+    draft.persist_now(vfs);
+
+    !draft.failed
+}
+
 impl Draft {
     fn load(plan: Plan, vfs: &Vfs) -> Option<Draft> {
         let read_from = plan.source(vfs);
@@ -800,10 +849,7 @@ impl Draft {
             false => Vec::new(),
         };
 
-        let found = plan
-            .address
-            .locate(&lines, delimiter)
-            .or_else(|| switches.then(|| plan.address.nearest(&lines, delimiter)).flatten());
+        let found = located(&plan, &lines, delimiter);
         let absent = found.is_none();
 
         let Some(row) = found.or_else(|| plan.address.insertion(&lines, delimiter)) else {

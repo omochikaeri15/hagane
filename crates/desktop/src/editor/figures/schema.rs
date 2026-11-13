@@ -15,7 +15,7 @@ use crate::app::Page;
 
 use super::{mapdata, mapdrops};
 
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
 pub enum Subject {
     Cat,
     Enemy,

@@ -19,6 +19,8 @@ use crate::app::{theme, Page};
 use crate::common::feedback::{Slot, CONFIRM_LABEL};
 use crate::widget::{popup, smooth_scroll};
 
+use super::{Mark, Reader};
+
 const FIELD_HEIGHT: f32 = INPUT_SIZE * 1.3 + PADDING * 2.0;
 const SYNC_HEIGHT: f32 = INPUT_SIZE * 1.3 + (PADDING + 1.0) * 2.0;
 
@@ -105,7 +107,7 @@ pub(super) const SUBJECTS: [Subject; COUNT] = [
     Subject::EnemyGlossary,
 ];
 
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
 pub enum Subject {
     Explanation,
     EnemyName,
@@ -284,6 +286,10 @@ pub(crate) struct Plan {
 impl Plan {
     pub(super) fn subject(&self) -> Subject {
         self.subject
+    }
+
+    pub(super) fn file(&self) -> &str {
+        &self.file
     }
 
     pub(super) fn over(self, rows: Vec<usize>) -> Plan {
@@ -510,6 +516,40 @@ impl State {
             None,
         ))
     }
+}
+
+fn entry(plan: &Plan, body: &str) -> Option<Vec<String>> {
+    let delimiter = plan.delimiter();
+    let row = seat(plan, body, delimiter)?;
+
+    Some(parse(body, row, plan.skip(), delimiter, plan.subject).1)
+}
+
+pub(super) fn mark(plan: &Plan, vfs: &Vfs, reader: &mut Reader) -> Mark {
+    let Some(held) = plan.target_mod.as_deref().and_then(|name| mods::find(vfs, name, Path::new(&plan.file))) else {
+        return Mark::Same;
+    };
+
+    let ours = reader.text(&held).and_then(|body| entry(plan, &body));
+    let theirs = reader.text(&plan.game).and_then(|body| entry(plan, &body));
+
+    Mark::of(ours, theirs)
+}
+
+pub(super) fn reset(plan: Plan, vfs: &Vfs) -> bool {
+    let Some(mut draft) = Draft::load(plan, vfs) else {
+        return false;
+    };
+
+    draft.restore();
+
+    if draft.failed {
+        return false;
+    }
+
+    draft.persist_now(vfs);
+
+    !draft.failed
 }
 
 fn stage_glossary(vfs: &Vfs, mod_name: &str) {

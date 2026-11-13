@@ -24,7 +24,7 @@ use foundry::Vault;
 use crate::app::state::ModsListState;
 use crate::app::theme;
 use crate::common::feedback::Slot;
-use crate::widget::section;
+use crate::widget::{hover_hint, section};
 
 const RULE_THICKNESS: f32 = 1.0;
 const RULE_PADDING: f32 = 8.0;
@@ -32,7 +32,7 @@ const SECTION_GAP: f32 = 16.0;
 
 const SCROLLBAR_GAP: f32 = 2.0;
 
-const MOD_LIST_WIDTH: f32 = 200.0;
+const MOD_LIST_WIDTH: f32 = 183.0;
 const SIDEBAR_PADDING: f32 = 8.0;
 
 const POPUP_PADDING: f32 = 16.0;
@@ -43,9 +43,15 @@ const DETAILS_PADDING: f32 = 16.0;
 const FIELD_LABEL_WIDTH: f32 = 90.0;
 const FIELD_GAP: f32 = 8.0;
 const FIELD_ROW_SPACING: f32 = 8.0;
-const CONTENT_WIDTH: f32 = 515.0;
+const ACTION_WIDTH: f32 = 100.0;
+const ACTION_GAP: f32 = 8.0;
+const ACTION_PADDING: [f32; 2] = [8.0, 6.0];
+const ACTION_COUNT: f32 = 5.0;
+const CONTENT_WIDTH: f32 = ACTION_WIDTH * ACTION_COUNT + ACTION_GAP * (ACTION_COUNT - 1.0);
 
 const CARD_PADDING: f32 = 12.0;
+
+const EDIT_LOCKED_HINT: &str = "Enable this mod to edit it";
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum MetadataField {
@@ -66,6 +72,7 @@ pub enum Message {
     CommitRename,
     ToggleModStatus(String),
     OpenFolder(String),
+    EditMod,
     UpdateMetadata(MetadataField, String),
     DescriptionAction(text_editor::Action),
     CommitMetadata,
@@ -74,6 +81,18 @@ pub enum Message {
     DeleteExpired,
     DeleteFinished(Result<(), String>),
     MountFinished { folder: String, enabled: bool, error: Option<String> },
+}
+
+impl Message {
+    pub(crate) fn leaves(&self) -> bool {
+        matches!(
+            self,
+            Message::CommitRename
+                | Message::DeleteRequested
+                | Message::ToggleModStatus(_)
+                | Message::List(list::Message::SelectMod(_))
+        )
+    }
 }
 
 pub struct State {
@@ -163,6 +182,13 @@ impl State {
         }
     }
 
+    pub(crate) fn editable_mod(&self) -> Option<String> {
+        let idx = self.get_selected_mod_idx()?;
+        let selected = &self.data.loaded_mods[idx];
+
+        (selected.enabled && !self.mounting).then(|| selected.folder_name.clone())
+    }
+
     pub(crate) fn mounting(&self) -> bool {
         self.mounting
     }
@@ -215,6 +241,7 @@ impl State {
                 let _ = open::that(mod_path);
                 Task::none()
             }
+            Message::EditMod => Task::none(),
             Message::UpdateMetadata(field, value) => self.update_metadata(field, value),
             Message::DescriptionAction(action) => {
                 let is_edit = action.is_edit();
@@ -583,17 +610,31 @@ impl State {
         let toggle_style: theme::ButtonStyleFn = if is_enabled { theme::danger_button } else { theme::success_button };
         let delete_label = self.confirm_delete.confirm_label("Delete Mod");
 
+        let edit_button = theme::sized_button("Edit Mod", ACTION_WIDTH, theme::primary_button)
+            .padding(ACTION_PADDING)
+            .on_press_maybe((is_enabled && !self.mounting).then_some(Message::EditMod));
+
+        let edit_button: Element<'_, Message> = match is_enabled {
+            true => edit_button.into(),
+            false => hover_hint(edit_button, EDIT_LOCKED_HINT),
+        };
+
         let actions_row = row![
-            theme::sized_button(if is_enabled { "Disable Mod" } else { "Enable Mod" }, theme::POPUP_ACTION_BUTTON_WIDTH, toggle_style)
+            theme::sized_button(if is_enabled { "Disable Mod" } else { "Enable Mod" }, ACTION_WIDTH, toggle_style)
+                .padding(ACTION_PADDING)
                 .on_press_maybe((!self.mounting).then(|| Message::ToggleModStatus(mod_folder.clone()))),
-            theme::sized_button("Open Folder", theme::POPUP_ACTION_BUTTON_WIDTH, theme::primary_button)
+            theme::sized_button("Open Folder", ACTION_WIDTH, theme::primary_button)
+                .padding(ACTION_PADDING)
                 .on_press(Message::OpenFolder(mod_folder)),
-            theme::sized_button("Export Mod", theme::POPUP_ACTION_BUTTON_WIDTH, theme::primary_button)
+            edit_button,
+            theme::sized_button("Export Mod", ACTION_WIDTH, theme::primary_button)
+                .padding(ACTION_PADDING)
                 .on_press(Message::Export(export::Message::Open)),
-            theme::sized_button(delete_label, theme::POPUP_ACTION_BUTTON_WIDTH, theme::danger_button)
+            theme::sized_button(delete_label, ACTION_WIDTH, theme::danger_button)
+                .padding(ACTION_PADDING)
                 .on_press_maybe((!is_enabled && !self.mounting).then_some(Message::DeleteRequested)),
         ]
-            .spacing(10)
+            .spacing(ACTION_GAP)
             .align_y(Alignment::Center);
 
         let actions_row = container(actions_row)

@@ -15,6 +15,7 @@ use foundry::Vfs;
 use foundry::Source;
 
 use super::figures::resolved::{Face, Rule, Toggle};
+use super::{Mark, Reader};
 
 const COMMENT: &str = "//";
 const TERMINATOR: u32 = 0;
@@ -1862,6 +1863,30 @@ fn field<'a>(draft: &'a Draft, row: usize, column: usize) -> iced::Element<'a, M
 
 pub(super) fn plan(label: String, game: &Path, target_mod: Option<String>, values: EditorMode) -> Plan {
     Plan { label, game: game.to_path_buf(), target_mod, values }
+}
+
+pub(super) fn mark(plan: &Plan, vfs: &Vfs, reader: &mut Reader) -> Mark {
+    let Some(held) = plan.target_mod.as_deref().and_then(|name| mods::find(vfs, name, &plan.game)) else {
+        return Mark::Same;
+    };
+
+    Mark::of(reader.text(&held), reader.text(&plan.game))
+}
+
+pub(super) fn reset(plan: Plan, vfs: &Vfs) -> bool {
+    let Some(mut draft) = Draft::load(plan, vfs) else {
+        return false;
+    };
+
+    draft.sync();
+
+    if draft.failed {
+        return false;
+    }
+
+    draft.persist_now(vfs);
+
+    !draft.failed
 }
 
 #[cfg(test)]

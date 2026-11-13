@@ -825,7 +825,7 @@ fn plans(target: &ProseTarget, scopes: &[Scope<'_>], target_mod: Option<&str>) -
         .collect()
 }
 
-fn language(name: &str) -> Option<&'static str> {
+pub(super) fn language(name: &str) -> Option<&'static str> {
     let stem = Path::new(name).file_stem()?.to_str()?;
     let (_, code) = stem.rsplit_once('_')?;
 
