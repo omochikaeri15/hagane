@@ -15,14 +15,14 @@ pub fn load_autoset_rating_csv(ctx: &mut AppContext) -> Result<(), Fault> {
             break;
         }
 
-        let group = read_csv_cell(stm, 0) as i32;
-        let unit = read_csv_cell(stm, 1) as i32;
+        let unit = read_csv_cell(stm, 0) as i32;
+        let form = read_csv_cell(stm, 1) as i32;
         let rating = read_csv_cell(stm, 2) as i32;
 
         ctx.autoset_ratings
-            .entry(group)
+            .entry(unit)
             .or_default()
-            .insert(unit.wrapping_sub(1), rating);
+            .insert(form.wrapping_sub(1), rating);
     }
 
     Ok(())

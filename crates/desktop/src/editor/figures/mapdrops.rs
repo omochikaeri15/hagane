@@ -21,10 +21,7 @@ pub(crate) const WIDTH: usize = ZOMBIE_FIRST + MATERIALS;
 const CROWN_PLACES: u32 = 2;
 const CROWN_UNIT: i32 = 100;
 
-const NOTICE: &str = concat!(
-    "One row per map. The drop chances share a hundred with No Drop, and a stage's count is ",
-    "multiplied by the crown difficulty's own figure before it is awarded",
-);
+const NOTICE: &str = "One row per map\nThe drop chances share 100 with No Drop\nA stage's count is multiplied by the crown difficulty's own figure before it is given";
 
 const NOTICE_SIZE: f32 = 11.0;
 
@@ -75,7 +72,7 @@ pub(super) fn view<'a>(draft: &'a Draft, width: f32, query: &'a str, armed: bool
 pub(super) const CHARA_WIDTH: usize = 3;
 
 const CHARA_NOTICE: &str =
-    "One row per unit a stage clear can unlock. The drop id is the item id the stage's reward block awards";
+    "One row per unit a stage clear can unlock\nThe drop ID is the Item ID the stage's reward block gives";
 
 const CHARA_LABELS: [&str; CHARA_WIDTH] = ["Drop ID", "Gift Slot", "Unit ID"];
 

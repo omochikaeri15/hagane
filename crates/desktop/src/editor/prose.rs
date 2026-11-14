@@ -60,14 +60,14 @@ const GLOSSARY_FILES: [&str; 4] = [
 ];
 
 const GLOSSARY_NOTICE: &str =
-    "Every dictionary file is copied into the mod together, so a moved line never drifts from its tables";
+    "Every dictionary file is copied into the Mod together, so a moved line never drifts from its tables";
 
 const TALENT_TEXT_LABELS: &[&str] = &["Description Line 1...", "Description Line 2..."];
 
 const TALENT_BREAK: &str = "<br>";
 
 const TALENT_TEXT_NOTICE: &str =
-    "Descriptions are shared by every unit; editing one changes it for every talent that references this text id";
+    "Descriptions are shared by every unit\nEditing one changes it for every talent that uses this text ID";
 
 const NOTICE_SIZE: f32 = 11.0;
 const NOTICE_LINES: f32 = 2.0;

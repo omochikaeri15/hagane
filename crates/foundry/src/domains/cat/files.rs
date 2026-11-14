@@ -112,6 +112,13 @@ pub fn icon_file(id: u32, form: usize, egg_ids: (i32, i32)) -> String {
     format!("{}.png", image_stem(AssetType::Icon, id, form, egg_ids))
 }
 
+pub fn gacha_file(id: u32, egg_ids: (i32, i32)) -> String {
+    match egg_ids.0 {
+        -1 => format!("gatyachara_{id:03}_f.png"),
+        egg => format!("gatyachara_{egg:03}_m.png"),
+    }
+}
+
 pub fn banner_base(id: u32) -> String {
     format!("{}{:03}", AssetType::Banner.prefix(), id)
 }

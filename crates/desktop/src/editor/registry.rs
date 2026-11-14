@@ -23,11 +23,11 @@ const NOT_DRAWN_NOTICE: &str = "This part is not drawn on the current frame";
 const EVERY_CHANNEL_NOTICE: &str = "This part already has every channel";
 const NO_MOTION_NOTICE: &str = "Select an animation to add channels";
 const FULL_NOTICE: &str =
-    "Every slot the engine addresses is taken: 500 maps to a category, and 100 stages to a map";
+    "Every slot the engine can address is taken\nA category holds 500 maps, and a map holds 100 stages";
 const VANILLA_NOTICE: &str =
-    "The game ships this one, and a mod cannot hide a file the game ships. Unlock the game mount to remove it for real";
+    "The game ships this one, and a Mod can't hide a file the game ships\nUnlock the game mount to remove it for real";
 const NO_MOD_NOTICE: &str =
-    "Creating a stage writes new files, so it needs an active mod to write them into";
+    "Creating a stage writes new files, so it needs an active Mod to write them into";
 const ANIMATION_TITLE: &str = "Animation";
 const BANNERS_TITLE: &str = "Banners";
 const FIXED_CHAPTER_NOTICE: &str =

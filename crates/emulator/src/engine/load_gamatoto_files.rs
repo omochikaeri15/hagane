@@ -257,12 +257,10 @@ pub fn load_gamatoto_files(ctx: &mut AppContext) -> Result<(), Fault> {
         }
     }
 
-    if let Some(bytes) =
-        open_asset_stream(ctx, b"GamatotoExpedition_SpecialDropItem.csv", 0, 0)?
-    {
+    if let Some(bytes) = open_asset_stream(ctx, b"GamatotoExpedition.csv", 0, 0)? {
         let stm = &mut AssetStream::new(&bytes, b'\n');
 
-        ctx.gamatoto_drop_rows = vec![[-1i32; 4]; 0x82];
+        ctx.gamatoto_level_rows = vec![[-1i32; 4]; 0x82];
 
         let mut row = 0usize;
 
@@ -278,7 +276,7 @@ pub fn load_gamatoto_files(ctx: &mut AppContext) -> Result<(), Fault> {
                 read_csv_cell(stm, 3) as i32,
             ];
 
-            if let Some(slot) = ctx.gamatoto_drop_rows.get_mut(row) {
+            if let Some(slot) = ctx.gamatoto_level_rows.get_mut(row) {
                 *slot = values;
             }
 

@@ -21,28 +21,28 @@ pub fn enigma_roll(ctx: &mut AppContext) -> Result<i32, Fault> {
                 continue;
             }
 
-            let group = id.wrapping_sub(0x6590);
+            let lottery = id.wrapping_sub(0x6590);
 
-            let Some(map_stage) = ctx
+            let Some(condition_stage) = ctx
                 .enigma
-                .groups
-                .get(group as i64 as usize)
-                .map(|entry| entry.map_stage)
+                .lotteries
+                .get(lottery as i64 as usize)
+                .map(|entry| entry.condition_stage)
             else {
                 continue;
             };
-            let map = map_stage / 100;
+            let map = condition_stage / 100;
             let cleared = get_stage_record(
                 ctx,
                 map_type_of_map_id(map),
                 map_index_of_map_id(map),
-                map_stage.wrapping_sub(map.wrapping_mul(100)),
+                condition_stage.wrapping_sub(map.wrapping_mul(100)),
                 0,
                 0,
             )?;
 
             if cleared > 0 {
-                *eligible.entry(group).or_insert(false) = true;
+                *eligible.entry(lottery).or_insert(false) = true;
             }
         }
     }
@@ -63,9 +63,9 @@ pub fn enigma_roll(ctx: &mut AppContext) -> Result<i32, Fault> {
         }
     }
 
-    let group = picked as i64 as usize;
+    let lottery = picked as i64 as usize;
 
-    if ctx.enigma.groups.len() <= group {
+    if ctx.enigma.lotteries.len() <= lottery {
         return Err(Fault::out_of_range());
     }
 
@@ -75,24 +75,24 @@ pub fn enigma_roll(ctx: &mut AppContext) -> Result<i32, Fault> {
     loop {
         let entry = ctx
             .enigma
-            .groups
-            .get(group)
+            .lotteries
+            .get(lottery)
             .ok_or(Fault::out_of_range())?;
 
-        if slot >= entry.stage_ids.len() {
+        if slot >= entry.map_ids.len() {
             break;
         }
 
         let id = *entry
-            .stage_ids
+            .map_ids
             .get(slot)
             .ok_or(Fault::out_of_range())?;
 
         if !*excluded.entry(id).or_insert(false) {
             let entry = ctx
                 .enigma
-                .groups
-                .get(group)
+                .lotteries
+                .get(lottery)
                 .ok_or(Fault::out_of_range())?;
 
             total = total.wrapping_add(*entry.weights.get(slot).ok_or(Fault::index_out_of_range(slot as i64, entry.weights.len() as i64))?);
@@ -109,24 +109,24 @@ pub fn enigma_roll(ctx: &mut AppContext) -> Result<i32, Fault> {
     loop {
         let entry = ctx
             .enigma
-            .groups
-            .get(group)
+            .lotteries
+            .get(lottery)
             .ok_or(Fault::out_of_range())?;
 
-        if slot >= entry.stage_ids.len() {
+        if slot >= entry.map_ids.len() {
             return Ok(result);
         }
 
         let id = *entry
-            .stage_ids
+            .map_ids
             .get(slot)
             .ok_or(Fault::out_of_range())?;
 
         if !*excluded.entry(id).or_insert(false) {
             let entry = ctx
                 .enigma
-                .groups
-                .get(group)
+                .lotteries
+                .get(lottery)
                 .ok_or(Fault::out_of_range())?;
 
             sum = sum.wrapping_add(*entry.weights.get(slot).ok_or(Fault::index_out_of_range(slot as i64, entry.weights.len() as i64))?);
@@ -134,10 +134,10 @@ pub fn enigma_roll(ctx: &mut AppContext) -> Result<i32, Fault> {
             if roll < sum {
                 let map = *ctx
                     .enigma
-                    .groups
-                    .get(group)
+                    .lotteries
+                    .get(lottery)
                     .ok_or(Fault::out_of_range())?
-                    .stage_ids
+                    .map_ids
                     .get(slot)
                     .ok_or(Fault::out_of_range())?;
                 let time = now_seconds(ctx)?;
@@ -145,7 +145,7 @@ pub fn enigma_roll(ctx: &mut AppContext) -> Result<i32, Fault> {
                 ctx.enigma.active.push(EnigmaActive {
                     state: 0,
                     time,
-                    group: picked,
+                    lottery: picked,
                     map,
                 });
 

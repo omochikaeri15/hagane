@@ -2,7 +2,7 @@ mod combos;
 mod config;
 mod jailbreak;
 mod lineup;
-mod orbs;
+pub(crate) mod orbs;
 mod replay;
 
 use iced::alignment::{Horizontal, Vertical};

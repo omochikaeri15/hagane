@@ -7,7 +7,7 @@ use super::schema::BRACKET;
 use super::{cards, Draft, Message};
 
 const NOTICE: &str =
-    "Each bracket is the percentage of the base stat added per level within it, and the last one carries past its own range";
+    "Each bracket is the percent of the base stat added per level inside it\nThe last one keeps going past its own range";
 
 const NOTICE_SIZE: f32 = 11.0;
 

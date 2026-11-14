@@ -6,6 +6,8 @@ pub mod import;
 pub mod mining;
 #[cfg(any(feature = "mods", feature = "bcm"))]
 pub mod mods;
+#[cfg(feature = "studio")]
+pub mod prototype;
 pub mod sandbox;
 pub mod settings;
 pub mod stage;

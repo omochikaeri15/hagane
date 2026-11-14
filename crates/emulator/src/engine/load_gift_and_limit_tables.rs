@@ -76,7 +76,7 @@ pub fn load_gift_and_limit_tables(ctx: &mut AppContext) -> Result<(), Fault> {
         }
     }
 
-    ctx.unit_limit_extra = [-1i32; 110];
+    ctx.upgrade_limit_rows = [-1i32; 110];
 
     Ok(())
 }

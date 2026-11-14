@@ -22,6 +22,7 @@ pub(crate) use driver::Label;
 pub(crate) use session::{Lag, Reel, Session, STEP_TIME};
 pub(crate) use assets::SheetCache;
 pub(crate) use sink::Frame;
+pub(crate) use sound::Audition;
 pub(crate) use input::TouchQueue;
 pub(crate) use keys::Action;
 pub(crate) use replay::setup_to as tape_setup;

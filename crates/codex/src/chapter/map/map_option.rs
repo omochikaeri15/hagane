@@ -68,29 +68,48 @@ pub struct MapOptionEntry {
     pub crown_2_mag: Option<u32>,
     pub crown_3_mag: Option<u32>,
     pub crown_4_mag: Option<u32>,
+    pub guerrilla_set: u32,
     pub reset_type: ResetType,
     pub max_clears: u32,
+    pub display_order: i32,
     pub cooldown_minutes: u32,
+    pub challenge_flag: bool,
+    pub difficulty: i32,
     pub hidden_upon_clear: bool,
+    pub double_xp_ad: bool,
     pub cost_multiplier: u32,
+    pub energy_flag: Option<i32>,
+    pub stage_display_setting: Option<i32>,
+    pub cap_extension: Option<i32>,
+    pub map_name: String,
     pub comment: String,
 }
 
 impl MapOptionEntry {
     pub const COLUMNS: &'static [Column<Self>] = columns::columns! {
-        map_id            : 0;
-        max_crowns        : 1, Raw, 1;
-        has_abyss         : 2;
-        crown_1_mag       : 3, Raw, -1;
-        crown_2_mag       : 4, Raw, -1;
-        crown_3_mag       : 5, Raw, -1;
-        crown_4_mag       : 6, Raw, -1;
-        reset_type        : 8;
-        max_clears        : 9;
-        cooldown_minutes  : 11;
-        hidden_upon_clear : 14;
-        cost_multiplier   : 16;
+        map_id                : 0;
+        max_crowns            : 1, Raw, 1;
+        has_abyss             : 2;
+        crown_1_mag           : 3, Raw, -1;
+        crown_2_mag           : 4, Raw, -1;
+        crown_3_mag           : 5, Raw, -1;
+        crown_4_mag           : 6, Raw, -1;
+        guerrilla_set         : 7;
+        reset_type            : 8;
+        max_clears            : 9;
+        display_order         : 10;
+        cooldown_minutes      : 11;
+        challenge_flag        : 12;
+        difficulty            : 13;
+        hidden_upon_clear     : 14;
+        double_xp_ad          : 15;
+        cost_multiplier       : 16;
+        energy_flag           : 17, Raw, "";
+        stage_display_setting : 18, Raw, "";
+        cap_extension         : 19, Raw, "";
     };
+
+    pub const NAME_COLUMN: usize = 20;
 }
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
@@ -153,6 +172,8 @@ fn parse_inner(bytes: &[u8], separator: Option<Separator>) -> Result<MapOption, 
             ..MapOptionEntry::default()
         };
         columns::apply(&parts, MapOptionEntry::COLUMNS, &mut entry);
+
+        entry.map_name = parts.get(MapOptionEntry::NAME_COLUMN).map(|cell| cell.trim().to_owned()).unwrap_or_default();
 
         entries.insert(map_id, entry);
     }

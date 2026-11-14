@@ -22,9 +22,9 @@ pub fn enigma_prune(ctx: &mut AppContext) -> Result<(), Fault> {
 
                 let slot = active.map as i64 - map_type_base_id(-0x11, 0) as i64;
                 let minutes =
-                    *ctx.enigma_durations
+                    *ctx.enigma.times
                         .get(slot as usize)
-                        .ok_or(Fault::index_out_of_range(slot, ctx.enigma_durations.len() as i64))?;
+                        .ok_or(Fault::index_out_of_range(slot, ctx.enigma.times.len() as i64))?;
 
                 if now >= active.time + minutes.wrapping_mul(0x3c) as f64 {
                     break 'check true;
@@ -74,9 +74,10 @@ pub fn enigma_prune(ctx: &mut AppContext) -> Result<(), Fault> {
 
     let slot = pending.map as i64 - map_type_base_id(-0x11, 0) as i64;
     let minutes = *ctx
-        .enigma_durations
+        .enigma
+        .times
         .get(slot as usize)
-        .ok_or(Fault::index_out_of_range(slot, ctx.enigma_durations.len() as i64))?;
+        .ok_or(Fault::index_out_of_range(slot, ctx.enigma.times.len() as i64))?;
 
     if now >= pending.time + minutes.wrapping_mul(0x3c) as f64 {
         ctx.enigma.pending_set = 0;

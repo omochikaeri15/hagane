@@ -144,6 +144,7 @@ impl HaganeApp {
         }
 
         lang::ensure_complete_list(&mut app.settings.general.language_priority);
+        nightly::register_nightly_usage();
         nightly::settle(&mut app.settings.general.enable_nightly);
 
         debug!("Cleaning up temp update files");

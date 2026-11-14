@@ -31,7 +31,7 @@ const OVERSAMPLE: f32 = 2.0;
 const BEST_GRADE: usize = 4;
 const IDLE_PADDING: f32 = 5.0;
 
-const TRAITS: [Identity; 12] = [
+pub(crate) const TRAITS: [Identity; 12] = [
     Identity::TraitRed,
     Identity::TraitFloating,
     Identity::TraitDark,
@@ -339,7 +339,7 @@ impl State {
     }
 }
 
-fn effect_names(vfs: &Vfs) -> Vec<String> {
+pub(crate) fn effect_names(vfs: &Vfs) -> Vec<String> {
     let named = vfs.variants(EXPLANATION).into_iter().next().unwrap_or_else(|| EXPLANATION.to_owned());
 
     vfs.find(named.as_str())

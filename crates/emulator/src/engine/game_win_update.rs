@@ -7,7 +7,8 @@ use super::{
     altar_recompute, app_on_draw, back_pressed, battle_check_login_bonus, bonus_popup_text,
     button_bank_busy, button_bank_find, call_rng, check_medals, connecting_indicator_show,
     dialog_close, dialog_set_back_button, dialog_set_on_update, dialog_show, dialog_show_alt,
-    dialog_show_kind2, dialog_top, drop_popup_text, ex_group_pick, ex_lottery_stage_key,
+    dialog_show_kind2, dialog_top, drop_popup_text, enigma_rarity_at, ex_group_pick,
+    ex_lottery_stage_key,
     find_roguelike_chara, format_localized, format_string2, format_string3,
     game_win_update_lambda_0, game_win_update_lambda_1, game_win_update_lambda_10,
     game_win_update_lambda_11, game_win_update_lambda_12, game_win_update_lambda_13,
@@ -19,7 +20,7 @@ use super::{
     get_auto_camera_mode, get_bottom_inset_logical, get_castle_enemy_row, get_cat_name,
     get_cleared_count, get_drawable_width, get_global_map_id, get_item_cap, get_item_name,
     get_map_index, get_map_type, get_stage_index, get_stage_name, handle_battle_swipe_pinch,
-    has_inquiry_code, has_point_rule, hidden_drop_key, hit_test_rect, imgcut_get_sprite_cut,
+    has_inquiry_code, has_point_rule, hit_test_rect, imgcut_get_sprite_cut,
     is_roguelike_map, is_score_stage, labyrinth_active, labyrinth_rank, labyrinth_result_ready,
     labyrinth_submit, labyrinth_unit_count, map_index_of_map_id, map_type_of_map_id,
     message_layer_clear, message_layer_set, min_i32, new_button_register,
@@ -473,14 +474,16 @@ pub fn game_win_update(ctx: &mut AppContext) -> Result<bool, Fault> {
                 ctx.set_i32_at(AppContext::REWARD_POP_HOLD, 0)?;
                 play_sound(ctx, 0x1d, None)?;
                 let text = query_localizable(ctx, b"drop_popup_hidden");
-                let key = hidden_drop_key(
+                let key = enigma_rarity_at(
                     ctx,
                     *ctx.reward_queue
                         .first()
                         .ok_or(Fault::index_out_of_range(0, 0))?
                         .get(1)
                         .ok_or(Fault::index_out_of_range(1, 0))?,
-                );
+                )
+                .name
+                .clone();
                 let name = query_localizable(ctx, &key);
 
                 message = format_localized(ctx, &text, &name)?;

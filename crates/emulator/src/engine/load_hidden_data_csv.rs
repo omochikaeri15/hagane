@@ -1,45 +1,13 @@
-use std::collections::BTreeMap;
-
 use crate::Fault;
 
 use super::{
-    AppContext, AssetStream, cell_is_int, get_column_count, open_asset_stream, read_cell_stream,
-    read_csv_cell, read_csv_row, std_to_string,
+    AppContext, AssetStream, EnigmaEntry, EnigmaLottery, EnigmaPool, EnigmaTier, cell_is_int,
+    get_column_count, open_asset_stream, read_cell_stream, read_csv_cell, read_csv_row,
+    std_to_string,
 };
 
-#[derive(Clone, Default, PartialEq, Eq, Debug)]
-pub struct HiddenPairs {
-    pub firsts: Vec<i32>,
-    pub seconds: Vec<i32>,
-}
-
-#[derive(Clone, Default, PartialEq, Eq, Debug)]
-pub struct HiddenLottery {
-    pub first: i32,
-    pub second: i32,
-    pub third: i32,
-    pub pairs: HiddenPairs,
-}
-
-#[derive(Clone, Default, PartialEq, Eq, Debug)]
-pub struct HiddenRarity {
-    pub name: Vec<u8>,
-    pub value: i32,
-}
-
-#[derive(Clone, Default, PartialEq, Eq, Debug)]
-pub struct HiddenData {
-    pub rates: Vec<HiddenPairs>,
-    pub drops: Vec<HiddenPairs>,
-    pub groups: BTreeMap<i32, BTreeMap<i32, HiddenPairs>>,
-    pub lotteries: Vec<HiddenLottery>,
-    pub discover_growth: Vec<i32>,
-    pub times: Vec<i32>,
-    pub rarities: BTreeMap<i32, HiddenRarity>,
-}
-
 pub fn load_hidden_data_csv(ctx: &mut AppContext) -> Result<(), Fault> {
-    ctx.hidden_data.lotteries.clear();
+    ctx.enigma.lotteries.clear();
 
     if let Some(bytes) = open_asset_stream(ctx, b"Hidden_rate.csv", 0, 0)? {
         let stm = &mut AssetStream::new(&bytes, b'\n');
@@ -53,7 +21,7 @@ pub fn load_hidden_data_csv(ctx: &mut AppContext) -> Result<(), Fault> {
                 break;
             }
 
-            ctx.hidden_data.rates.push(HiddenPairs::default());
+            ctx.enigma.tiers.push(EnigmaTier::default());
 
             let mut column = 0i32;
 
@@ -66,14 +34,14 @@ pub fn load_hidden_data_csv(ctx: &mut AppContext) -> Result<(), Fault> {
 
                 let first = read_csv_cell(stm, column) as i32;
 
-                if let Some(row) = ctx.hidden_data.rates.last_mut() {
-                    row.firsts.push(first);
+                if let Some(row) = ctx.enigma.tiers.last_mut() {
+                    row.thresholds.push(first);
                 }
 
                 let second = read_csv_cell(stm, column | 1) as i32;
 
-                if let Some(row) = ctx.hidden_data.rates.last_mut() {
-                    row.seconds.push(second);
+                if let Some(row) = ctx.enigma.tiers.last_mut() {
+                    row.chances.push(second);
                 }
 
                 column = column.wrapping_add(2);
@@ -81,7 +49,7 @@ pub fn load_hidden_data_csv(ctx: &mut AppContext) -> Result<(), Fault> {
         }
     }
 
-    ctx.hidden_data.drops.clear();
+    ctx.enigma.pools.clear();
 
     if let Some(bytes) = open_asset_stream(ctx, b"Hidden_drop.csv", 0, 0)? {
         let stm = &mut AssetStream::new(&bytes, b'\n');
@@ -95,7 +63,7 @@ pub fn load_hidden_data_csv(ctx: &mut AppContext) -> Result<(), Fault> {
                 break;
             }
 
-            ctx.hidden_data.drops.push(HiddenPairs::default());
+            ctx.enigma.pools.push(EnigmaPool::default());
 
             let mut column = 0i32;
 
@@ -108,14 +76,14 @@ pub fn load_hidden_data_csv(ctx: &mut AppContext) -> Result<(), Fault> {
 
                 let first = read_csv_cell(stm, column) as i32;
 
-                if let Some(row) = ctx.hidden_data.drops.last_mut() {
-                    row.firsts.push(first);
+                if let Some(row) = ctx.enigma.pools.last_mut() {
+                    row.lotteries.push(first);
                 }
 
                 let second = read_csv_cell(stm, column | 1) as i32;
 
-                if let Some(row) = ctx.hidden_data.drops.last_mut() {
-                    row.seconds.push(second);
+                if let Some(row) = ctx.enigma.pools.last_mut() {
+                    row.weights.push(second);
                 }
 
                 column = column.wrapping_add(2);
@@ -123,7 +91,7 @@ pub fn load_hidden_data_csv(ctx: &mut AppContext) -> Result<(), Fault> {
         }
     }
 
-    ctx.hidden_data.groups.clear();
+    ctx.enigma.table.clear();
 
     if let Some(bytes) = open_asset_stream(ctx, b"Hidden_group.csv", 0, 0)? {
         let stm = &mut AssetStream::new(&bytes, b'\n');
@@ -137,14 +105,14 @@ pub fn load_hidden_data_csv(ctx: &mut AppContext) -> Result<(), Fault> {
                 break;
             }
 
-            let group = read_csv_cell(stm, 0) as i32;
-            let slot = read_csv_cell(stm, 1) as i32;
+            let map = read_csv_cell(stm, 0) as i32;
+            let stage = read_csv_cell(stm, 1) as i32;
 
-            ctx.hidden_data
-                .groups
-                .entry(group)
+            ctx.enigma
+                .table
+                .entry(map)
                 .or_default()
-                .insert(slot, HiddenPairs::default());
+                .insert(stage, EnigmaEntry::default());
 
             let mut column = 2i32;
 
@@ -156,25 +124,25 @@ pub fn load_hidden_data_csv(ctx: &mut AppContext) -> Result<(), Fault> {
                 let first = read_csv_cell(stm, column) as i32;
 
                 if let Some(row) = ctx
-                    .hidden_data
-                    .groups
-                    .entry(group)
+                    .enigma
+                    .table
+                    .entry(map)
                     .or_default()
-                    .get_mut(&slot)
+                    .get_mut(&stage)
                 {
-                    row.firsts.push(first);
+                    row.lotteries.push(first);
                 }
 
                 let second = read_csv_cell(stm, column | 1) as i32;
 
                 if let Some(row) = ctx
-                    .hidden_data
-                    .groups
-                    .entry(group)
+                    .enigma
+                    .table
+                    .entry(map)
                     .or_default()
-                    .get_mut(&slot)
+                    .get_mut(&stage)
                 {
-                    row.seconds.push(second);
+                    row.chances.push(second);
                 }
 
                 column = column.wrapping_add(2);
@@ -182,7 +150,7 @@ pub fn load_hidden_data_csv(ctx: &mut AppContext) -> Result<(), Fault> {
         }
     }
 
-    ctx.hidden_data.lotteries.clear();
+    ctx.enigma.lotteries.clear();
 
     if let Some(bytes) = open_asset_stream(ctx, b"Hidden_lottery.csv", 0, 0)? {
         let stm = &mut AssetStream::new(&bytes, b'\n');
@@ -196,16 +164,16 @@ pub fn load_hidden_data_csv(ctx: &mut AppContext) -> Result<(), Fault> {
                 break;
             }
 
-            ctx.hidden_data.lotteries.push(HiddenLottery::default());
+            ctx.enigma.lotteries.push(EnigmaLottery::default());
 
             let first = read_csv_cell(stm, 0) as i32;
             let second = read_csv_cell(stm, 1) as i32;
             let third = read_csv_cell(stm, 2) as i32;
 
-            if let Some(row) = ctx.hidden_data.lotteries.last_mut() {
-                row.first = first;
-                row.second = second;
-                row.third = third;
+            if let Some(row) = ctx.enigma.lotteries.last_mut() {
+                row.rarity = first;
+                row.appraisal_minutes = second;
+                row.condition_stage = third;
             }
 
             let mut column = 3i32;
@@ -219,14 +187,14 @@ pub fn load_hidden_data_csv(ctx: &mut AppContext) -> Result<(), Fault> {
 
                 let first = read_csv_cell(stm, column) as i32;
 
-                if let Some(row) = ctx.hidden_data.lotteries.last_mut() {
-                    row.pairs.firsts.push(first);
+                if let Some(row) = ctx.enigma.lotteries.last_mut() {
+                    row.map_ids.push(first);
                 }
 
                 let second = read_csv_cell(stm, column.wrapping_add(1)) as i32;
 
-                if let Some(row) = ctx.hidden_data.lotteries.last_mut() {
-                    row.pairs.seconds.push(second);
+                if let Some(row) = ctx.enigma.lotteries.last_mut() {
+                    row.weights.push(second);
                 }
 
                 column = column.wrapping_add(2);
@@ -234,7 +202,7 @@ pub fn load_hidden_data_csv(ctx: &mut AppContext) -> Result<(), Fault> {
         }
     }
 
-    ctx.hidden_data.discover_growth.clear();
+    ctx.enigma.medals.clear();
 
     if let Some(bytes) = open_asset_stream(ctx, b"Discoverlv_growth.csv", 0, 0)? {
         let stm = &mut AssetStream::new(&bytes, b'\n');
@@ -246,11 +214,11 @@ pub fn load_hidden_data_csv(ctx: &mut AppContext) -> Result<(), Fault> {
 
             let value = read_csv_cell(stm, 0) as i32;
 
-            ctx.hidden_data.discover_growth.push(value);
+            ctx.enigma.medals.push(value);
         }
     }
 
-    ctx.hidden_data.times.clear();
+    ctx.enigma.times.clear();
 
     if let Some(bytes) = open_asset_stream(ctx, b"Hidden_time.csv", 0, 0)? {
         let stm = &mut AssetStream::new(&bytes, b'\n');
@@ -262,11 +230,11 @@ pub fn load_hidden_data_csv(ctx: &mut AppContext) -> Result<(), Fault> {
 
             let value = read_csv_cell(stm, 0) as i32;
 
-            ctx.hidden_data.times.push(value);
+            ctx.enigma.times.push(value);
         }
     }
 
-    ctx.hidden_data.rarities.clear();
+    ctx.enigma.rarities.clear();
 
     let Some(bytes) = open_asset_stream(ctx, b"Hidden_rarity.csv", 0, 0)? else {
         return Ok(());
@@ -281,11 +249,11 @@ pub fn load_hidden_data_csv(ctx: &mut AppContext) -> Result<(), Fault> {
         let key = read_csv_cell(stm, 0) as i32;
         let text = read_cell_stream(stm, 1).to_vec();
 
-        ctx.hidden_data.rarities.entry(key).or_default().name = text;
+        ctx.enigma.rarities.entry(key).or_default().name = text;
 
-        let value = read_csv_cell(stm, 2) as i32;
+        let cut = read_csv_cell(stm, 2) as i32;
 
-        ctx.hidden_data.rarities.entry(key).or_default().value = value;
+        ctx.enigma.rarities.entry(key).or_default().cut = cut;
     }
 
     Ok(())

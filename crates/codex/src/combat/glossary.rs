@@ -111,10 +111,10 @@ impl std::error::Error for AttributeIndexError {}
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AttributeRow {
     pub row: i32,
-    pub unknown_1: i32,
-    pub unknown_2: i32,
-    pub unknown_3: i32,
-    pub unknown_4: i32,
+    pub order: i32,
+    pub icon: i32,
+    pub filter_icon: i32,
+    pub filter_selected: i32,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -144,7 +144,7 @@ fn parse_attributes(bytes: &[u8]) -> Result<AttributeIndex, AttributeIndexError>
             break;
         }
 
-        rows.push(AttributeRow { row: value(0), unknown_1: value(1), unknown_2: value(2), unknown_3: value(3), unknown_4: value(4) });
+        rows.push(AttributeRow { row: value(0), order: value(1), icon: value(2), filter_icon: value(3), filter_selected: value(4) });
     }
 
     if rows.is_empty() {

@@ -35,7 +35,7 @@ use foundry::{ContentStore, Evicted, StageStore, Vault};
 use crate::common::feedback::Slot;
 use crate::common::fonts;
 use crate::common::watcher::{self, Asset, Change};
-use crate::domains::{cat, enemy, files, help, home, import, mining, mods, sandbox, settings as gui_settings, stage, studio, utilities};
+use crate::domains::{cat, enemy, files, help, home, import, mining, mods, prototype, sandbox, settings as gui_settings, stage, studio, utilities};
 use crate::systems::host;
 use crate::editor;
 use crate::widget::{fade, nightly_label, popup, slide, smooth_scroll, Slide};
@@ -67,6 +67,7 @@ pub enum Page {
     Mining,
     Studio,
     Utilities,
+    Prototype,
     Help,
     Settings,
 }
@@ -85,13 +86,14 @@ impl Page {
             Self::Mining => "Mining",
             Self::Studio => "Studio",
             Self::Utilities => "Utilities",
+            Self::Prototype => "Prototype",
             Self::Help => "Help",
             Self::Settings => "Settings",
         }
     }
 
     pub(crate) fn nightly(self) -> bool {
-        false
+        self == Self::Prototype
     }
 }
 
@@ -111,17 +113,24 @@ fn window_rescaled(event: iced::Event, _status: iced::event::Status, _window: wi
     Some(Message::WindowScaled(scale))
 }
 
-fn undo_key(event: iced::keyboard::Event) -> Option<Message> {
+fn undo_pressed(event: iced::keyboard::Event) -> bool {
     let iced::keyboard::Event::KeyPressed { key, modifiers, .. } = event else {
-        return None;
+        return false;
     };
 
     let iced::keyboard::Key::Character(typed) = key else {
-        return None;
+        return false;
     };
 
-    (modifiers.command() && typed.as_str().eq_ignore_ascii_case("z"))
-        .then_some(Message::Studio(studio::Message::Undo))
+    modifiers.command() && typed.as_str().eq_ignore_ascii_case("z")
+}
+
+fn undo_key(event: iced::keyboard::Event) -> Option<Message> {
+    undo_pressed(event).then_some(Message::Studio(studio::Message::Undo))
+}
+
+fn rewind_key(event: iced::keyboard::Event) -> Option<Message> {
+    undo_pressed(event).then_some(Message::Prototype(prototype::Message::Undo))
 }
 
 fn drop_key(event: iced::Event, status: iced::event::Status, _window: window::Id) -> Option<Message> {
@@ -203,6 +212,7 @@ const ALL_PAGES: &[Page] = &[
     Page::Mining,
     Page::Studio,
     Page::Utilities,
+    Page::Prototype,
     Page::Help,
     Page::Settings,
 ];
@@ -422,6 +432,7 @@ pub enum Message {
     Sandbox(sandbox::Message),
     Help(help::Message),
     Utilities(utilities::Message),
+    Prototype(prototype::Message),
     Settings(gui_settings::Message),
     Editor(editor::Message),
 }
@@ -463,6 +474,7 @@ pub struct HaganeApp {
     pub sandbox_state: sandbox::State,
     pub help_state: help::State,
     pub utilities_state: utilities::State,
+    pub prototype_state: prototype::State,
     pub settings_state: gui_settings::State,
     pub(crate) editor: editor::State,
 
@@ -531,6 +543,7 @@ impl Default for HaganeApp {
             sandbox_state: sandbox::State::default(),
             help_state: help::State::default(),
             utilities_state: utilities::State::default(),
+            prototype_state: prototype::State::default(),
             settings_state: gui_settings::State::default(),
             editor: editor::State::default(),
             settings: Settings::default(),
@@ -586,6 +599,11 @@ impl HaganeApp {
 
         if self.current_page == Page::Sandbox {
             subs.push(self.sandbox_state.subscription().map(Message::Sandbox));
+        }
+
+        if self.current_page == Page::Prototype {
+            subs.push(iced::time::every(self.prototype_state.pace()).map(|_| Message::Prototype(prototype::Message::Tick)));
+            subs.push(iced::keyboard::listen().filter_map(rewind_key));
         }
 
         if self.current_page == Page::Studio {
@@ -688,6 +706,7 @@ impl HaganeApp {
                 Task::none()
             }
             Page::Utilities => self.utilities_state.export_scroll_task(),
+            Page::Prototype => self.prototype_state.enter(&self.vault).map(Message::Prototype),
             Page::Studio => self.studio_state.export_scroll_task(),
             Page::Sandbox => {
                 let global_ctx = GlobalContext { param: &self.param, localizable: &self.localizable, vault: &self.vault, treasure: &self.sandbox_treasure, names: &self.names };
@@ -980,7 +999,10 @@ impl HaganeApp {
 
             let adopted = self.adopt_vault(rebuilt, false);
             let replayed = self.replay_changes();
-            let refreshed = self.utilities_state.invalidate(&self.vault).map(Message::Utilities);
+            let refreshed = Task::batch([
+                self.utilities_state.invalidate(&self.vault).map(Message::Utilities),
+                self.prototype_state.invalidate(&self.vault).map(Message::Prototype),
+            ]);
 
             if !queued {
                 return Task::batch([adopted, replayed, refreshed]);
@@ -1551,7 +1573,10 @@ impl HaganeApp {
             }
             Message::FilesChanged(Change::Batch(paths)) => {
                 let replays = paths.iter().any(|path| sandbox::State::is_replay(path));
-                let utilities = self.utilities_state.files_changed(&paths, &self.vault).map(Message::Utilities);
+                let utilities = Task::batch([
+                    self.utilities_state.files_changed(&paths, &self.vault).map(Message::Utilities),
+                    self.prototype_state.files_changed(&paths, &self.vault).map(Message::Prototype),
+                ]);
                 let task = self.apply_changes(paths, true);
                 self.sync_editor(true);
 
@@ -1874,6 +1899,11 @@ impl HaganeApp {
                 self.sync_popup(ActivePopup::UtilitySettings, self.utilities_state.settings_popup_visible());
                 task
             }
+            Message::Prototype(msg) => {
+                let active = self.mods_state.active_mod();
+
+                self.prototype_state.update(msg, &self.vault, &mut self.app_state.background, active.as_deref()).map(Message::Prototype)
+            }
             Message::Editor(editor::Message::Opened(at, target)) => {
                 let context = editor::context(self, target);
                 self.editor.open(at, &context);
@@ -2102,6 +2132,7 @@ impl HaganeApp {
                 self.sandbox_state.view(&self.app_state, staged, playable, &self.treasure_catalog).map(Message::Sandbox)
             }
             Page::Utilities => self.utilities_state.view(&self.settings, &self.app_state).map(Message::Utilities),
+            Page::Prototype => self.prototype_state.view(&self.app_state.background).map(Message::Prototype),
             Page::Help => {
                 let ui_theme = self.theme();
                 self.help_state.view(&ui_theme).map(Message::Help)

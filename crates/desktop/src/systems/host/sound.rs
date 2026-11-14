@@ -29,6 +29,8 @@ const DESCRIPTION: &[u8; 4] = b"desc";
 const SAMPLES: &[u8; 4] = b"data";
 const LITTLE_ENDIAN: u32 = 2;
 const EDIT_COUNT: usize = 4;
+const CAF_MAGIC: &[u8; 4] = b"caff";
+const AUDITION_LEVEL: f32 = 1.0;
 
 #[derive(Clone)]
 pub(super) struct Effect {
@@ -113,6 +115,40 @@ impl Output {
 }
 
 pub struct Speaker(pub SharedOutput);
+
+#[derive(Default)]
+pub struct Audition {
+    speaker: Option<Speaker>,
+    playing: Option<Box<dyn Playing>>,
+}
+
+impl Audition {
+    pub fn play(&mut self, name: &str, bytes: Vec<u8>) -> bool {
+        self.stop();
+
+        let clip = match bytes.starts_with(CAF_MAGIC) {
+            true => parse_caf(&bytes).map(|effect| Clip::Effect { name: name.to_owned(), effect }),
+            false => Some(Clip::Track { name: name.to_owned(), bytes: Arc::from(bytes) }),
+        };
+
+        let Some(clip) = clip else {
+            warn!("Sound preview could not read {name}");
+
+            return false;
+        };
+
+        let speaker = self.speaker.get_or_insert_with(|| Speaker(SharedOutput::open()));
+
+        self.playing = speaker.start(&clip, false, AUDITION_LEVEL);
+        self.playing.is_some()
+    }
+
+    pub fn stop(&mut self) {
+        if let Some(playing) = self.playing.take() {
+            playing.stop();
+        }
+    }
+}
 
 struct Severable<S> {
     source: S,

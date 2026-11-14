@@ -9,11 +9,7 @@ use super::resolved::{Choice, Rule};
 use super::schema::MAP_STAGE_LEAD;
 use super::{cards, Draft, Message};
 
-const NOTICE: &str = concat!(
-    "The cells above apply to every stage of the map, and a setting of -1 turns its feature off. ",
-    "Below them is this stage's own row, ending in its reward block -- a treasure pool or a score ",
-    "ladder, whichever the row itself declares",
-);
+const NOTICE: &str = "The cells above apply to every stage of the map, and a setting of -1 turns its feature off\nBelow them is this stage's own row, ending in its reward block (a treasure pool or a score ladder, whichever the row itself declares)";
 
 const NOTICE_SIZE: f32 = 11.0;
 const CHROME_GAP: f32 = 8.0;

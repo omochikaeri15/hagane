@@ -3,7 +3,7 @@ use crate::{Fault, ops};
 use super::{AppContext, FloorCell, Labyrinth, call_rng, get_stage_index, labyrinth_load_floors};
 
 #[derive(Clone, Default)]
-pub struct LabyrinthFloor {
+pub struct LabyrinthLottery {
     pub min: i32,
     pub max: i32,
     pub results: Vec<i32>,
@@ -26,9 +26,9 @@ pub fn labyrinth_roll_floor(ctx: &mut AppContext, mode: i32) -> Result<(), Fault
         }
         _ => 0,
     };
-    let min = ctx.labyrinth_floors.entry(key).or_default().min;
-    let max = ctx.labyrinth_floors.entry(key).or_default().max;
-    let min_again = ctx.labyrinth_floors.entry(key).or_default().min;
+    let min = ctx.labyrinth_lottery.entry(key).or_default().min;
+    let max = ctx.labyrinth_lottery.entry(key).or_default().max;
+    let min_again = ctx.labyrinth_lottery.entry(key).or_default().min;
     let count = call_rng(ctx, max.wrapping_sub(min_again).wrapping_add(1)).wrapping_add(min);
 
     ctx.set_i32_at(AppContext::LABYRINTH_UNIT_COUNT, count)?;
@@ -40,15 +40,15 @@ pub fn labyrinth_roll_floor(ctx: &mut AppContext, mode: i32) -> Result<(), Fault
     let mut sum = 0i32;
     let mut index = 0usize;
 
-    while index < ctx.labyrinth_floors.entry(key).or_default().results.len() {
-        let floor = ctx.labyrinth_floors.entry(key).or_default();
-        let weight = *floor.weights.get(index).ok_or(Fault::index_out_of_range(index as i64, floor.weights.len() as i64))?;
+    while index < ctx.labyrinth_lottery.entry(key).or_default().results.len() {
+        let lottery = ctx.labyrinth_lottery.entry(key).or_default();
+        let weight = *lottery.weights.get(index).ok_or(Fault::index_out_of_range(index as i64, lottery.weights.len() as i64))?;
 
         sum = sum.wrapping_add(weight);
 
         if roll < sum {
             let result = *ctx
-                .labyrinth_floors
+                .labyrinth_lottery
                 .entry(key)
                 .or_default()
                 .results

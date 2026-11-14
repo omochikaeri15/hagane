@@ -1,6 +1,8 @@
+mod abilitydata;
 pub mod unit;
 
 pub use crate::common::Separator;
+pub use abilitydata::{AbilityData, AbilityDataError, AbilityDataRow};
 pub use unit::unitid;
 pub use unit::{
     AssembleError, ComboSlot, ComboStrength, EvolveMaterial, LevelCurve, LevelError, Nyancombo,

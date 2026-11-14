@@ -39,6 +39,26 @@ pub enum RuleType {
     Unknown(u8, Vec<u32>),
 }
 
+impl RuleType {
+    pub fn from_parts(id: u8, params: Vec<u32>) -> Self {
+        match id {
+            0 => Self::TrustFund(params),
+            1 => Self::CooldownEquality(params),
+            2 => Self::LineupLimit(params),
+            3 => Self::RarityLimit(params),
+            4 => Self::CheapLabor(params),
+            5 => Self::CatCost(params),
+            6 => Self::CatProduction(params),
+            7 => Self::TotalDeployLimit(params),
+            8 => Self::MoreThanOne(params),
+            9 => Self::MegaCatCannon(params),
+            10 => Self::UniformMotion(params),
+            11 => Self::CompoundingCost(params),
+            _ => Self::Unknown(id, params),
+        }
+    }
+}
+
 #[derive(Default, Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct SpecialRulesMapEntry {
     pub contents_type: u8,
@@ -101,23 +121,7 @@ fn parse_inner(json_str: &str) -> Result<SpecialRulesMap, SpecialRulesMapError> 
                     .map(|arr| arr.iter().filter_map(|x| x.as_u64().map(|n| n as u32)).collect())
                     .unwrap_or_default();
 
-                let rule = match r_id {
-                    0 => RuleType::TrustFund(params),
-                    1 => RuleType::CooldownEquality(params),
-                    2 => RuleType::LineupLimit(params),
-                    3 => RuleType::RarityLimit(params),
-                    4 => RuleType::CheapLabor(params),
-                    5 => RuleType::CatCost(params),
-                    6 => RuleType::CatProduction(params),
-                    7 => RuleType::TotalDeployLimit(params),
-                    8 => RuleType::MoreThanOne(params),
-                    9 => RuleType::MegaCatCannon(params),
-                    10 => RuleType::UniformMotion(params),
-                    11 => RuleType::CompoundingCost(params),
-                    _ => RuleType::Unknown(r_id, params),
-                };
-
-                rules.push(rule);
+                rules.push(RuleType::from_parts(r_id, params));
             }
         }
 

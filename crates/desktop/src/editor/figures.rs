@@ -5,6 +5,47 @@ mod costs;
 mod mapdata;
 mod itembuy;
 mod mapdrops;
+mod mapoption;
+mod backgrounds;
+mod upgrades;
+mod comboparams;
+mod orbslots;
+mod difficulty;
+mod exoption;
+mod cannonstatus;
+mod expcurve;
+mod orbgrades;
+mod exlottery;
+mod shakes;
+mod recipes;
+mod shop;
+mod zombies;
+mod cpu;
+mod orbtraits;
+mod altar;
+mod gamatoto;
+mod progress;
+mod castlegrowth;
+mod castles;
+mod chance;
+mod club;
+mod combocategories;
+mod labyrinth;
+mod mapsheets;
+mod enigma;
+mod shrine;
+mod prizes;
+mod guide;
+mod development;
+mod missionsettings;
+mod popups;
+mod quest;
+mod sounds;
+mod realms;
+mod tiprules;
+mod gacha;
+mod missions;
+mod conditions;
 pub(super) mod resolved;
 mod schema;
 mod talents;
@@ -62,6 +103,125 @@ const DROP_CHARA_POPUP: popup::Spec = popup::Spec::new(popup::Kind::DropChara, D
 const ITEM_BUY_SIZE: Size = Size::new(364.0, 460.0);
 const ITEM_BUY_POPUP: popup::Spec = popup::Spec::new(popup::Kind::ItemBuy, ITEM_BUY_SIZE);
 const MAP_STAGE_POPUP: popup::Spec = popup::Spec::new(popup::Kind::MapStage, MAP_STAGE_SIZE);
+const MAP_OPTION_SIZE: Size = Size::new(364.0, 460.0);
+const MAP_OPTION_POPUP: popup::Spec = popup::Spec::new(popup::Kind::MapOption, MAP_OPTION_SIZE);
+const BACKGROUND_SIZE: Size = Size::new(364.0, 460.0);
+const BACKGROUND_POPUP: popup::Spec = popup::Spec::new(popup::Kind::Background, BACKGROUND_SIZE);
+const UPGRADE_SIZE: Size = Size::new(364.0, 360.0);
+const UPGRADE_POPUP: popup::Spec = popup::Spec::new(popup::Kind::Upgrade, UPGRADE_SIZE);
+const COMBO_PARAM_SIZE: Size = Size::new(364.0, 380.0);
+const COMBO_PARAM_POPUP: popup::Spec = popup::Spec::new(popup::Kind::ComboParam, COMBO_PARAM_SIZE);
+const ORB_SLOTS_SIZE: Size = Size::new(364.0, 320.0);
+const ORB_SLOTS_POPUP: popup::Spec = popup::Spec::new(popup::Kind::OrbSlots, ORB_SLOTS_SIZE);
+const DIFFICULTY_SIZE: Size = Size::new(364.0, 460.0);
+const DIFFICULTY_POPUP: popup::Spec = popup::Spec::new(popup::Kind::Difficulty, DIFFICULTY_SIZE);
+const EX_INVASION_SIZE: Size = Size::new(364.0, 280.0);
+const EX_INVASION_POPUP: popup::Spec = popup::Spec::new(popup::Kind::ExInvasion, EX_INVASION_SIZE);
+const CANNON_STATUS_SIZE: Size = Size::new(364.0, 400.0);
+const CANNON_STATUS_POPUP: popup::Spec = popup::Spec::new(popup::Kind::CannonStatus, CANNON_STATUS_SIZE);
+const EXP_CURVE_SIZE: Size = Size::new(364.0, 520.0);
+const EXP_CURVE_POPUP: popup::Spec = popup::Spec::new(popup::Kind::ExpCurve, EXP_CURVE_SIZE);
+const ORB_GRADES_SIZE: Size = Size::new(364.0, 300.0);
+const ORB_GRADES_POPUP: popup::Spec = popup::Spec::new(popup::Kind::OrbGrades, ORB_GRADES_SIZE);
+const EX_LOTTERY_SIZE: Size = Size::new(364.0, 260.0);
+const EX_LOTTERY_POPUP: popup::Spec = popup::Spec::new(popup::Kind::ExLottery, EX_LOTTERY_SIZE);
+const SHAKES_SIZE: Size = Size::new(364.0, 380.0);
+const SHAKES_POPUP: popup::Spec = popup::Spec::new(popup::Kind::Shakes, SHAKES_SIZE);
+const RECIPES_SIZE: Size = Size::new(364.0, 380.0);
+const RECIPES_POPUP: popup::Spec = popup::Spec::new(popup::Kind::Recipes, RECIPES_SIZE);
+const SHOP_SIZE: Size = Size::new(364.0, 380.0);
+const SHOP_POPUP: popup::Spec = popup::Spec::new(popup::Kind::Shop, SHOP_SIZE);
+const ZOMBIE_SIZE: Size = Size::new(364.0, 320.0);
+const ZOMBIE_HEADER_POPUP: popup::Spec = popup::Spec::new(popup::Kind::ZombieHeader, ZOMBIE_SIZE);
+const ZOMBIE_TIER_POPUP: popup::Spec = popup::Spec::new(popup::Kind::ZombieTier, ZOMBIE_SIZE);
+const CPU_SIZE: Size = Size::new(364.0, 300.0);
+const CPU_POPUP: popup::Spec = popup::Spec::new(popup::Kind::Cpu, CPU_SIZE);
+const ORB_TRAITS_SIZE: Size = Size::new(364.0, 460.0);
+const ORB_TRAITS_POPUP: popup::Spec = popup::Spec::new(popup::Kind::OrbTraits, ORB_TRAITS_SIZE);
+const ALTAR_SIZE: Size = Size::new(364.0, 300.0);
+const ALTAR_POPUP: popup::Spec = popup::Spec::new(popup::Kind::Altar, ALTAR_SIZE);
+const GAMATOTO_SIZE: Size = Size::new(364.0, 360.0);
+const GAMATOTO_LIMIT_POPUP: popup::Spec = popup::Spec::new(popup::Kind::GamatotoLimit, GAMATOTO_SIZE);
+const GAMATOTO_UNLOCK_POPUP: popup::Spec = popup::Spec::new(popup::Kind::GamatotoUnlock, GAMATOTO_SIZE);
+const GAMATOTO_DROP_POPUP: popup::Spec = popup::Spec::new(popup::Kind::GamatotoDrop, GAMATOTO_SIZE);
+const PROGRESS_SIZE: Size = Size::new(364.0, 280.0);
+const STAMPS_POPUP: popup::Spec = popup::Spec::new(popup::Kind::Stamps, PROGRESS_SIZE);
+const SLOT_UNLOCKS_POPUP: popup::Spec = popup::Spec::new(popup::Kind::SlotUnlocks, PROGRESS_SIZE);
+const CLUB_SIZE: Size = Size::new(364.0, 460.0);
+const CLUB_POPUP: popup::Spec = popup::Spec::new(popup::Kind::Club, CLUB_SIZE);
+const MISSIONS_SIZE: Size = Size::new(364.0, 380.0);
+const MISSIONS_POPUP: popup::Spec = popup::Spec::new(popup::Kind::Missions, MISSIONS_SIZE);
+const CONDITIONS_SIZE: Size = Size::new(364.0, 460.0);
+const CONDITIONS_POPUP: popup::Spec = popup::Spec::new(popup::Kind::Conditions, CONDITIONS_SIZE);
+const MISSION_UNLOCKS_POPUP: popup::Spec = popup::Spec::new(popup::Kind::MissionUnlocks, CONDITIONS_SIZE);
+const MISSION_GROUPS_POPUP: popup::Spec = popup::Spec::new(popup::Kind::MissionGroups, CONDITIONS_SIZE);
+const GACHA_OPTIONS_SIZE: Size = Size::new(364.0, 460.0);
+const GACHA_OPTIONS_POPUP: popup::Spec = popup::Spec::new(popup::Kind::GachaOptions, GACHA_OPTIONS_SIZE);
+const CHANCE_ANIMATIONS_POPUP: popup::Spec = popup::Spec::new(popup::Kind::ChanceAnimations, GACHA_OPTIONS_SIZE);
+const CASTLES_SIZE: Size = Size::new(364.0, 300.0);
+const CASTLES_POPUP: popup::Spec = popup::Spec::new(popup::Kind::Castles, CASTLES_SIZE);
+const TIP_RULES_SIZE: Size = Size::new(364.0, 520.0);
+const TIP_RULES_POPUP: popup::Spec = popup::Spec::new(popup::Kind::TipRules, TIP_RULES_SIZE);
+const QUEST_SIZE: Size = Size::new(364.0, 380.0);
+const QUEST_STAGES_POPUP: popup::Spec = popup::Spec::new(popup::Kind::QuestStages, QUEST_SIZE);
+const SLOT_LOTTERY_POPUP: popup::Spec = popup::Spec::new(popup::Kind::SlotLottery, QUEST_SIZE);
+const REALM_SIZE: Size = Size::new(364.0, 300.0);
+const REALM_ALTAR_POPUP: popup::Spec = popup::Spec::new(popup::Kind::RealmAltar, REALM_SIZE);
+const REALM_DRAWS_POPUP: popup::Spec = popup::Spec::new(popup::Kind::RealmDraws, REALM_SIZE);
+const LABYRINTH_FLOORS_POPUP: popup::Spec = popup::Spec::new(popup::Kind::LabyrinthFloors, REALM_SIZE);
+const LABYRINTH_LOTTERY_POPUP: popup::Spec = popup::Spec::new(popup::Kind::LabyrinthLottery, QUEST_SIZE);
+const MISSION_SHORTCUTS_POPUP: popup::Spec = popup::Spec::new(popup::Kind::MissionShortcuts, REALM_SIZE);
+const MISSION_DESIGNATIONS_POPUP: popup::Spec = popup::Spec::new(popup::Kind::MissionDesignations, REALM_SIZE);
+const MONTHLY_MISSIONS_POPUP: popup::Spec = popup::Spec::new(popup::Kind::MonthlyMissions, QUEST_SIZE);
+const SOUND_SETTINGS_POPUP: popup::Spec = popup::Spec::new(popup::Kind::SoundSettings, REALM_SIZE);
+const DOJO_CHESTS_POPUP: popup::Spec = popup::Spec::new(popup::Kind::DojoChests, QUEST_SIZE);
+const POPUP_TRIGGERS_POPUP: popup::Spec = popup::Spec::new(popup::Kind::PopupTriggers, TIP_RULES_SIZE);
+const COMBO_CATEGORIES_POPUP: popup::Spec = popup::Spec::new(popup::Kind::ComboCategories, QUEST_SIZE);
+const CASTLE_GROWTH_POPUP: popup::Spec = popup::Spec::new(popup::Kind::CastleGrowth, REALM_SIZE);
+const DEMON_CASTLES_POPUP: popup::Spec = popup::Spec::new(popup::Kind::DemonCastles, REALM_SIZE);
+const LEVEL_UP_OFFERS_POPUP: popup::Spec = popup::Spec::new(popup::Kind::LevelUpOffers, REALM_SIZE);
+const REEL_SYMBOLS_POPUP: popup::Spec = popup::Spec::new(popup::Kind::ReelSymbols, REALM_SIZE);
+const ORB_FILTER_CHOICES_POPUP: popup::Spec = popup::Spec::new(popup::Kind::OrbFilterChoices, REALM_SIZE);
+const MAP_SHEETS_POPUP: popup::Spec = popup::Spec::new(popup::Kind::MapSheets, TIP_RULES_SIZE);
+const MENU_TEXT_SETTINGS_POPUP: popup::Spec = popup::Spec::new(popup::Kind::MenuTextSettings, TIP_RULES_SIZE);
+const TRAIT_ICONS_POPUP: popup::Spec = popup::Spec::new(popup::Kind::TraitIcons, TIP_RULES_SIZE);
+const ABILITY_ICONS_POPUP: popup::Spec = popup::Spec::new(popup::Kind::AbilityIcons, TIP_RULES_SIZE);
+const LINEUP_RANK_GROUPS_POPUP: popup::Spec = popup::Spec::new(popup::Kind::LineupRankGroups, TIP_RULES_SIZE);
+const LINEUP_BANDS_POPUP: popup::Spec = popup::Spec::new(popup::Kind::LineupBands, TIP_RULES_SIZE);
+const LINEUP_RATINGS_POPUP: popup::Spec = popup::Spec::new(popup::Kind::LineupRatings, TIP_RULES_SIZE);
+const ENGINEER_CAP_POPUP: popup::Spec = popup::Spec::new(popup::Kind::EngineerCap, REALM_SIZE);
+const ENIGMA_RARITIES_POPUP: popup::Spec = popup::Spec::new(popup::Kind::EnigmaRarities, REALM_SIZE);
+const TIP_SETTINGS_POPUP: popup::Spec = popup::Spec::new(popup::Kind::TipSettings, TIP_RULES_SIZE);
+const GUIDE_SPOTLIGHTS_POPUP: popup::Spec = popup::Spec::new(popup::Kind::GuideSpotlights, REALM_SIZE);
+const FANFARE_TIERS_POPUP: popup::Spec = popup::Spec::new(popup::Kind::FanfareTiers, QUEST_SIZE);
+const STAGE_SHORTCUTS_POPUP: popup::Spec = popup::Spec::new(popup::Kind::StageShortcuts, REALM_SIZE);
+const ENERGY_REFUNDS_POPUP: popup::Spec = popup::Spec::new(popup::Kind::EnergyRefunds, REALM_SIZE);
+const ORB_OPTIONS_POPUP: popup::Spec = popup::Spec::new(popup::Kind::OrbOptions, REALM_SIZE);
+const LINEUP_COUNTERS_POPUP: popup::Spec = popup::Spec::new(popup::Kind::LineupCounters, REALM_SIZE);
+const RECOMMENDED_UPGRADES_POPUP: popup::Spec = popup::Spec::new(popup::Kind::RecommendedUpgrades, REALM_SIZE);
+const ENIGMA_TIMES_POPUP: popup::Spec = popup::Spec::new(popup::Kind::EnigmaTimes, REALM_SIZE);
+const MAP_MARKERS_POPUP: popup::Spec = popup::Spec::new(popup::Kind::MapMarkers, REALM_SIZE);
+const DISCOVERY_MEDALS_POPUP: popup::Spec = popup::Spec::new(popup::Kind::DiscoveryMedals, TIP_RULES_SIZE);
+const ENIGMA_GROUPS_POPUP: popup::Spec = popup::Spec::new(popup::Kind::EnigmaGroups, TIP_RULES_SIZE);
+const ENIGMA_DROPS_POPUP: popup::Spec = popup::Spec::new(popup::Kind::EnigmaDrops, TIP_RULES_SIZE);
+const ENIGMA_RATES_POPUP: popup::Spec = popup::Spec::new(popup::Kind::EnigmaRates, TIP_RULES_SIZE);
+const ENIGMA_LOTTERIES_POPUP: popup::Spec = popup::Spec::new(popup::Kind::EnigmaLotteries, TIP_RULES_SIZE);
+const LINEUP_EXCLUSIONS_POPUP: popup::Spec = popup::Spec::new(popup::Kind::LineupExclusions, REALM_SIZE);
+const FILTER_MAPS_POPUP: popup::Spec = popup::Spec::new(popup::Kind::FilterMaps, REALM_SIZE);
+const ZONED_IN_STEPS_POPUP: popup::Spec = popup::Spec::new(popup::Kind::ZonedInSteps, TIP_RULES_SIZE);
+const ZONED_IN_POPUP: popup::Spec = popup::Spec::new(popup::Kind::ZonedIn, REALM_SIZE);
+const FORTUNE_ODDS_POPUP: popup::Spec = popup::Spec::new(popup::Kind::FortuneOdds, QUEST_SIZE);
+const SHRINE_EXTRAS_POPUP: popup::Spec = popup::Spec::new(popup::Kind::ShrineExtras, REALM_SIZE);
+const SHRINE_OFFERINGS_POPUP: popup::Spec = popup::Spec::new(popup::Kind::ShrineOfferings, TIP_RULES_SIZE);
+const PRIZE_PATTERNS_POPUP: popup::Spec = popup::Spec::new(popup::Kind::PrizePatterns, QUEST_SIZE);
+const GAMATOTO_LEVELS_POPUP: popup::Spec = popup::Spec::new(popup::Kind::GamatotoLevels, REALM_SIZE);
+const EXPEDITION_AREAS_POPUP: popup::Spec = popup::Spec::new(popup::Kind::ExpeditionAreas, TIP_RULES_SIZE);
+const ENEMY_GUIDE_POPUP: popup::Spec = popup::Spec::new(popup::Kind::EnemyGuide, REALM_SIZE);
+const UNIT_LIMITS_POPUP: popup::Spec = popup::Spec::new(popup::Kind::UnitLimits, TIP_RULES_SIZE);
+const GUIDE_ENTRIES_POPUP: popup::Spec = popup::Spec::new(popup::Kind::GuideEntries, TIP_RULES_SIZE);
+const MATERIAL_MIXES_POPUP: popup::Spec = popup::Spec::new(popup::Kind::MaterialMixes, QUEST_SIZE);
+const DEVELOPMENT_TIERS_POPUP: popup::Spec = popup::Spec::new(popup::Kind::DevelopmentTiers, QUEST_SIZE);
+const DEVELOPMENT_COSTS_POPUP: popup::Spec = popup::Spec::new(popup::Kind::DevelopmentCosts, TIP_RULES_SIZE);
 
 pub(super) fn kind(subject: Subject) -> popup::Kind {
     spec(subject).kind()
@@ -80,6 +240,97 @@ fn spec(subject: Subject) -> popup::Spec {
         Subject::MapDrops => MAP_DROPS_POPUP,
         Subject::DropChara => DROP_CHARA_POPUP,
         Subject::ItemBuy => ITEM_BUY_POPUP,
+        Subject::MapOption => MAP_OPTION_POPUP,
+        Subject::Background => BACKGROUND_POPUP,
+        Subject::Upgrade => UPGRADE_POPUP,
+        Subject::ComboParam => COMBO_PARAM_POPUP,
+        Subject::OrbSlots => ORB_SLOTS_POPUP,
+        Subject::Difficulty => DIFFICULTY_POPUP,
+        Subject::ExInvasion => EX_INVASION_POPUP,
+        Subject::CannonStatus => CANNON_STATUS_POPUP,
+        Subject::ExpCurve => EXP_CURVE_POPUP,
+        Subject::OrbGrades => ORB_GRADES_POPUP,
+        Subject::ExLottery => EX_LOTTERY_POPUP,
+        Subject::Shakes => SHAKES_POPUP,
+        Subject::Recipes => RECIPES_POPUP,
+        Subject::Shop => SHOP_POPUP,
+        Subject::ZombieHeader => ZOMBIE_HEADER_POPUP,
+        Subject::ZombieTier => ZOMBIE_TIER_POPUP,
+        Subject::Cpu => CPU_POPUP,
+        Subject::OrbTraits => ORB_TRAITS_POPUP,
+        Subject::Altar => ALTAR_POPUP,
+        Subject::GamatotoLimit => GAMATOTO_LIMIT_POPUP,
+        Subject::GamatotoUnlock => GAMATOTO_UNLOCK_POPUP,
+        Subject::GamatotoDrop => GAMATOTO_DROP_POPUP,
+        Subject::Stamps => STAMPS_POPUP,
+        Subject::SlotUnlocks => SLOT_UNLOCKS_POPUP,
+        Subject::Club => CLUB_POPUP,
+        Subject::Missions => MISSIONS_POPUP,
+        Subject::Conditions => CONDITIONS_POPUP,
+        Subject::MissionUnlocks => MISSION_UNLOCKS_POPUP,
+        Subject::MissionGroups => MISSION_GROUPS_POPUP,
+        Subject::GachaOptions => GACHA_OPTIONS_POPUP,
+        Subject::ChanceAnimations => CHANCE_ANIMATIONS_POPUP,
+        Subject::Castles => CASTLES_POPUP,
+        Subject::TipRules => TIP_RULES_POPUP,
+        Subject::QuestStages => QUEST_STAGES_POPUP,
+        Subject::SlotLottery => SLOT_LOTTERY_POPUP,
+        Subject::RealmAltar => REALM_ALTAR_POPUP,
+        Subject::RealmDraws => REALM_DRAWS_POPUP,
+        Subject::LabyrinthFloors => LABYRINTH_FLOORS_POPUP,
+        Subject::LabyrinthLottery => LABYRINTH_LOTTERY_POPUP,
+        Subject::MissionShortcuts => MISSION_SHORTCUTS_POPUP,
+        Subject::MissionDesignations => MISSION_DESIGNATIONS_POPUP,
+        Subject::MonthlyMissions => MONTHLY_MISSIONS_POPUP,
+        Subject::SoundSettings => SOUND_SETTINGS_POPUP,
+        Subject::DojoChests => DOJO_CHESTS_POPUP,
+        Subject::PopupTriggers => POPUP_TRIGGERS_POPUP,
+        Subject::ComboCategories => COMBO_CATEGORIES_POPUP,
+        Subject::CastleGrowth => CASTLE_GROWTH_POPUP,
+        Subject::DemonCastles => DEMON_CASTLES_POPUP,
+        Subject::LevelUpOffers => LEVEL_UP_OFFERS_POPUP,
+        Subject::ReelSymbols => REEL_SYMBOLS_POPUP,
+        Subject::OrbFilterChoices => ORB_FILTER_CHOICES_POPUP,
+        Subject::MapSheets => MAP_SHEETS_POPUP,
+        Subject::MenuTextSettings => MENU_TEXT_SETTINGS_POPUP,
+        Subject::TraitIcons => TRAIT_ICONS_POPUP,
+        Subject::AbilityIcons => ABILITY_ICONS_POPUP,
+        Subject::LineupRankGroups => LINEUP_RANK_GROUPS_POPUP,
+        Subject::LineupBands => LINEUP_BANDS_POPUP,
+        Subject::LineupRatings => LINEUP_RATINGS_POPUP,
+        Subject::EngineerCap => ENGINEER_CAP_POPUP,
+        Subject::EnigmaRarities => ENIGMA_RARITIES_POPUP,
+        Subject::TipSettings => TIP_SETTINGS_POPUP,
+        Subject::GuideSpotlights => GUIDE_SPOTLIGHTS_POPUP,
+        Subject::FanfareTiers => FANFARE_TIERS_POPUP,
+        Subject::StageShortcuts => STAGE_SHORTCUTS_POPUP,
+        Subject::EnergyRefunds => ENERGY_REFUNDS_POPUP,
+        Subject::OrbOptions => ORB_OPTIONS_POPUP,
+        Subject::LineupCounters => LINEUP_COUNTERS_POPUP,
+        Subject::RecommendedUpgrades => RECOMMENDED_UPGRADES_POPUP,
+        Subject::EnigmaTimes => ENIGMA_TIMES_POPUP,
+        Subject::MapMarkers => MAP_MARKERS_POPUP,
+        Subject::DiscoveryMedals => DISCOVERY_MEDALS_POPUP,
+        Subject::EnigmaGroups => ENIGMA_GROUPS_POPUP,
+        Subject::EnigmaDrops => ENIGMA_DROPS_POPUP,
+        Subject::EnigmaRates => ENIGMA_RATES_POPUP,
+        Subject::EnigmaLotteries => ENIGMA_LOTTERIES_POPUP,
+        Subject::LineupExclusions => LINEUP_EXCLUSIONS_POPUP,
+        Subject::FilterMaps => FILTER_MAPS_POPUP,
+        Subject::ZonedInSteps => ZONED_IN_STEPS_POPUP,
+        Subject::ZonedIn => ZONED_IN_POPUP,
+        Subject::FortuneOdds => FORTUNE_ODDS_POPUP,
+        Subject::ShrineExtras => SHRINE_EXTRAS_POPUP,
+        Subject::ShrineOfferings => SHRINE_OFFERINGS_POPUP,
+        Subject::PrizePatterns => PRIZE_PATTERNS_POPUP,
+        Subject::GamatotoLevels => GAMATOTO_LEVELS_POPUP,
+        Subject::ExpeditionAreas => EXPEDITION_AREAS_POPUP,
+        Subject::EnemyGuide => ENEMY_GUIDE_POPUP,
+        Subject::UnitLimits => UNIT_LIMITS_POPUP,
+        Subject::GuideEntries => GUIDE_ENTRIES_POPUP,
+        Subject::MaterialMixes => MATERIAL_MIXES_POPUP,
+        Subject::DevelopmentTiers => DEVELOPMENT_TIERS_POPUP,
+        Subject::DevelopmentCosts => DEVELOPMENT_COSTS_POPUP,
     }
 }
 
@@ -203,6 +454,10 @@ fn vacant(plan: &Plan, lines: &[String], delimiter: char) -> String {
     if plan.schema.subject() == Subject::Combo {
         combos::seed(&mut fields, plan.schema, plan.anchor);
         combos::seed_key(&mut fields, plan.schema, lines, delimiter);
+    }
+
+    if plan.schema.subject() == Subject::OrbSlots {
+        fields.truncate(orbslots::SEEDED);
     }
 
     fields.join(&delimiter.to_string())
@@ -1524,6 +1779,97 @@ impl Draft {
             Subject::MapDrops => mapdrops::view(self, width, query, armed),
             Subject::DropChara => mapdrops::chara_view(self, width, armed),
             Subject::ItemBuy => itembuy::view(self, width, query, armed),
+            Subject::MapOption => mapoption::view(self, width, query, armed),
+            Subject::Background => backgrounds::view(self, width, query, armed),
+            Subject::Upgrade => upgrades::view(self, width, query, armed),
+            Subject::ComboParam => comboparams::view(self, width, query, armed),
+            Subject::OrbSlots => orbslots::view(self, width, query, armed),
+            Subject::Difficulty => difficulty::view(self, width, query, armed),
+            Subject::ExInvasion => exoption::view(self, width, query, armed),
+            Subject::CannonStatus => cannonstatus::view(self, width, query, armed),
+            Subject::ExpCurve => expcurve::view(self, width, query, armed),
+            Subject::OrbGrades => orbgrades::view(self, width, query, armed),
+            Subject::ExLottery => exlottery::view(self, width, query, armed),
+            Subject::Shakes => shakes::view(self, width, query, armed),
+            Subject::Recipes => recipes::view(self, width, query, armed),
+            Subject::Shop => shop::view(self, width, query, armed),
+            Subject::ZombieHeader => zombies::header_view(self, width, query, armed),
+            Subject::ZombieTier => zombies::tier_view(self, width, query, armed),
+            Subject::Cpu => cpu::view(self, width, query, armed),
+            Subject::OrbTraits => orbtraits::view(self, width, query, armed),
+            Subject::Altar => altar::view(self, width, query, armed),
+            Subject::GamatotoLimit => gamatoto::limit_view(self, width, query, armed),
+            Subject::GamatotoUnlock => gamatoto::unlock_view(self, width, query, armed),
+            Subject::GamatotoDrop => gamatoto::drop_view(self, width, query, armed),
+            Subject::Stamps => progress::stamp_view(self, width, query, armed),
+            Subject::SlotUnlocks => progress::slot_view(self, width, query, armed),
+            Subject::Club => club::view(self, width, query, armed),
+            Subject::Missions => missions::view(self, width, query, armed),
+            Subject::Conditions => conditions::view(self, width, query, armed),
+            Subject::MissionUnlocks => missions::unlock_view(self, width, query, armed),
+            Subject::MissionGroups => conditions::group_view(self, width, query, armed),
+            Subject::GachaOptions => gacha::view(self, width, query, armed),
+            Subject::ChanceAnimations => chance::view(self, width, query, armed),
+            Subject::Castles => castles::view(self, width, query, armed),
+            Subject::TipRules => tiprules::view(self, width, query, armed),
+            Subject::QuestStages => quest::stage_view(self, width, query, armed),
+            Subject::SlotLottery => quest::lottery_view(self, width, query, armed),
+            Subject::RealmAltar => realms::altar_view(self, width, query, armed),
+            Subject::RealmDraws => realms::draw_view(self, width, query, armed),
+            Subject::LabyrinthFloors => labyrinth::view(self, width, query, armed),
+            Subject::LabyrinthLottery => labyrinth::lottery_view(self, width, query, armed),
+            Subject::MissionShortcuts => missionsettings::shortcut_view(self, width, query, armed),
+            Subject::MissionDesignations => missionsettings::designation_view(self, width, query, armed),
+            Subject::MonthlyMissions => missionsettings::monthly_view(self, width, query, armed),
+            Subject::SoundSettings => sounds::sound_view(self, width, query, armed),
+            Subject::DojoChests => sounds::chest_view(self, width, query, armed),
+            Subject::PopupTriggers => popups::view(self, width, query, armed),
+            Subject::ComboCategories => combocategories::view(self, width, query, armed),
+            Subject::CastleGrowth => castlegrowth::view(self, width, query, armed),
+            Subject::DemonCastles => realms::castle_view(self, width, query, armed),
+            Subject::LevelUpOffers => guide::level_up_view(self, width, query, armed),
+            Subject::ReelSymbols => prizes::reel_view(self, width, query, armed),
+            Subject::OrbFilterChoices => guide::orb_choice_view(self, width, query, armed),
+            Subject::MapSheets => mapsheets::view(self, width, query, armed),
+            Subject::MenuTextSettings => guide::menu_text_view(self, width, query, armed),
+            Subject::TraitIcons => guide::trait_icon_view(self, width, query, armed),
+            Subject::AbilityIcons => guide::ability_icon_view(self, width, query, armed),
+            Subject::LineupRankGroups => guide::rank_group_view(self, width, query, armed),
+            Subject::LineupBands => guide::band_view(self, width, query, armed),
+            Subject::LineupRatings => guide::rating_view(self, width, query, armed),
+            Subject::EngineerCap => development::engineer_view(self, width, query, armed),
+            Subject::EnigmaRarities => enigma::rarity_view(self, width, query, armed),
+            Subject::TipSettings => guide::tip_setting_view(self, width, query, armed),
+            Subject::GuideSpotlights => guide::spotlight_view(self, width, query, armed),
+            Subject::FanfareTiers => guide::fanfare_view(self, width, query, armed),
+            Subject::StageShortcuts => guide::shortcut_view(self, width, query, armed),
+            Subject::EnergyRefunds => guide::refund_view(self, width, query, armed),
+            Subject::OrbOptions => guide::orb_option_view(self, width, query, armed),
+            Subject::LineupCounters => guide::counter_view(self, width, query, armed),
+            Subject::RecommendedUpgrades => guide::recommend_view(self, width, query, armed),
+            Subject::EnigmaTimes => enigma::time_view(self, width, query, armed),
+            Subject::MapMarkers => guide::marker_view(self, width, query, armed),
+            Subject::DiscoveryMedals => enigma::medal_view(self, width, query, armed),
+            Subject::EnigmaGroups => enigma::group_view(self, width, query, armed),
+            Subject::EnigmaDrops => enigma::drop_view(self, width, query, armed),
+            Subject::EnigmaRates => enigma::rate_view(self, width, query, armed),
+            Subject::EnigmaLotteries => enigma::lottery_view(self, width, query, armed),
+            Subject::LineupExclusions => guide::exclusion_view(self, width, query, armed),
+            Subject::FilterMaps => guide::filter_view(self, width, query, armed),
+            Subject::ZonedInSteps => gamatoto::zone_step_view(self, width, query, armed),
+            Subject::ZonedIn => gamatoto::zone_view(self, width, query, armed),
+            Subject::FortuneOdds => shrine::fortune_view(self, width, query, armed),
+            Subject::ShrineExtras => shrine::extra_view(self, width, query, armed),
+            Subject::ShrineOfferings => shrine::offering_view(self, width, query, armed),
+            Subject::PrizePatterns => prizes::pattern_view(self, width, query, armed),
+            Subject::GamatotoLevels => gamatoto::level_view(self, width, query, armed),
+            Subject::ExpeditionAreas => gamatoto::area_view(self, width, query, armed),
+            Subject::EnemyGuide => guide::enemy_view(self, width, query, armed),
+            Subject::UnitLimits => guide::limit_view(self, width, query, armed),
+            Subject::GuideEntries => guide::guide_view(self, width, query, armed),
+            Subject::MaterialMixes => development::mix_view(self, width, query, armed),
+            Subject::DevelopmentTiers => development::tier_view(self, width, query, armed),
+            Subject::DevelopmentCosts => development::cost_view(self, width, query, armed),
         }
     }
 }

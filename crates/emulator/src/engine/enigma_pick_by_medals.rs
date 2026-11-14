@@ -57,25 +57,25 @@ pub fn enigma_pick_by_medals(
             .get(tier)
             .ok_or(Fault::out_of_range())?;
 
-        if index >= pool.groups.len() {
+        if index >= pool.lotteries.len() {
             break;
         }
 
-        let group = *pool
-            .groups
+        let lottery = *pool
+            .lotteries
             .get(index)
             .ok_or(Fault::out_of_range())?;
 
-        if *eligible.entry(group).or_insert(false) {
+        if *eligible.entry(lottery).or_insert(false) {
             let mut slot = 0usize;
 
             loop {
                 let stages = &ctx
                     .enigma
-                    .groups
-                    .get(group as i64 as usize)
+                    .lotteries
+                    .get(lottery as i64 as usize)
                     .ok_or(Fault::out_of_range())?
-                    .stage_ids;
+                    .map_ids;
 
                 if slot >= stages.len() {
                     break;
@@ -84,7 +84,7 @@ pub fn enigma_pick_by_medals(
                 let id = *stages.get(slot).ok_or(Fault::out_of_range())?;
 
                 if !*excluded.entry(id).or_insert(false) {
-                    candidates.insert(group, true);
+                    candidates.insert(lottery, true);
 
                     break;
                 }
@@ -155,16 +155,16 @@ pub fn enigma_pick_by_medals(
                         .get(tier)
                         .ok_or(Fault::out_of_range())?;
 
-                    if slot >= pool.groups.len() {
+                    if slot >= pool.lotteries.len() {
                         break;
                     }
 
-                    let group = *pool
-                        .groups
+                    let lottery = *pool
+                        .lotteries
                         .get(slot)
                         .ok_or(Fault::out_of_range())?;
 
-                    if *candidates.entry(group).or_insert(false) {
+                    if *candidates.entry(lottery).or_insert(false) {
                         let pool = ctx
                             .enigma
                             .pools
@@ -189,16 +189,16 @@ pub fn enigma_pick_by_medals(
                         .get(tier)
                         .ok_or(Fault::out_of_range())?;
 
-                    if slot >= pool.groups.len() {
+                    if slot >= pool.lotteries.len() {
                         break -1;
                     }
 
-                    let group = *pool
-                        .groups
+                    let lottery = *pool
+                        .lotteries
                         .get(slot)
                         .ok_or(Fault::out_of_range())?;
 
-                    if *candidates.entry(group).or_insert(false) {
+                    if *candidates.entry(lottery).or_insert(false) {
                         let pool = ctx
                             .enigma
                             .pools
@@ -210,7 +210,7 @@ pub fn enigma_pick_by_medals(
                         )?);
 
                         if pick < sum {
-                            break group;
+                            break lottery;
                         }
                     }
 

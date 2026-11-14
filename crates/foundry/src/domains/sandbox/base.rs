@@ -7,9 +7,9 @@ use codex::combat::{Faction, Identity};
 use crate::systems::combat::NameBook;
 use crate::Vfs;
 
-const CANNON_GROWTH: &str = "CC_AllParts_growth.csv";
-const STYLE_GROWTH: &str = "CC_DecoParts_growth.csv";
-const FOUNDATION_GROWTH: &str = "CC_BaseParts_growth.csv";
+pub const CANNON_GROWTH: &str = "CC_AllParts_growth.csv";
+pub const STYLE_GROWTH: &str = "CC_DecoParts_growth.csv";
+pub const FOUNDATION_GROWTH: &str = "CC_BaseParts_growth.csv";
 const CASTLE_GROWTH: &str = "CC_Castle_growth.csv";
 const ID_CELL: usize = 0;
 const KIND_CELL: usize = 1;
@@ -26,6 +26,22 @@ pub const CANNONS: [&str; 8] = [
     "Holy Blast",
     "Breakerblast",
     "Curseblast",
+];
+
+pub const CANNON_EFFECTS: [&str; 13] = [
+    "Damage %",
+    "Slow Duration",
+    "Freeze Duration",
+    "Wall Health %",
+    "Wall Duration",
+    "Strike Width",
+    "Wall Position",
+    "Metal Damage \u{2030}",
+    "Non-Metal Damage \u{2030}",
+    "Zombie Damage \u{2030}",
+    "Burrowed Damage \u{2030}",
+    "Non-Zombie Damage \u{2030}",
+    "Curse Duration",
 ];
 
 const STYLE_RESISTS: [Identity; 7] = [
@@ -94,6 +110,14 @@ fn resist_label<'a>(part: i32, kind: Option<&i32>, resists: &[Identity], label: 
     kind.and_then(|kind| usize::try_from(*kind).ok())
         .and_then(|kind| resists.get(kind))
         .map_or_else(|| name(part), |resist| label(*resist).to_owned())
+}
+
+pub fn style_effect(kind: usize, names: &NameBook) -> Option<&str> {
+    STYLE_RESISTS.get(kind).map(|resist| names.ability(*resist, Faction::Enemy))
+}
+
+pub fn foundation_effect(kind: usize, names: &NameBook) -> Option<&str> {
+    FOUNDATION_RESISTS.get(kind).map(|resist| names.trait_label(*resist))
 }
 
 pub fn name(part: i32) -> String {

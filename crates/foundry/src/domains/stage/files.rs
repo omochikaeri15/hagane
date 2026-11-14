@@ -1,6 +1,6 @@
 use codex::chapter::Category;
 
-pub(crate) fn gatya_item_img(id: u32) -> String {
+pub fn gatya_item_img(id: u32) -> String {
     format!("gatyaitemD_{:02}_f.png", id)
 }
 

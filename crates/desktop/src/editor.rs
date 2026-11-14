@@ -1,5 +1,23 @@
 mod artwork;
+mod audio;
+mod captions;
+mod catfruit;
 mod finder;
+mod evolve;
+mod filter;
+mod gift;
+mod group;
+mod ledger;
+mod maplayout;
+mod cuts;
+mod dungeon;
+mod logins;
+mod unused;
+mod preset;
+mod records;
+mod roster;
+mod sheet;
+mod treasure;
 mod ground;
 mod menu;
 mod registry;
@@ -28,6 +46,7 @@ use foundry::domains::enemy::files as enemy_files;
 use foundry::domains::enemy::scanner::EnemyEntry;
 use foundry::common::architecture;
 use foundry::domains::mods;
+use foundry::domains::sandbox::{base, orb};
 use foundry::domains::stage::files as stage_files;
 use foundry::domains::stage::authoring as stage_authoring;
 use foundry::domains::stage::materials as stage_materials;
@@ -36,12 +55,14 @@ use foundry::domains::stage::{names, GlobalMapId, GlobalStageId};
 use foundry::domains::settings::{ContextScope, EditorMode};
 use foundry::Vfs;
 use codex::chapter::stage::RewardStructure;
+use codex::chapter::treasure::{data_file, STAGES as TREASURE_STAGES};
 use codex::common;
 use codex::graphics::tools::crash::Side;
 
 use crate::app::state::SandboxTab;
 use crate::app::{theme, HaganeApp, Page};
 use crate::domains::cat::DetailTab;
+use crate::domains::sandbox::orbs;
 use crate::domains::studio;
 use foundry::domains::studio as foundry_studio;
 use crate::domains::enemy::DetailTab as EnemyTab;
@@ -164,6 +185,10 @@ const LEVEL_FILES: [(figures::Subject, &str); 2] =
 
 const FORM_FILES: [(figures::Subject, &str); 1] = [(figures::Subject::Buy, cat_files::UNIT_BUY)];
 
+const EXP_FILES: [(figures::Subject, &str); 1] = [(figures::Subject::ExpCurve, EXP_TABLE)];
+
+const EXP_TABLE: &str = "unitexp.csv";
+
 const TALENT_FILES: [(figures::Subject, &str); 2] = [
     (figures::Subject::Talents, cat_files::SKILL_ACQUISITION),
     (figures::Subject::Costs, cat_files::SKILL_LEVEL),
@@ -179,8 +204,277 @@ const ENTRY_SUFFIX: &str = "_entry";
 
 const BANNER_TITLES: [&str; 4] = ["Normal Banner", "Evolved Banner", "True Banner", "Ultra Banner"];
 const CAT_ICON_TITLE: &str = "Deploy Icon";
+const GACHA_IMAGE_TITLE: &str = "Gacha Image";
 const ICON_TITLE: &str = "Icon";
 const BANNER_TITLE: &str = "Banner";
+const UPGRADE_TABLE: &str = "AbilityData.csv";
+const COMBO_PARAM_TABLE: &str = "NyancomboParam.tsv";
+const ORB_SLOT_TABLE: &str = "equipmentslot.csv";
+const DIFFICULTY_TABLE: &str = "difficulty_level.tsv";
+const EX_OPTION_TABLE: &str = "EX_option.csv";
+const CANNON_STATUS_TABLE: &str = "CC_AllParts_status.csv";
+const ORB_GRADE_TABLE: &str = "equipmentgrade.csv";
+const ORB_GRADE_LABEL: &str = "Grade";
+const ORB_GRADES: &str = "Orb Grades";
+const COMBO_EFFECT_LABEL: &str = "Effect";
+const UPGRADE_LABEL: &str = "Power Up";
+const UPGRADE_NAMES: [&str; 10] = [
+    "Cat Cannon Attack",
+    "Cat Cannon Range",
+    "Cat Cannon Charge",
+    "Worker Cat Efficiency",
+    "Worker Cat Wallet",
+    "Cat Base Health",
+    "Research",
+    "Accounting",
+    "Study",
+    "Cat Energy",
+];
+const PRESET_PREFIX: &str = "Certification";
+const EX_LOTTERY_TABLE: &str = "EX_lottery.csv";
+const SHAKE_TABLE: &str = "battleshake_setting.csv";
+const SHAKE_NAME: &str = "Shake";
+const RECIPE_TABLE: &str = "CastleRecipeUnlockData.csv";
+const RECIPE_NAME: &str = "Unlock";
+const DEVELOPMENT_COST_SETS: [(&str, &str); 3] = [("CastleRecipe_", "Cannon"), ("BaseRecipe_", "Foundation"), ("DecoRecipe_", "Style")];
+const DEVELOPMENT_COST_FOLDER: &str = "Development Costs";
+const DEVELOPMENT_COST_NAME: &str = "From Level";
+const DEVELOPMENT_TIER_TABLE: &str = "CastleRecipeUnlock.csv";
+const DEVELOPMENT_TIER_FOLDER: &str = "Development Tiers";
+const DEVELOPMENT_TIER_NAME: &str = "Tier";
+const DEVELOPMENT_PARTS: [&str; 3] = ["Cannon", "Foundation", "Style"];
+const MATERIAL_MIX_TABLE: &str = "CastleMixRecipe.csv";
+const MATERIAL_MIX_FOLDER: &str = "Material Mixing";
+const MATERIAL_MIX_NAME: &str = "Mix";
+const ENGINEER_CAP_TABLE: &str = "CastleCustomLimit.csv";
+const ENGINEER_CAP_NAME: &str = "Engineer Cap";
+const BAND_TABLE: &str = "autoset_organization.csv";
+const BAND_FOLDER: &str = "Lineup Cost Bands";
+const BAND_NAME: &str = "Cost Band";
+const RANK_GROUP_TABLE: &str = "autoset_organization_group.csv";
+const RANK_GROUP_FOLDER: &str = "Lineup Rank Groups";
+const RANK_GROUP_NAME: &str = "Rank Group";
+const ABILITY_ICON_TABLE: &str = "nyankoPictureBookData_EffectAbility.csv";
+const ABILITY_ICON_FOLDER: &str = "Ability Icons";
+const ABILITY_ICON_NAME: &str = "Ability Icon";
+const TRAIT_ICON_TABLE: &str = "nyankoPictureBookData_Attribute.csv";
+const TRAIT_ICON_FOLDER: &str = "Trait Icons";
+const TRAIT_ICON_NAME: &str = "Trait Icon";
+const MENU_TEXT_TABLE: &str = "MainMenuTextSetting.csv";
+const MENU_TEXT_FOLDER: &str = "Main Menu Message Settings";
+const MENU_TEXT_NAME: &str = "Message";
+const RATING_TABLE: &str = "autoset_chara_rating.csv";
+const RATING_NAME: &str = "Lineup Rating";
+const GUIDE_TABLE: &str = "nyankoPictureBookData.csv";
+const GUIDE_NAME: &str = "Cat Guide Entry";
+const UNIT_LIMIT_TABLE: &str = "unitlimit.csv";
+const UNIT_LIMIT_NAME: &str = "Level Cap Groups";
+const ENEMY_GUIDE_TABLE: &str = "enemy_dictionary_list.csv";
+const ENEMY_GUIDE_NAME: &str = "Enemy Guide Entry";
+const SHOP_TABLE: &str = "itemShopData.tsv";
+const SHOP_NAME: &str = "Slot";
+const ZOMBIE_TABLE: &str = "zombie_lottery.csv";
+const ZOMBIE_LINE: &str = "Line";
+const CPU_TABLE: &str = "ScatCPUsetting.csv";
+const CPU_LINE: &str = "Setting";
+const ORB_TRAIT_TABLE: &str = "equipment_attribute.csv";
+const ORB_TRAIT_LINE: &str = "Orb Trait";
+const ORB_TRAIT_FOLDER: &str = "Orb Trait Targets";
+const ALTAR_TABLE: &str = "DemonCastlelimit.csv";
+const GAMATOTO_FOLDER: &str = "Gamatoto";
+const STAMP_TABLE: &str = "StampData.csv";
+const STAMP_LINE: &str = "Line";
+const STAMP_FOLDER: &str = "Stamp Card Rewards";
+const STAMP_DAY: &str = "Day";
+const SLOT_TABLE: &str = "UnitSlot_UnlockData.csv";
+const SLOT_LINE: &str = "Line";
+const SLOT_FOLDER: &str = "Lineup Slot Unlocks";
+const SLOT_NAME: &str = "Slot";
+const CLUB_TABLE: &str = "NyankoClubData.csv";
+const CLUB_NAME: &str = "Reward";
+const CLUB_FOLDER: &str = "Officers' Club Rewards";
+const MISSION_TABLE: &str = "Mission_Data.csv";
+const MISSION_NAME: &str = "Mission";
+const MISSION_REWARDS: &str = "Mission Rewards";
+const MISSION_NAMES: &str = "Mission_Name.csv";
+const CONDITION_TABLE: &str = "Mission_Condition.csv";
+const MISSION_CONDITIONS: &str = "Mission Conditions";
+const MISSION_UNLOCK_TABLE: &str = "Mission_Unlock_Condition.csv";
+const MISSION_UNLOCK_NAME: &str = "Unlock";
+const MISSION_UNLOCKS: &str = "Mission Unlocks";
+const MISSION_GROUP_TABLE: &str = "Mission_Group.csv";
+const MISSION_GROUP_NAME: &str = "Group";
+const MISSION_GROUPS: &str = "Mission Groups";
+const MISSION_SHORTCUT_TABLE: &str = "Mission_Condition_Setting.csv";
+const MISSION_SHORTCUT_NAME: &str = "Shortcut";
+const MISSION_SHORTCUTS: &str = "Mission Shortcuts";
+const MISSION_DESIGNATION_TABLE: &str = "Mission_designation.csv";
+const MISSION_DESIGNATIONS: &str = "Mission Designations";
+const MONTHLY_MISSION_TABLE: &str = "Mission_Monthly.csv";
+const MONTHLY_MISSION_NAME: &str = "Monthly Set";
+const MONTHLY_MISSIONS: &str = "Monthly Missions";
+const SOUND_TABLE: &str = "Sound_setting.tsv";
+const SOUND_NAME: &str = "Sound";
+const SOUND_FOLDER: &str = "Sound Settings";
+const CHEST_TABLE: &str = "TreasureBox.tsv";
+const CHEST_NAME: &str = "Chest";
+const CHEST_FOLDER: &str = "Dojo Chests";
+const POPUP_TRIGGER_TABLE: &str = "unlockPopup.tsv";
+const POPUP_TRIGGER_NAME: &str = "Popup";
+const POPUP_TRIGGER_FOLDER: &str = "Unlock Popup Triggers";
+const COMBO_CATEGORY_TABLE: &str = "ComboFiltering.tsv";
+const COMBO_CATEGORY_NAME: &str = "Category";
+const COMBO_CATEGORY_FOLDER: &str = "Combo Filter Categories";
+const CASTLE_GROWTH_TABLE: &str = "CC_Castle_growth.csv";
+const CASTLE_BRACKET_NAME: &str = "Bracket";
+const CASTLE_GROWTH_FOLDER: &str = "Castle Health";
+const CASTLE_LEVEL_LABEL: &str = "Up To Level";
+const DEMON_CASTLE_TABLE: &str = "DemonCastledefine.csv";
+const MAP_SHEET_TABLE: &str = "MapData_Image.tsv";
+const MAP_SHEET_NAME: &str = "Map";
+const MAP_SHEET_FOLDER: &str = "Map Sheets";
+const DEMON_CASTLE_NAME: &str = "Castle";
+const DEMON_CASTLE_FOLDER: &str = "Aku Altar Castles";
+const CASTLE_NAME: &str = "Castle";
+const CASTLE_FOLDER: &str = "Castle Placement";
+const CASTLE_SETS: [(&str, &str, &str); 4] = [
+    ("enemyCastleData0.csv", "Empire of Cats", "ec"),
+    ("enemyCastleData1.csv", "Into the Future", "wc"),
+    ("enemyCastleData2.csv", "Cats of the Cosmos", "sc"),
+    ("enemyCastleDataLegend.csv", "Legend", "rc"),
+];
+const CASTLE_IMAGE_TITLE: &str = "Castle Image";
+const BACKGROUND_IMAGE_TITLE: &str = "Background Image";
+const ITEM_ICON_TITLE: &str = "Item Icon";
+const IMAGE_TITLE: &str = "Image";
+const CASTLE_END: i32 = -999;
+const TIP_RULE_TABLE: &str = "LoseTextSetting.csv";
+const TIP_RULE_NAME: &str = "Rule";
+const TIP_RULE_FOLDER: &str = "Defeat Tip Rules";
+const QUEST_STAGE_NAME: &str = "Stage";
+const SLOT_LOTTERY_NAME: &str = "Clears";
+const QUEST_FOLDER: &str = "Legend Quest";
+const QUEST_STAGE_PREFIX: &str = "PlayDungeonD_";
+const SLOT_LOTTERY_PREFIX: &str = "RandomDungeon_";
+const QUEST_STAGE_FOLDER: &str = "Quest Stages";
+const SLOT_LOTTERY_FOLDER: &str = "Slot Lottery";
+const REALM_DRAW_NAME: &str = "Draw";
+const LABYRINTH_FLOOR_NAME: &str = "Floor";
+const LABYRINTH_FOLDER: &str = "Labyrinth";
+const LABYRINTH_PREFIX: &str = "PlayContentL_";
+const LABYRINTH_LOTTERY_TABLE: &str = "change_conditions.csv";
+const LABYRINTH_LOTTERY_FOLDER: &str = "Floor Lottery";
+const LABYRINTH_RULE_NAME: &str = "Rule";
+const REALM_ALTAR_NAME: &str = "Altar";
+const REALM_FOLDER: &str = "Aku Realm Lottery";
+const REALM_PREFIX: &str = "demon_lottery_DM";
+const GAMATOTO_LIMIT_TABLE: &str = "GamatotoExpedition_Limit.csv";
+const GAMATOTO_LIMIT_NAME: &str = "Expedition Limits";
+const GAMATOTO_UNLOCK_TABLE: &str = "GamatotoUnlockData.tsv";
+const GAMATOTO_UNLOCK_NAME: &str = "Unlock";
+const GAMATOTO_UNLOCKS: &str = "Unlocks";
+const GAMATOTO_DROP_TABLE: &str = "GamatotoExpedition_SpecialDropItem.csv";
+const GAMATOTO_DROP_NAME: &str = "Drop";
+const GAMATOTO_DROPS: &str = "Special Drops";
+const EXPEDITION_AREA_TABLES: [(&str, &str); 2] = [("GamatotoExpedition_Stage.csv", "Areas"), ("GamatotoExpedition_Stage_EVENT.csv", "Event Areas")];
+const EXPEDITION_AREA_NAME: &str = "Area";
+const GAMATOTO_LEVEL_TABLE: &str = "GamatotoExpedition.csv";
+const GAMATOTO_LEVEL_FOLDER: &str = "Levels";
+const GAMATOTO_LEVEL_NAME: &str = "Level";
+const PRIZE_SETS: [(&str, &str, &str); 2] = [("Slot_pattern_", "Slot Machines", "Slot"), ("Scratch_pattern_", "Scratch Cards", "Card")];
+const PRIZE_NAME: &str = "Prize";
+const REEL_PREFIX: &str = "slot_imagegroup_";
+const REEL_NAME: &str = "Symbol";
+const REEL_FOLDER: &str = "Reel Symbols";
+const PRIZE_ATTEMPT: &str = "Attempt";
+const SHRINE_OFFERING_TABLE: &str = "jinja_saisen.csv";
+const SHRINE_OFFERING_FOLDER: &str = "Offerings";
+const SHRINE_OFFERING_NAME: &str = "Offering";
+const SHRINE_EXTRA_TABLE: &str = "jinja_saisen_exdrop.csv";
+const SHRINE_EXTRA_FOLDER: &str = "Offering Bonuses";
+const SHRINE_EXTRA_NAME: &str = "Bonus";
+const FORTUNE_TABLE: &str = "omikuji_reward.csv";
+const FORTUNE_FOLDER: &str = "Fortune Odds";
+const FORTUNE_NAME: &str = "Fortune Rank";
+const ZONED_IN_TABLE: &str = "Gamatoto_Bonus.csv";
+const ZONED_IN_NAME: &str = "Zoned-In";
+const ZONED_IN_STEPS_NAME: &str = "Zoned-In Triggers";
+const FILTER_MAP_TABLE: &str = "FilterStage_Setting.csv";
+const FILTER_MAP_FOLDER: &str = "Stage Filter Maps";
+const FILTER_MAP_NAME: &str = "Filter Map";
+const EXCLUSION_TABLE: &str = "autoset_exclude_enemy.csv";
+const EXCLUSION_FOLDER: &str = "Lineup Exclusions";
+const EXCLUSION_NAME: &str = "Excluded Enemy";
+const ENIGMA_FOLDER: &str = "Enigma Stages";
+const ENIGMA_LOTTERY_TABLE: &str = "Hidden_lottery.csv";
+const ENIGMA_LOTTERY_FOLDER: &str = "Lotteries";
+const ENIGMA_LOTTERY_NAME: &str = "Lottery";
+const ENIGMA_RATE_TABLE: &str = "Hidden_rate.csv";
+const ENIGMA_RATE_FOLDER: &str = "Discovery Chances";
+const ENIGMA_DROP_TABLE: &str = "Hidden_drop.csv";
+const ENIGMA_DROP_FOLDER: &str = "Discovery Lotteries";
+const ENIGMA_LEVEL_NAME: &str = "Discovery Level";
+const ENIGMA_GROUP_TABLE: &str = "Hidden_group.csv";
+const ENIGMA_GROUP_FOLDER: &str = "Stage Discoveries";
+const ENIGMA_GROUP_NAME: &str = "Stage Discovery";
+const ENIGMA_MEDAL_TABLE: &str = "Discoverlv_growth.csv";
+const ENIGMA_MEDAL_FOLDER: &str = "Discovery Medals";
+const ENIGMA_MEDAL_NAME: &str = "Discovery Medal";
+const MAP_MARKER_PREFIX: &str = "mapCordData";
+const MAP_MARKER_FOLDER: &str = "World Map Markers";
+const MAP_MARKER_SET: &str = "World Map";
+const MAP_MARKER_NAME: &str = "Marker";
+const MAP_MARKER_ROWS: usize = 48;
+const ENIGMA_TIME_TABLE: &str = "Hidden_time.csv";
+const ENIGMA_TIME_FOLDER: &str = "Map Times";
+const ENIGMA_TIME_NAME: &str = "Enigma Map";
+const ENIGMA_RARITY_TABLE: &str = "Hidden_rarity.csv";
+const ENIGMA_RARITY_FOLDER: &str = "Rarities";
+const ENIGMA_RARITY_NAME: &str = "Rarity";
+const RECOMMEND_TABLE: &str = "beginner_recommend_powerup.csv";
+const LEVEL_UP_TABLE: &str = "Recommended_levelup.csv";
+const LEVEL_UP_FOLDER: &str = "Level-Up Offers";
+const LEVEL_UP_NAME: &str = "Event";
+const RECOMMEND_FOLDER: &str = "Recommended Upgrades";
+const RECOMMEND_NAME: &str = "Suggestion";
+const COUNTER_TABLE: &str = "autoset_effectability.csv";
+const COUNTER_FOLDER: &str = "Lineup Counters";
+const COUNTER_NAME: &str = "Counter";
+const ORB_CHOICE_TABLE: &str = "equipment_EffectAbility.csv";
+const ORB_CHOICE_FOLDER: &str = "Orb Filter Choices";
+const ORB_CHOICE_NAME: &str = "Choice";
+const ORB_OPTION_TABLE: &str = "equipment_option.csv";
+const ORB_OPTION_FOLDER: &str = "Orb Icon Options";
+const ORB_OPTION_NAME: &str = "Orb Ability";
+const REFUND_TABLE: &str = "LeadershipReturnMap.csv";
+const REFUND_FOLDER: &str = "Energy Refund Maps";
+const REFUND_NAME: &str = "Refund";
+const STAGE_SHORTCUT_TABLE: &str = "MapStage_Shortcut.csv";
+const STAGE_SHORTCUT_FOLDER: &str = "Stage Shortcuts";
+const STAGE_SHORTCUT_NAME: &str = "Shortcut";
+const FANFARE_TABLE: &str = "EventGatya_Setting.csv";
+const FANFARE_FOLDER: &str = "Fanfare Overrides";
+const FANFARE_NAME: &str = "Override";
+const SPOTLIGHT_TABLE: &str = "nyankoPictureBookData_CharaGet.csv";
+const SPOTLIGHT_FOLDER: &str = "Cat Guide Spotlights";
+const SPOTLIGHT_NAME: &str = "Spotlight";
+const TIP_SETTING_TABLE: &str = "TitleMessageSetting.csv";
+const TIP_SETTING_FOLDER: &str = "Title Tip Settings";
+const TIP_SETTING_NAME: &str = "Tip";
+const ALTAR_STAGE: &str = "Stage";
+const ALTAR_STAGE_SCALE: u32 = 100;
+const EX_GROUP: &str = "Group";
+const EX_MAP: &str = "Map";
+const EX_STAGE: &str = "Stage";
+const PRESET_EXTENSION: &str = ".preset";
+const ORB_GRADE: &str = "gradeID";
+const REWARD_ITEM: &str = "DropItemID";
+const NO_ITEM: i32 = -1;
+const NO_ITEM_LABEL: &str = "Nothing";
+const ORB_EFFECT: &str = "content";
+const ORB_TRAIT: &str = "attribute";
+const PRESET_CANNONS: [&str; 8] =
+    ["Basic", "Slow Beam", "Iron Wall", "Thunderbolt", "Waterblast", "Holy Blast", "Breakerblast", "Curseblast"];
 const ENEMY_ICON_TITLE: &str = "Enemy Icon";
 const MAP_BANNER_TITLE: &str = "Map Banner";
 const STAGE_BANNER_TITLE: &str = "Stage Banner";
@@ -188,6 +482,9 @@ const STAGE_BANNER_TITLE: &str = "Stage Banner";
 const FIRST_TALENT_TEXT: usize = 1;
 
 const GLOSSARY_FILES: [&str; 2] = ["nyankoPictureBook2.csv", "EnemyPictureBook2.csv"];
+
+const BACKGROUND_TABLE: &str = foundry::domains::utilities::background::TABLE;
+const BACKGROUND_LABEL: &str = "Background";
 
 #[derive(Clone)]
 struct AssetFile {
@@ -569,6 +866,24 @@ pub enum Message {
     Prose(Seat, prose::Subject, prose::Message),
     Find(finder::Message),
     Artwork(artwork::Message),
+    Sheet(sheet::Message),
+    Ledger(ledger::Message),
+    Records(records::Message),
+    Preset(preset::Message),
+    Group(group::Message),
+    Treasure(treasure::Message),
+    Gift(gift::Message),
+    Filter(filter::Message),
+    Evolve(evolve::Message),
+    Roster(roster::Message),
+    Captions(captions::Message),
+    Catfruit(catfruit::Message),
+    MapLayout(maplayout::Message),
+    Dungeon(dungeon::Message),
+    Cuts(cuts::Message),
+    Logins(logins::Message),
+    Unused(unused::Message),
+    Audio(audio::Message),
 }
 
 struct Item {
@@ -786,22 +1101,116 @@ impl Seat {
     }
 }
 
-#[derive(Default)]
 struct Pins {
     figures: [Option<Pick>; figures::COUNT],
     prose: [Option<Pick>; prose::COUNT],
     ground: Option<Pick>,
     artwork: Option<Pick>,
+    sheet: Option<Pick>,
+    ledger: Option<Pick>,
+    records: Option<Pick>,
+    preset: Option<Pick>,
+    group: Option<Pick>,
+    treasure: Option<Pick>,
+    gift: Option<Pick>,
+    filter: Option<Pick>,
+    evolve: Option<Pick>,
+    roster: Option<Pick>,
+    captions: Option<Pick>,
+    catfruit: Option<Pick>,
+    maplayout: Option<Pick>,
+    dungeon: Option<Pick>,
+    cuts: Option<Pick>,
+    logins: Option<Pick>,
+    unused: Option<Pick>,
+    audio: Option<Pick>,
 }
 
-#[derive(Default)]
 struct Bank {
     figures: [figures::State; figures::COUNT],
     prose: [prose::State; prose::COUNT],
     ground: ground::State,
     artwork: artwork::State,
+    sheet: sheet::State,
+    ledger: ledger::State,
+    records: records::State,
+    preset: preset::State,
+    group: group::State,
+    treasure: treasure::State,
+    gift: gift::State,
+    filter: filter::State,
+    evolve: evolve::State,
+    roster: roster::State,
+    captions: captions::State,
+    catfruit: catfruit::State,
+    maplayout: maplayout::State,
+    dungeon: dungeon::State,
+    cuts: cuts::State,
+    logins: logins::State,
+    unused: unused::State,
+    audio: audio::State,
     glossary_aim: Option<(Identity, Faction)>,
     pins: Pins,
+}
+
+impl Default for Pins {
+    fn default() -> Self {
+        Pins {
+            figures: std::array::from_fn(|_| None),
+            prose: Default::default(),
+            ground: None,
+            artwork: None,
+            sheet: None,
+            ledger: None,
+            records: None,
+            preset: None,
+            group: None,
+            treasure: None,
+            gift: None,
+            filter: None,
+            evolve: None,
+            roster: None,
+            captions: None,
+            catfruit: None,
+            maplayout: None,
+            dungeon: None,
+            cuts: None,
+            logins: None,
+            unused: None,
+            audio: None,
+        }
+    }
+}
+
+impl Default for Bank {
+    fn default() -> Self {
+        Bank {
+            figures: std::array::from_fn(|_| figures::State::default()),
+            prose: Default::default(),
+            ground: ground::State::default(),
+            artwork: artwork::State::default(),
+            sheet: sheet::State::default(),
+            ledger: ledger::State::default(),
+            records: records::State::default(),
+            preset: preset::State::default(),
+            group: group::State::default(),
+            treasure: treasure::State::default(),
+            gift: gift::State::default(),
+            filter: filter::State::default(),
+            evolve: evolve::State::default(),
+            roster: roster::State::default(),
+            captions: captions::State::default(),
+            catfruit: catfruit::State::default(),
+            maplayout: maplayout::State::default(),
+            dungeon: dungeon::State::default(),
+            cuts: cuts::State::default(),
+            logins: logins::State::default(),
+            unused: unused::State::default(),
+            audio: audio::State::default(),
+            glossary_aim: None,
+            pins: Pins::default(),
+        }
+    }
 }
 
 impl Bank {
@@ -825,6 +1234,78 @@ impl Bank {
         if !self.artwork.drafting() {
             self.pins.artwork = None;
         }
+
+        if !self.sheet.drafting() {
+            self.pins.sheet = None;
+        }
+
+        if !self.ledger.drafting() {
+            self.pins.ledger = None;
+        }
+
+        if !self.records.drafting() {
+            self.pins.records = None;
+        }
+
+        if !self.preset.drafting() {
+            self.pins.preset = None;
+        }
+
+        if !self.group.drafting() {
+            self.pins.group = None;
+        }
+
+        if !self.treasure.drafting() {
+            self.pins.treasure = None;
+        }
+
+        if !self.gift.drafting() {
+            self.pins.gift = None;
+        }
+
+        if !self.filter.drafting() {
+            self.pins.filter = None;
+        }
+
+        if !self.evolve.drafting() {
+            self.pins.evolve = None;
+        }
+
+        if !self.roster.drafting() {
+            self.pins.roster = None;
+        }
+
+        if !self.captions.drafting() {
+            self.pins.captions = None;
+        }
+
+        if !self.catfruit.drafting() {
+            self.pins.catfruit = None;
+        }
+
+        if !self.maplayout.drafting() {
+            self.pins.maplayout = None;
+        }
+
+        if !self.dungeon.drafting() {
+            self.pins.dungeon = None;
+        }
+
+        if !self.cuts.drafting() {
+            self.pins.cuts = None;
+        }
+
+        if !self.logins.drafting() {
+            self.pins.logins = None;
+        }
+
+        if !self.unused.drafting() {
+            self.pins.unused = None;
+        }
+
+        if !self.audio.drafting() {
+            self.pins.audio = None;
+        }
     }
 
     fn drafting(&self) -> bool {
@@ -832,6 +1313,24 @@ impl Bank {
             || self.prose.iter().any(prose::State::drafting)
             || self.ground.drafting()
             || self.artwork.drafting()
+            || self.sheet.drafting()
+            || self.ledger.drafting()
+            || self.records.drafting()
+            || self.preset.drafting()
+            || self.group.drafting()
+            || self.treasure.drafting()
+            || self.gift.drafting()
+            || self.filter.drafting()
+            || self.evolve.drafting()
+            || self.roster.drafting()
+            || self.captions.drafting()
+            || self.catfruit.drafting()
+            || self.maplayout.drafting()
+            || self.dungeon.drafting()
+            || self.cuts.drafting()
+            || self.logins.drafting()
+            || self.unused.drafting()
+            || self.audio.drafting()
     }
 
     fn drifted(&self) -> bool {
@@ -839,6 +1338,23 @@ impl Bank {
             || self.prose.iter().any(prose::State::drifted)
             || self.ground.drifted()
             || self.artwork.drifted()
+            || self.sheet.drifted()
+            || self.ledger.drifted()
+            || self.records.drifted()
+            || self.preset.drifted()
+            || self.group.drifted()
+            || self.treasure.drifted()
+            || self.gift.drifted()
+            || self.filter.drifted()
+            || self.evolve.drifted()
+            || self.roster.drifted()
+            || self.captions.drifted()
+            || self.catfruit.drifted()
+            || self.maplayout.drifted()
+            || self.dungeon.drifted()
+            || self.cuts.drifted()
+            || self.logins.drifted()
+            || self.audio.drifted()
     }
 
     fn stacked(&self, seat: Seat, page: Page) -> usize {
@@ -854,7 +1370,28 @@ impl Bank {
 
         let pinned = |drafting: bool| usize::from(seat == Seat::Mods && drafting);
 
-        prose + figures + pinned(self.ground.drafting()) + pinned(self.artwork.drafting())
+        prose
+            + figures
+            + pinned(self.ground.drafting())
+            + pinned(self.artwork.drafting())
+            + pinned(self.sheet.drafting())
+            + pinned(self.ledger.drafting())
+            + pinned(self.records.drafting())
+            + pinned(self.preset.drafting())
+            + pinned(self.group.drafting())
+            + pinned(self.treasure.drafting())
+            + pinned(self.gift.drafting())
+            + pinned(self.filter.drafting())
+            + pinned(self.evolve.drafting())
+            + pinned(self.roster.drafting())
+            + pinned(self.captions.drafting())
+            + pinned(self.catfruit.drafting())
+            + pinned(self.maplayout.drafting())
+            + pinned(self.dungeon.drafting())
+            + pinned(self.cuts.drafting())
+            + pinned(self.logins.drafting())
+            + pinned(self.unused.drafting())
+            + pinned(self.audio.drafting())
     }
 
     fn relocalize(&self) {
@@ -914,6 +1451,96 @@ impl Bank {
             self.artwork.sync(None, vfs);
             self.pins.artwork = None;
         }
+
+        if !kept(&self.pins.sheet) {
+            self.sheet.sync(None, vfs);
+            self.pins.sheet = None;
+        }
+
+        if !kept(&self.pins.ledger) {
+            self.ledger.sync(None, vfs);
+            self.pins.ledger = None;
+        }
+
+        if !kept(&self.pins.records) {
+            self.records.sync(None, vfs);
+            self.pins.records = None;
+        }
+
+        if !kept(&self.pins.preset) {
+            self.preset.sync(None, vfs);
+            self.pins.preset = None;
+        }
+
+        if !kept(&self.pins.group) {
+            self.group.sync(None, vfs);
+            self.pins.group = None;
+        }
+
+        if !kept(&self.pins.treasure) {
+            self.treasure.sync(None, vfs);
+            self.pins.treasure = None;
+        }
+
+        if !kept(&self.pins.gift) {
+            self.gift.sync(None, vfs);
+            self.pins.gift = None;
+        }
+
+        if !kept(&self.pins.filter) {
+            self.filter.sync(None, vfs);
+            self.pins.filter = None;
+        }
+
+        if !kept(&self.pins.evolve) {
+            self.evolve.sync(None, vfs);
+            self.pins.evolve = None;
+        }
+
+        if !kept(&self.pins.roster) {
+            self.roster.sync(None, vfs);
+            self.pins.roster = None;
+        }
+
+        if !kept(&self.pins.captions) {
+            self.captions.sync(None, vfs);
+            self.pins.captions = None;
+        }
+
+        if !kept(&self.pins.catfruit) {
+            self.catfruit.sync(None, vfs);
+            self.pins.catfruit = None;
+        }
+
+        if !kept(&self.pins.maplayout) {
+            self.maplayout.sync(None, vfs);
+            self.pins.maplayout = None;
+        }
+
+        if !kept(&self.pins.dungeon) {
+            self.dungeon.sync(None, vfs);
+            self.pins.dungeon = None;
+        }
+
+        if !kept(&self.pins.cuts) {
+            self.cuts.sync(None, vfs);
+            self.pins.cuts = None;
+        }
+
+        if !kept(&self.pins.logins) {
+            self.logins.sync(None, vfs);
+            self.pins.logins = None;
+        }
+
+        if !kept(&self.pins.unused) {
+            self.unused.sync(None);
+            self.pins.unused = None;
+        }
+
+        if !kept(&self.pins.audio) {
+            self.audio.sync(None, vfs);
+            self.pins.audio = None;
+        }
     }
 
     fn flush(&mut self, seat: Seat, vfs: &Vfs) -> Vec<Task<Message>> {
@@ -950,6 +1577,24 @@ struct Snapshot {
     prose: [Vec<prose::Plan>; prose::COUNT],
     ground: Option<ground::Plan>,
     artwork: Option<artwork::Plan>,
+    sheet: Option<sheet::Plan>,
+    ledger: Option<ledger::Plan>,
+    records: Option<records::Plan>,
+    preset: Option<preset::Plan>,
+    group: Option<group::Plan>,
+    treasure: Option<treasure::Plan>,
+    gift: Option<gift::Plan>,
+    filter: Option<filter::Plan>,
+    evolve: Option<evolve::Plan>,
+    roster: Option<roster::Plan>,
+    captions: Option<captions::Plan>,
+    catfruit: Option<catfruit::Plan>,
+    maplayout: Option<maplayout::Plan>,
+    dungeon: Option<dungeon::Plan>,
+    cuts: Option<cuts::Plan>,
+    logins: Option<logins::Plan>,
+    unused: Option<unused::Plan>,
+    audio: Option<audio::Plan>,
 }
 
 #[derive(PartialEq)]
@@ -1059,6 +1704,150 @@ impl State {
 
                 task
             }
+            Message::Sheet(msg) => {
+                let bank = &mut self.banks[Seat::Mods.slot()];
+                let task = bank.sheet.update(msg, vfs).map(Message::Sheet);
+
+                bank.unpin();
+
+                task
+            }
+            Message::Ledger(msg) => {
+                let bank = &mut self.banks[Seat::Mods.slot()];
+                let task = bank.ledger.update(msg, vfs).map(Message::Ledger);
+
+                bank.unpin();
+
+                task
+            }
+            Message::Records(msg) => {
+                let bank = &mut self.banks[Seat::Mods.slot()];
+                let task = bank.records.update(msg, vfs).map(Message::Records);
+
+                bank.unpin();
+
+                task
+            }
+            Message::Preset(msg) => {
+                let bank = &mut self.banks[Seat::Mods.slot()];
+                let task = bank.preset.update(msg, vfs).map(Message::Preset);
+
+                bank.unpin();
+
+                task
+            }
+            Message::Group(msg) => {
+                let bank = &mut self.banks[Seat::Mods.slot()];
+                let task = bank.group.update(msg, vfs).map(Message::Group);
+
+                bank.unpin();
+
+                task
+            }
+            Message::Treasure(msg) => {
+                let bank = &mut self.banks[Seat::Mods.slot()];
+                let task = bank.treasure.update(msg, vfs).map(Message::Treasure);
+
+                bank.unpin();
+
+                task
+            }
+            Message::Gift(msg) => {
+                let bank = &mut self.banks[Seat::Mods.slot()];
+                let task = bank.gift.update(msg, vfs).map(Message::Gift);
+
+                bank.unpin();
+
+                task
+            }
+            Message::Filter(msg) => {
+                let bank = &mut self.banks[Seat::Mods.slot()];
+                let task = bank.filter.update(msg, vfs).map(Message::Filter);
+
+                bank.unpin();
+
+                task
+            }
+            Message::Evolve(msg) => {
+                let bank = &mut self.banks[Seat::Mods.slot()];
+                let task = bank.evolve.update(msg, vfs).map(Message::Evolve);
+
+                bank.unpin();
+
+                task
+            }
+            Message::Roster(msg) => {
+                let bank = &mut self.banks[Seat::Mods.slot()];
+                let task = bank.roster.update(msg, vfs).map(Message::Roster);
+
+                bank.unpin();
+
+                task
+            }
+            Message::Captions(msg) => {
+                let bank = &mut self.banks[Seat::Mods.slot()];
+                let task = bank.captions.update(msg, vfs).map(Message::Captions);
+
+                bank.unpin();
+
+                task
+            }
+            Message::Catfruit(msg) => {
+                let bank = &mut self.banks[Seat::Mods.slot()];
+                let task = bank.catfruit.update(msg, vfs).map(Message::Catfruit);
+
+                bank.unpin();
+
+                task
+            }
+            Message::MapLayout(msg) => {
+                let bank = &mut self.banks[Seat::Mods.slot()];
+                let task = bank.maplayout.update(msg, vfs).map(Message::MapLayout);
+
+                bank.unpin();
+
+                task
+            }
+            Message::Dungeon(msg) => {
+                let bank = &mut self.banks[Seat::Mods.slot()];
+                let task = bank.dungeon.update(msg, vfs).map(Message::Dungeon);
+
+                bank.unpin();
+
+                task
+            }
+            Message::Cuts(msg) => {
+                let bank = &mut self.banks[Seat::Mods.slot()];
+                let task = bank.cuts.update(msg, vfs).map(Message::Cuts);
+
+                bank.unpin();
+
+                task
+            }
+            Message::Logins(msg) => {
+                let bank = &mut self.banks[Seat::Mods.slot()];
+                let task = bank.logins.update(msg, vfs).map(Message::Logins);
+
+                bank.unpin();
+
+                task
+            }
+            Message::Unused(msg) => {
+                let bank = &mut self.banks[Seat::Mods.slot()];
+                let task = bank.unused.update(msg).map(Message::Unused);
+
+                bank.unpin();
+
+                task
+            }
+            Message::Audio(msg) => {
+                let bank = &mut self.banks[Seat::Mods.slot()];
+                let task = bank.audio.update(msg, vfs).map(Message::Audio);
+
+                bank.unpin();
+
+                task
+            }
             Message::Opened(..) => Task::none(),
         }
     }
@@ -1140,6 +1929,78 @@ impl State {
             views.push((bank.artwork.raised(), artwork::kind(), view.map(Message::Artwork)));
         }
 
+        if pinned && let Some(view) = bank.sheet.view(window) {
+            views.push((bank.sheet.raised(), sheet::kind(), view.map(Message::Sheet)));
+        }
+
+        if pinned && let Some(view) = bank.ledger.view(window) {
+            views.push((bank.ledger.raised(), ledger::kind(), view.map(Message::Ledger)));
+        }
+
+        if pinned && let Some(view) = bank.records.view(window) {
+            views.push((bank.records.raised(), records::kind(), view.map(Message::Records)));
+        }
+
+        if pinned && let Some(view) = bank.preset.view(window) {
+            views.push((bank.preset.raised(), preset::kind(), view.map(Message::Preset)));
+        }
+
+        if pinned && let Some(view) = bank.group.view(window) {
+            views.push((bank.group.raised(), group::kind(), view.map(Message::Group)));
+        }
+
+        if pinned && let Some(view) = bank.treasure.view(window) {
+            views.push((bank.treasure.raised(), treasure::kind(), view.map(Message::Treasure)));
+        }
+
+        if pinned && let Some(view) = bank.gift.view(window) {
+            views.push((bank.gift.raised(), gift::kind(), view.map(Message::Gift)));
+        }
+
+        if pinned && let Some(view) = bank.filter.view(window) {
+            views.push((bank.filter.raised(), filter::kind(), view.map(Message::Filter)));
+        }
+
+        if pinned && let Some(view) = bank.evolve.view(window) {
+            views.push((bank.evolve.raised(), evolve::kind(), view.map(Message::Evolve)));
+        }
+
+        if pinned && let Some(view) = bank.roster.view(window) {
+            views.push((bank.roster.raised(), roster::kind(), view.map(Message::Roster)));
+        }
+
+        if pinned && let Some(view) = bank.captions.view(window) {
+            views.push((bank.captions.raised(), captions::kind(), view.map(Message::Captions)));
+        }
+
+        if pinned && let Some(view) = bank.catfruit.view(window) {
+            views.push((bank.catfruit.raised(), catfruit::kind(), view.map(Message::Catfruit)));
+        }
+
+        if pinned && let Some(view) = bank.maplayout.view(window) {
+            views.push((bank.maplayout.raised(), maplayout::kind(), view.map(Message::MapLayout)));
+        }
+
+        if pinned && let Some(view) = bank.dungeon.view(window) {
+            views.push((bank.dungeon.raised(), dungeon::kind(), view.map(Message::Dungeon)));
+        }
+
+        if pinned && let Some(view) = bank.cuts.view(window) {
+            views.push((bank.cuts.raised(), cuts::kind(), view.map(Message::Cuts)));
+        }
+
+        if pinned && let Some(view) = bank.logins.view(window) {
+            views.push((bank.logins.raised(), logins::kind(), view.map(Message::Logins)));
+        }
+
+        if pinned && let Some(view) = bank.unused.view(window) {
+            views.push((bank.unused.raised(), unused::kind(), view.map(Message::Unused)));
+        }
+
+        if pinned && let Some(view) = bank.audio.view(window) {
+            views.push((bank.audio.raised(), audio::kind(), view.map(Message::Audio)));
+        }
+
         if pinned && let Some(view) = self.finder.view(window, app.settings.files.editor_mode) {
             views.push((self.finder.raised(), finder::kind(), view.map(Message::Find)));
         }
@@ -1153,7 +2014,7 @@ impl State {
             .into_iter()
             .map(prose::Subject::kind)
             .chain(figures::SUBJECTS.into_iter().map(figures::kind))
-            .chain([ground::kind(), ground::pick_kind(), finder::kind(), artwork::kind()])
+            .chain([ground::kind(), ground::pick_kind(), finder::kind(), artwork::kind(), sheet::kind(), ledger::kind(), records::kind(), preset::kind(), group::kind(), treasure::kind(), gift::kind(), filter::kind(), evolve::kind(), roster::kind(), captions::kind(), catfruit::kind(), maplayout::kind(), dungeon::kind(), unused::kind(), audio::kind(), cuts::kind(), logins::kind()])
             .collect()
     }
 
@@ -1231,6 +2092,24 @@ impl State {
 
         bank.ground.sync(snapshot.ground, vfs);
         bank.artwork.sync(snapshot.artwork, vfs);
+        bank.sheet.sync(snapshot.sheet, vfs);
+        bank.ledger.sync(snapshot.ledger, vfs);
+        bank.records.sync(snapshot.records, vfs);
+        bank.preset.sync(snapshot.preset, vfs);
+        bank.group.sync(snapshot.group, vfs);
+        bank.treasure.sync(snapshot.treasure, vfs);
+        bank.gift.sync(snapshot.gift, vfs);
+        bank.filter.sync(snapshot.filter, vfs);
+        bank.evolve.sync(snapshot.evolve, vfs);
+        bank.roster.sync(snapshot.roster, vfs);
+        bank.captions.sync(snapshot.captions, vfs);
+        bank.catfruit.sync(snapshot.catfruit, vfs);
+        bank.maplayout.sync(snapshot.maplayout, vfs);
+        bank.dungeon.sync(snapshot.dungeon, vfs);
+        bank.cuts.sync(snapshot.cuts, vfs);
+        bank.logins.sync(snapshot.logins, vfs);
+        bank.unused.sync(snapshot.unused);
+        bank.audio.sync(snapshot.audio, vfs);
 
         for (slot, plan) in snapshot.figures.into_iter().enumerate() {
             if !seat.owns(figures::SUBJECTS[slot].page(), snapshot.page) {
@@ -1333,6 +2212,132 @@ impl State {
                 bank.artwork.begin(plan, nudge, vfs);
 
                 (bank.artwork.drafting(), &mut bank.pins.artwork)
+            }
+            Planned::Sheet(plan) => {
+                let nudge = bank.stacked(Seat::Mods, Page::Mods) - usize::from(bank.sheet.drafting());
+
+                bank.sheet.begin(plan, nudge, vfs);
+
+                (bank.sheet.drafting(), &mut bank.pins.sheet)
+            }
+            Planned::Ledger(plan) => {
+                let nudge = bank.stacked(Seat::Mods, Page::Mods) - usize::from(bank.ledger.drafting());
+
+                bank.ledger.begin(plan, nudge, vfs);
+
+                (bank.ledger.drafting(), &mut bank.pins.ledger)
+            }
+            Planned::Records(plan) => {
+                let nudge = bank.stacked(Seat::Mods, Page::Mods) - usize::from(bank.records.drafting());
+
+                bank.records.begin(plan, nudge, vfs);
+
+                (bank.records.drafting(), &mut bank.pins.records)
+            }
+            Planned::Preset(plan) => {
+                let nudge = bank.stacked(Seat::Mods, Page::Mods) - usize::from(bank.preset.drafting());
+
+                bank.preset.begin(plan, nudge, vfs);
+
+                (bank.preset.drafting(), &mut bank.pins.preset)
+            }
+            Planned::Group(plan) => {
+                let nudge = bank.stacked(Seat::Mods, Page::Mods) - usize::from(bank.group.drafting());
+
+                bank.group.begin(plan, nudge, vfs);
+
+                (bank.group.drafting(), &mut bank.pins.group)
+            }
+            Planned::Treasure(plan) => {
+                let nudge = bank.stacked(Seat::Mods, Page::Mods) - usize::from(bank.treasure.drafting());
+
+                bank.treasure.begin(plan, nudge, vfs);
+
+                (bank.treasure.drafting(), &mut bank.pins.treasure)
+            }
+            Planned::Gift(plan) => {
+                let nudge = bank.stacked(Seat::Mods, Page::Mods) - usize::from(bank.gift.drafting());
+
+                bank.gift.begin(plan, nudge, vfs);
+
+                (bank.gift.drafting(), &mut bank.pins.gift)
+            }
+            Planned::Filter(plan) => {
+                let nudge = bank.stacked(Seat::Mods, Page::Mods) - usize::from(bank.filter.drafting());
+
+                bank.filter.begin(plan, nudge, vfs);
+
+                (bank.filter.drafting(), &mut bank.pins.filter)
+            }
+            Planned::Evolve(plan) => {
+                let nudge = bank.stacked(Seat::Mods, Page::Mods) - usize::from(bank.evolve.drafting());
+
+                bank.evolve.begin(plan, nudge, vfs);
+
+                (bank.evolve.drafting(), &mut bank.pins.evolve)
+            }
+            Planned::Roster(plan) => {
+                let nudge = bank.stacked(Seat::Mods, Page::Mods) - usize::from(bank.roster.drafting());
+
+                bank.roster.begin(plan, nudge, vfs);
+
+                (bank.roster.drafting(), &mut bank.pins.roster)
+            }
+            Planned::Captions(plan) => {
+                let nudge = bank.stacked(Seat::Mods, Page::Mods) - usize::from(bank.captions.drafting());
+
+                bank.captions.begin(plan, nudge, vfs);
+
+                (bank.captions.drafting(), &mut bank.pins.captions)
+            }
+            Planned::Catfruit(plan) => {
+                let nudge = bank.stacked(Seat::Mods, Page::Mods) - usize::from(bank.catfruit.drafting());
+
+                bank.catfruit.begin(plan, nudge, vfs);
+
+                (bank.catfruit.drafting(), &mut bank.pins.catfruit)
+            }
+            Planned::MapLayout(plan) => {
+                let nudge = bank.stacked(Seat::Mods, Page::Mods) - usize::from(bank.maplayout.drafting());
+
+                bank.maplayout.begin(plan, nudge, vfs);
+
+                (bank.maplayout.drafting(), &mut bank.pins.maplayout)
+            }
+            Planned::Dungeon(plan) => {
+                let nudge = bank.stacked(Seat::Mods, Page::Mods) - usize::from(bank.dungeon.drafting());
+
+                bank.dungeon.begin(plan, nudge, vfs);
+
+                (bank.dungeon.drafting(), &mut bank.pins.dungeon)
+            }
+            Planned::Cuts(plan) => {
+                let nudge = bank.stacked(Seat::Mods, Page::Mods) - usize::from(bank.cuts.drafting());
+
+                bank.cuts.begin(plan, nudge, vfs);
+
+                (bank.cuts.drafting(), &mut bank.pins.cuts)
+            }
+            Planned::Logins(plan) => {
+                let nudge = bank.stacked(Seat::Mods, Page::Mods) - usize::from(bank.logins.drafting());
+
+                bank.logins.begin(plan, nudge, vfs);
+
+                (bank.logins.drafting(), &mut bank.pins.logins)
+            }
+            Planned::Unused(plan) => {
+                let nudge = bank.stacked(Seat::Mods, Page::Mods) - usize::from(bank.unused.drafting());
+
+                bank.unused.begin(plan, nudge);
+
+                (bank.unused.drafting(), &mut bank.pins.unused)
+            }
+            Planned::Audio(plan) => {
+                let nudge = bank.stacked(Seat::Mods, Page::Mods) - usize::from(bank.audio.drafting());
+
+                bank.audio.begin(plan, nudge, vfs);
+
+                (bank.audio.drafting(), &mut bank.pins.audio)
             }
         };
 
@@ -1831,6 +2836,353 @@ fn map_drop_targets(app: &HaganeApp, focus: &Focus) -> Vec<LevelTarget> {
         label: [chapter.as_str(), stage_files::DROP_ITEM].join(theme::HEADER_SEPARATOR),
         columns: material_names(app),
         address: figures::Address::Keyed(global),
+        anchor: None,
+        unlocked: focus.unlocked,
+        active_mod: focus.active_mod.clone(),
+    }]
+}
+
+fn map_option_targets(app: &HaganeApp, focus: &Focus) -> Vec<LevelTarget> {
+    if focus.page != Page::Stages {
+        return Vec::new();
+    }
+
+    let Some(map) = focus.map.as_ref() else {
+        return Vec::new();
+    };
+
+    let registry = &app.stage_state.data.registry;
+
+    let Some(global) = registry.addresses.get(map).and_then(|held| held.global) else {
+        return Vec::new();
+    };
+
+    let files = asset_files(app, focus, stage_files::MAP_OPTION);
+
+    if files.is_empty() {
+        return Vec::new();
+    }
+
+    let chapter = registry
+        .maps
+        .get(map)
+        .map(|found| found.name.trim())
+        .filter(|found| !found.is_empty())
+        .map_or_else(|| format!("{:03}", map.map), str::to_owned);
+
+    vec![LevelTarget {
+        subject: figures::Subject::MapOption,
+        asset: Asset::Variants { key: stage_files::MAP_OPTION.to_owned(), files },
+        label: [chapter.as_str(), stage_files::MAP_OPTION].join(theme::HEADER_SEPARATOR),
+        columns: Vec::new(),
+        address: figures::Address::Keyed(global),
+        anchor: None,
+        unlocked: focus.unlocked,
+        active_mod: focus.active_mod.clone(),
+    }]
+}
+
+fn background_targets(app: &HaganeApp, focus: &Focus, id: Option<u32>) -> Vec<LevelTarget> {
+    let Some(id) = id else {
+        return Vec::new();
+    };
+
+    let files = asset_files(app, focus, BACKGROUND_TABLE);
+
+    if files.is_empty() {
+        return Vec::new();
+    }
+
+    let label = format!("{BACKGROUND_LABEL} {id:03}");
+
+    vec![LevelTarget {
+        subject: figures::Subject::Background,
+        asset: Asset::Variants { key: BACKGROUND_TABLE.to_owned(), files },
+        label: [label.as_str(), BACKGROUND_TABLE].join(theme::HEADER_SEPARATOR),
+        columns: Vec::new(),
+        address: figures::Address::Keyed(id),
+        anchor: None,
+        unlocked: focus.unlocked,
+        active_mod: focus.active_mod.clone(),
+    }]
+}
+
+pub(super) fn altar_key(app: &HaganeApp, stage: &GlobalStageId) -> Option<u32> {
+    let map = GlobalMapId { category: stage.category.clone(), map: stage.map };
+    let global = app.stage_state.data.registry.addresses.get(&map)?.global?;
+
+    global.checked_mul(ALTAR_STAGE_SCALE)?.checked_add(stage.stage)
+}
+
+fn altar_targets(app: &HaganeApp, focus: &Focus) -> Vec<LevelTarget> {
+    let Some(stage) = focus.stage.as_ref() else {
+        return Vec::new();
+    };
+
+    let Some(key) = altar_key(app, stage) else {
+        return Vec::new();
+    };
+
+    let files = asset_files(app, focus, ALTAR_TABLE);
+
+    if files.is_empty() {
+        return Vec::new();
+    }
+
+    let named = app.stage_state.data.registry.stages.get(stage).map(|found| found.name.trim().to_owned()).filter(|name| !name.is_empty());
+    let label = named.unwrap_or_else(|| format!("{ALTAR_STAGE} {:02}", stage.stage));
+
+    vec![LevelTarget {
+        subject: figures::Subject::Altar,
+        asset: Asset::Variants { key: ALTAR_TABLE.to_owned(), files },
+        label: [label.as_str(), ALTAR_TABLE].join(theme::HEADER_SEPARATOR),
+        columns: Vec::new(),
+        address: figures::Address::Keyed(key),
+        anchor: None,
+        unlocked: focus.unlocked,
+        active_mod: focus.active_mod.clone(),
+    }]
+}
+
+fn keyed_targets(
+    app: &HaganeApp,
+    focus: &Focus,
+    id: Option<u32>,
+    subject: figures::Subject,
+    table: &str,
+    noun: &str,
+) -> Vec<LevelTarget> {
+    let Some(id) = id else {
+        return Vec::new();
+    };
+
+    let files = asset_files(app, focus, table);
+
+    if files.is_empty() {
+        return Vec::new();
+    }
+
+    let label = format!("{noun} {id}");
+
+    vec![LevelTarget {
+        subject,
+        asset: Asset::Variants { key: table.to_owned(), files },
+        label: [label.as_str(), table].join(theme::HEADER_SEPARATOR),
+        columns: Vec::new(),
+        address: figures::Address::Keyed(id),
+        anchor: None,
+        unlocked: focus.unlocked,
+        active_mod: focus.active_mod.clone(),
+    }]
+}
+
+fn line_targets(
+    app: &HaganeApp,
+    focus: &Focus,
+    line: Option<usize>,
+    subject: figures::Subject,
+    table: &str,
+    noun: &str,
+) -> Vec<LevelTarget> {
+    let Some(line) = line else {
+        return Vec::new();
+    };
+
+    let files = asset_files(app, focus, table);
+
+    if files.is_empty() {
+        return Vec::new();
+    }
+
+    let label = format!("{noun} {line}");
+
+    vec![LevelTarget {
+        subject,
+        asset: Asset::Variants { key: table.to_owned(), files },
+        label: [label.as_str(), table].join(theme::HEADER_SEPARATOR),
+        columns: Vec::new(),
+        address: figures::Address::Line(line),
+        anchor: None,
+        unlocked: focus.unlocked,
+        active_mod: focus.active_mod.clone(),
+    }]
+}
+
+fn orb_grade_targets(app: &HaganeApp, focus: &Focus, line: Option<usize>) -> Vec<LevelTarget> {
+    let Some(line) = line else {
+        return Vec::new();
+    };
+
+    let files = asset_files(app, focus, ORB_GRADE_TABLE);
+
+    if files.is_empty() {
+        return Vec::new();
+    }
+
+    let grade = line.checked_sub(1).and_then(|at| orb::GRADES.get(at)).copied().unwrap_or_default();
+    let label = format!("{ORB_GRADE_LABEL} {grade}");
+
+    vec![LevelTarget {
+        subject: figures::Subject::OrbGrades,
+        asset: Asset::Variants { key: ORB_GRADE_TABLE.to_owned(), files },
+        label: [label.as_str(), ORB_GRADE_TABLE].join(theme::HEADER_SEPARATOR),
+        columns: Vec::new(),
+        address: figures::Address::Line(line),
+        anchor: None,
+        unlocked: focus.unlocked,
+        active_mod: focus.active_mod.clone(),
+    }]
+}
+
+fn cannon_status_targets(app: &HaganeApp, focus: &Focus, part: Option<u32>) -> Vec<LevelTarget> {
+    let Some(part) = part else {
+        return Vec::new();
+    };
+
+    let files = asset_files(app, focus, CANNON_STATUS_TABLE);
+
+    if files.is_empty() {
+        return Vec::new();
+    }
+
+    let held = i32::try_from(part).unwrap_or(i32::MAX);
+    let label = app.names.cannon(held).map_or_else(|| base::name(held), str::to_owned);
+
+    vec![LevelTarget {
+        subject: figures::Subject::CannonStatus,
+        asset: Asset::Variants { key: CANNON_STATUS_TABLE.to_owned(), files },
+        label: [label.as_str(), CANNON_STATUS_TABLE].join(theme::HEADER_SEPARATOR),
+        columns: Vec::new(),
+        address: figures::Address::Keyed(part),
+        anchor: None,
+        unlocked: focus.unlocked,
+        active_mod: focus.active_mod.clone(),
+    }]
+}
+
+fn keyed_map_targets(app: &HaganeApp, focus: &Focus, subject: figures::Subject, table: &str) -> Vec<LevelTarget> {
+    let Some(map) = focus.map.as_ref() else {
+        return Vec::new();
+    };
+
+    let registry = &app.stage_state.data.registry;
+
+    let Some(global) = registry.addresses.get(map).and_then(|held| held.global) else {
+        return Vec::new();
+    };
+
+    let files = asset_files(app, focus, table);
+
+    if files.is_empty() {
+        return Vec::new();
+    }
+
+    let chapter = registry
+        .maps
+        .get(map)
+        .map(|found| found.name.trim())
+        .filter(|found| !found.is_empty())
+        .map_or_else(|| format!("{:03}", map.map), str::to_owned);
+
+    vec![LevelTarget {
+        subject,
+        asset: Asset::Variants { key: table.to_owned(), files },
+        label: [chapter.as_str(), table].join(theme::HEADER_SEPARATOR),
+        columns: Vec::new(),
+        address: figures::Address::Keyed(global),
+        anchor: None,
+        unlocked: focus.unlocked,
+        active_mod: focus.active_mod.clone(),
+    }]
+}
+
+fn orb_slot_targets(app: &HaganeApp, focus: &Focus) -> Vec<LevelTarget> {
+    let Some(id) = focus.cat else {
+        return Vec::new();
+    };
+
+    let files = asset_files(app, focus, ORB_SLOT_TABLE);
+
+    if files.is_empty() {
+        return Vec::new();
+    }
+
+    let label = app
+        .cat_state
+        .data
+        .cats
+        .iter()
+        .find(|cat| cat.id == id)
+        .map_or_else(|| format!("{id:03}"), |cat| cat.display_name(focus.form));
+
+    vec![LevelTarget {
+        subject: figures::Subject::OrbSlots,
+        asset: Asset::Variants { key: ORB_SLOT_TABLE.to_owned(), files },
+        label: [label.as_str(), ORB_SLOT_TABLE].join(theme::HEADER_SEPARATOR),
+        columns: Vec::new(),
+        address: figures::Address::Keyed(id),
+        anchor: None,
+        unlocked: focus.unlocked,
+        active_mod: focus.active_mod.clone(),
+    }]
+}
+
+fn combo_param_targets(app: &HaganeApp, focus: &Focus, line: Option<usize>) -> Vec<LevelTarget> {
+    let Some(line) = line else {
+        return Vec::new();
+    };
+
+    let files = asset_files(app, focus, COMBO_PARAM_TABLE);
+
+    if files.is_empty() {
+        return Vec::new();
+    }
+
+    let label = combo_effect(app, line);
+
+    vec![LevelTarget {
+        subject: figures::Subject::ComboParam,
+        asset: Asset::Variants { key: COMBO_PARAM_TABLE.to_owned(), files },
+        label: [label.as_str(), COMBO_PARAM_TABLE].join(theme::HEADER_SEPARATOR),
+        columns: Vec::new(),
+        address: figures::Address::Line(line),
+        anchor: None,
+        unlocked: focus.unlocked,
+        active_mod: focus.active_mod.clone(),
+    }]
+}
+
+fn combo_effect(app: &HaganeApp, line: usize) -> String {
+    app.vault
+        .vds
+        .cats
+        .combo_effects(&app.vault.vfs)
+        .get(line)
+        .and_then(Option::as_deref)
+        .map(str::trim)
+        .filter(|name| !name.is_empty())
+        .map_or_else(|| format!("{COMBO_EFFECT_LABEL} {line}"), str::to_owned)
+}
+
+fn upgrade_targets(app: &HaganeApp, focus: &Focus, line: Option<usize>) -> Vec<LevelTarget> {
+    let Some(line) = line else {
+        return Vec::new();
+    };
+
+    let files = asset_files(app, focus, UPGRADE_TABLE);
+
+    if files.is_empty() {
+        return Vec::new();
+    }
+
+    let label = UPGRADE_NAMES.get(line).map_or_else(|| format!("{UPGRADE_LABEL} {line}"), |name| (*name).to_owned());
+
+    vec![LevelTarget {
+        subject: figures::Subject::Upgrade,
+        asset: Asset::Variants { key: UPGRADE_TABLE.to_owned(), files },
+        label: [label.as_str(), UPGRADE_TABLE].join(theme::HEADER_SEPARATOR),
+        columns: Vec::new(),
+        address: figures::Address::Line(line),
         anchor: None,
         unlocked: focus.unlocked,
         active_mod: focus.active_mod.clone(),
@@ -2350,7 +3702,98 @@ fn figures_tab(app: &HaganeApp, subject: figures::Subject) -> bool {
         | figures::Subject::MapStage
         | figures::Subject::MapDrops
         | figures::Subject::DropChara
-        | figures::Subject::ItemBuy => true,
+        | figures::Subject::ItemBuy
+        | figures::Subject::MapOption
+        | figures::Subject::Background
+        | figures::Subject::Upgrade
+        | figures::Subject::ComboParam
+        | figures::Subject::OrbSlots
+        | figures::Subject::Difficulty
+        | figures::Subject::ExInvasion
+        | figures::Subject::CannonStatus
+        | figures::Subject::ExpCurve
+        | figures::Subject::OrbGrades
+        | figures::Subject::ExLottery
+        | figures::Subject::Shakes
+        | figures::Subject::Recipes
+        | figures::Subject::Shop
+        | figures::Subject::ZombieHeader
+        | figures::Subject::ZombieTier
+        | figures::Subject::Cpu
+        | figures::Subject::OrbTraits
+        | figures::Subject::Altar
+        | figures::Subject::GamatotoLimit
+        | figures::Subject::GamatotoUnlock
+        | figures::Subject::GamatotoDrop
+        | figures::Subject::Stamps
+        | figures::Subject::SlotUnlocks
+        | figures::Subject::Club
+        | figures::Subject::Missions
+        | figures::Subject::Conditions
+        | figures::Subject::MissionUnlocks
+        | figures::Subject::MissionGroups
+        | figures::Subject::GachaOptions
+        | figures::Subject::ChanceAnimations
+        | figures::Subject::Castles
+        | figures::Subject::TipRules
+        | figures::Subject::QuestStages
+        | figures::Subject::SlotLottery
+        | figures::Subject::RealmAltar
+        | figures::Subject::RealmDraws
+        | figures::Subject::LabyrinthFloors
+        | figures::Subject::LabyrinthLottery
+        | figures::Subject::MissionShortcuts
+        | figures::Subject::MissionDesignations
+        | figures::Subject::MonthlyMissions
+        | figures::Subject::SoundSettings
+        | figures::Subject::DojoChests
+        | figures::Subject::PopupTriggers
+        | figures::Subject::ComboCategories
+        | figures::Subject::CastleGrowth
+        | figures::Subject::DevelopmentCosts
+        | figures::Subject::DevelopmentTiers
+        | figures::Subject::MaterialMixes
+        | figures::Subject::GuideEntries
+        | figures::Subject::UnitLimits
+        | figures::Subject::EnemyGuide
+        | figures::Subject::ExpeditionAreas
+        | figures::Subject::GamatotoLevels
+        | figures::Subject::PrizePatterns
+        | figures::Subject::ShrineOfferings
+        | figures::Subject::ShrineExtras
+        | figures::Subject::FortuneOdds
+        | figures::Subject::ZonedIn
+        | figures::Subject::ZonedInSteps
+        | figures::Subject::FilterMaps
+        | figures::Subject::LineupExclusions
+        | figures::Subject::EnigmaLotteries
+        | figures::Subject::EnigmaRates
+        | figures::Subject::EnigmaDrops
+        | figures::Subject::EnigmaGroups
+        | figures::Subject::DiscoveryMedals
+        | figures::Subject::MapMarkers
+        | figures::Subject::EnigmaTimes
+        | figures::Subject::RecommendedUpgrades
+        | figures::Subject::LineupCounters
+        | figures::Subject::OrbOptions
+        | figures::Subject::EnergyRefunds
+        | figures::Subject::StageShortcuts
+        | figures::Subject::FanfareTiers
+        | figures::Subject::GuideSpotlights
+        | figures::Subject::TipSettings
+        | figures::Subject::EnigmaRarities
+        | figures::Subject::EngineerCap
+        | figures::Subject::LineupRatings
+        | figures::Subject::LineupBands
+        | figures::Subject::LineupRankGroups
+        | figures::Subject::AbilityIcons
+        | figures::Subject::TraitIcons
+        | figures::Subject::MenuTextSettings
+        | figures::Subject::MapSheets
+        | figures::Subject::OrbFilterChoices
+        | figures::Subject::ReelSymbols
+        | figures::Subject::LevelUpOffers
+        | figures::Subject::DemonCastles => true,
     }
 }
 
@@ -3322,6 +4765,24 @@ fn snapshot(app: &HaganeApp, editor: &State) -> Snapshot {
         }),
         ground: current_ground(app, focus),
         artwork: None,
+        sheet: None,
+        ledger: None,
+        records: None,
+        preset: None,
+        group: None,
+        treasure: None,
+        gift: None,
+        filter: None,
+        evolve: None,
+        roster: None,
+        captions: None,
+        catfruit: None,
+        maplayout: None,
+        dungeon: None,
+        cuts: None,
+        logins: None,
+        unused: None,
+        audio: None,
     }
 }
 
@@ -3348,6 +4809,78 @@ fn pinned_snapshot(app: &HaganeApp, bank: &Bank) -> Snapshot {
             Some(Planned::Artwork(plan)) => Some(plan),
             _ => None,
         },
+        sheet: match planned(&bank.pins.sheet) {
+            Some(Planned::Sheet(plan)) => Some(plan),
+            _ => None,
+        },
+        ledger: match planned(&bank.pins.ledger) {
+            Some(Planned::Ledger(plan)) => Some(plan),
+            _ => None,
+        },
+        records: match planned(&bank.pins.records) {
+            Some(Planned::Records(plan)) => Some(plan),
+            _ => None,
+        },
+        preset: match planned(&bank.pins.preset) {
+            Some(Planned::Preset(plan)) => Some(plan),
+            _ => None,
+        },
+        group: match planned(&bank.pins.group) {
+            Some(Planned::Group(plan)) => Some(plan),
+            _ => None,
+        },
+        treasure: match planned(&bank.pins.treasure) {
+            Some(Planned::Treasure(plan)) => Some(plan),
+            _ => None,
+        },
+        gift: match planned(&bank.pins.gift) {
+            Some(Planned::Gift(plan)) => Some(plan),
+            _ => None,
+        },
+        filter: match planned(&bank.pins.filter) {
+            Some(Planned::Filter(plan)) => Some(plan),
+            _ => None,
+        },
+        evolve: match planned(&bank.pins.evolve) {
+            Some(Planned::Evolve(plan)) => Some(plan),
+            _ => None,
+        },
+        roster: match planned(&bank.pins.roster) {
+            Some(Planned::Roster(plan)) => Some(plan),
+            _ => None,
+        },
+        captions: match planned(&bank.pins.captions) {
+            Some(Planned::Captions(plan)) => Some(plan),
+            _ => None,
+        },
+        catfruit: match planned(&bank.pins.catfruit) {
+            Some(Planned::Catfruit(plan)) => Some(plan),
+            _ => None,
+        },
+        maplayout: match planned(&bank.pins.maplayout) {
+            Some(Planned::MapLayout(plan)) => Some(plan),
+            _ => None,
+        },
+        dungeon: match planned(&bank.pins.dungeon) {
+            Some(Planned::Dungeon(plan)) => Some(plan),
+            _ => None,
+        },
+        cuts: match planned(&bank.pins.cuts) {
+            Some(Planned::Cuts(plan)) => Some(plan),
+            _ => None,
+        },
+        logins: match planned(&bank.pins.logins) {
+            Some(Planned::Logins(plan)) => Some(plan),
+            _ => None,
+        },
+        unused: match planned(&bank.pins.unused) {
+            Some(Planned::Unused(plan)) => Some(plan),
+            _ => None,
+        },
+        audio: match planned(&bank.pins.audio) {
+            Some(Planned::Audio(plan)) => Some(plan),
+            _ => None,
+        },
     }
 }
 
@@ -3364,7 +4897,7 @@ fn current_ground(app: &HaganeApp, focus: &Focus) -> Option<ground::Plan> {
 
 #[derive(Default)]
 struct Aim<'a> {
-    item: Option<u32>,
+    key: Option<u32>,
     line: Option<usize>,
     file: Option<&'a str>,
 }
@@ -3393,7 +4926,98 @@ fn current_plan(app: &HaganeApp, focus: &Focus, subject: figures::Subject, aim: 
         | figures::Subject::MapStage
         | figures::Subject::MapDrops
         | figures::Subject::DropChara
-        | figures::Subject::ItemBuy => {
+        | figures::Subject::ItemBuy
+        | figures::Subject::MapOption
+        | figures::Subject::Background
+        | figures::Subject::Upgrade
+        | figures::Subject::ComboParam
+        | figures::Subject::OrbSlots
+        | figures::Subject::Difficulty
+        | figures::Subject::ExInvasion
+        | figures::Subject::CannonStatus
+        | figures::Subject::ExpCurve
+        | figures::Subject::OrbGrades
+        | figures::Subject::ExLottery
+        | figures::Subject::Shakes
+        | figures::Subject::Recipes
+        | figures::Subject::Shop
+        | figures::Subject::ZombieHeader
+        | figures::Subject::ZombieTier
+        | figures::Subject::Cpu
+        | figures::Subject::OrbTraits
+        | figures::Subject::Altar
+        | figures::Subject::GamatotoLimit
+        | figures::Subject::GamatotoUnlock
+        | figures::Subject::GamatotoDrop
+        | figures::Subject::Stamps
+        | figures::Subject::SlotUnlocks
+        | figures::Subject::Club
+        | figures::Subject::Missions
+        | figures::Subject::Conditions
+        | figures::Subject::MissionUnlocks
+        | figures::Subject::MissionGroups
+        | figures::Subject::GachaOptions
+        | figures::Subject::ChanceAnimations
+        | figures::Subject::Castles
+        | figures::Subject::TipRules
+        | figures::Subject::QuestStages
+        | figures::Subject::SlotLottery
+        | figures::Subject::RealmAltar
+        | figures::Subject::RealmDraws
+        | figures::Subject::LabyrinthFloors
+        | figures::Subject::LabyrinthLottery
+        | figures::Subject::MissionShortcuts
+        | figures::Subject::MissionDesignations
+        | figures::Subject::MonthlyMissions
+        | figures::Subject::SoundSettings
+        | figures::Subject::DojoChests
+        | figures::Subject::PopupTriggers
+        | figures::Subject::ComboCategories
+        | figures::Subject::CastleGrowth
+        | figures::Subject::DevelopmentCosts
+        | figures::Subject::DevelopmentTiers
+        | figures::Subject::MaterialMixes
+        | figures::Subject::GuideEntries
+        | figures::Subject::UnitLimits
+        | figures::Subject::EnemyGuide
+        | figures::Subject::ExpeditionAreas
+        | figures::Subject::GamatotoLevels
+        | figures::Subject::PrizePatterns
+        | figures::Subject::ShrineOfferings
+        | figures::Subject::ShrineExtras
+        | figures::Subject::FortuneOdds
+        | figures::Subject::ZonedIn
+        | figures::Subject::ZonedInSteps
+        | figures::Subject::FilterMaps
+        | figures::Subject::LineupExclusions
+        | figures::Subject::EnigmaLotteries
+        | figures::Subject::EnigmaRates
+        | figures::Subject::EnigmaDrops
+        | figures::Subject::EnigmaGroups
+        | figures::Subject::DiscoveryMedals
+        | figures::Subject::MapMarkers
+        | figures::Subject::EnigmaTimes
+        | figures::Subject::RecommendedUpgrades
+        | figures::Subject::LineupCounters
+        | figures::Subject::OrbOptions
+        | figures::Subject::EnergyRefunds
+        | figures::Subject::StageShortcuts
+        | figures::Subject::FanfareTiers
+        | figures::Subject::GuideSpotlights
+        | figures::Subject::TipSettings
+        | figures::Subject::EnigmaRarities
+        | figures::Subject::EngineerCap
+        | figures::Subject::LineupRatings
+        | figures::Subject::LineupBands
+        | figures::Subject::LineupRankGroups
+        | figures::Subject::AbilityIcons
+        | figures::Subject::TraitIcons
+        | figures::Subject::MenuTextSettings
+        | figures::Subject::MapSheets
+        | figures::Subject::OrbFilterChoices
+        | figures::Subject::ReelSymbols
+        | figures::Subject::LevelUpOffers
+        | figures::Subject::DemonCastles => {
             let sources = match subject {
                 figures::Subject::Talents | figures::Subject::Costs => match focus.cat.is_some() {
                     true => roster_payloads(app, focus, &TALENT_FILES),
@@ -3403,7 +5027,100 @@ fn current_plan(app: &HaganeApp, focus: &Focus, subject: figures::Subject, aim: 
                 figures::Subject::MapStage => stage_data_targets(app, focus),
                 figures::Subject::MapDrops => map_drop_targets(app, focus),
                 figures::Subject::DropChara => drop_chara_targets(app, focus),
-                figures::Subject::ItemBuy => item_buy_targets(app, focus, aim.item),
+                figures::Subject::ItemBuy => item_buy_targets(app, focus, aim.key),
+                figures::Subject::MapOption => map_option_targets(app, focus),
+                figures::Subject::Background => background_targets(app, focus, aim.key),
+                figures::Subject::Upgrade => upgrade_targets(app, focus, aim.line),
+                figures::Subject::ComboParam => combo_param_targets(app, focus, aim.line),
+                figures::Subject::OrbSlots => orb_slot_targets(app, focus),
+                figures::Subject::Difficulty => keyed_map_targets(app, focus, figures::Subject::Difficulty, DIFFICULTY_TABLE),
+                figures::Subject::ExInvasion => keyed_map_targets(app, focus, figures::Subject::ExInvasion, EX_OPTION_TABLE),
+                figures::Subject::CannonStatus => cannon_status_targets(app, focus, aim.key),
+                figures::Subject::ExpCurve => roster_payloads(app, focus, &EXP_FILES),
+                figures::Subject::OrbGrades => orb_grade_targets(app, focus, aim.line),
+                figures::Subject::ExLottery => line_targets(app, focus, aim.line, figures::Subject::ExLottery, EX_LOTTERY_TABLE, EX_GROUP),
+                figures::Subject::Shakes => keyed_targets(app, focus, aim.key, figures::Subject::Shakes, SHAKE_TABLE, SHAKE_NAME),
+                figures::Subject::Recipes => keyed_targets(app, focus, aim.key, figures::Subject::Recipes, RECIPE_TABLE, RECIPE_NAME),
+                figures::Subject::Shop => keyed_targets(app, focus, aim.key, figures::Subject::Shop, SHOP_TABLE, SHOP_NAME),
+                figures::Subject::ZombieHeader | figures::Subject::ZombieTier => {
+                    line_targets(app, focus, aim.line, subject, ZOMBIE_TABLE, ZOMBIE_LINE)
+                }
+                figures::Subject::Cpu => line_targets(app, focus, aim.line, subject, CPU_TABLE, CPU_LINE),
+                figures::Subject::OrbTraits => line_targets(app, focus, aim.line, subject, ORB_TRAIT_TABLE, ORB_TRAIT_LINE),
+                figures::Subject::Altar => altar_targets(app, focus),
+                figures::Subject::GamatotoLimit => line_targets(app, focus, aim.line, subject, GAMATOTO_LIMIT_TABLE, GAMATOTO_LIMIT_NAME),
+                figures::Subject::GamatotoUnlock => keyed_targets(app, focus, aim.key, subject, GAMATOTO_UNLOCK_TABLE, GAMATOTO_UNLOCK_NAME),
+                figures::Subject::GamatotoDrop => keyed_targets(app, focus, aim.key, subject, GAMATOTO_DROP_TABLE, GAMATOTO_DROP_NAME),
+                figures::Subject::Stamps => line_targets(app, focus, aim.line, subject, STAMP_TABLE, STAMP_LINE),
+                figures::Subject::SlotUnlocks => line_targets(app, focus, aim.line, subject, SLOT_TABLE, SLOT_LINE),
+                figures::Subject::Club => keyed_targets(app, focus, aim.key, subject, CLUB_TABLE, CLUB_NAME),
+                figures::Subject::Missions => keyed_targets(app, focus, aim.key, subject, MISSION_TABLE, MISSION_NAME),
+                figures::Subject::Conditions => keyed_targets(app, focus, aim.key, subject, CONDITION_TABLE, MISSION_NAME),
+                figures::Subject::MissionUnlocks => keyed_targets(app, focus, aim.key, subject, MISSION_UNLOCK_TABLE, MISSION_UNLOCK_NAME),
+                figures::Subject::MissionGroups => keyed_targets(app, focus, aim.key, subject, MISSION_GROUP_TABLE, MISSION_GROUP_NAME),
+                figures::Subject::GachaOptions => aim.file.map_or_else(Vec::new, |file| keyed_targets(app, focus, aim.key, subject, file, roster::SET_NAME)),
+                figures::Subject::ChanceAnimations => line_targets(app, focus, aim.line, subject, roster::CHANCE_TABLE, roster::CHANCE_NAME),
+                figures::Subject::Castles => aim.file.map_or_else(Vec::new, |file| line_targets(app, focus, aim.line, subject, file, CASTLE_NAME)),
+                figures::Subject::TipRules => keyed_targets(app, focus, aim.key, subject, TIP_RULE_TABLE, TIP_RULE_NAME),
+                figures::Subject::QuestStages => aim.file.map_or_else(Vec::new, |file| line_targets(app, focus, aim.line, subject, file, QUEST_STAGE_NAME)),
+                figures::Subject::SlotLottery => aim.file.map_or_else(Vec::new, |file| line_targets(app, focus, aim.line, subject, file, SLOT_LOTTERY_NAME)),
+                figures::Subject::LabyrinthFloors => aim.file.map_or_else(Vec::new, |file| line_targets(app, focus, aim.line, subject, file, LABYRINTH_FLOOR_NAME)),
+                figures::Subject::LabyrinthLottery => keyed_targets(app, focus, aim.key, subject, LABYRINTH_LOTTERY_TABLE, LABYRINTH_RULE_NAME),
+                figures::Subject::MissionShortcuts => keyed_targets(app, focus, aim.key, subject, MISSION_SHORTCUT_TABLE, MISSION_SHORTCUT_NAME),
+                figures::Subject::MissionDesignations => keyed_targets(app, focus, aim.key, subject, MISSION_DESIGNATION_TABLE, MISSION_NAME),
+                figures::Subject::MonthlyMissions => keyed_targets(app, focus, aim.key, subject, MONTHLY_MISSION_TABLE, MONTHLY_MISSION_NAME),
+                figures::Subject::SoundSettings => line_targets(app, focus, aim.line, subject, SOUND_TABLE, SOUND_NAME),
+                figures::Subject::DojoChests => keyed_targets(app, focus, aim.key, subject, CHEST_TABLE, CHEST_NAME),
+                figures::Subject::PopupTriggers => keyed_targets(app, focus, aim.key, subject, POPUP_TRIGGER_TABLE, POPUP_TRIGGER_NAME),
+                figures::Subject::ComboCategories => keyed_targets(app, focus, aim.key, subject, COMBO_CATEGORY_TABLE, COMBO_CATEGORY_NAME),
+                figures::Subject::CastleGrowth => line_targets(app, focus, aim.line, subject, CASTLE_GROWTH_TABLE, CASTLE_BRACKET_NAME),
+                figures::Subject::DemonCastles => keyed_targets(app, focus, aim.key, subject, DEMON_CASTLE_TABLE, DEMON_CASTLE_NAME),
+                figures::Subject::LevelUpOffers => keyed_targets(app, focus, aim.key, subject, LEVEL_UP_TABLE, LEVEL_UP_NAME),
+                figures::Subject::ReelSymbols => aim.file.map_or_else(Vec::new, |file| line_targets(app, focus, aim.line, subject, file, REEL_NAME)),
+                figures::Subject::OrbFilterChoices => line_targets(app, focus, aim.line, subject, ORB_CHOICE_TABLE, ORB_CHOICE_NAME),
+                figures::Subject::MapSheets => keyed_targets(app, focus, aim.key, subject, MAP_SHEET_TABLE, MAP_SHEET_NAME),
+                figures::Subject::MenuTextSettings => keyed_targets(app, focus, aim.key, subject, MENU_TEXT_TABLE, MENU_TEXT_NAME),
+                figures::Subject::TraitIcons => line_targets(app, focus, aim.line, subject, TRAIT_ICON_TABLE, TRAIT_ICON_NAME),
+                figures::Subject::AbilityIcons => line_targets(app, focus, aim.line, subject, ABILITY_ICON_TABLE, ABILITY_ICON_NAME),
+                figures::Subject::LineupRankGroups => line_targets(app, focus, aim.line, subject, RANK_GROUP_TABLE, RANK_GROUP_NAME),
+                figures::Subject::LineupBands => line_targets(app, focus, aim.line, subject, BAND_TABLE, BAND_NAME),
+                figures::Subject::LineupRatings => line_targets(app, focus, aim.line, subject, RATING_TABLE, RATING_NAME),
+                figures::Subject::EngineerCap => line_targets(app, focus, aim.line, subject, ENGINEER_CAP_TABLE, ENGINEER_CAP_NAME),
+                figures::Subject::EnigmaRarities => line_targets(app, focus, aim.line, subject, ENIGMA_RARITY_TABLE, ENIGMA_RARITY_NAME),
+                figures::Subject::TipSettings => keyed_targets(app, focus, aim.key, subject, TIP_SETTING_TABLE, TIP_SETTING_NAME),
+                figures::Subject::GuideSpotlights => line_targets(app, focus, aim.line, subject, SPOTLIGHT_TABLE, SPOTLIGHT_NAME),
+                figures::Subject::FanfareTiers => line_targets(app, focus, aim.line, subject, FANFARE_TABLE, FANFARE_NAME),
+                figures::Subject::StageShortcuts => line_targets(app, focus, aim.line, subject, STAGE_SHORTCUT_TABLE, STAGE_SHORTCUT_NAME),
+                figures::Subject::EnergyRefunds => line_targets(app, focus, aim.line, subject, REFUND_TABLE, REFUND_NAME),
+                figures::Subject::OrbOptions => keyed_targets(app, focus, aim.key, subject, ORB_OPTION_TABLE, ORB_OPTION_NAME),
+                figures::Subject::LineupCounters => line_targets(app, focus, aim.line, subject, COUNTER_TABLE, COUNTER_NAME),
+                figures::Subject::RecommendedUpgrades => line_targets(app, focus, aim.line, subject, RECOMMEND_TABLE, RECOMMEND_NAME),
+                figures::Subject::EnigmaTimes => line_targets(app, focus, aim.line, subject, ENIGMA_TIME_TABLE, ENIGMA_TIME_NAME),
+                figures::Subject::MapMarkers => aim.file.map_or_else(Vec::new, |file| line_targets(app, focus, aim.line, subject, file, MAP_MARKER_NAME)),
+                figures::Subject::DiscoveryMedals => line_targets(app, focus, aim.line, subject, ENIGMA_MEDAL_TABLE, ENIGMA_MEDAL_NAME),
+                figures::Subject::EnigmaGroups => line_targets(app, focus, aim.line, subject, ENIGMA_GROUP_TABLE, ENIGMA_GROUP_NAME),
+                figures::Subject::EnigmaDrops => line_targets(app, focus, aim.line, subject, ENIGMA_DROP_TABLE, ENIGMA_LEVEL_NAME),
+                figures::Subject::EnigmaRates => line_targets(app, focus, aim.line, subject, ENIGMA_RATE_TABLE, ENIGMA_LEVEL_NAME),
+                figures::Subject::EnigmaLotteries => line_targets(app, focus, aim.line, subject, ENIGMA_LOTTERY_TABLE, ENIGMA_LOTTERY_NAME),
+                figures::Subject::LineupExclusions => line_targets(app, focus, aim.line, subject, EXCLUSION_TABLE, EXCLUSION_NAME),
+                figures::Subject::FilterMaps => line_targets(app, focus, aim.line, subject, FILTER_MAP_TABLE, FILTER_MAP_NAME),
+                figures::Subject::ZonedInSteps => line_targets(app, focus, aim.line, subject, ZONED_IN_TABLE, ZONED_IN_STEPS_NAME),
+                figures::Subject::ZonedIn => line_targets(app, focus, aim.line, subject, ZONED_IN_TABLE, ZONED_IN_NAME),
+                figures::Subject::FortuneOdds => keyed_targets(app, focus, aim.key, subject, FORTUNE_TABLE, FORTUNE_NAME),
+                figures::Subject::ShrineExtras => line_targets(app, focus, aim.line, subject, SHRINE_EXTRA_TABLE, SHRINE_EXTRA_NAME),
+                figures::Subject::ShrineOfferings => keyed_targets(app, focus, aim.key, subject, SHRINE_OFFERING_TABLE, SHRINE_OFFERING_NAME),
+                figures::Subject::PrizePatterns => aim.file.map_or_else(Vec::new, |file| line_targets(app, focus, aim.line, subject, file, PRIZE_NAME)),
+                figures::Subject::GamatotoLevels => line_targets(app, focus, aim.line, subject, GAMATOTO_LEVEL_TABLE, GAMATOTO_LEVEL_NAME),
+                figures::Subject::ExpeditionAreas => aim.file.map_or_else(Vec::new, |file| line_targets(app, focus, aim.line, subject, file, EXPEDITION_AREA_NAME)),
+                figures::Subject::EnemyGuide => keyed_targets(app, focus, focus.enemy, subject, ENEMY_GUIDE_TABLE, ENEMY_GUIDE_NAME),
+                figures::Subject::UnitLimits => focus.cat.map_or_else(Vec::new, |id| line_targets(app, focus, Some(id as usize), subject, UNIT_LIMIT_TABLE, UNIT_LIMIT_NAME)),
+                figures::Subject::GuideEntries => focus.cat.map_or_else(Vec::new, |id| line_targets(app, focus, Some(id as usize), subject, GUIDE_TABLE, GUIDE_NAME)),
+                figures::Subject::MaterialMixes => keyed_targets(app, focus, aim.key, subject, MATERIAL_MIX_TABLE, MATERIAL_MIX_NAME),
+                figures::Subject::DevelopmentTiers => line_targets(app, focus, aim.line, subject, DEVELOPMENT_TIER_TABLE, DEVELOPMENT_TIER_NAME),
+                figures::Subject::DevelopmentCosts => aim.file.map_or_else(Vec::new, |file| line_targets(app, focus, aim.line, subject, file, DEVELOPMENT_COST_NAME)),
+                figures::Subject::RealmAltar | figures::Subject::RealmDraws => {
+                    aim.file.map_or_else(Vec::new, |file| line_targets(app, focus, aim.line, subject, file, REALM_DRAW_NAME))
+                }
                 _ => level_payloads(app, focus, true, false),
             };
 
@@ -3425,25 +5142,36 @@ fn current_plan(app: &HaganeApp, focus: &Focus, subject: figures::Subject, aim: 
 pub(crate) enum Art {
     DeployIcon,
     Banner,
+    Gacha,
     EnemyIcon,
     MapBanner,
     StageBanner,
+    Castle,
+    Background,
+    ItemIcon,
+    Image,
 }
 
 impl Art {
     fn page(self) -> Page {
         match self {
-            Art::DeployIcon | Art::Banner => Page::Cats,
+            Art::DeployIcon | Art::Banner | Art::Gacha => Page::Cats,
             Art::EnemyIcon => Page::Enemies,
-            Art::MapBanner | Art::StageBanner => Page::Stages,
+            Art::ItemIcon | Art::Image => Page::Home,
+            Art::MapBanner | Art::StageBanner | Art::Castle | Art::Background => Page::Stages,
         }
     }
 
     fn title(self) -> &'static str {
         match self {
             Art::DeployIcon => CAT_ICON_TITLE,
+            Art::Gacha => GACHA_IMAGE_TITLE,
             Art::EnemyIcon => ICON_TITLE,
             Art::Banner | Art::MapBanner | Art::StageBanner => BANNER_TITLE,
+            Art::Castle => CASTLE_IMAGE_TITLE,
+            Art::Background => BACKGROUND_IMAGE_TITLE,
+            Art::ItemIcon => ITEM_ICON_TITLE,
+            Art::Image => IMAGE_TITLE,
         }
     }
 }
@@ -3454,6 +5182,24 @@ pub(crate) enum Pane {
     Prose(prose::Subject),
     Ground,
     Artwork(Art),
+    Sheet(sheet::Sheet),
+    Ledger(ledger::Ledger),
+    Records(records::Book),
+    Preset,
+    Group,
+    Treasure,
+    Gift,
+    Filter,
+    Evolve,
+    Roster(roster::Tier),
+    Captions(captions::Layout),
+    Catfruit,
+    MapLayout,
+    Dungeon,
+    Cuts,
+    Logins,
+    Unused,
+    Audio,
 }
 
 impl Pane {
@@ -3463,6 +5209,12 @@ impl Pane {
             Pane::Prose(subject) => subject.page(),
             Pane::Ground => Page::Stages,
             Pane::Artwork(art) => art.page(),
+            Pane::Sheet(_) => Page::Home,
+            Pane::Ledger(_) => Page::Stages,
+            Pane::Records(_) => Page::Home,
+            Pane::Preset | Pane::Group | Pane::Treasure | Pane::MapLayout | Pane::Dungeon => Page::Stages,
+            Pane::Gift | Pane::Roster(_) | Pane::Captions(_) | Pane::Catfruit | Pane::Cuts | Pane::Logins | Pane::Unused | Pane::Audio => Page::Home,
+            Pane::Filter | Pane::Evolve => Page::Cats,
         }
     }
 
@@ -3472,6 +5224,24 @@ impl Pane {
             Pane::Prose(subject) => subject.title(),
             Pane::Ground => ground::TITLE,
             Pane::Artwork(art) => art.title(),
+            Pane::Sheet(kind) => kind.title(),
+            Pane::Ledger(kind) => kind.title(),
+            Pane::Records(book) => book.title(),
+            Pane::Preset => preset::TITLE,
+            Pane::Group => group::TITLE,
+            Pane::Treasure => treasure::TITLE,
+            Pane::Gift => gift::TITLE,
+            Pane::Filter => filter::TITLE,
+            Pane::Evolve => evolve::TITLE,
+            Pane::Roster(tier) => tier.title(),
+            Pane::Captions(layout) => layout.title(),
+            Pane::Catfruit => catfruit::TITLE,
+            Pane::MapLayout => maplayout::TITLE,
+            Pane::Dungeon => dungeon::TITLE,
+            Pane::Cuts => cuts::TITLE,
+            Pane::Logins => logins::TITLE,
+            Pane::Unused => unused::TITLE,
+            Pane::Audio => audio::TITLE,
         }
     }
 }
@@ -3480,11 +5250,12 @@ impl Pane {
 pub(crate) struct Pick {
     pane: Pane,
     focus: Focus,
-    item: Option<u32>,
+    key: Option<u32>,
     line: Option<usize>,
     aim: Option<(Identity, Faction)>,
     file: String,
     label: String,
+    path: Vec<String>,
 }
 
 pub(crate) enum Planned {
@@ -3492,6 +5263,24 @@ pub(crate) enum Planned {
     Prose(prose::Plan),
     Ground(ground::Plan),
     Artwork(artwork::Plan),
+    Sheet(sheet::Plan),
+    Ledger(ledger::Plan),
+    Records(records::Plan),
+    Preset(preset::Plan),
+    Group(group::Plan),
+    Treasure(treasure::Plan),
+    Gift(gift::Plan),
+    Filter(filter::Plan),
+    Evolve(evolve::Plan),
+    Roster(roster::Plan),
+    Captions(captions::Plan),
+    Catfruit(catfruit::Plan),
+    MapLayout(maplayout::Plan),
+    Dungeon(dungeon::Plan),
+    Cuts(cuts::Plan),
+    Logins(logins::Plan),
+    Unused(unused::Plan),
+    Audio(audio::Plan),
 }
 
 impl Planned {
@@ -3501,6 +5290,24 @@ impl Planned {
             Planned::Prose(plan) => prose::mark(plan, vfs, reader),
             Planned::Ground(plan) => ground::mark(plan, vfs, reader),
             Planned::Artwork(plan) => artwork::mark(plan, vfs),
+            Planned::Sheet(plan) => sheet::mark(plan, vfs, reader),
+            Planned::Ledger(plan) => ledger::mark(plan, vfs, reader),
+            Planned::Records(plan) => records::mark(plan, vfs, reader),
+            Planned::Preset(plan) => preset::mark(plan, vfs, reader),
+            Planned::Group(plan) => group::mark(plan, vfs, reader),
+            Planned::Treasure(plan) => treasure::mark(plan, vfs, reader),
+            Planned::Gift(plan) => gift::mark(plan, vfs, reader),
+            Planned::Filter(plan) => filter::mark(plan, vfs, reader),
+            Planned::Evolve(plan) => evolve::mark(plan, vfs, reader),
+            Planned::Roster(plan) => roster::mark(plan, vfs, reader),
+            Planned::Captions(plan) => captions::mark(plan, vfs, reader),
+            Planned::Catfruit(plan) => catfruit::mark(plan, vfs, reader),
+            Planned::MapLayout(plan) => maplayout::mark(plan, vfs, reader),
+            Planned::Dungeon(plan) => dungeon::mark(plan, vfs, reader),
+            Planned::Cuts(plan) => cuts::mark(plan, vfs, reader),
+            Planned::Logins(plan) => logins::mark(plan, vfs, reader),
+            Planned::Unused(_) => unused::mark(),
+            Planned::Audio(plan) => audio::mark(plan, vfs),
         }
     }
 
@@ -3510,6 +5317,24 @@ impl Planned {
             Planned::Prose(plan) => prose::reset(plan, vfs),
             Planned::Ground(plan) => ground::reset(plan, vfs),
             Planned::Artwork(plan) => artwork::reset(&plan, vfs),
+            Planned::Sheet(plan) => sheet::reset(plan, vfs),
+            Planned::Ledger(plan) => ledger::reset(plan, vfs),
+            Planned::Records(plan) => records::reset(plan, vfs),
+            Planned::Preset(plan) => preset::reset(plan, vfs),
+            Planned::Group(plan) => group::reset(plan, vfs),
+            Planned::Treasure(plan) => treasure::reset(plan, vfs),
+            Planned::Gift(plan) => gift::reset(plan, vfs),
+            Planned::Filter(plan) => filter::reset(plan, vfs),
+            Planned::Evolve(plan) => evolve::reset(plan, vfs),
+            Planned::Roster(plan) => roster::reset(plan, vfs),
+            Planned::Captions(plan) => captions::reset(plan, vfs),
+            Planned::Catfruit(plan) => catfruit::reset(plan, vfs),
+            Planned::MapLayout(plan) => maplayout::reset(plan, vfs),
+            Planned::Dungeon(plan) => dungeon::reset(plan, vfs),
+            Planned::Cuts(plan) => cuts::reset(plan, vfs),
+            Planned::Logins(plan) => logins::reset(plan, vfs),
+            Planned::Unused(_) => false,
+            Planned::Audio(plan) => audio::reset(&plan, vfs),
         }
     }
 }
@@ -3576,7 +5401,7 @@ fn pick_plan(app: &HaganeApp, pick: &Pick, values: EditorMode) -> Option<Planned
 
     match pick.pane {
         Pane::Figures(subject) => {
-            let aim = Aim { item: pick.item, line: pick.line, file: Some(&pick.file) };
+            let aim = Aim { key: pick.key, line: pick.line, file: Some(&pick.file) };
 
             current_plan(app, focus, subject, aim).map(Planned::Figures)
         }
@@ -3587,7 +5412,7 @@ fn pick_plan(app: &HaganeApp, pick: &Pick, values: EditorMode) -> Option<Planned
 
                     glossary_target(app, focus, identity, faction)
                 }
-                prose::Subject::ItemName => item_name_target(app, focus, pick.item),
+                prose::Subject::ItemName => item_name_target(app, focus, pick.key),
                 prose::Subject::ComboName => combo_name_target(app, focus, pick.line),
                 _ => prose_target(app, focus, subject),
             }?;
@@ -3608,7 +5433,439 @@ fn pick_plan(app: &HaganeApp, pick: &Pick, values: EditorMode) -> Option<Planned
 
             Some(Planned::Artwork(artwork::plan(pick.label.clone(), pick.file.clone(), game, target)))
         }
+        Pane::Sheet(kind) => {
+            let target = focus.active_mod.clone()?;
+            let game = app.vault.vfs.pristine(pick.file.as_str())?;
+
+            Some(Planned::Sheet(sheet::plan(kind, pick.label.clone(), pick.file.clone(), game, target, values)))
+        }
+        Pane::Ledger(kind) => ledger_plan(app, pick, kind, values),
+        Pane::Preset => preset_plan(app, pick, values),
+        Pane::Group => group_plan(app, pick, values),
+        Pane::Treasure => treasure_plan(app, pick, values),
+        Pane::Gift => gift_plan(app, pick, values),
+        Pane::Filter => filter_plan(app, pick, values),
+        Pane::Evolve => evolve_plan(app, pick, values),
+        Pane::Roster(tier) => roster_plan(app, pick, tier, values),
+        Pane::Captions(layout) => captions_plan(app, pick, layout, values),
+        Pane::Catfruit => catfruit_plan(app, pick, values),
+        Pane::Unused => Some(Planned::Unused(unused::plan(pick.label.clone(), pick.file.as_str()))),
+        Pane::Audio => {
+            let target = pick.focus.active_mod.clone()?;
+            let game = app.vault.vfs.pristine(pick.file.as_str());
+
+            Some(Planned::Audio(audio::plan(pick.label.clone(), pick.file.clone(), game, target)))
+        }
+        Pane::Logins => {
+            let target = pick.focus.active_mod.clone()?;
+            let game = app.vault.vfs.pristine(pick.file.as_str())?;
+
+            Some(Planned::Logins(logins::plan(pick.label.clone(), pick.file.clone(), game, target, values, pick.line?)))
+        }
+        Pane::Cuts => {
+            let target = pick.focus.active_mod.clone()?;
+            let game = app.vault.vfs.pristine(pick.file.as_str())?;
+
+            Some(Planned::Cuts(cuts::plan(pick.label.clone(), pick.file.clone(), game, target)))
+        }
+        Pane::MapLayout => {
+            let target = pick.focus.active_mod.clone()?;
+            let game = app.vault.vfs.pristine(pick.file.as_str())?;
+
+            Some(Planned::MapLayout(maplayout::plan(pick.label.clone(), pick.file.clone(), game, target, values)))
+        }
+        Pane::Dungeon => {
+            let target = pick.focus.active_mod.clone()?;
+            let game = app.vault.vfs.pristine(pick.file.as_str())?;
+
+            Some(Planned::Dungeon(dungeon::plan(pick.label.clone(), pick.file.clone(), game, target, values)))
+        }
+        Pane::Records(book) => {
+            let target = focus.active_mod.clone()?;
+            let game = app.vault.vfs.pristine(pick.file.as_str())?;
+
+            let path = match (pick.path.is_empty().then(|| book.map_root()).flatten(), focus.map.as_ref()) {
+                (Some(root), Some(map)) => {
+                    let global = app.stage_state.data.registry.addresses.get(map)?.global?;
+
+                    vec![root.to_owned(), global.to_string()]
+                }
+                _ => pick.path.clone(),
+            };
+
+            Some(Planned::Records(records::plan(records::Seed {
+                book,
+                label: pick.label.clone(),
+                file: pick.file.clone(),
+                game,
+                target_mod: target,
+                path,
+                values,
+                named: match book {
+                    records::Book::Orbs => orb_named(app),
+                    records::Book::ClearRewards => reward_named(app),
+                    _ => Vec::new(),
+                },
+            })))
+        }
     }
+}
+
+fn ledger_plan(app: &HaganeApp, pick: &Pick, kind: ledger::Ledger, values: EditorMode) -> Option<Planned> {
+    let target = pick.focus.active_mod.clone()?;
+    let game = app.vault.vfs.pristine(pick.file.as_str())?;
+
+    let (key, stages) = match kind {
+        ledger::Ledger::Growth(_) => (pick.key?, Vec::new()),
+        ledger::Ledger::StageOption
+        | ledger::Ledger::FixedFormation
+        | ledger::Ledger::StageDraws
+        | ledger::Ledger::Checkpoints
+        | ledger::Ledger::StageLimits
+        | ledger::Ledger::ExDraws
+        | ledger::Ledger::CpuLocks => map_stages(app, pick)?,
+    };
+
+    let presets = match kind {
+        ledger::Ledger::FixedFormation => app
+            .vault
+            .vfs
+            .glob(PRESET_PREFIX)
+            .into_iter()
+            .filter(|name| name.ends_with(PRESET_EXTENSION))
+            .map(String::from)
+            .collect(),
+        ledger::Ledger::StageOption
+        | ledger::Ledger::StageDraws
+        | ledger::Ledger::Checkpoints
+        | ledger::Ledger::StageLimits
+        | ledger::Ledger::ExDraws
+        | ledger::Ledger::CpuLocks
+        | ledger::Ledger::Growth(_) => Vec::new(),
+    };
+
+    let effects = match kind {
+        ledger::Ledger::Growth(assembly) => growth_effects(app, assembly),
+        ledger::Ledger::ExDraws => ex_groups(app),
+        ledger::Ledger::StageOption
+        | ledger::Ledger::FixedFormation
+        | ledger::Ledger::StageDraws
+        | ledger::Ledger::Checkpoints
+        | ledger::Ledger::StageLimits
+        | ledger::Ledger::CpuLocks => Vec::new(),
+    };
+
+    Some(Planned::Ledger(ledger::plan(ledger::Seed {
+        ledger: kind,
+        label: pick.label.clone(),
+        file: pick.file.clone(),
+        game,
+        target_mod: target,
+        key,
+        stages,
+        presets,
+        effects,
+        values,
+    })))
+}
+
+fn map_stages(app: &HaganeApp, pick: &Pick) -> Option<(u32, Vec<(u32, String)>)> {
+    let map = pick.focus.map.as_ref()?;
+    let registry = &app.stage_state.data.registry;
+    let key = registry.addresses.get(map)?.global?;
+
+    let mut stages: Vec<(u32, String)> = registry
+        .stages
+        .iter()
+        .filter(|(id, _)| id.category == map.category && id.map == map.map)
+        .map(|(id, stage)| {
+            let named = stage.name.trim();
+            let label = if named.is_empty() { format!("Stage {:02}", id.stage) } else { format!("{:02} {named}", id.stage) };
+
+            (id.stage, label)
+        })
+        .collect();
+
+    stages.sort_unstable_by_key(|(stage, _)| *stage);
+
+    Some((key, stages))
+}
+
+fn ex_groups(app: &HaganeApp) -> Vec<(i32, String)> {
+    let Some(bytes) = app.vault.vfs.load(EX_LOTTERY_TABLE) else {
+        return Vec::new();
+    };
+
+    let mut groups = Vec::new();
+
+    for line in common::scrub(&bytes).lines() {
+        let mut cells = line.split(',').map(str::trim);
+
+        let (Some(map), Some(stage)) = (cells.next().and_then(|cell| cell.parse::<i32>().ok()), cells.next().and_then(|cell| cell.parse::<i32>().ok())) else {
+            break;
+        };
+
+        let group = i32::try_from(groups.len()).unwrap_or(i32::MAX);
+
+        groups.push((group, format!("{EX_GROUP} {group}: {EX_MAP} {map}, {EX_STAGE} {stage:02}")));
+    }
+
+    groups
+}
+
+fn growth_effects(app: &HaganeApp, assembly: ledger::Assembly) -> Vec<(i32, String)> {
+    let names = &app.names;
+    let numbered = |at: usize| i32::try_from(at).unwrap_or(i32::MAX);
+
+    let named = |kind: usize| match assembly {
+        ledger::Assembly::Cannon => base::CANNON_EFFECTS.get(kind).map(|name| (*name).to_owned()),
+        ledger::Assembly::Foundation => base::foundation_effect(kind, names).map(str::to_owned),
+        ledger::Assembly::Style => base::style_effect(kind, names).map(str::to_owned),
+    };
+
+    (0..).map_while(|kind| named(kind).map(|name| (numbered(kind), name))).collect()
+}
+
+fn preset_plan(app: &HaganeApp, pick: &Pick, values: EditorMode) -> Option<Planned> {
+    let target = pick.focus.active_mod.clone()?;
+    let game = app.vault.vfs.pristine(pick.file.as_str())?;
+
+    let roster = app
+        .cat_state
+        .data
+        .cats
+        .iter()
+        .map(|cat| preset::Member {
+            id: cat.id,
+            forms: (0..cat.forms.len()).filter(|form| cat.forms[*form]).map(|form| cat.display_name(form)).collect(),
+            caps: cat.unitbuy.level_caps().map(|(base, plus)| (i64::from(base), i64::from(plus))),
+        })
+        .collect();
+
+    let cannons = (0..)
+        .zip(PRESET_CANNONS)
+        .map(|(part, fallback)| app.names.cannon(part).unwrap_or(fallback).to_owned())
+        .collect();
+
+    Some(Planned::Preset(preset::plan(preset::Seed {
+        label: pick.label.clone(),
+        file: pick.file.clone(),
+        game,
+        target_mod: target,
+        values,
+        roster,
+        cannons,
+    })))
+}
+
+fn reward_named(app: &HaganeApp) -> records::Named {
+    let catalog = app.vault.vds.items.catalog(&app.vault.vfs);
+    let mut ids: Vec<u32> = catalog.iter().filter_map(|row| u32::try_from(row.stage_drop_item_id).ok()).collect();
+
+    ids.sort_unstable();
+    ids.dedup();
+
+    let mut items = vec![(NO_ITEM, NO_ITEM_LABEL.to_owned())];
+
+    items.extend(ids.into_iter().filter_map(|id| Some((i32::try_from(id).ok()?, item_label(app, id)))));
+
+    vec![(REWARD_ITEM, items)]
+}
+
+fn orb_named(app: &HaganeApp) -> records::Named {
+    let numbered = |at: usize| i32::try_from(at).unwrap_or(i32::MAX);
+
+    let grades = orb::GRADES.iter().enumerate().map(|(at, grade)| (numbered(at), (*grade).to_owned())).collect();
+
+    let effects = orbs::effect_names(&app.vault.vfs)
+        .into_iter()
+        .enumerate()
+        .filter(|(_, name)| !name.is_empty())
+        .map(|(at, name)| (numbered(at), name))
+        .collect();
+
+    let traits = orbs::TRAITS.iter().enumerate().map(|(at, identity)| (numbered(at), app.names.trait_label(*identity).to_owned())).collect();
+
+    vec![(ORB_GRADE, grades), (ORB_EFFECT, effects), (ORB_TRAIT, traits)]
+}
+
+fn evolve_plan(app: &HaganeApp, pick: &Pick, values: EditorMode) -> Option<Planned> {
+    let target = pick.focus.active_mod.clone()?;
+    let line = usize::try_from(pick.focus.cat?).ok()?;
+    let game = app.vault.vfs.pristine(pick.file.as_str())?;
+
+    Some(Planned::Evolve(evolve::plan(evolve::Seed {
+        label: pick.label.clone(),
+        file: pick.file.clone(),
+        game,
+        target_mod: target,
+        values,
+        line,
+    })))
+}
+
+fn catfruit_plan(app: &HaganeApp, pick: &Pick, values: EditorMode) -> Option<Planned> {
+    let target = pick.focus.active_mod.clone()?;
+    let key = pick.key?;
+    let game = app.vault.vfs.pristine(pick.file.as_str())?;
+
+    let mut ids: Vec<u32> = app.vault.vds.items.catalog(&app.vault.vfs).iter().filter_map(|row| u32::try_from(row.stage_drop_item_id).ok()).collect();
+
+    ids.sort_unstable();
+    ids.dedup();
+
+    let items = ids.into_iter().filter_map(|id| Some((id, app.vault.vds.items.name(&app.vault.vfs, id)?))).collect();
+
+    Some(Planned::Catfruit(catfruit::plan(catfruit::Seed {
+        label: pick.label.clone(),
+        file: pick.file.clone(),
+        game,
+        target_mod: target,
+        values,
+        key,
+        items,
+    })))
+}
+
+fn captions_plan(app: &HaganeApp, pick: &Pick, layout: captions::Layout, values: EditorMode) -> Option<Planned> {
+    let target = pick.focus.active_mod.clone()?;
+    let game = app.vault.vfs.pristine(pick.file.as_str())?;
+
+    let key = match (layout.keyed(), pick.line) {
+        (true, _) => pick.key?,
+        (false, Some(line)) => u32::try_from(line).ok()?,
+        (false, None) => pick.focus.cat?,
+    };
+
+    Some(Planned::Captions(captions::plan(captions::Seed {
+        label: pick.label.clone(),
+        file: pick.file.clone(),
+        game,
+        target_mod: target,
+        values,
+        layout,
+        key,
+    })))
+}
+
+fn roster_plan(app: &HaganeApp, pick: &Pick, tier: roster::Tier, values: EditorMode) -> Option<Planned> {
+    let target = pick.focus.active_mod.clone()?;
+    let line = pick.line?;
+    let game = app.vault.vfs.pristine(pick.file.as_str())?;
+    let roster = app.cat_state.data.cats.iter().map(|cat| (cat.id, cat.display_name(0))).collect();
+
+    Some(Planned::Roster(roster::plan(roster::Seed {
+        label: pick.label.clone(),
+        file: pick.file.clone(),
+        game,
+        target_mod: target,
+        values,
+        tier,
+        line,
+        roster,
+    })))
+}
+
+fn filter_plan(app: &HaganeApp, pick: &Pick, values: EditorMode) -> Option<Planned> {
+    let target = pick.focus.active_mod.clone()?;
+    let line = pick.line?;
+    let game = app.vault.vfs.pristine(pick.file.as_str())?;
+
+    let effects = app
+        .vault
+        .vds
+        .cats
+        .combo_effects(&app.vault.vfs)
+        .iter()
+        .enumerate()
+        .filter_map(|(at, name)| {
+            let name = name.as_deref()?.trim();
+
+            (!name.is_empty()).then(|| (i64::try_from(at).unwrap_or(i64::MAX), name.to_owned()))
+        })
+        .collect();
+
+    Some(Planned::Filter(filter::plan(filter::Seed {
+        label: pick.label.clone(),
+        file: pick.file.clone(),
+        game,
+        target_mod: target,
+        values,
+        line,
+        effects,
+    })))
+}
+
+fn gift_plan(app: &HaganeApp, pick: &Pick, values: EditorMode) -> Option<Planned> {
+    let target = pick.focus.active_mod.clone()?;
+    let rank = pick.key?;
+    let game = app.vault.vfs.pristine(pick.file.as_str())?;
+    let catalog = app.vault.vds.items.catalog(&app.vault.vfs);
+
+    let mut ids: Vec<u32> = catalog.iter().filter_map(|row| u32::try_from(row.stage_drop_item_id).ok()).collect();
+
+    ids.sort_unstable();
+    ids.dedup();
+
+    let items = ids.into_iter().map(|id| (i64::from(id), item_label(app, id))).collect();
+
+    Some(Planned::Gift(gift::plan(gift::Seed {
+        label: pick.label.clone(),
+        file: pick.file.clone(),
+        game,
+        target_mod: target,
+        values,
+        rank,
+        items,
+    })))
+}
+
+fn treasure_plan(app: &HaganeApp, pick: &Pick, values: EditorMode) -> Option<Planned> {
+    let target = pick.focus.active_mod.clone()?;
+    let group = pick.line?;
+    let game = app.vault.vfs.pristine(pick.file.as_str())?;
+    let slot = treasure::ARCS.iter().map(|(slot, _)| *slot).find(|slot| data_file(*slot).as_deref() == Some(pick.file.as_str()))?;
+    let catalog = app.vault.vds.treasures.catalog(&app.vault.vfs);
+
+    let items = (0..TREASURE_STAGES)
+        .map(|stage| i32::try_from(stage).ok().and_then(|stage| catalog.item(slot, stage)).unwrap_or_default().to_owned())
+        .collect();
+
+    Some(Planned::Treasure(treasure::plan(treasure::Seed {
+        label: pick.label.clone(),
+        file: pick.file.clone(),
+        game,
+        target_mod: target,
+        values,
+        group,
+        items,
+    })))
+}
+
+fn group_plan(app: &HaganeApp, pick: &Pick, values: EditorMode) -> Option<Planned> {
+    let target = pick.focus.active_mod.clone()?;
+    let key = pick.key?;
+    let game = app.vault.vfs.pristine(pick.file.as_str())?;
+
+    let roster = app.cat_state.data.cats.iter().map(|cat| (cat.id, cat.display_name(0))).collect();
+
+    let described = app.vault.vds.stages.charagroups(&app.vault.vfs).get(&key).and_then(|group| {
+        let text_key = group.text_id.clone()?;
+        let words = app.localizable.lookup(&text_key)?.trim().to_owned();
+
+        Some((text_key, words))
+    });
+
+    Some(Planned::Group(group::plan(group::Seed {
+        label: pick.label.clone(),
+        file: pick.file.clone(),
+        game,
+        target_mod: target,
+        values,
+        key,
+        roster,
+        described,
+    })))
 }
 
 pub(crate) fn chosen(app: &HaganeApp, pick: &Pick) -> Option<Planned> {

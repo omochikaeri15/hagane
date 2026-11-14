@@ -12,7 +12,7 @@ use super::schema::{COST_HEAD, COST_LEVELS};
 use super::{cards, Address, Draft, Frame, Marks, Message};
 
 const NOTICE: &str =
-    "Cost curves are shared by every unit; dimmed ids are ones this unit's talents never reference";
+    "Cost curves are shared by every unit\nDimmed IDs are ones this unit's talents never use";
 
 const NOTICE_SIZE: f32 = 11.0;
 const LABEL_SIZE: f32 = 12.0;

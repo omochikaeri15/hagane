@@ -284,6 +284,8 @@ impl State {
             Space::new().height(10.0),
             nav_row(&[("Studio", Page::Studio), ("Utilities", Page::Utilities), ("Help", Page::Help), ("Settings", Page::Settings)]),
         ]
+            .push(nightly.then(|| Space::new().height(SPACE_BETWEEN_SECTIONS)))
+            .push(nightly.then(|| nav_row(&[("Prototype", Page::Prototype)])))
             .align_x(Alignment::Center)
             .into()
     }

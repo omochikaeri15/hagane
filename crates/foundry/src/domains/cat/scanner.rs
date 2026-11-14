@@ -56,19 +56,22 @@ impl CatEntry {
 }
 
 const PLACEHOLDER_EDGE: u32 = 1;
+const FULL_DEPTH: u8 = 8;
 const PNG_HEAD: usize = 25;
 
-fn is_valid_png(vfs: &Vfs, path: &Path) -> bool {
-    let Ok(buffer) = vfs.head(path, PNG_HEAD) else { return false; };
-    if buffer.len() < PNG_HEAD { return false; }
+fn drawn_depth(vfs: &Vfs, path: &Path) -> Option<u8> {
     const PNG_SIG: [u8; 8] = [137, 80, 78, 71, 13, 10, 26, 10];
-    if buffer[0..8] != PNG_SIG { return false; }
-    if buffer[24] < 8 { return false; }
+
+    let buffer = vfs.head(path, PNG_HEAD).ok()?;
+
+    if buffer.len() < PNG_HEAD || buffer[0..8] != PNG_SIG {
+        return None;
+    }
 
     let width = u32::from_be_bytes([buffer[16], buffer[17], buffer[18], buffer[19]]);
     let height = u32::from_be_bytes([buffer[20], buffer[21], buffer[22], buffer[23]]);
 
-    width > PLACEHOLDER_EDGE && height > PLACEHOLDER_EDGE
+    (width > PLACEHOLDER_EDGE && height > PLACEHOLDER_EDGE).then_some(buffer[24])
 }
 
 struct Images {
@@ -117,16 +120,26 @@ fn resolve_images(vfs: &Vfs, id: u32, egg_ids: (i32, i32), ub_row: &UnitBuy, con
     let mut forms = [false; 4];
     let mut deploy_icons: [Option<PathBuf>; 4] = Default::default();
     let mut banners: [Option<PathBuf>; 4] = Default::default();
+    let mut depths: [Option<u8>; 4] = [None; 4];
     let mut real = [false; 4];
 
     for form in 0..forms.len() {
-        let banner = resolve_banner(vfs, id, form, egg_ids, config);
+        banners[form] = resolve_banner(vfs, id, form, egg_ids, config);
+
+        if !config.show_invalid_cats {
+            depths[form] = banners[form].as_deref().and_then(|banner| drawn_depth(vfs, banner));
+        }
+    }
+
+    let painted = depths.iter().flatten().any(|depth| *depth >= FULL_DEPTH);
+
+    for form in 0..forms.len() {
         let icon = resolve_icon(vfs, id, form, egg_ids, config);
 
-        real[form] = !config.show_invalid_cats && banner.as_deref().is_some_and(|banner| is_valid_png(vfs, banner));
+        real[form] = painted && depths[form].is_some();
 
         forms[form] = match form {
-            0 | 1 => base_form_present(form, banner.is_some(), icon.is_some(), real[form], config.show_invalid_cats),
+            0 | 1 => base_form_present(form, banners[form].is_some(), icon.is_some(), real[form], config.show_invalid_cats),
             2 => ub_row.true_form_id > 0,
             _ => ub_row.ultra_form_id > 0,
         };
@@ -134,8 +147,6 @@ fn resolve_images(vfs: &Vfs, id: u32, egg_ids: (i32, i32), ub_row: &UnitBuy, con
         if forms[form] {
             deploy_icons[form] = icon;
         }
-
-        banners[form] = banner;
     }
 
     let picked = (0..=config.preferred_form.min(forms.len() - 1))

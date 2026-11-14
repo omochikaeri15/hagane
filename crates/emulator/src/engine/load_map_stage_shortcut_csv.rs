@@ -10,7 +10,7 @@ pub struct MapStageShortcut {
     pub map_type: i32,
     pub map_index: i32,
     pub stage: i32,
-    pub value: i32,
+    pub crown: i32,
     pub optional_a: i32,
     pub optional_b: i32,
     pub has_override: u8,
@@ -33,11 +33,11 @@ pub fn load_map_stage_shortcut_csv(ctx: &mut AppContext) -> Result<(), Fault> {
         let map_type = map_type_of_map_id(map_id);
         let map_index = map_index_of_map_id(map_id);
         let stage = read_csv_cell(stm, 3) as i32;
-        let mut value = read_csv_cell(stm, 4) as i32;
+        let mut crown = read_csv_cell(stm, 4) as i32;
         let mut has_override = 0u8;
 
         if get_column_count(stm) as i32 >= 6 && read_csv_cell(stm, 5) != -1 {
-            value = read_csv_cell(stm, 5) as i32;
+            crown = read_csv_cell(stm, 5) as i32;
             has_override = 1;
         }
 
@@ -57,7 +57,7 @@ pub fn load_map_stage_shortcut_csv(ctx: &mut AppContext) -> Result<(), Fault> {
             map_type,
             map_index,
             stage,
-            value,
+            crown,
             optional_a,
             optional_b,
             has_override,

@@ -10,7 +10,7 @@ use super::{
     calculate_treasure_percentages, call_rng, check_medals, clear_count_rewards_get,
     clear_ex_replacement_stage, clear_lineup_count, clear_lineup_record, commit_stage_score,
     compute_stage_xp, config_json_int, dialog_top, enigma_active_at, enigma_active_count,
-    enigma_add_stamina, enigma_group_at, enigma_medal_count, enigma_prune, enigma_roll,
+    enigma_add_stamina, enigma_lottery_at, enigma_medal_count, enigma_prune, enigma_roll,
     event_reward_received, event_reward_set, event_unit_slot, ex_redirect_check_a,
     ex_stage_credits_gauge, feature_enabled, find_item_by_kind, find_item_index,
     get_aku_stage_list, get_cleared_count, get_crown_level, get_drawable_width,
@@ -1829,13 +1829,13 @@ pub fn battle_init_win(ctx: &mut AppContext, cleared: u8) -> Result<(), Fault> {
 
         if enigma_roll(ctx)? != 0 {
             let last =
-                enigma_active_at(&ctx.enigma, (enigma_active_count(&ctx.enigma) - 1) as i32)?.group;
-            let id = enigma_group_at(&ctx.enigma, last)?.id;
+                enigma_active_at(&ctx.enigma, (enigma_active_count(&ctx.enigma) - 1) as i32)?.lottery;
+            let rarity = enigma_lottery_at(&ctx.enigma, last)?.rarity;
 
-            ctx.reward_queue.push(vec![8, id]);
+            ctx.reward_queue.push(vec![8, rarity]);
 
             let last =
-                enigma_active_at(&ctx.enigma, (enigma_active_count(&ctx.enigma) - 1) as i32)?.group;
+                enigma_active_at(&ctx.enigma, (enigma_active_count(&ctx.enigma) - 1) as i32)?.lottery;
             let medals = enigma_medal_count(ctx)?;
 
             log_analytics_event(ctx, 0x4f, last, medals, 0, 0)?;

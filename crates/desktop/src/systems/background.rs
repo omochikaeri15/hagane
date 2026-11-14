@@ -150,6 +150,22 @@ impl State {
         self.refresh();
     }
 
+    pub fn revise(&mut self, loaded: Loaded, seed: u32, prefs: &BackgroundState) {
+        let Some(scene) = self.scene.as_mut().filter(|scene| scene.id == loaded.id) else {
+            self.adopt(loaded, seed, prefs);
+
+            return;
+        };
+        let backdrop = Backdrop::new(loaded.assets, Screen::default(), STAGE_WIDTH, seed);
+        let animated = backdrop.animated();
+
+        scene.backdrop = backdrop;
+        scene.animated = animated;
+        scene.seed = seed;
+        controls::clamp_frame(&mut self.canvas, animated);
+        self.sync_frame(true);
+    }
+
     fn refresh_addons(&mut self) {
         let ffmpeg = paths::ffmpeg_status() == Presence::Installed;
         let avif = paths::avifenc_status() == Presence::Installed;
@@ -359,8 +375,12 @@ impl State {
     }
 
     pub fn view<'a>(&'a self, prefs: &'a BackgroundState) -> Element<'a, Message> {
+        self.view_noting(prefs, EMPTY_NOTICE)
+    }
+
+    pub fn view_noting<'a>(&'a self, prefs: &'a BackgroundState, vacancy: &'a str) -> Element<'a, Message> {
         let Some(scene) = &self.scene else {
-            let notice = container(text(EMPTY_NOTICE))
+            let notice = container(text(vacancy))
                 .width(Length::Fill)
                 .height(Length::Fill)
                 .center_x(Length::Fill)

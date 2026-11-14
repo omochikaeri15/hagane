@@ -23,11 +23,12 @@ pub struct Overrides {
     pub png: Option<PathBuf>,
     pub imgcut: Option<PathBuf>,
     pub csv: Option<PathBuf>,
+    pub effects: Option<Arc<[u8]>>,
 }
 
 impl Overrides {
     pub fn is_empty(&self) -> bool {
-        self.png.is_none() && self.imgcut.is_none() && self.csv.is_none()
+        self.png.is_none() && self.imgcut.is_none() && self.csv.is_none() && self.effects.is_none()
     }
 }
 
@@ -178,10 +179,11 @@ impl Reader<'_> {
 
     fn effects(&mut self, id: u32) -> Vec<backdrop::EffectDef> {
         let mut target = id;
+        let mut held = self.overrides.effects.clone();
 
         for _ in 0..REDIRECT_LIMIT {
             let name = backdrop::effects_name(target);
-            let Some(bytes) = self.mount(&name) else {
+            let Some(bytes) = held.take().or_else(|| self.mount(&name)) else {
                 return Vec::new();
             };
 

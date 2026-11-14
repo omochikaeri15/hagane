@@ -5,10 +5,11 @@ use crate::Fault;
 use super::{AppContext, medal_awarded};
 
 #[derive(Clone, Default)]
-pub struct EnigmaGroup {
-    pub id: i32,
-    pub map_stage: i32,
-    pub stage_ids: Vec<i32>,
+pub struct EnigmaLottery {
+    pub rarity: i32,
+    pub appraisal_minutes: i32,
+    pub condition_stage: i32,
+    pub map_ids: Vec<i32>,
     pub weights: Vec<i32>,
 }
 
@@ -20,13 +21,13 @@ pub struct EnigmaTier {
 
 #[derive(Clone, Default)]
 pub struct EnigmaPool {
-    pub groups: Vec<i32>,
+    pub lotteries: Vec<i32>,
     pub weights: Vec<i32>,
 }
 
 #[derive(Clone, Default)]
 pub struct EnigmaEntry {
-    pub groups: Vec<i32>,
+    pub lotteries: Vec<i32>,
     pub chances: Vec<i32>,
 }
 
@@ -34,8 +35,14 @@ pub struct EnigmaEntry {
 pub struct EnigmaActive {
     pub state: i32,
     pub time: f64,
-    pub group: i32,
+    pub lottery: i32,
     pub map: i32,
+}
+
+#[derive(Clone, Default)]
+pub struct EnigmaRarity {
+    pub name: Vec<u8>,
+    pub cut: i32,
 }
 
 #[derive(Default)]
@@ -43,12 +50,14 @@ pub struct Enigma {
     pub tiers: Vec<EnigmaTier>,
     pub pools: Vec<EnigmaPool>,
     pub table: BTreeMap<i32, BTreeMap<i32, EnigmaEntry>>,
-    pub groups: Vec<EnigmaGroup>,
+    pub lotteries: Vec<EnigmaLottery>,
     pub medals: Vec<i32>,
+    pub times: Vec<i32>,
     pub active: Vec<EnigmaActive>,
     pub stamina: i32,
     pub last_threshold: i32,
     pub medal_count: i32,
+    pub rarities: BTreeMap<i32, EnigmaRarity>,
     pub pending_set: u8,
     pub pending: EnigmaActive,
 }

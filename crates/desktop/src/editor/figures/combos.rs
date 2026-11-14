@@ -69,7 +69,7 @@ const EMPTY_SLOT: &str = "+";
 const CLEAR_SLOT: &str = "None";
 const HUNT_PLACEHOLDER: &str = "Search unit ID or name...";
 const NO_EFFECT: &str = "None";
-const ANCHOR_HINT: &str = "The unit whose page this combo was opened from always stays in it";
+const ANCHOR_HINT: &str = "The unit this combo was opened from always stays in it";
 
 pub(super) fn view<'a>(draft: &'a Draft, frame: Frame<'a>) -> Element<'a, Message> {
     let Frame { width, height, offset, armed, removing, cats, catalog, vault, picker, hunt, .. } =

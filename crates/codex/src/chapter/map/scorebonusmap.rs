@@ -37,6 +37,22 @@ pub enum BonusType {
     Unknown(u8, Vec<u32>),
 }
 
+impl BonusType {
+    pub fn from_parts(key: u8, values: Vec<u32>) -> Self {
+        match key {
+            0 => Self::Weaken(values),
+            1 => Self::Freeze(values),
+            2 => Self::Slow(values),
+            3 => Self::Knockback(values),
+            13 => Self::StrongAttack(values),
+            14 => Self::MassiveDamage(values),
+            16 => Self::StrongDefense(values),
+            17 => Self::Resist(values),
+            _ => Self::Unknown(key, values),
+        }
+    }
+}
+
 #[derive(Default, Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct ScoreBonusMapEntry {
     pub bonuses: Vec<BonusType>,
@@ -101,19 +117,7 @@ fn parse_inner(json_str: &str) -> Result<ScoreBonusMap, ScoreBonusMapError> {
                     })
                     .unwrap_or_default();
 
-                let bonus_enum = match key {
-                    0 => BonusType::Weaken(effect_values),
-                    1 => BonusType::Freeze(effect_values),
-                    2 => BonusType::Slow(effect_values),
-                    3 => BonusType::Knockback(effect_values),
-                    13 => BonusType::StrongAttack(effect_values),
-                    14 => BonusType::MassiveDamage(effect_values),
-                    16 => BonusType::StrongDefense(effect_values),
-                    17 => BonusType::Resist(effect_values),
-                    _ => BonusType::Unknown(key, effect_values),
-                };
-
-                bonuses.push(bonus_enum);
+                bonuses.push(BonusType::from_parts(key, effect_values));
             }
         }
 
