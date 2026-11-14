@@ -21,8 +21,9 @@ Within a mod's directory, all files act as an **override** that replaces the van
 Enable a mod from its page to browse the game with it applied. Only one mod is mounted at a time, and the enabled mod is remembered between launches. The `Files` page lists every mounted folder, so a mod's files can be viewed and edited in place there.
 
 ## Export
-You can export a mod under the `Mods` page by selecting your mod and tapping "Export Mod", in which you are given 2 options:
+You can export a mod under the `Mods` page by selecting your mod and tapping "Export", in which you are given 3 options:
+- **APK**: Patch a `.apk` file you select and export it with the mod applied. Requires Keys & IV. Split `.xapk` files are only supported in the desktop app.
 - **BCM**: Export into a `.bcm` archive, which is an archive format optimized for low file sizes.
 - **Pack**: Export into the game's proprietary `.pack` and `.list` format for pack-specific injection. Requires Keys & IV.
 
-Exports land in the `exports` folder. Patching an APK directly is only available in the desktop app.
+Exports land in the `exports` folder.

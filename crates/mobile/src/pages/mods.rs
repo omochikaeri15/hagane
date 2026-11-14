@@ -12,7 +12,7 @@ use tracing::{error, info, warn};
 use foundry::common::gfx;
 use foundry::common::job::{JobEvent, JobOutcome};
 use foundry::common::region::Region;
-use foundry::domains::mods::export::{ExportType, bcm, pack};
+use foundry::domains::mods::export::{ExportType, apk, bcm, pack};
 use foundry::domains::mods::import::{self as mod_import, ModImportTab, ModPackType};
 use foundry::domains::mods::{self, ModDataState};
 
@@ -375,7 +375,11 @@ pub fn wire(window: &AppWindow, context: &Rc<Context>) -> Shared {
 
     let (held, ctx, weak) = on(&state, context, window);
     mods.on_export_tab_set(move |index| {
-        held.borrow_mut().data.export.tab = if index == 1 { ExportType::Pack } else { ExportType::Bcm };
+        held.borrow_mut().data.export.tab = match index {
+            0 => ExportType::Apk,
+            1 => ExportType::Bcm,
+            _ => ExportType::Pack,
+        };
 
         if let Some(ui) = weak.upgrade() {
             refresh(&ui, &held, &ctx);
@@ -384,6 +388,30 @@ pub fn wire(window: &AppWindow, context: &Rc<Context>) -> Shared {
 
     let (held, _, _) = on(&state, context, window);
     mods.on_export_title_changed(move |value| held.borrow_mut().data.export.app_title = value.to_string());
+
+    let (held, _, _) = on(&state, context, window);
+    mods.on_export_package_changed(move |value| held.borrow_mut().data.export.package_suffix = value.to_string());
+
+    let (held, ctx, weak) = on(&state, context, window);
+    mods.on_pick_app(move || {
+        let Some(ui) = weak.upgrade() else {
+            return;
+        };
+        let landing = Rc::clone(&held);
+
+        ui.global::<Mods>().set_export_open(false);
+        picker::open(
+            &ui,
+            &ctx,
+            "Select an APK",
+            &["apk"],
+            Box::new(move |ui, ctx, path| {
+                landing.borrow_mut().data.export.selected_apk = Some(path);
+                refresh(ui, &landing, ctx);
+                ui.global::<Mods>().set_export_open(true);
+            }),
+        );
+    });
 
     let (held, _, _) = on(&state, context, window);
     mods.on_region_set(move |index| held.borrow_mut().data.export.target_region = REGIONS.get(index.max(0) as usize).copied().unwrap_or(Region::En));
@@ -469,7 +497,7 @@ fn refresh(ui: &AppWindow, state: &Shared, context: &Rc<Context>) {
     }
 
     mods.set_mounting(held.mounting);
-    mods.set_delete_label(if held.confirm_delete { "Continue?".into() } else { "Delete Mod".into() });
+    mods.set_delete_label(if held.confirm_delete { "Continue?".into() } else { "Delete".into() });
     mods.set_add_tab(match held.data.import.tab {
         ModImportTab::New => 0,
         ModImportTab::Bcm => 1,
@@ -492,8 +520,18 @@ fn refresh(ui: &AppWindow, state: &Shared, context: &Rc<Context>) {
     mods.set_import_running(held.import_running);
     mods.set_can_import(held.can_import());
     mods.set_import_log(held.import_log.as_str().into());
-    mods.set_export_tab(if held.data.export.tab == ExportType::Pack { 1 } else { 0 });
+    let (app_label, app_tone) = held.data.export.selected_apk.as_deref().map_or(("Select App File".to_owned(), Tone::Neutral), |path| (picker::label(path), Tone::Success));
+
+    mods.set_export_tab(match held.data.export.tab {
+        ExportType::Apk => 0,
+        ExportType::Bcm => 1,
+        ExportType::Pack => 2,
+    });
     mods.set_export_title(held.data.export.app_title.as_str().into());
+    mods.set_export_package(held.data.export.package_suffix.as_str().into());
+    mods.set_app_label(app_label.into());
+    mods.set_app_tone(app_tone);
+    mods.set_can_apply(held.data.selected_mod.is_some() && held.data.export.selected_apk.is_some());
     mods.set_region(REGIONS.iter().position(|region| *region == held.data.export.target_region).unwrap_or(0) as i32);
     mods.set_compression(held.compression as i32);
     mods.set_pack_name(held.data.export.pack_name.as_str().into());
@@ -856,7 +894,23 @@ fn start_export(ui: &AppWindow, state: &Shared, context: &Rc<Context>) {
                     emit_to(job_finished(result));
                 }})
             }
-            ExportType::Bcm | ExportType::Apk => {
+            ExportType::Apk => {
+                let Some(input) = held.data.export.selected_apk.clone() else {
+                    held.export_running = false;
+                    return;
+                };
+                let app_title = held.data.export.app_title.clone();
+                let suffix = held.data.export.package_suffix.clone();
+                let region = held.data.export.target_region;
+                let behavior = context.state.settings().mods.export_behavior.clone();
+
+                thread::Builder::new().name("mod_apk_export".to_owned()).spawn({ let emit_to = emit_to.clone(); move || {
+                    let result = apk::run(mod_folder, input, app_title, suffix, region, behavior, enforce, &emit_to);
+
+                    emit_to(job_finished(result));
+                }})
+            }
+            ExportType::Bcm => {
                 let app_title = held.data.export.app_title.clone();
                 let compression = held.compression;
 

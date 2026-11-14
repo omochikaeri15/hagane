@@ -15,7 +15,7 @@ export global Mods {
     in-out property <string> title;
     in property <bool> enabled;
     in property <bool> mounting;
-    in property <string> delete-label: "Delete Mod";
+    in property <string> delete-label: "Delete";
     in property <bool> can-delete;
     in-out property <string> author;
     in-out property <string> version;
@@ -37,6 +37,10 @@ export global Mods {
     in-out property <bool> export-open;
     in property <int> export-tab;
     in-out property <string> export-title;
+    in-out property <string> export-package;
+    in property <string> app-label: "Select App File";
+    in property <Tone> app-tone: Tone.neutral;
+    in property <bool> can-apply;
     in property <[string]> regions;
     in property <int> region;
     in property <int> compression;
@@ -62,6 +66,8 @@ export global Mods {
     callback start-import();
     callback export-tab-set(int);
     callback export-title-changed(string);
+    callback export-package-changed(string);
+    callback pick-app();
     callback region-set(int);
     callback compression-changed(int);
     callback pack-name-changed(string);
@@ -118,8 +124,8 @@ component Details inherits VerticalLayout {
     Rule { }
     HorizontalLayout {
         spacing: 8px;
-        Btn { tone: Mods.enabled ? Tone.danger : Tone.success; label: Mods.enabled ? "Disable Mod" : "Enable Mod"; enabled: !Mods.mounting; text-size: 13px; height: 32px; horizontal-stretch: 1; clicked => { Mods.toggle(); } }
-        Btn { label: "Export Mod"; text-size: 13px; height: 32px; horizontal-stretch: 1; clicked => { Mods.open-export(); } }
+        Btn { tone: Mods.enabled ? Tone.danger : Tone.success; label: Mods.enabled ? "Disable" : "Enable"; enabled: !Mods.mounting; text-size: 13px; height: 32px; horizontal-stretch: 1; clicked => { Mods.toggle(); } }
+        Btn { label: "Export"; text-size: 13px; height: 32px; horizontal-stretch: 1; clicked => { Mods.open-export(); } }
         Btn { tone: Tone.danger; label: Mods.delete-label; enabled: Mods.can-delete && !Mods.mounting; text-size: 13px; height: 32px; horizontal-stretch: 1; clicked => { Mods.delete(); } }
     }
     Rule { }
@@ -193,20 +199,29 @@ component ExportDialog inherits Dialog {
     title: "Export Mod";
     open <=> Mods.export-open;
     panel-width: 360px;
-    body-height: 9999px;
+    body-height: Shell.app-height * 2 / 3;
     VerticalLayout {
         padding: 16px;
         spacing: 8px;
-        Tabs { labels: ["BCM", "Pack"]; current: Mods.export-tab; picked(index) => { Mods.export-tab-set(index); } }
+        Tabs { labels: ["APK", "BCM", "Pack"]; current: Mods.export-tab; picked(index) => { Mods.export-tab-set(index); } }
         Rule { }
         if Mods.export-tab == 0: VerticalLayout {
+            spacing: 8px;
+            Label { text: "Patch and export modded APK"; font-size: 14px; wrap: word-wrap; }
+            Field { label: "Title"; Input { width: 160px; height: 30px; text-size: 14px; text <=> Mods.export-title; enabled: !Mods.export-running; edited(value) => { Mods.export-title-changed(value); } } }
+            Field { label: "Package"; Input { width: 160px; height: 30px; text-size: 14px; text <=> Mods.export-package; enabled: !Mods.export-running; edited(value) => { Mods.export-package-changed(value); } } }
+            Field { label: "Region"; Combo { width: 140px; height: 30px; text-size: 13px; options: Mods.regions; current: Mods.region; selected(index) => { Mods.region-set(index); } } }
+            Field { label: "App File"; Btn { width: 150px; height: 30px; text-size: 13px; label: Mods.app-label; tone: Mods.app-tone; enabled: !Mods.export-running; clicked => { Mods.pick-app(); } } }
+            Btn { width: 150px; height: 30px; text-size: 13px; label: "Apply Mod"; tone: Mods.can-apply ? Tone.primary : Tone.neutral; enabled: Mods.can-apply && !Mods.export-running; clicked => { Mods.start-export(); } }
+        }
+        if Mods.export-tab == 1: VerticalLayout {
             spacing: 8px;
             Label { text: "Package mod into a standalone .bcm archive"; font-size: 14px; wrap: word-wrap; }
             Field { label: "Title"; Input { width: 160px; height: 30px; text-size: 14px; text <=> Mods.export-title; enabled: !Mods.export-running; edited(value) => { Mods.export-title-changed(value); } } }
             Field { label: "Compression"; Slider { guarded: false; minimum: Mods.compression-min; maximum: Mods.compression-max; value: Mods.compression; enabled: !Mods.export-running; changed(value) => { Mods.compression-changed(value); } } Label { text: Mods.compression; font-size: 13px; vertical-alignment: center; } }
             Btn { width: 170px; height: 30px; text-size: 13px; label: "Create BCM Package"; enabled: Mods.selected && !Mods.export-running; clicked => { Mods.start-export(); } }
         }
-        if Mods.export-tab == 1: VerticalLayout {
+        if Mods.export-tab == 2: VerticalLayout {
             spacing: 8px;
             Label { text: "Compile mod files into raw .pack and .list files"; font-size: 14px; wrap: word-wrap; }
             Field { label: "Name"; Input { width: 160px; height: 30px; text-size: 14px; placeholder: "DownloadLocal"; text <=> Mods.pack-name; enabled: !Mods.export-running; edited(value) => { Mods.pack-name-changed(value); } } }

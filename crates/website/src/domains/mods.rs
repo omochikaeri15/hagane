@@ -22,14 +22,14 @@ const ENDED_MS: u32 = 2000;
 const CONFIRM_MS: u32 = 2000;
 const NOTICE_MS: u32 = 3000;
 const TITLE_HINT: &str = "Mod Title";
-const ENABLE_LABEL: &str = "Enable Mod";
-const DISABLE_LABEL: &str = "Disable Mod";
-const UPLOAD_LABEL: &str = "Upload Mod";
+const ENABLE_LABEL: &str = "Enable";
+const DISABLE_LABEL: &str = "Disable";
+const UPLOAD_LABEL: &str = "Upload";
 const UPLOADING_LABEL: &str = "Uploading...";
 const UPLOADED_LABEL: &str = "Uploaded!";
 const FAILED_LABEL: &str = "Failed!";
 const LARGE_LABEL: &str = "Too Large!";
-const DELETE_LABEL: &str = "Delete Mod";
+const DELETE_LABEL: &str = "Delete";
 const CONFIRM_LABEL: &str = "Are You Sure?";
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]

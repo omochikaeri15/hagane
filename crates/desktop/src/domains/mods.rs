@@ -608,9 +608,9 @@ impl State {
             .style(theme::rounded_input);
 
         let toggle_style: theme::ButtonStyleFn = if is_enabled { theme::danger_button } else { theme::success_button };
-        let delete_label = self.confirm_delete.confirm_label("Delete Mod");
+        let delete_label = self.confirm_delete.confirm_label("Delete");
 
-        let edit_button = theme::sized_button("Edit Mod", ACTION_WIDTH, theme::primary_button)
+        let edit_button = theme::sized_button("Edit", ACTION_WIDTH, theme::primary_button)
             .padding(ACTION_PADDING)
             .on_press_maybe((is_enabled && !self.mounting).then_some(Message::EditMod));
 
@@ -620,14 +620,14 @@ impl State {
         };
 
         let actions_row = row![
-            theme::sized_button(if is_enabled { "Disable Mod" } else { "Enable Mod" }, ACTION_WIDTH, toggle_style)
+            theme::sized_button(if is_enabled { "Disable" } else { "Enable" }, ACTION_WIDTH, toggle_style)
                 .padding(ACTION_PADDING)
                 .on_press_maybe((!self.mounting).then(|| Message::ToggleModStatus(mod_folder.clone()))),
-            theme::sized_button("Open Folder", ACTION_WIDTH, theme::primary_button)
+            theme::sized_button("Browse", ACTION_WIDTH, theme::primary_button)
                 .padding(ACTION_PADDING)
                 .on_press(Message::OpenFolder(mod_folder)),
             edit_button,
-            theme::sized_button("Export Mod", ACTION_WIDTH, theme::primary_button)
+            theme::sized_button("Export", ACTION_WIDTH, theme::primary_button)
                 .padding(ACTION_PADDING)
                 .on_press(Message::Export(export::Message::Open)),
             theme::sized_button(delete_label, ACTION_WIDTH, theme::danger_button)

@@ -1,5 +1,5 @@
 # Editor
-You can invoke the Editor using the **Context Menu**, allowing you to modify and create modded files for a currently enabled Mod. Mods are created through `Mods > Add Mod`, and are enabled through `Mods > YourModHere > Enable Mod`, where `YourModHere` is the name of the mod you'd like to enable.
+You can invoke the Editor using the **Context Menu**, allowing you to modify and create modded files for a currently enabled Mod. Mods are created through `Mods > Add Mod`, and are enabled through `Mods > YourModHere > Enable`, where `YourModHere` is the name of the mod you'd like to enable.
 
 ## Context Menu
 To select files you want to work with, you must right-click to open the Context Menu. You can select a specific file to handle, and select an action to take with it. There are two different options driving Context Menu file access under `Settings > Files > Context Scope`: `Broad` and `Specific`.

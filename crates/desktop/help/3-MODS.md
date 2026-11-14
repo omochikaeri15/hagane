@@ -31,7 +31,7 @@ If you are looking to modify data such as Cat & Enemy Abilities, Cat & Enemy Ima
 If you are looking to modify data such as Entity Spritesheets, Models, as well as Animations, read the `Studio` page available on the left sidebar
 
 ## Export
-You can export a mod under the `Mods` page by selecting your mod and clicking "Export Mod," in which you are given 3 options:
+You can export a mod under the `Mods` page by selecting your mod and clicking "Export," in which you are given 3 options:
 - **APK**: Export directly into a `.apk` file, or optionally, if you have the APKEditor add-on, `.xapk` files as well. Requires Keys & IV.
 - **BCM**: Export into a `.bcm` archive, which is an archive format optimized for low file sizes.
 - **Pack**: Export into the games proprietary `.pack` and `.list` format for pack-specific injection. Requires Keys & IV.
