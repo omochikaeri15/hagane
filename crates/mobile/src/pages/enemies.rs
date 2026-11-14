@@ -62,7 +62,7 @@ impl Tab {
 }
 
 pub struct State {
-    enemies: Option<Rc<Vec<EnemyEntry>>>,
+    enemies: Option<Arc<Vec<EnemyEntry>>>,
     selected: Option<u32>,
     arriving: Option<u32>,
     tab: Tab,
@@ -385,7 +385,7 @@ fn sync(ui: &AppWindow, state: &Shared, context: &Rc<Context>) {
 
     match &load {
         Load::Ready(found) => {
-            let fresh = state.borrow().enemies.as_ref().is_none_or(|held| !Rc::ptr_eq(held, found));
+            let fresh = state.borrow().enemies.as_ref().is_none_or(|held| !Arc::ptr_eq(held, found));
 
             if !fresh {
                 return;
@@ -396,7 +396,7 @@ fn sync(ui: &AppWindow, state: &Shared, context: &Rc<Context>) {
             {
                 let mut held = state.borrow_mut();
 
-                held.enemies = Some(Rc::clone(found));
+                held.enemies = Some(Arc::clone(found));
                 held.stats.clear();
                 held.available = None;
             }

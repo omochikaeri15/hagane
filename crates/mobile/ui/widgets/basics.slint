@@ -395,6 +395,23 @@ export component Card inherits Rectangle {
     @children
 }
 
+export component Arrow inherits Rectangle {
+    in property <bool> open;
+    in property <color> tint: Theme.text;
+    width: 14px;
+    Path {
+        x: 3px;
+        y: (parent.height - 8px) / 2;
+        width: 8px;
+        height: 8px;
+        viewbox-width: 8;
+        viewbox-height: 8;
+        commands: root.open ? "M 0 1 L 8 1 L 4 7 Z" : "M 1 0 L 7 4 L 1 8 Z";
+        fill: root.tint;
+        stroke-width: 0px;
+    }
+}
+
 export component OutlinedCard inherits Rectangle {
     background: Theme.outlined-bg;
     border-radius: Theme.radius-md;
@@ -559,6 +576,7 @@ export component Dialog inherits Rectangle {
     property <bool> pressed-here: root.open && root.shown && Shell.press-x >= panel.absolute-position.x && Shell.press-x < panel.absolute-position.x + panel.width && Shell.press-y >= panel.absolute-position.y && Shell.press-y < panel.absolute-position.y + panel.height;
     property <int> hit: root.pressed-here ? Shell.press-seq : -1;
     property <bool> wins: root.hit >= 0 && Shell.dialog-press == root.hit && Shell.dialog-best == root.rank;
+    property <bool> settling;
     visible: root.open && root.shown;
     width: 100%;
     height: 100%;
@@ -580,12 +598,20 @@ export component Dialog inherits Rectangle {
             } else if root.rank > Shell.dialog-best {
                 Shell.dialog-best = root.rank;
             }
+
+            root.settling = true;
         }
     }
-    changed wins => {
-        if root.wins && root.rank != Shell.dialog-seq {
-            Shell.dialog-seq += 1;
-            root.rank = Shell.dialog-seq;
+    Timer {
+        interval: 1ms;
+        running: root.settling;
+        triggered => {
+            root.settling = false;
+
+            if root.wins && root.rank != Shell.dialog-seq {
+                Shell.dialog-seq += 1;
+                root.rank = Shell.dialog-seq;
+            }
         }
     }
     if root.modal: TouchArea { enabled: !Shell.swiping; }

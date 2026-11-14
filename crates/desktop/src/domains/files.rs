@@ -269,12 +269,16 @@ impl State {
     }
 
     pub(crate) fn reveal(&mut self, vfs: &Vfs, name: &str) -> Task<Message> {
-        let Some(relative) = vfs.list(name).iter().find_map(|path| vfs.relative(architecture::GAME, path)) else {
+        self.reveal_in(vfs, architecture::GAME, name)
+    }
+
+    pub(crate) fn reveal_in(&mut self, vfs: &Vfs, mount: &str, name: &str) -> Task<Message> {
+        let Some(relative) = vfs.list(name).iter().find_map(|path| vfs.relative(mount, path)) else {
             return Task::none();
         };
 
-        if self.mount.as_deref() != Some(architecture::GAME) {
-            self.mount = Some(architecture::GAME.to_string());
+        if self.mount.as_deref() != Some(mount) {
+            self.mount = Some(mount.to_string());
             self.reset();
         }
 

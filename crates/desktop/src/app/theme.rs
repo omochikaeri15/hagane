@@ -8,7 +8,7 @@ use iced::{font, Background, Border, Color, Length, Padding, Theme};
 
 use crate::widget::popup::GLASS;
 
-pub const HEADER_SEPARATOR: &str = " :: ";
+pub const HEADER_SEPARATOR: &str = foundry::systems::editor::SEPARATOR;
 
 pub const RADIUS_SM: f32 = 4.0;
 pub const RADIUS_MD: f32 = 6.0;

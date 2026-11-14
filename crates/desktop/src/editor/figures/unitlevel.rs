@@ -2,12 +2,10 @@ use iced::alignment::Horizontal;
 use iced::widget::{container, text};
 use iced::{Element, Length};
 
-use super::resolved::Rule;
+pub(crate) use foundry::systems::editor::figures::unitlevel::*;
+
 use super::schema::BRACKET;
 use super::{cards, Draft, Message};
-
-const NOTICE: &str =
-    "Each bracket is the percent of the base stat added per level inside it\nThe last one keeps going past its own range";
 
 const NOTICE_SIZE: f32 = 11.0;
 
@@ -34,10 +32,6 @@ pub(super) fn view<'a>(draft: &'a Draft, width: f32, armed: bool, cap: Option<i3
         cards::grid(draft, width, &shown, reachable),
         cards::footer(vec![cards::sync(armed)]),
     )
-}
-
-pub(super) fn rule() -> Rule {
-    Rule::Plain
 }
 
 #[cfg(test)]

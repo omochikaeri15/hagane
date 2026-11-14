@@ -21,9 +21,6 @@ use super::{Mark, Reader};
 const SIZE: Size = Size::new(460.0, 560.0);
 const POPUP: popup::Spec = popup::Spec::new(popup::Kind::Dungeon, SIZE);
 
-pub(super) const TITLE: &str = "Floor Layout";
-pub(super) const TABLES: [(&str, &str); 2] = [("tower_layout.csv", "Tower Floor Layout"), ("labyrinth_layout.csv", "Labyrinth Floor Layout")];
-
 const BODY_PADDING: f32 = 12.0;
 const GAP: f32 = 8.0;
 const CARD_GAP: f32 = 6.0;

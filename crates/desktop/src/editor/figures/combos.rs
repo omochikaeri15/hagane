@@ -13,63 +13,48 @@ use foundry::domains::cat::combo;
 use foundry::domains::cat::files;
 use foundry::domains::cat::scanner::CatEntry;
 use foundry::domains::settings::EditorMode;
-use codex::cat::unit::{ComboStrength, NyancomboData};
+use codex::cat::unit::ComboStrength;
 use foundry::Vault;
+
+pub(crate) use foundry::systems::editor::figures::*;
+
+pub(crate) use foundry::systems::editor::figures::combos::*;
 
 use crate::app::theme;
 use crate::common::feedback::CONFIRM_LABEL;
 use crate::common::row_window::{self, RowWindow};
 use crate::widget::{hover_hint, popup, smooth_scroll};
 
-use super::resolved::Rule;
-use super::schema::{combo_form, combo_unit, Schema, COMBO_SLOTS};
-use super::{cards, Address, Draft, Frame, Message};
-
-pub(super) const SERIES: &str = "series";
-pub(super) const COMBO_ID: &str = "combo_id";
-
-const EFFECT: &str = "effect_type";
-const POWER: &str = "effect_level";
-
-const ABSENT: i32 = -1;
+use super::schema::{combo_form, combo_unit, COMBO_SLOTS};
+use super::{cards, Draft, Frame, Message};
 
 const NOTICE_SIZE: f32 = 11.0;
+
 const FIELD_SIZE: f32 = 13.0;
 
 const ROW_GAP: f32 = 6.0;
+
 const FIELD_INSET: f32 = 2.0;
 
 const SLOT_GAP: f32 = 4.0;
+
 const SLOT_INSET: f32 = 2.0;
+
+const TILE: f32 = 46.0;
+
+const TILE_GAP: f32 = 4.0;
+
+const TILE_PITCH: f32 = TILE + TILE_GAP;
+
+const ADD_WIDTH: f32 = 172.0;
+
+const CHROME: f32 = 150.0;
 
 const SLOT_SIZE: f32 = (super::COMBO_SIZE.width
     - popup::FRAME_BORDER * 2.0
     - cards::BODY_PADDING * 2.0
     - SLOT_GAP * (COMBO_SLOTS as f32 - 1.0))
     / COMBO_SLOTS as f32;
-
-const TILE: f32 = 46.0;
-const TILE_GAP: f32 = 4.0;
-const TILE_PITCH: f32 = TILE + TILE_GAP;
-const THUMB: u32 = 44;
-
-const ADD_WIDTH: f32 = 172.0;
-const EFFECT_SPAN: u16 = 2;
-const POWER_SPAN: u16 = 1;
-const CHROME: f32 = 150.0;
-
-pub(super) const RETIRED: i32 = -1;
-
-const REMOVE_LABEL: &str = "Remove Combo";
-const NOTHING_TO_REMOVE: &str = "This combo is not in the file yet";
-
-pub(crate) const NEW_COMBO: &str = "New Combo\u{2026}";
-
-const EMPTY_SLOT: &str = "+";
-const CLEAR_SLOT: &str = "None";
-const HUNT_PLACEHOLDER: &str = "Search unit ID or name...";
-const NO_EFFECT: &str = "None";
-const ANCHOR_HINT: &str = "The unit this combo was opened from always stays in it";
 
 pub(super) fn view<'a>(draft: &'a Draft, frame: Frame<'a>) -> Element<'a, Message> {
     let Frame { width, height, offset, armed, removing, cats, catalog, vault, picker, hunt, .. } =
@@ -123,18 +108,6 @@ fn heading<'a>(draft: &'a Draft, vault: &Vault) -> Element<'a, Message> {
     cards::header(container(chooser).width(Length::Fill).center_x(Length::Fill))
 }
 
-fn aimed(draft: &Draft) -> i32 {
-    if draft.absent() {
-        return ABSENT;
-    }
-
-    i32::try_from(draft.row()).unwrap_or(ABSENT)
-}
-
-fn addressed(raw: i32) -> Address {
-    usize::try_from(raw).map_or(Address::Appended, Address::Line)
-}
-
 fn listing(draft: &Draft, vault: &Vault) -> Vec<Labeled> {
     let mut held = vec![Labeled { raw: ABSENT, text: NEW_COMBO.to_owned() }];
 
@@ -162,36 +135,6 @@ fn listing(draft: &Draft, vault: &Vault) -> Vec<Labeled> {
     }
 
     held
-}
-
-pub(crate) fn titled(rows: &[NyancomboData], names: &[Option<String>], line: usize) -> String {
-    if let Some(name) = spoken(names, line) {
-        return name;
-    }
-
-    combo_key(rows, line)
-}
-
-pub(crate) fn combo_key(rows: &[NyancomboData], line: usize) -> String {
-    rows.get(line).map_or_else(|| keyed(RETIRED, RETIRED), |row| keyed(row.series, row.combo_id))
-}
-
-fn named(draft: &Draft, names: &[Option<String>]) -> String {
-    if let Some(name) = spoken(names, draft.row()) {
-        return name;
-    }
-
-    let read = |field: &str| draft.at(field).and_then(|index| draft.reads_at(index)).unwrap_or(RETIRED);
-
-    keyed(read(SERIES), read(COMBO_ID))
-}
-
-fn spoken(names: &[Option<String>], line: usize) -> Option<String> {
-    names.get(line).cloned().flatten().filter(|name| !name.trim().is_empty())
-}
-
-fn keyed(series: i32, combo_id: i32) -> String {
-    format!("Combo {series}-{combo_id}")
 }
 
 fn picked<'a>(
@@ -311,22 +254,6 @@ fn member<'a>(
     control.on_press(Message::Picker(Some(index))).into()
 }
 
-fn vacant_label(unit: i32, form: i32) -> String {
-    if unit < 0 {
-        return EMPTY_SLOT.to_owned();
-    }
-
-    format!("{unit:03}-{}", form.max(0) + 1)
-}
-
-fn icon_of(cats: &[CatEntry], unit: i32, form: i32) -> Option<&Path> {
-    let id = u32::try_from(unit).ok()?;
-    let form = usize::try_from(form).ok()?;
-    let cat = cats.iter().find(|cat| cat.id == id)?;
-
-    cat.deploy_icon_paths.get(form)?.as_deref()
-}
-
 fn back<'a>() -> Element<'a, Message> {
     container(
         button(theme::centered_text("Back").size(FIELD_SIZE))
@@ -425,14 +352,6 @@ fn clearing<'a>(index: usize) -> Element<'a, Message> {
     .width(Length::Fill)
     .center_x(Length::Fill)
     .into()
-}
-
-#[derive(Clone, PartialEq, Eq)]
-pub(super) struct Entry {
-    id: u32,
-    form: usize,
-    path: PathBuf,
-    hunted: String,
 }
 
 #[derive(Clone, PartialEq, Eq)]
@@ -578,105 +497,6 @@ fn thumbnail(path: &Path) -> Option<Handle> {
     let scaled = image::imageops::thumbnail(&cropped, width, height);
 
     Some(Handle::from_rgba(scaled.width(), scaled.height(), scaled.into_raw()))
-}
-
-pub(super) fn seed(fields: &mut [String], schema: &Schema, anchor: Option<(i32, i32)>) {
-    let Some((unit, form)) = anchor else {
-        return;
-    };
-
-    for (field, value) in [(combo_unit(0), unit), (combo_form(0), form)] {
-        if let Some(slot) = schema.index_of(&field).and_then(|index| fields.get_mut(index)) {
-            *slot = value.to_string();
-        }
-    }
-}
-
-pub(super) fn packed(schema: &Schema, cells: &[i32]) -> Vec<(usize, i32)> {
-    let mut held: Vec<(i32, i32)> = Vec::with_capacity(COMBO_SLOTS);
-    let mut places: Vec<(usize, usize)> = Vec::with_capacity(COMBO_SLOTS);
-
-    for slot in 0..COMBO_SLOTS {
-        let (Some(unit), Some(form)) = (schema.index_of(&combo_unit(slot)), schema.index_of(&combo_form(slot)))
-        else {
-            return Vec::new();
-        };
-
-        places.push((unit, form));
-
-        let pair = (cells.get(unit).copied().unwrap_or(ABSENT), cells.get(form).copied().unwrap_or(ABSENT));
-
-        if pair.0 >= 0 && pair.1 >= 0 {
-            held.push(pair);
-        }
-    }
-
-    places
-        .into_iter()
-        .enumerate()
-        .flat_map(|(slot, (unit, form))| {
-            let pair = held.get(slot).copied().unwrap_or((ABSENT, ABSENT));
-
-            [(unit, pair.0), (form, pair.1)]
-        })
-        .filter(|(index, raw)| cells.get(*index) != Some(raw))
-        .collect()
-}
-
-pub(super) fn seed_key(fields: &mut [String], schema: &Schema, lines: &[String], delimiter: char) {
-    let held = schema
-        .index_of(SERIES)
-        .and_then(|index| fields.get(index))
-        .and_then(|raw| raw.trim().parse().ok())
-        .unwrap_or(RETIRED);
-
-    let (series, combo_id) = next_key(lines, delimiter, held);
-
-    for (field, value) in [(SERIES, series), (COMBO_ID, combo_id)] {
-        if let Some(slot) = schema.index_of(field).and_then(|index| fields.get_mut(index)) {
-            *slot = value.to_string();
-        }
-    }
-}
-
-pub(super) fn next_key(lines: &[String], delimiter: char, current: i32) -> (i32, i32) {
-    let keys: Vec<(i32, i32)> = lines.iter().filter_map(|line| key_of(line, delimiter)).collect();
-
-    let series = match current > 0 {
-        true => current,
-        false => keys.iter().map(|(series, _)| *series).max().unwrap_or(1).max(1),
-    };
-
-    let next = keys
-        .iter()
-        .filter(|(held, _)| *held == series)
-        .map(|(_, id)| *id)
-        .max()
-        .map_or(0, |highest| highest.saturating_add(1));
-
-    (series, next)
-}
-
-fn key_of(line: &str, delimiter: char) -> Option<(i32, i32)> {
-    let mut fields = line.split(delimiter);
-    let combo_id = fields.next()?.trim().parse().ok()?;
-    let series = fields.next()?.trim().parse().ok()?;
-
-    Some((series, combo_id))
-}
-
-pub(super) fn rule(field: &str) -> Option<Rule> {
-    match field {
-        COMBO_ID | SERIES => Some(Rule::Plain),
-
-        "charagroup_id" | EFFECT | POWER | "slot_1_unit_id" | "slot_1_form" | "slot_2_unit_id"
-        | "slot_2_form" | "slot_3_unit_id" | "slot_3_form" | "slot_4_unit_id" | "slot_4_form"
-        | "slot_5_unit_id" | "slot_5_form" => Some(Rule::Floor(ABSENT)),
-
-        "unknown_15" => Some(Rule::Opaque),
-
-        _ => None,
-    }
 }
 
 #[cfg(test)]

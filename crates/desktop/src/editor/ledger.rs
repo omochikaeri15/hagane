@@ -10,9 +10,10 @@ use codex::combat::Separator;
 use codex::common;
 use foundry::common::preview::{self, Stamp};
 use foundry::domains::mods;
-use foundry::domains::sandbox::base;
 use foundry::domains::settings::EditorMode;
 use foundry::Vfs;
+
+pub(crate) use foundry::systems::editor::ledger::*;
 
 use crate::app::theme;
 use crate::common::feedback::{Slot, CONFIRM_LABEL, CONFIRM_SHORT_LABEL, FAILURE_LABEL};
@@ -50,11 +51,6 @@ const LIMIT_NOTE: &str = "The stage stays locked until the game's unlock conditi
 const CHECKPOINT_NOTE: &str = "Clearing the stage lets later runs of this map start from any stage up to the limit";
 const DRAW_NOTE: &str = "Each stage in the range plays a layout picked from the layout range\nEqual-sized ranges pair stages with layouts in order";
 
-const EVERY: i32 = -1;
-
-const KEY: usize = 0;
-const CROWN: usize = 1;
-const STAGE: usize = 2;
 const RARITY: usize = 3;
 const DEPLOY: usize = 4;
 const ROWS: usize = 5;
@@ -62,301 +58,35 @@ const MIN_COST: usize = 6;
 const MAX_COST: usize = 7;
 const GROUP: usize = 8;
 
-const STAGE_OPTION_WIDTH: usize = 9;
-
-const FORMATION_WIDTH: usize = 5;
 const FORMATION_CROWN: usize = 1;
 const FORMATION_STAGE: usize = 2;
-const FORMATION_PRESET: usize = 3;
-const FORMATION_MEMO: usize = 4;
 
-const FORMATION_FIELDS: [&str; FORMATION_WIDTH] = ["MapID", "Level", "StageNo", "PresetFileName", "MEMO"];
-
-const DRAW_WIDTH: usize = 5;
 const DRAW_FIRST_STAGE: usize = 1;
 const DRAW_LAST_STAGE: usize = 2;
 const DRAW_FIRST_LAYOUT: usize = 3;
 const DRAW_LAST_LAYOUT: usize = 4;
 
-const DRAW_FIELDS: [&str; DRAW_WIDTH] = ["map_id", "first_stage", "last_stage", "first_layout", "last_layout"];
-
-const CHECKPOINT_WIDTH: usize = 4;
 const CHECKPOINT_STAGE: usize = 1;
 const CHECKPOINT_LIMIT: usize = 2;
-const CHECKPOINT_MESSAGE: usize = 3;
 
-const CHECKPOINT_FIELDS: [&str; CHECKPOINT_WIDTH] = ["map_id", "stage", "skip_limit", "message_label"];
-
-const LIMIT_WIDTH: usize = 3;
 const LIMIT_STAGE: usize = 1;
 const LIMIT_CONDITION: usize = 2;
 
-const LIMIT_FIELDS: [&str; LIMIT_WIDTH] = ["map_id", "stage", "condition"];
-
-const EX_WIDTH: usize = 9;
 const EX_RATE: usize = 0;
-const EX_MAP: usize = 1;
 const EX_STAGE: usize = 2;
 const EX_PAIRS: usize = 3;
-const EX_FIRST_PAIR: usize = 3;
-const EX_RATE_DEFAULT: &str = "100";
 
-const EX_FIELDS: [&str; EX_WIDTH] = ["rate", "map_id", "stage", "group_1", "chance_1", "group_2", "chance_2", "group_3", "chance_3"];
-
-const LOCK_WIDTH: usize = 2;
 const LOCK_MESSAGE: usize = 0;
-const LOCK_MAP: usize = 1;
 
-const LOCK_FIELDS: [&str; LOCK_WIDTH] = ["message_type", "map_id"];
-
-const GROWTH_WIDTH: usize = 6;
 const GROWTH_EFFECT: usize = 1;
 const GROWTH_LEVEL: usize = 2;
 const GROWTH_FROM: usize = 3;
 const GROWTH_TO: usize = 4;
 const GROWTH_EASING: usize = 5;
 
-const GROWTH_FIELDS: [&str; GROWTH_WIDTH] = ["id", "type", "lv2", "value1", "value2", "easing"];
-
-#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
-pub(crate) enum Assembly {
-    Cannon,
-    Foundation,
-    Style,
-}
-
-pub(crate) const ASSEMBLIES: [Assembly; 3] = [Assembly::Cannon, Assembly::Foundation, Assembly::Style];
-
-const STAGE_OPTION_FIELDS: [&str; STAGE_OPTION_WIDTH] = [
-    "map_id",
-    "target_crowns",
-    "target_stage",
-    "rarity_mask",
-    "deploy_limit",
-    "allowed_rows",
-    "min_cost",
-    "max_cost",
-    "charagroup_id",
-];
-
 const RARITIES: [&str; 6] = ["Normal", "Special", "Rare", "Super Rare", "Uber Rare", "Legend Rare"];
 
 const CROWN_LABELS: [&str; 4] = ["1 Crown", "2 Crowns", "3 Crowns", "4 Crowns"];
-
-#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
-pub(crate) enum Ledger {
-    StageOption,
-    FixedFormation,
-    StageDraws,
-    Checkpoints,
-    StageLimits,
-    ExDraws,
-    CpuLocks,
-    Growth(Assembly),
-}
-
-impl Ledger {
-    pub(super) fn title(self) -> &'static str {
-        match self {
-            Ledger::StageOption => "Restrictions",
-            Ledger::FixedFormation => "Lineup Assignments",
-            Ledger::StageDraws => "Stage Draws",
-            Ledger::Checkpoints => "Stage Checkpoints",
-            Ledger::StageLimits => "Stage Unlocks",
-            Ledger::ExDraws => "EX Stage Draws",
-            Ledger::CpuLocks => "Super CPU Lock",
-            Ledger::Growth(Assembly::Cannon) => "Cannon Growth",
-            Ledger::Growth(Assembly::Foundation) => "Foundation Growth",
-            Ledger::Growth(Assembly::Style) => "Style Growth",
-        }
-    }
-
-    pub(super) fn folder(self) -> &'static str {
-        match self {
-            Ledger::Growth(Assembly::Cannon) => "Cannons",
-            Ledger::Growth(Assembly::Foundation) => "Foundations",
-            Ledger::Growth(Assembly::Style) => "Styles",
-            Ledger::StageOption
-            | Ledger::FixedFormation
-            | Ledger::StageDraws
-            | Ledger::Checkpoints
-            | Ledger::StageLimits
-            | Ledger::ExDraws
-            | Ledger::CpuLocks => self.title(),
-        }
-    }
-
-    pub(super) fn base(self) -> &'static str {
-        match self {
-            Ledger::StageOption => "Stage_option.csv",
-            Ledger::FixedFormation => "fixed_formation.csv",
-            Ledger::StageDraws => "stage_conditions.csv",
-            Ledger::Checkpoints => "Stageskip_setting.csv",
-            Ledger::StageLimits => "PlayStageLimit.csv",
-            Ledger::ExDraws => "EX_group.csv",
-            Ledger::CpuLocks => "LockSkipData.csv",
-            Ledger::Growth(Assembly::Cannon) => base::CANNON_GROWTH,
-            Ledger::Growth(Assembly::Foundation) => base::FOUNDATION_GROWTH,
-            Ledger::Growth(Assembly::Style) => base::STYLE_GROWTH,
-        }
-    }
-
-    fn width(self) -> usize {
-        match self {
-            Ledger::StageOption => STAGE_OPTION_WIDTH,
-            Ledger::FixedFormation => FORMATION_WIDTH,
-            Ledger::StageDraws => DRAW_WIDTH,
-            Ledger::Checkpoints => CHECKPOINT_WIDTH,
-            Ledger::StageLimits => LIMIT_WIDTH,
-            Ledger::ExDraws => EX_WIDTH,
-            Ledger::CpuLocks => LOCK_WIDTH,
-            Ledger::Growth(_) => GROWTH_WIDTH,
-        }
-    }
-
-    fn field(self, column: usize) -> &'static str {
-        let fields: &[&'static str] = match self {
-            Ledger::StageOption => &STAGE_OPTION_FIELDS,
-            Ledger::FixedFormation => &FORMATION_FIELDS,
-            Ledger::StageDraws => &DRAW_FIELDS,
-            Ledger::Checkpoints => &CHECKPOINT_FIELDS,
-            Ledger::StageLimits => &LIMIT_FIELDS,
-            Ledger::ExDraws => &EX_FIELDS,
-            Ledger::CpuLocks => &LOCK_FIELDS,
-            Ledger::Growth(_) => &GROWTH_FIELDS,
-        };
-
-        fields.get(column).copied().unwrap_or_default()
-    }
-
-    fn text(self, column: usize) -> bool {
-        matches!(
-            (self, column),
-            (Ledger::FixedFormation, FORMATION_PRESET | FORMATION_MEMO) | (Ledger::Checkpoints, CHECKPOINT_MESSAGE)
-        )
-    }
-
-    fn blank(self, column: usize) -> String {
-        match self.text(column) || (self == Ledger::ExDraws && column >= EX_FIRST_PAIR) {
-            true => String::new(),
-            false => 0.to_string(),
-        }
-    }
-
-    fn key_column(self) -> usize {
-        match self {
-            Ledger::ExDraws => EX_MAP,
-            Ledger::CpuLocks => LOCK_MAP,
-            _ => KEY,
-        }
-    }
-
-    fn trims(self) -> bool {
-        self == Ledger::ExDraws
-    }
-
-    fn noun(self) -> &'static str {
-        match self {
-            Ledger::StageOption => "Restriction",
-            Ledger::FixedFormation => "Assignment",
-            Ledger::StageDraws => "Draw",
-            Ledger::Checkpoints => "Checkpoint",
-            Ledger::StageLimits => "Unlock",
-            Ledger::ExDraws => "EX Draw",
-            Ledger::CpuLocks => "Lock",
-            Ledger::Growth(_) => "Bracket",
-        }
-    }
-
-    fn add_label(self) -> &'static str {
-        match self {
-            Ledger::StageOption => "Add Restriction",
-            Ledger::FixedFormation => "Add Assignment",
-            Ledger::StageDraws => "Add Draw",
-            Ledger::Checkpoints => "Add Checkpoint",
-            Ledger::StageLimits => "Add Unlock",
-            Ledger::ExDraws => "Add EX Draw",
-            Ledger::CpuLocks => "Add Lock",
-            Ledger::Growth(_) => "Add Bracket",
-        }
-    }
-
-    fn empty_label(self) -> &'static str {
-        match self {
-            Ledger::StageOption => "No restrictions on this map",
-            Ledger::FixedFormation => "No stage on this map has a fixed lineup",
-            Ledger::StageDraws => "No stage on this map is drawn from a pool",
-            Ledger::Checkpoints => "This map has no checkpoints",
-            Ledger::StageLimits => "No stage on this map waits on a condition",
-            Ledger::ExDraws => "No stage on this map draws an EX stage",
-            Ledger::CpuLocks => "The Super CPU may run this map",
-            Ledger::Growth(_) => "This part has no growth brackets",
-        }
-    }
-
-    fn seed(self, key: u32, presets: &[String]) -> Vec<String> {
-        match self {
-            Ledger::StageOption => {
-                let mut cells = vec![0.to_string(); STAGE_OPTION_WIDTH];
-
-                cells[KEY] = key.to_string();
-                cells[CROWN] = EVERY.to_string();
-                cells[STAGE] = EVERY.to_string();
-                cells.push(String::new());
-
-                cells
-            }
-            Ledger::FixedFormation => {
-                let mut cells: Vec<String> = (0..FORMATION_WIDTH).map(|column| self.blank(column)).collect();
-
-                cells[KEY] = key.to_string();
-
-                if let Some(first) = presets.first() {
-                    first.clone_into(&mut cells[FORMATION_PRESET]);
-                }
-
-                cells
-            }
-            Ledger::StageDraws => {
-                let mut cells = vec![0.to_string(); DRAW_WIDTH];
-
-                cells[KEY] = key.to_string();
-                cells.push(String::new());
-
-                cells
-            }
-            Ledger::CpuLocks => vec![0.to_string(), key.to_string()],
-            Ledger::ExDraws => vec![
-                EX_RATE_DEFAULT.to_owned(),
-                key.to_string(),
-                0.to_string(),
-                0.to_string(),
-                EX_RATE_DEFAULT.to_owned(),
-            ],
-            Ledger::StageLimits => {
-                let mut cells = vec![0.to_string(); LIMIT_WIDTH];
-
-                cells[KEY] = key.to_string();
-
-                cells
-            }
-            Ledger::Checkpoints => {
-                let mut cells: Vec<String> = (0..CHECKPOINT_WIDTH).map(|column| self.blank(column)).collect();
-
-                cells[KEY] = key.to_string();
-
-                cells
-            }
-            Ledger::Growth(_) => {
-                let mut cells = vec![0.to_string(); GROWTH_WIDTH];
-
-                cells[KEY] = key.to_string();
-
-                cells
-            }
-        }
-    }
-}
 
 #[derive(Clone, PartialEq)]
 pub(crate) struct Plan {

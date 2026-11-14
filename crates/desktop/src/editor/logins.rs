@@ -21,10 +21,6 @@ use super::{Mark, Reader};
 const SIZE: Size = Size::new(520.0, 560.0);
 const POPUP: popup::Spec = popup::Spec::new(popup::Kind::Logins, SIZE);
 
-pub(super) const TITLE: &str = "Login Event";
-pub(super) const FOLDER: &str = "Login Events";
-pub(super) const TABLE: &str = "DailyLoginEventData.csv";
-
 const BODY_PADDING: f32 = 12.0;
 const GAP: f32 = 8.0;
 const CARD_GAP: f32 = 6.0;

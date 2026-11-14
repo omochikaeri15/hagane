@@ -215,7 +215,7 @@ pub fn display_name(category: &Category) -> &str {
     }
 }
 
-fn sort_order(category: &Category) -> u32 {
+pub fn sort_order(category: &Category) -> u32 {
     match category {
         Category::EmpireOfCats => 0,
         Category::IntoTheFuture => 1,
@@ -680,8 +680,8 @@ struct Matching {
 }
 
 pub struct State {
-    bundle: Option<Rc<StageBundle>>,
-    enemies: Option<Rc<Vec<EnemyEntry>>>,
+    bundle: Option<Arc<StageBundle>>,
+    enemies: Option<Arc<Vec<EnemyEntry>>>,
     data: Option<Rc<StageDataState>>,
     category: Option<Category>,
     map: Option<GlobalMapId>,
@@ -1272,9 +1272,9 @@ fn sync(ui: &AppWindow, state: &Shared, context: &Rc<Context>) {
         Load::Ready(bundle) => {
             let changed = {
                 let held = state.borrow();
-                let bundle_changed = held.bundle.as_ref().is_none_or(|known| !Rc::ptr_eq(known, bundle));
+                let bundle_changed = held.bundle.as_ref().is_none_or(|known| !Arc::ptr_eq(known, bundle));
                 let enemies_changed = match (&held.enemies, &enemies) {
-                    (Some(known), Some(found)) => !Rc::ptr_eq(known, found),
+                    (Some(known), Some(found)) => !Arc::ptr_eq(known, found),
                     (None, None) => false,
                     _ => true,
                 };
@@ -1286,7 +1286,7 @@ fn sync(ui: &AppWindow, state: &Shared, context: &Rc<Context>) {
                 {
                     let mut held = state.borrow_mut();
 
-                    held.bundle = Some(Rc::clone(bundle));
+                    held.bundle = Some(Arc::clone(bundle));
                     held.enemies = enemies;
                     held.rebuild();
                 }

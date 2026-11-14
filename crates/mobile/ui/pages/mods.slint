@@ -1,11 +1,51 @@
 import { ListView } from "std-widgets.slint";
 import { Theme } from "../theme.slint";
-import { Btn, Tone, Input, TextBox, Combo, Label, Dialog, Panel, Rule, OutlinedCard, Slider } from "../widgets/basics.slint";
+import { Arrow, Btn, Tone, Input, TextBox, Combo, Label, Dialog, Panel, Rule, OutlinedCard, Slider, Toggle } from "../widgets/basics.slint";
 import { Drawer, EdgeGrab } from "../widgets/drawer.slint";
 import { Console } from "../widgets/console.slint";
 import { Shell, Tap } from "../shell.slint";
 
 export struct ModRow { name: string, icon: image, has-icon: bool, enabled: bool, selected: bool }
+
+export struct FinderRow { label: string, depth: int, folder: bool, open: bool, picked: bool, mark: int }
+
+export global Finder {
+    in-out property <bool> open;
+    in property <string> title: "Search Attribute";
+    in property <string> note;
+    in property <string> hint;
+    in property <string> empty;
+    in-out property <string> query;
+    in property <bool> building;
+    in property <string> action;
+    in property <bool> can-edit;
+    in property <bool> can-sync;
+    in property <string> sync-label: "Sync With \"game\"";
+    in property <[FinderRow]> rows;
+
+    callback searched(string);
+    callback activate(int);
+    callback edit();
+    callback sync();
+    callback closed();
+}
+
+export struct FormRow { label: string, kind: int, text: string, on: bool, options: [string], current: int }
+
+export global Form {
+    in-out property <bool> open;
+    in property <string> title;
+    in property <string> notice;
+    in property <[FormRow]> rows;
+    in property <string> sync-label: "Sync With \"game\"";
+    in property <bool> failed;
+
+    callback changed(int, string);
+    callback toggled(int);
+    callback picked(int, int);
+    callback sync();
+    callback closed();
+}
 
 export global Mods {
     in property <[ModRow]> mods;
@@ -17,6 +57,7 @@ export global Mods {
     in property <bool> mounting;
     in property <string> delete-label: "Delete";
     in property <bool> can-delete;
+    in property <bool> can-edit;
     in-out property <string> author;
     in-out property <string> version;
     in-out property <string> package;
@@ -55,6 +96,7 @@ export global Mods {
     callback rename(string);
     callback toggle();
     callback open-export();
+    callback open-edit();
     callback delete();
     callback metadata(int, string);
     callback open-add();
@@ -122,11 +164,12 @@ component Details inherits VerticalLayout {
     spacing: 8px;
     Input { text <=> Mods.title; placeholder: "Mod Title"; text-size: 22px; height: 44px; accepted(value) => { Mods.rename(value); } }
     Rule { }
-    HorizontalLayout {
+    actions := HorizontalLayout {
         spacing: 8px;
-        Btn { tone: Mods.enabled ? Tone.danger : Tone.success; label: Mods.enabled ? "Disable" : "Enable"; enabled: !Mods.mounting; text-size: 13px; height: 32px; horizontal-stretch: 1; clicked => { Mods.toggle(); } }
-        Btn { label: "Export"; text-size: 13px; height: 32px; horizontal-stretch: 1; clicked => { Mods.open-export(); } }
-        Btn { tone: Tone.danger; label: Mods.delete-label; enabled: Mods.can-delete && !Mods.mounting; text-size: 13px; height: 32px; horizontal-stretch: 1; clicked => { Mods.delete(); } }
+        Btn { tone: Mods.enabled ? Tone.danger : Tone.success; label: Mods.enabled ? "Disable" : "Enable"; enabled: !Mods.mounting; text-size: 13px; height: 32px; width: (actions.width - 24px) / 4; clicked => { Mods.toggle(); } }
+        Btn { label: "Edit"; enabled: Mods.can-edit; text-size: 13px; height: 32px; width: (actions.width - 24px) / 4; clicked => { Mods.open-edit(); } }
+        Btn { label: "Export"; text-size: 13px; height: 32px; width: (actions.width - 24px) / 4; clicked => { Mods.open-export(); } }
+        Btn { tone: Tone.danger; label: Mods.delete-label; enabled: Mods.can-delete && !Mods.mounting; text-size: 13px; height: 32px; width: (actions.width - 24px) / 4; clicked => { Mods.delete(); } }
     }
     Rule { }
     OutlinedCard {
@@ -233,6 +276,90 @@ component ExportDialog inherits Dialog {
     }
 }
 
+component FinderDialog inherits Dialog {
+    title: Finder.title;
+    open <=> Finder.open;
+    closed => { Finder.closed(); }
+    panel-width: 360px;
+    body-height: Shell.app-height * 2 / 3;
+    VerticalLayout {
+        padding: 12px;
+        spacing: 8px;
+        Label { text: Finder.note; font-size: 13px; horizontal-alignment: center; }
+        Input { text <=> Finder.query; placeholder: Finder.hint; text-size: 13px; height: 32px; edited(value) => { Finder.searched(value); } }
+        OutlinedCard {
+            vertical-stretch: 1;
+            if Finder.building: Label { width: parent.width; height: parent.height; text: "Reading files..."; font-size: 13px; horizontal-alignment: center; vertical-alignment: center; }
+            if !Finder.building && Finder.rows.length == 0: Label { width: parent.width; height: parent.height; text: Finder.empty; color: Theme.danger; font-size: 13px; horizontal-alignment: center; vertical-alignment: center; }
+            if !Finder.building && Finder.rows.length > 0: ListView {
+                x: 4px;
+                y: 4px;
+                width: parent.width - 8px;
+                height: parent.height - 8px;
+                mouse-drag-pan-enabled: true;
+                for row[index] in Finder.rows: Rectangle {
+                    height: 32px;
+                    width: parent.width;
+                    border-radius: Theme.radius-sm;
+                    background: row.picked ? Theme.primary : (press.pressed ? Theme.bg-strongest : (row.mark == 1 ? Theme.warning.with-alpha(0.3) : (row.mark == 2 ? Theme.success.with-alpha(0.3) : transparent)));
+                    HorizontalLayout {
+                        padding-left: 6px + row.depth * 12px;
+                        padding-right: 6px;
+                        spacing: 4px;
+                        Rectangle {
+                            width: 14px;
+                            if row.folder: Arrow { open: row.open; }
+                        }
+                        Text { text: row.label; color: row.picked ? Theme.white : Theme.text; font-size: 13px; vertical-alignment: center; horizontal-stretch: 1; overflow: elide; }
+                    }
+                    press := Tap { enabled: !Shell.swiping; tapped => { Finder.activate(index); } }
+                }
+            }
+        }
+        Btn { label: Finder.action; tone: Finder.can-edit ? Tone.primary : Tone.neutral; enabled: Finder.can-edit; text-size: 13px; height: 32px; clicked => { Finder.edit(); } }
+        Btn { label: Finder.sync-label; tone: Tone.danger; enabled: Finder.can-sync; text-size: 13px; height: 32px; clicked => { Finder.sync(); } }
+    }
+}
+
+component FormDialog inherits Dialog {
+    title: Form.title;
+    open <=> Form.open;
+    closed => { Form.closed(); }
+    panel-width: 360px;
+    body-height: Shell.app-height * 2 / 3;
+    VerticalLayout {
+        padding: 12px;
+        spacing: 8px;
+        if Form.notice != "": Label { text: Form.notice; weak: true; font-size: 12px; }
+        if Form.failed: Label { text: "The last change could not be saved"; color: Theme.danger; font-size: 13px; horizontal-alignment: center; }
+        OutlinedCard {
+            vertical-stretch: 1;
+            ListView {
+                x: 4px;
+                y: 4px;
+                width: parent.width - 8px;
+                height: parent.height - 8px;
+                mouse-drag-pan-enabled: true;
+                for row[index] in Form.rows: VerticalLayout {
+                    padding: 4px;
+                    spacing: 2px;
+                    if row.kind == 5: Label { text: row.label; font-size: 12px; weak: true; }
+                    if row.kind == 5: Input { height: 32px; text-size: 13px; text: row.text; edited(value) => { Form.changed(index, value); } }
+                    if row.kind != 5: HorizontalLayout {
+                        spacing: 8px;
+                        Label { text: row.label; font-size: 13px; vertical-alignment: center; horizontal-stretch: 1; }
+                        if row.kind <= 1: Input { width: 130px; height: 32px; text-size: 13px; text: row.text; fill: row.kind == 1 ? Theme.danger.with-alpha(0.25) : Theme.input-bg; edited(value) => { Form.changed(index, value); } }
+                        if row.kind == 2: Toggle { width: 130px; value: row.on; changed(value) => { Form.toggled(index); } }
+                        if row.kind == 3: Combo { width: 130px; height: 32px; text-size: 13px; options: row.options; current: row.current; selected(at) => { Form.picked(index, at); } }
+                        if row.kind == 4: Label { width: 130px; text: row.text; weak: true; font-size: 12px; vertical-alignment: center; }
+                    }
+                }
+            }
+        }
+        Btn { tone: Tone.danger; label: Form.sync-label; text-size: 13px; height: 32px; clicked => { Form.sync(); } }
+    }
+}
+
 export component ModsPage inherits Rectangle {
     EdgeGrab { armed: !Mods.list-open && !Shell.nav-open; reach: drawer.panel-width; dragged(fraction) => { drawer.drag(fraction); } dropped => { drawer.release(); }
         if !Mods.selected: Label { text: "Please select or import a Mod"; font-size: 18px; horizontal-alignment: center; vertical-alignment: center; width: parent.width - 32px; x: 16px; height: parent.height; wrap: word-wrap; }
@@ -245,4 +372,6 @@ export component ModsPage inherits Rectangle {
     }
     AddDialog { }
     ExportDialog { }
+    FinderDialog { }
+    FormDialog { }
 }

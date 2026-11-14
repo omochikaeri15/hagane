@@ -14,6 +14,8 @@ use foundry::domains::settings::EditorMode;
 use foundry::Vfs;
 use foundry::Source;
 
+pub(crate) use foundry::systems::editor::ground::*;
+
 use super::figures::resolved::{Face, Rule, Toggle};
 use super::{Mark, Reader};
 
@@ -21,8 +23,6 @@ const COMMENT: &str = "//";
 const TERMINATOR: u32 = 0;
 const HEADER_MAX: usize = 7;
 const HEADER_PROBE: usize = 6;
-
-pub(super) const TITLE: &str = "Setup & Spawns";
 
 pub(super) const ENEMY_ID: usize = 0;
 pub(super) const AMOUNT: usize = 1;

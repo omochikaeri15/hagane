@@ -1072,7 +1072,25 @@ impl HaganeApp {
         self.rescan_units()
     }
 
+    fn reveal_pick(&mut self, pick: &editor::Pick) -> Task<Message> {
+        let Some(mount) = editor::place_loose(self, pick) else {
+            warn!(?pick, "The mod editor could not bring this file into the mod");
+
+            return self.editor.choice_failed().map(Message::Editor);
+        };
+
+        let jump = self.files_state.reveal_in(&self.vault.vfs, &mount, pick.file()).map(Message::Files);
+
+        self.files_state.sync_state(&mut self.app_state.files);
+
+        Task::batch([jump, self.navigate(Page::Files)])
+    }
+
     fn open_pick(&mut self, pick: editor::Pick) -> Task<Message> {
+        if pick.loose() {
+            return self.reveal_pick(&pick);
+        }
+
         let Some(planned) = editor::chosen(self, &pick) else {
             warn!(?pick, "The mod editor found nothing to open for this entry");
 
@@ -1088,6 +1106,19 @@ impl HaganeApp {
 
     fn reset_pick(&mut self, pick: editor::Pick) -> Task<Message> {
         self.editor.flush_mod(&self.vault.vfs);
+
+        if pick.loose() {
+            if !editor::drop_loose(self, &pick) {
+                warn!(?pick, "The mod editor could not sync this file with game");
+
+                return self.editor.reset_failed().map(Message::Editor);
+            }
+
+            self.editor.unmark();
+            self.sync_editor(false);
+
+            return Task::none();
+        }
 
         let Some(planned) = editor::chosen(self, &pick) else {
             warn!(?pick, "The mod editor found nothing to sync for this entry");

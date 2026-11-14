@@ -2,6 +2,8 @@ use iced::alignment::{Horizontal, Vertical};
 use iced::widget::{button, column, container, pick_list, scrollable, text, text_input, Column, Container, Id, Row};
 use iced::{Element, Length, Padding, Theme};
 
+pub(crate) use foundry::systems::editor::figures::cards::*;
+
 use crate::app::theme;
 use crate::common::feedback::CONFIRM_LABEL;
 use crate::widget::{hover_hint, smooth_scroll};
@@ -11,23 +13,45 @@ use super::schema::Subject;
 use super::{Draft, Message, GLYPH_RATIO, LABEL_HEIGHTS};
 
 pub(super) const CARD_WIDTH: f32 = 86.0;
+
 pub(super) const CARD_GAP: f32 = 8.0;
+
 pub(super) const BODY_PADDING: f32 = 12.0;
 
 const LABEL_SIZE: f32 = 12.0;
+
 pub(super) const INPUT_SIZE: f32 = 13.0;
+
 const CARD_PADDING: f32 = 6.0;
+
 const SYNC_WIDTH: f32 = 172.0;
+
 const FIELD_PADDING: f32 = 4.0;
+
 const SEARCH_FRACTION: f32 = 2.0 / 3.0;
 
 const CARET_RESERVE: f32 = 18.0;
-const WIDE_SPAN: usize = 2;
-const DISABLED_LABEL: &str = "Disabled";
+
 const FIELD_INSET: f32 = 2.0;
 
-const OPAQUE_HINT: &str =
-    "This value is not resolved and represents a raw data value\nEdit this attribute at your own risk";
+pub(super) fn usable(width: f32) -> f32 {
+    (width - BODY_PADDING * 2.0).max(CARD_WIDTH)
+}
+
+pub(super) fn combo_room(label: f32) -> f32 {
+    label + FIELD_INSET * 2.0 + CARET_RESERVE
+}
+
+fn span(face: Face) -> usize {
+    let Face::Choice(options, _) = face else {
+        return 1;
+    };
+
+    let inner = CARD_WIDTH - CARD_PADDING * 2.0 - CARET_RESERVE;
+    let widest = options.iter().map(|choice| choice.label().chars().count()).max().unwrap_or(0);
+
+    if widest as f32 * INPUT_SIZE * GLYPH_RATIO <= inner { 1 } else { WIDE_SPAN }
+}
 
 pub(super) fn grid_id(subject: Subject) -> Id {
     Id::new(match subject {
@@ -136,14 +160,6 @@ pub(super) fn grid_id(subject: Subject) -> Id {
     })
 }
 
-pub(super) fn usable(width: f32) -> f32 {
-    (width - BODY_PADDING * 2.0).max(CARD_WIDTH)
-}
-
-pub(super) fn combo_room(label: f32) -> f32 {
-    label + FIELD_INSET * 2.0 + CARET_RESERVE
-}
-
 pub(super) fn grid<'a>(
     draft: &'a Draft,
     width: f32,
@@ -191,17 +207,6 @@ fn lay<'a>(draft: &'a Draft, width: f32, shown: &[usize], dim_from: Option<usize
     }
 
     rows.push(line)
-}
-
-fn span(face: Face) -> usize {
-    let Face::Choice(options, _) = face else {
-        return 1;
-    };
-
-    let inner = CARD_WIDTH - CARD_PADDING * 2.0 - CARET_RESERVE;
-    let widest = options.iter().map(|choice| choice.label().chars().count()).max().unwrap_or(0);
-
-    if widest as f32 * INPUT_SIZE * GLYPH_RATIO <= inner { 1 } else { WIDE_SPAN }
 }
 
 fn card(draft: &Draft, index: usize, dimmed: bool) -> Element<'_, Message> {

@@ -12,6 +12,8 @@ use foundry::domains::mods;
 use foundry::domains::settings::EditorMode;
 use foundry::Vfs;
 
+pub(crate) use foundry::systems::editor::catfruit::*;
+
 use crate::app::theme;
 use crate::common::feedback::{Slot, CONFIRM_LABEL, CONFIRM_SHORT_LABEL, FAILURE_LABEL};
 use crate::widget::{popup, smooth_scroll};
@@ -20,10 +22,6 @@ use super::{Mark, Reader};
 
 const SIZE: Size = Size::new(440.0, 520.0);
 const POPUP: popup::Spec = popup::Spec::new(popup::Kind::Catfruit, SIZE);
-
-pub(super) const TABLE: &str = "Matatabi.tsv";
-pub(super) const TITLE: &str = "Catfruit";
-pub(super) const FOLDER: &str = "Catfruit";
 
 const BODY_PADDING: f32 = 12.0;
 const GAP: f32 = 8.0;
@@ -62,7 +60,6 @@ const ADD_HINT: &str = "Item ID";
 const REMOVE_LABEL: &str = "Remove";
 const COLUMN_LABEL: &str = "Column";
 const UNKNOWN_ITEM: &str = "Item";
-const DELIMITER: char = '\t';
 const DEFAULT_WEIGHT: u32 = 1;
 
 const KEY: usize = 0;
@@ -119,10 +116,6 @@ impl Plan {
     fn name(&self, id: u32) -> String {
         self.known(id).map_or_else(|| format!("{UNKNOWN_ITEM} {id}"), |name| format!("{name} ({id})"))
     }
-}
-
-pub(super) fn keyed(line: &str) -> Option<u32> {
-    line.split(DELIMITER).next()?.trim().parse().ok()
 }
 
 fn entry(body: &str, key: u32) -> Option<String> {

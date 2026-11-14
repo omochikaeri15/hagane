@@ -28,9 +28,6 @@ const NOTICE_SIZE: f32 = 14.0;
 const DETAIL_SIZE: f32 = 12.0;
 const KILOBYTE: u64 = 1024;
 
-pub(super) const TITLE: &str = "Sound";
-pub(super) const EXTENSIONS: [&str; 2] = ["ogg", "caf"];
-
 const UPLOAD_LABEL: &str = "Upload New Sound";
 const SYNC_LABEL: &str = "Sync With \"game\"";
 const PLAY_LABEL: &str = "Play";

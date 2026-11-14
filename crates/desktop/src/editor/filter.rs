@@ -12,6 +12,8 @@ use foundry::domains::mods;
 use foundry::domains::settings::EditorMode;
 use foundry::Vfs;
 
+pub(crate) use foundry::systems::editor::filter::*;
+
 use crate::app::theme;
 use crate::common::feedback::{Slot, CONFIRM_LABEL, CONFIRM_SHORT_LABEL, FAILURE_LABEL};
 use crate::widget::{popup, smooth_scroll};
@@ -20,11 +22,6 @@ use super::{Mark, Reader};
 
 const SIZE: Size = Size::new(400.0, 460.0);
 const POPUP: popup::Spec = popup::Spec::new(popup::Kind::ComboFilter, SIZE);
-
-pub(super) const TABLE: &str = "NyancomboFilter.tsv";
-pub(super) const TITLE: &str = "Combo Filter Tab";
-pub(super) const FOLDER: &str = "Combo Filter Tabs";
-pub(super) const NOUN: &str = "Tab";
 
 const BODY_PADDING: f32 = 12.0;
 const GAP: f32 = 8.0;
@@ -50,8 +47,6 @@ const REMOVE_LABEL: &str = "Remove";
 const NOTE: &str = "The combo effects this tab of the combo list shows\nTab 0 is the tab that shows all of them";
 const LIST_JOINT: &str = ", ";
 const UNKNOWN_EFFECT: &str = "Effect";
-
-const DELIMITER: char = '\t';
 
 #[derive(Clone, PartialEq)]
 pub(crate) struct Plan {
@@ -92,10 +87,6 @@ impl Plan {
     fn name(&self, effect: i64) -> String {
         self.effects.iter().find(|(id, _)| *id == effect).map_or_else(|| format!("{UNKNOWN_EFFECT} {effect}"), |(_, name)| name.clone())
     }
-}
-
-pub(super) fn listed(line: &str) -> Vec<i64> {
-    line.split(DELIMITER).filter_map(|cell| cell.trim().parse().ok()).collect()
 }
 
 fn render(effects: &[i64]) -> String {

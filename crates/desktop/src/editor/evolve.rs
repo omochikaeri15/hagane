@@ -22,9 +22,6 @@ use super::{Mark, Reader};
 const SIZE: Size = Size::new(440.0, 420.0);
 const POPUP: popup::Spec = popup::Spec::new(popup::Kind::Evolve, SIZE);
 
-pub(super) const TABLE: &str = "unitevolve.csv";
-pub(super) const TITLE: &str = "Evolution Text";
-
 const BODY_PADDING: f32 = 12.0;
 const GAP: f32 = 8.0;
 const CARD_GAP: f32 = 6.0;

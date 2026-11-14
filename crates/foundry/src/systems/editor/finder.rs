@@ -12,34 +12,60 @@ use codex::chapter::Category;
 use codex::combat::{Faction, Identity, REGISTRY};
 use codex::common;
 use codex::graphics::backdrop;
-use foundry::common::architecture;
-use foundry::common::formats::json::{self, Record, Value};
-use foundry::domains::cat::combo as cat_combo;
-use foundry::domains::cat::files as cat_files;
-use foundry::domains::cat::scanner::CatEntry;
-use foundry::domains::enemy::files as enemy_files;
-use foundry::domains::enemy::scanner::EnemyEntry;
-use foundry::domains::sandbox::base::{self as sandbox_base, Parts};
-use foundry::domains::sandbox::{orb, scored};
-use foundry::domains::settings::EditorMode;
-use foundry::domains::stage::files as stage_files;
-use foundry::domains::stage::{GlobalMapId, GlobalStageId};
-use foundry::domains::utilities::background;
 
-use crate::app::{theme, HaganeApp};
-use crate::domains::sandbox::orbs;
-use crate::domains::stage::category::CategoryExt;
-use crate::editor::ledger::{Assembly, Ledger, ASSEMBLIES};
-use crate::editor::{audio, captions, catfruit, dungeon, evolve, filter, gift, group, logins, maplayout, preset, roster, treasure, unused};
-use crate::editor::records::{self, Book, Named, BOOKS};
-use crate::editor::sheet::{Sheet, LOGIN_EXTENSION, LOGIN_PREFIX, SHEETS, STORIES, TREASURE_NAMES, TREASURE_RETOLD, TREASURE_SETS};
-use crate::editor::{
-    drop_ids, figures, glossary_file, internal_name, item_label, orb_named, prose, registry, visible_name, Art, Focus,
-    Pane, Pick, combo_effect, LEVEL_UP_TABLE, LEVEL_UP_FOLDER, LEVEL_UP_NAME, MENU_TEXT_TABLE, MENU_TEXT_FOLDER, MENU_TEXT_NAME, ABILITY_ICON_TABLE, ABILITY_ICON_FOLDER, ABILITY_ICON_NAME, TRAIT_ICON_TABLE, TRAIT_ICON_FOLDER, TRAIT_ICON_NAME, BAND_TABLE, BAND_FOLDER, BAND_NAME, RANK_GROUP_TABLE, RANK_GROUP_FOLDER, RANK_GROUP_NAME, RATING_TABLE, ENGINEER_CAP_TABLE, ENGINEER_CAP_NAME, ENIGMA_RARITY_TABLE, ENIGMA_RARITY_FOLDER, ENIGMA_RARITY_NAME, TIP_SETTING_TABLE, TIP_SETTING_FOLDER, TIP_SETTING_NAME, SPOTLIGHT_TABLE, SPOTLIGHT_FOLDER, SPOTLIGHT_NAME, FANFARE_TABLE, FANFARE_FOLDER, FANFARE_NAME, STAGE_SHORTCUT_TABLE, STAGE_SHORTCUT_FOLDER, STAGE_SHORTCUT_NAME, REFUND_TABLE, REFUND_FOLDER, REFUND_NAME, ORB_OPTION_TABLE, ORB_OPTION_FOLDER, ORB_OPTION_NAME, ENIGMA_TIME_TABLE, ENIGMA_TIME_FOLDER, ENIGMA_TIME_NAME, RECOMMEND_TABLE, RECOMMEND_FOLDER, RECOMMEND_NAME, COUNTER_TABLE, COUNTER_FOLDER, COUNTER_NAME, MAP_MARKER_PREFIX, MAP_MARKER_FOLDER, MAP_MARKER_SET, MAP_MARKER_NAME, MAP_MARKER_ROWS, ENIGMA_FOLDER, ENIGMA_LOTTERY_TABLE, ENIGMA_LOTTERY_FOLDER, ENIGMA_LOTTERY_NAME, ENIGMA_RATE_TABLE, ENIGMA_RATE_FOLDER, ENIGMA_DROP_TABLE, ENIGMA_DROP_FOLDER, ENIGMA_LEVEL_NAME, ENIGMA_GROUP_TABLE, ENIGMA_GROUP_FOLDER, ENIGMA_GROUP_NAME, ENIGMA_MEDAL_TABLE, ENIGMA_MEDAL_FOLDER, ENIGMA_MEDAL_NAME, ZONED_IN_TABLE, ZONED_IN_NAME, ZONED_IN_STEPS_NAME, FILTER_MAP_TABLE, FILTER_MAP_FOLDER, FILTER_MAP_NAME, EXCLUSION_TABLE, EXCLUSION_FOLDER, EXCLUSION_NAME, SHRINE_OFFERING_TABLE, SHRINE_OFFERING_FOLDER, SHRINE_OFFERING_NAME, SHRINE_EXTRA_TABLE, SHRINE_EXTRA_FOLDER, SHRINE_EXTRA_NAME, FORTUNE_TABLE, FORTUNE_FOLDER, FORTUNE_NAME, PRIZE_ATTEMPT, PRIZE_NAME, PRIZE_SETS, EXPEDITION_AREA_NAME, EXPEDITION_AREA_TABLES, GAMATOTO_LEVEL_FOLDER, GAMATOTO_LEVEL_NAME, GAMATOTO_LEVEL_TABLE, ENEMY_GUIDE_TABLE, GUIDE_TABLE, UNIT_LIMIT_TABLE, DEVELOPMENT_COST_FOLDER, DEVELOPMENT_COST_NAME, DEVELOPMENT_COST_SETS, DEVELOPMENT_PARTS, DEVELOPMENT_TIER_FOLDER, DEVELOPMENT_TIER_NAME, DEVELOPMENT_TIER_TABLE, MATERIAL_MIX_FOLDER, MATERIAL_MIX_TABLE, CANNON_STATUS_TABLE, CASTLE_END, CASTLE_FOLDER, CASTLE_NAME, CASTLE_SETS, LABYRINTH_FLOOR_NAME, LABYRINTH_FOLDER, LABYRINTH_LOTTERY_FOLDER, LABYRINTH_LOTTERY_TABLE, LABYRINTH_PREFIX, LABYRINTH_RULE_NAME, QUEST_FOLDER, QUEST_STAGE_FOLDER, REALM_ALTAR_NAME, REALM_DRAW_NAME, REALM_FOLDER, REALM_PREFIX, QUEST_STAGE_NAME, QUEST_STAGE_PREFIX, SLOT_LOTTERY_FOLDER, SLOT_LOTTERY_NAME, SLOT_LOTTERY_PREFIX, TIP_RULE_FOLDER, TIP_RULE_NAME, TIP_RULE_TABLE, EXP_TABLE, EX_GROUP, EX_LOTTERY_TABLE, EX_MAP, EX_STAGE, RECIPE_NAME, RECIPE_TABLE, SHAKE_NAME, SHAKE_TABLE, SHOP_NAME, SHOP_TABLE, ZOMBIE_TABLE, CPU_LINE, CPU_TABLE, ORB_TRAIT_FOLDER, ORB_TRAIT_LINE, ORB_TRAIT_TABLE, ALTAR_TABLE, altar_key, GAMATOTO_DROPS, GAMATOTO_DROP_NAME, GAMATOTO_DROP_TABLE,
-    GAMATOTO_FOLDER, GAMATOTO_LIMIT_NAME, SLOT_FOLDER, SLOT_NAME, SLOT_TABLE, CLUB_FOLDER, CLUB_NAME, CLUB_TABLE, MISSION_NAME, MISSION_NAMES, MISSION_REWARDS, MISSION_TABLE, CONDITION_TABLE, MISSION_CONDITIONS, MISSION_GROUPS, MISSION_GROUP_NAME, MISSION_GROUP_TABLE, MISSION_SHORTCUT_TABLE, MISSION_SHORTCUT_NAME, MISSION_SHORTCUTS, MISSION_DESIGNATION_TABLE, MISSION_DESIGNATIONS, MONTHLY_MISSION_TABLE, MONTHLY_MISSION_NAME, MONTHLY_MISSIONS, SOUND_TABLE, SOUND_NAME, SOUND_FOLDER, CHEST_TABLE, CHEST_FOLDER, POPUP_TRIGGER_TABLE, POPUP_TRIGGER_NAME, POPUP_TRIGGER_FOLDER, COMBO_CATEGORY_TABLE, COMBO_CATEGORY_NAME, COMBO_CATEGORY_FOLDER, CASTLE_GROWTH_TABLE, CASTLE_BRACKET_NAME, CASTLE_GROWTH_FOLDER, CASTLE_LEVEL_LABEL, DEMON_CASTLE_TABLE, DEMON_CASTLE_NAME, DEMON_CASTLE_FOLDER, MISSION_UNLOCKS, MISSION_UNLOCK_NAME, MISSION_UNLOCK_TABLE, STAMP_DAY, STAMP_FOLDER, STAMP_TABLE, GAMATOTO_LIMIT_TABLE, GAMATOTO_UNLOCKS, GAMATOTO_UNLOCK_NAME, GAMATOTO_UNLOCK_TABLE, ORB_GRADES, ORB_GRADE_LABEL, ORB_GRADE_TABLE, COMBO_PARAM_TABLE, DIFFICULTY_TABLE, EX_OPTION_TABLE, NO_EGGS,
-    MAP_SHEET_TABLE, MAP_SHEET_NAME, MAP_SHEET_FOLDER, REEL_PREFIX, REEL_NAME, REEL_FOLDER, ORB_CHOICE_TABLE, ORB_CHOICE_FOLDER, ORB_CHOICE_NAME, ORB_SLOT_TABLE, ORB_EFFECT, ORB_GRADE, ORB_TRAIT, UPGRADE_NAMES, UPGRADE_TABLE,
+use crate::common::architecture;
+use crate::common::formats::json::{self, Record, Value};
+use crate::domains::cat::combo as cat_combo;
+use crate::domains::cat::files as cat_files;
+use crate::domains::cat::scanner::CatEntry;
+use crate::domains::enemy::files as enemy_files;
+use crate::domains::enemy::scanner::EnemyEntry;
+use crate::domains::sandbox::base::{self as sandbox_base, Parts};
+use crate::domains::sandbox::{orb, scored};
+use crate::domains::settings::EditorMode;
+use crate::domains::stage::files as stage_files;
+use crate::domains::stage::{GlobalMapId, GlobalStageId};
+use crate::domains::utilities::background;
+
+use super::ledger::{Assembly, Ledger, ASSEMBLIES};
+use super::records::{self, Book, Named, BOOKS};
+use super::sheet::{Sheet, LOGIN_EXTENSION, LOGIN_PREFIX, SHEETS, STORIES, TREASURE_NAMES, TREASURE_RETOLD, TREASURE_SETS};
+use super::tables::*;
+use super::{
+    altar_key, audio, captions, catfruit, combo_effect, copies, drop_ids, dungeon, evolve, figures, filter, gift, glossary_file, group, internal_name, item_label,
+    logins, maplayout, orb_named, preset, prose, registry, roster, treasure, unused, visible_name, Art, Pane, Pick, Sources, SEPARATOR,
 };
-use crate::widget::{Guide, Tracer};
+
+pub struct Words {
+    pub title: &'static str,
+    pub note: &'static str,
+    pub hint: &'static str,
+    pub action: &'static str,
+    pub empty: &'static str,
+}
+
+const RAW_WORDS: Words = Words {
+    title: "Edit File",
+    note: "Search a file to edit.",
+    hint: "Search files...",
+    action: "Edit File",
+    empty: "No files found",
+};
+
+const RESOLVED_WORDS: Words = Words {
+    title: "Search Attribute",
+    note: "Search an attribute to edit.",
+    hint: "Search attributes...",
+    action: "Edit Attribute",
+    empty: "No attributes found",
+};
+
+pub fn words(values: EditorMode) -> &'static Words {
+    match values {
+        EditorMode::Raw => &RAW_WORDS,
+        EditorMode::Resolved => &RESOLVED_WORDS,
+    }
+}
 
 const TALENT_NAME_PREFIX: &str = "Skill_name_";
 const TALENT_NAME_FOLDER: &str = "Talent Name Images";
@@ -55,6 +81,8 @@ const PICTURE_EXTENSION: &str = "png";
 const CUT_EXTENSION: &str = "imgcut";
 const RIG_EXTENSION: &str = "mamodel";
 const SOUND_FILES: &str = "Sounds";
+const FILES: &str = "Files";
+const PLAIN_FILES: &str = "No Extension";
 const LOOSE_FAMILY: &str = "0-9";
 const SLOT_MACHINES: &str = "Slot Machines";
 const SCRATCH_CARDS: &str = "Scratch Cards";
@@ -375,15 +403,14 @@ pub enum Entry {
     Leaf(u32),
 }
 
-pub(super) struct Line {
-    pub(super) entry: Entry,
-    pub(super) depth: u16,
-    pub(super) open: bool,
-    pub(super) guide: Guide,
+pub struct Line {
+    pub entry: Entry,
+    pub depth: u16,
+    pub open: bool,
 }
 
 #[derive(PartialEq)]
-pub(super) struct Lead {
+pub struct Lead {
     folder: String,
     pane: Pane,
     file: Box<str>,
@@ -391,17 +418,17 @@ pub(super) struct Lead {
 }
 
 #[derive(Default)]
-pub(super) struct Filter {
+pub struct Filter {
     hits: Option<Vec<bool>>,
     counts: Vec<u32>,
 }
 
 impl Filter {
-    pub(super) fn searching(&self) -> bool {
+    pub fn searching(&self) -> bool {
         self.hits.is_some()
     }
 
-    pub(super) fn keeps(&self, leaf: u32) -> bool {
+    pub fn keeps(&self, leaf: u32) -> bool {
         self.hits.as_ref().is_none_or(|hits| hits.get(leaf as usize).copied().unwrap_or_default())
     }
 
@@ -411,7 +438,7 @@ impl Filter {
 }
 
 #[derive(Default)]
-pub(crate) struct Catalog {
+pub struct Catalog {
     units: Vec<Unit>,
     folders: Vec<Folder>,
     roots: Vec<u32>,
@@ -440,9 +467,9 @@ impl Hits {
     }
 }
 
-fn medal_names(app: &HaganeApp) -> Vec<String> {
-    let vfs = &app.vault.vfs;
-    let named = vfs.variants(MEDAL_NAMES).into_iter().next().unwrap_or_else(|| MEDAL_NAMES.to_owned());
+fn medal_names(sources: &Sources<'_>) -> Vec<String> {
+    let vfs = &sources.vault.vfs;
+    let named = copies(vfs, MEDAL_NAMES).into_iter().next().unwrap_or_else(|| MEDAL_NAMES.to_owned());
 
     vfs.find(named.as_str()).and_then(|path| vfs.read(&path).ok()).map_or_else(Vec::new, |bytes| {
         common::scrub(&bytes).lines().map(|line| line.split('\t').next().unwrap_or_default().trim().to_owned()).collect()
@@ -474,8 +501,8 @@ fn orb_name(record: &Record, named: &Named) -> String {
     name
 }
 
-fn keyed_maps(app: &HaganeApp, book: Book) -> FxHashSet<u32> {
-    app.vault.vfs.load(book.base()).map_or_else(FxHashSet::default, |bytes| {
+fn keyed_maps(sources: &Sources<'_>, book: Book) -> FxHashSet<u32> {
+    sources.vault.vfs.load(book.base()).map_or_else(FxHashSet::default, |bytes| {
         let text = common::scrub(&bytes);
 
         json::objects(&text)
@@ -486,20 +513,14 @@ fn keyed_maps(app: &HaganeApp, book: Book) -> FxHashSet<u32> {
     })
 }
 
-fn column_keys(app: &HaganeApp, ledger: Ledger, column: usize) -> FxHashSet<u32> {
-    app.vault.vfs.load(ledger.base()).map_or_else(FxHashSet::default, |bytes| {
+fn column_keys(sources: &Sources<'_>, ledger: Ledger, column: usize) -> FxHashSet<u32> {
+    sources.vault.vfs.load(ledger.base()).map_or_else(FxHashSet::default, |bytes| {
         common::scrub(&bytes).lines().filter_map(|line| line.split(',').nth(column)?.trim().parse().ok()).collect()
     })
 }
 
-fn own_language(base: &str, name: &str) -> bool {
-    let stem = |file: &str| Path::new(file).file_stem().and_then(|held| held.to_str()).map(str::to_owned);
-
-    stem(base).zip(stem(name)).is_some_and(|(base, name)| name.strip_prefix(&base).is_some_and(|suffix| !suffix.trim_start_matches('_').contains('_')))
-}
-
-fn leading_keys(app: &HaganeApp, ledger: Ledger) -> FxHashSet<u32> {
-    app.vault
+fn leading_keys(sources: &Sources<'_>, ledger: Ledger) -> FxHashSet<u32> {
+    sources.vault
         .vfs
         .load(ledger.base())
         .map_or_else(FxHashSet::default, |bytes| {
@@ -507,16 +528,16 @@ fn leading_keys(app: &HaganeApp, ledger: Ledger) -> FxHashSet<u32> {
         })
 }
 
-fn ruled(app: &HaganeApp) -> FxHashSet<u32> {
-    let vfs = &app.vault.vfs;
+fn ruled(sources: &Sources<'_>) -> FxHashSet<u32> {
+    let vfs = &sources.vault.vfs;
 
     vfs.load(Book::SpecialRules.base())
         .and_then(|bytes| SpecialRulesMap::parse(bytes.as_ref()).ok())
         .map_or_else(FxHashSet::default, |rules| rules.entries.keys().copied().collect())
 }
 
-fn bonused(app: &HaganeApp) -> FxHashSet<u32> {
-    let vfs = &app.vault.vfs;
+fn bonused(sources: &Sources<'_>) -> FxHashSet<u32> {
+    let vfs = &sources.vault.vfs;
 
     vfs.load(Book::ScoreBonus.base())
         .and_then(|bytes| ScoreBonusMap::parse(bytes.as_ref()).ok())
@@ -524,13 +545,13 @@ fn bonused(app: &HaganeApp) -> FxHashSet<u32> {
 }
 
 impl Catalog {
-    pub(crate) fn build(app: &HaganeApp) -> Catalog {
+    pub fn build(sources: &Sources<'_>) -> Catalog {
         let mut pictures: Vec<String> = Vec::new();
         let mut cuts: Vec<String> = Vec::new();
         let mut rigs: Vec<String> = Vec::new();
         let mut sounds: Vec<String> = Vec::new();
 
-        for name in app.vault.vfs.glob("").iter() {
+        for name in sources.vault.vfs.glob("").iter() {
             let lowered = name.to_ascii_lowercase();
 
             match lowered.rsplit_once('.').map(|(_, extension)| extension) {
@@ -545,28 +566,28 @@ impl Catalog {
         rigs.sort_unstable();
 
         let mut builder = Builder {
-            app,
+            sources,
             catalog: Catalog::default(),
             files_at: FxHashMap::default(),
             titles_at: FxHashMap::default(),
             sets: FxHashMap::default(),
             arena: Vec::new(),
-            ruled: ruled(app),
-            bonused: bonused(app),
-            pointed: scored::score_stage_maps(&app.vault.vfs),
-            drawn: leading_keys(app, Ledger::StageDraws),
-            checkpointed: leading_keys(app, Ledger::Checkpoints),
-            limited: leading_keys(app, Ledger::StageLimits),
-            ex_drawn: column_keys(app, Ledger::ExDraws, EX_MAP_COLUMN),
-            rewarded: keyed_maps(app, Book::ClearRewards),
-            displayed: keyed_maps(app, Book::EventDisplay),
+            ruled: ruled(sources),
+            bonused: bonused(sources),
+            pointed: scored::score_stage_maps(&sources.vault.vfs),
+            drawn: leading_keys(sources, Ledger::StageDraws),
+            checkpointed: leading_keys(sources, Ledger::Checkpoints),
+            limited: leading_keys(sources, Ledger::StageLimits),
+            ex_drawn: column_keys(sources, Ledger::ExDraws, EX_MAP_COLUMN),
+            rewarded: keyed_maps(sources, Book::ClearRewards),
+            displayed: keyed_maps(sources, Book::EventDisplay),
             cat_base: None,
             cat_homes: FxHashMap::default(),
             form_homes: FxHashMap::default(),
             homes: FxHashMap::default(),
             galleries: FxHashMap::default(),
-            cpu_locked: column_keys(app, Ledger::CpuLocks, LOCK_MAP_COLUMN),
-            altars: app.vault.vfs.load(ALTAR_TABLE).map_or_else(FxHashSet::default, |bytes| {
+            cpu_locked: column_keys(sources, Ledger::CpuLocks, LOCK_MAP_COLUMN),
+            altars: sources.vault.vfs.load(ALTAR_TABLE).map_or_else(FxHashSet::default, |bytes| {
                 common::scrub(&bytes).lines().filter_map(|line| line.split(',').next()?.trim().parse().ok()).collect()
             }),
             pictures,
@@ -685,11 +706,12 @@ impl Catalog {
         builder.items(other);
         builder.sheets(other);
         builder.images(other);
+        builder.files(other);
 
         builder.catalog
     }
 
-    pub(super) fn label(&self, entry: Entry, values: EditorMode) -> &str {
+    pub fn label(&self, entry: Entry, values: EditorMode) -> &str {
         match entry {
             Entry::Folder(id) => self.folder_label(id, values),
             Entry::Leaf(at) => self.leaf_label(at, values).unwrap_or_default(),
@@ -715,7 +737,7 @@ impl Catalog {
         }
     }
 
-    pub(super) fn filter(&self, query: &str) -> Filter {
+    pub fn filter(&self, query: &str) -> Filter {
         let lowered = query.to_lowercase();
 
         let tokens: Vec<&str> = lowered
@@ -774,20 +796,11 @@ impl Catalog {
         }
     }
 
-    pub(super) fn lines(&self, filter: &Filter, open: impl Fn(u32) -> bool) -> Vec<Line> {
+    pub fn lines(&self, filter: &Filter, open: impl Fn(u32) -> bool) -> Vec<Line> {
         let mut lines = Vec::new();
 
         for root in &self.roots {
             self.walk(*root, 0, filter, &open, &mut lines);
-        }
-
-        let mut tracer = Tracer::default();
-
-        for index in (0..lines.len()).rev() {
-            let depth = lines[index].depth;
-            let above = index.checked_sub(1).map(|prev| lines[prev].depth);
-
-            lines[index].guide = tracer.back(depth, above);
         }
 
         lines
@@ -804,7 +817,7 @@ impl Catalog {
 
         let opened = open(id);
 
-        lines.push(Line { entry: Entry::Folder(id), depth, open: opened, guide: Guide::default() });
+        lines.push(Line { entry: Entry::Folder(id), depth, open: opened });
 
         if !opened {
             return;
@@ -819,11 +832,11 @@ impl Catalog {
                 continue;
             }
 
-            lines.push(Line { entry: Entry::Leaf(*leaf), depth: depth + 1, open: false, guide: Guide::default() });
+            lines.push(Line { entry: Entry::Leaf(*leaf), depth: depth + 1, open: false });
         }
     }
 
-    pub(super) fn folder_key(&self, id: u32) -> Option<String> {
+    pub fn folder_key(&self, id: u32) -> Option<String> {
         let mut parts: Vec<&str> = Vec::new();
         let mut at = Some(id);
 
@@ -841,13 +854,13 @@ impl Catalog {
         Some(parts.join(&KEY_JOINT.to_string()))
     }
 
-    pub(super) fn folder_ids(&self) -> FxHashMap<String, u32> {
+    pub fn folder_ids(&self) -> FxHashMap<String, u32> {
         (0..u32::try_from(self.folders.len()).unwrap_or(u32::MAX))
             .filter_map(|id| Some((self.folder_key(id)?, id)))
             .collect()
     }
 
-    pub(super) fn lead(&self, leaf: u32) -> Option<Lead> {
+    pub fn lead(&self, leaf: u32) -> Option<Lead> {
         let row = self.rows.get(leaf as usize)?;
 
         Some(Lead {
@@ -858,59 +871,56 @@ impl Catalog {
         })
     }
 
-    pub(super) fn follow(&self, lead: &Lead, folders: &FxHashMap<String, u32>) -> Option<u32> {
+    pub fn follow(&self, lead: &Lead, folders: &FxHashMap<String, u32>) -> Option<u32> {
         let folder = self.folders.get(*folders.get(&lead.folder)? as usize)?;
 
         folder.leaves.iter().copied().find(|leaf| self.lead(*leaf).as_ref() == Some(lead))
     }
 
-    pub(super) fn pick(&self, row: u32, target: String) -> Option<Pick> {
+    pub fn pick(&self, row: u32) -> Option<Pick> {
         let row = self.rows.get(row as usize)?;
         let unit = self.units.get(row.unit as usize)?;
         let file = self.files.get(row.file as usize)?;
 
-        let mut focus = Focus {
-            page: row.pane.page(),
+        let mut pick = Pick {
+            pane: row.pane,
             cat: None,
             form: 0,
             enemy: None,
             map: None,
             stage: None,
-            active_mod: Some(target),
-            unlocked: false,
+            key: None,
+            line: None,
+            aim: None,
+            file: file.to_string(),
+            label: [unit.named.as_ref(), file.as_ref()].join(SEPARATOR),
+            path: Vec::new(),
         };
-
-        let mut key = None;
-        let mut line = None;
-        let mut aim = None;
-        let mut path = Vec::new();
 
         match &unit.who {
             Who::Cat { id, form } => {
-                focus.cat = Some(*id);
-                focus.form = *form;
+                pick.cat = Some(*id);
+                pick.form = *form;
             }
-            Who::Combo { id, form, line: held } => {
-                focus.cat = Some(*id);
-                focus.form = *form;
-                line = Some(*held);
+            Who::Combo { id, form, line } => {
+                pick.cat = Some(*id);
+                pick.form = *form;
+                pick.line = Some(*line);
             }
-            Who::Enemy(id) => focus.enemy = Some(*id),
-            Who::Map(map) => focus.map = Some(map.clone()),
+            Who::Enemy(id) => pick.enemy = Some(*id),
+            Who::Map(map) => pick.map = Some(map.clone()),
             Who::Stage(stage) => {
-                focus.map = Some(GlobalMapId { category: stage.category.clone(), map: stage.map });
-                focus.stage = Some(stage.clone());
+                pick.map = Some(GlobalMapId { category: stage.category.clone(), map: stage.map });
+                pick.stage = Some(stage.clone());
             }
-            Who::Item(id) | Who::Background(id) | Who::Group(id) | Who::Part(id) => key = Some(*id),
-            Who::Line(held) => line = Some(*held),
+            Who::Item(id) | Who::Background(id) | Who::Group(id) | Who::Part(id) => pick.key = Some(*id),
+            Who::Line(line) => pick.line = Some(*line),
             Who::Egg | Who::Global => {}
-            Who::Record(held) => path.clone_from(held),
-            Who::Ability(identity, faction) => aim = Some((*identity, *faction)),
+            Who::Record(held) => pick.path.clone_from(held),
+            Who::Ability(identity, faction) => pick.aim = Some((*identity, *faction)),
         }
 
-        let label = [unit.named.as_ref(), file.as_ref()].join(theme::HEADER_SEPARATOR);
-
-        Some(Pick { pane: row.pane, focus, key, line, aim, file: file.to_string(), label, path })
+        Some(pick)
     }
 }
 
@@ -924,7 +934,7 @@ enum Source {
 }
 
 struct Builder<'a> {
-    app: &'a HaganeApp,
+    sources: &'a Sources<'a>,
     catalog: Catalog,
     files_at: FxHashMap<Box<str>, u32>,
     titles_at: FxHashMap<Box<str>, u32>,
@@ -954,15 +964,15 @@ struct Builder<'a> {
 
 impl Builder<'_> {
     fn cats(&mut self, root: u32) {
-        let app = self.app;
-        let mut cats: Vec<&CatEntry> = app.cat_state.data.cats.iter().collect();
-        let slotted = app.vault.vds.cats.orb_slots(&app.vault.vfs);
-        let combos = app.vault.vds.cats.combos(&app.vault.vfs);
-        let names = app.vault.vds.cats.combo_names(&app.vault.vfs);
+        let sources = self.sources;
+        let mut cats: Vec<&CatEntry> = sources.cats.iter().collect();
+        let slotted = sources.vault.vds.cats.orb_slots(&sources.vault.vfs);
+        let combos = sources.vault.vds.cats.combos(&sources.vault.vfs);
+        let names = sources.vault.vds.cats.combo_names(&sources.vault.vfs);
 
         cats.sort_by_key(|cat| cat.id);
 
-        let ratings = rated(app.vault.vfs.load(RATING_TABLE).as_deref().unwrap_or_default());
+        let ratings = rated(sources.vault.vfs.load(RATING_TABLE).as_deref().unwrap_or_default());
 
         for cat in cats {
             let stats = cat_files::stats_file(cat.id);
@@ -1034,9 +1044,9 @@ impl Builder<'_> {
     fn combos(&mut self, parent: u32, (id, form): (u32, usize), rows: &[NyancomboData], names: &[Option<String>]) {
         let group = self.folder(Some(parent), COMBOS.to_owned(), COMBOS.to_owned());
 
-        for line in cat_combo::combo_lines(&self.app.vault, id, form) {
+        for line in cat_combo::combo_lines(self.sources.vault, id, form) {
             let key = figures::combo_key(rows, line);
-            let title = figures::combo_title(rows, names, line);
+            let title = figures::titled(rows, names, line);
             let folder = self.folder(Some(group), key.clone(), title.clone());
             let unit = self.unit(Who::Combo { id, form, line }, folder, key, title);
 
@@ -1051,7 +1061,7 @@ impl Builder<'_> {
     }
 
     fn unit_images(&mut self, root: u32) {
-        let vfs = &self.app.vault.vfs;
+        let vfs = &self.sources.vault.vfs;
 
         let mut loose: Vec<(u32, usize, Art, String)> = [ICON_PREFIX, BANNER_PREFIX]
             .into_iter()
@@ -1067,7 +1077,7 @@ impl Builder<'_> {
                 continue;
             }
 
-            let base = internal_name(self.app, &name);
+            let base = internal_name(self.sources, &name);
             let source = match base == name {
                 true => Source::Single,
                 false => Source::Image,
@@ -1101,12 +1111,10 @@ impl Builder<'_> {
     }
 
     fn eggs(&mut self, parent: u32) {
-        let vfs = &self.app.vault.vfs;
+        let vfs = &self.sources.vault.vfs;
 
         let mut used: Vec<u32> = self
-            .app
-            .cat_state
-            .data
+            .sources
             .cats
             .iter()
             .filter_map(|cat| cat.egg_ids)
@@ -1149,8 +1157,8 @@ impl Builder<'_> {
     }
 
     fn enemies(&mut self, root: u32) {
-        let mut enemies: Vec<&EnemyEntry> = self.app.enemy_state.data.enemies.iter().collect();
-        let guided: FxHashSet<u32> = self.app.vault.vfs.load(ENEMY_GUIDE_TABLE).map_or_else(FxHashSet::default, |bytes| {
+        let mut enemies: Vec<&EnemyEntry> = self.sources.enemies.iter().collect();
+        let guided: FxHashSet<u32> = self.sources.vault.vfs.load(ENEMY_GUIDE_TABLE).map_or_else(FxHashSet::default, |bytes| {
             common::scrub(&bytes).lines().filter_map(|line| line.split(',').next()?.trim().parse().ok()).collect()
         });
 
@@ -1176,8 +1184,8 @@ impl Builder<'_> {
     }
 
     fn stages(&mut self, root: u32) {
-        let app = self.app;
-        let registry = &app.stage_state.data.registry;
+        let sources = self.sources;
+        let registry = sources.registry;
 
         let mut held: FxHashMap<GlobalMapId, Vec<u32>> = FxHashMap::default();
 
@@ -1198,13 +1206,13 @@ impl Builder<'_> {
         let mut categories: Vec<(Category, Maps)> = grouped.into_iter().collect();
 
         categories.sort_by(|(left, _), (right, _)| {
-            (left.sort_order(), left.map_prefix()).cmp(&(right.sort_order(), right.map_prefix()))
+            ((sources.order)(left), left.map_prefix()).cmp(&((sources.order)(right), right.map_prefix()))
         });
 
         for (category, mut maps) in categories {
             let prefix = category.map_prefix();
-            let raw = if prefix.is_empty() { category.display_name().to_owned() } else { prefix.clone() };
-            let folder = self.folder(Some(root), raw, category.display_name().to_owned());
+            let raw = if prefix.is_empty() { (sources.category)(&category).to_owned() } else { prefix.clone() };
+            let folder = self.folder(Some(root), raw, (sources.category)(&category).to_owned());
 
             maps.sort_unstable_by_key(|(map, _)| *map);
 
@@ -1215,18 +1223,17 @@ impl Builder<'_> {
     }
 
     fn map(&mut self, parent: u32, map: GlobalMapId, prefix: &str, mut stages: Vec<u32>) {
-        let app = self.app;
-        let data = &app.stage_state.data;
-        let registry = &data.registry;
+        let sources = self.sources;
+        let registry = sources.registry;
         let address = registry.addresses.get(&map);
         let global = address.and_then(|held| held.global);
-        let options = app.vault.vds.stages.map_options(&app.vault.vfs);
-        let formations = app.vault.vds.stages.fixed_formations(&app.vault.vfs);
+        let options = sources.vault.vds.stages.map_options(&sources.vault.vfs);
+        let formations = sources.vault.vds.stages.fixed_formations(&sources.vault.vfs);
         let ruled = global.is_some_and(|id| self.ruled.contains(&id));
         let bonused = global.is_some_and(|id| self.bonused.contains(&id));
         let pointed = global.and_then(|id| i32::try_from(id).ok()).is_some_and(|id| self.pointed.contains(&id));
-        let rated = global.is_some_and(|id| app.vault.vds.stages.difficulties(&app.vault.vfs).contains_key(&id));
-        let invades = global.is_some_and(|id| app.vault.vds.stages.ex_options(&app.vault.vfs).contains_key(&id));
+        let rated = global.is_some_and(|id| sources.vault.vds.stages.difficulties(&sources.vault.vfs).contains_key(&id));
+        let invades = global.is_some_and(|id| sources.vault.vds.stages.ex_options(&sources.vault.vfs).contains_key(&id));
 
         let map_tag = match prefix.is_empty() {
             true => format!("{:03}", map.map),
@@ -1342,7 +1349,7 @@ impl Builder<'_> {
 
         for stage in stages {
             let key = GlobalStageId { category: map.category.clone(), map: map.map, stage };
-            let altared = altar_key(app, &key).is_some_and(|held| self.altars.contains(&held));
+            let altared = altar_key(sources, &key).is_some_and(|held| self.altars.contains(&held));
             let entry = registry.stages.get(&key);
 
             let named = entry
@@ -1351,9 +1358,9 @@ impl Builder<'_> {
                 .map_or_else(|| format!("{stage:02}"), str::to_owned);
 
             let tag = format!("{map_tag}_{stage:02}");
-            let name = [chapter.as_str(), named.as_str()].join(theme::HEADER_SEPARATOR);
+            let name = [chapter.as_str(), named.as_str()].join(SEPARATOR);
             let ground = registry.grounds.get(&key).map(|file| file.to_string());
-            let drops = entry.is_some_and(|found| drop_ids(found).any(|id| data.drop_chara_registry.contains_key(&id)));
+            let drops = entry.is_some_and(|found| drop_ids(found).any(|id| sources.drops.contains_key(&id)));
 
             let at = self.folder(Some(folder), tag.clone(), named);
             let unit = self.unit(Who::Stage(key), at, tag, name);
@@ -1399,7 +1406,7 @@ impl Builder<'_> {
     }
 
     fn roguelike(&mut self, parent: u32) {
-        let vfs = &self.app.vault.vfs;
+        let vfs = &self.sources.vault.vfs;
         let mut root: Option<u32> = None;
 
         for book in BOOKS {
@@ -1452,7 +1459,7 @@ impl Builder<'_> {
     }
 
     fn presets(&mut self, parent: u32) {
-        let vfs = &self.app.vault.vfs;
+        let vfs = &self.sources.vault.vfs;
 
         let Some(settings) = vfs.load(Book::MapSettings.base()).and_then(|bytes| RoguelikeMapSettings::parse(bytes.as_ref()).ok()) else {
             return;
@@ -1496,7 +1503,7 @@ impl Builder<'_> {
     }
 
     fn record_name(&self, book: Book, record: &Record) -> String {
-        let app = self.app;
+        let sources = self.sources;
         let number = |key: &str| record.field(key).and_then(|field| match &field.value {
             Value::Number(number) => number.parse::<i64>().ok(),
             _ => None,
@@ -1508,7 +1515,7 @@ impl Builder<'_> {
             Book::Buffs => record
                 .field("RoguelikeBonusBuffName")
                 .and_then(|field| match &field.value {
-                    Value::Text(key) => app.localizable.lookup(key),
+                    Value::Text(key) => sources.localizable.lookup(key),
                     _ => None,
                 })
                 .filter(|name| !name.trim().is_empty())
@@ -1516,7 +1523,7 @@ impl Builder<'_> {
             Book::Charas => {
                 let cat = number("CharaID")
                     .and_then(|id| u32::try_from(id).ok())
-                    .and_then(|id| app.cat_state.data.cats.iter().find(|cat| cat.id == id))
+                    .and_then(|id| sources.cats.iter().find(|cat| cat.id == id))
                     .map_or_else(|| format!("{} {last}", book.noun()), |cat| cat.display_name(0));
 
                 match number("Level") {
@@ -1587,7 +1594,7 @@ impl Builder<'_> {
     }
 
     fn book(&mut self, parent: u32, book: Book) {
-        let vfs = &self.app.vault.vfs;
+        let vfs = &self.sources.vault.vfs;
 
         let Some(text) = vfs.find(book.base()).and_then(|path| vfs.read(&path).ok()).and_then(|bytes| String::from_utf8(bytes.to_vec()).ok()) else {
             return;
@@ -1603,12 +1610,12 @@ impl Builder<'_> {
         let found = json::records(&text);
 
         let named = match book {
-            Book::Orbs => orb_named(self.app),
+            Book::Orbs => orb_named(self.sources),
             _ => Vec::new(),
         };
 
         let medals = match book {
-            Book::Medals => medal_names(self.app),
+            Book::Medals => medal_names(self.sources),
             _ => Vec::new(),
         };
 
@@ -1638,7 +1645,7 @@ impl Builder<'_> {
     }
 
     fn whole(&mut self, parent: u32, book: Book) {
-        if self.app.vault.vfs.find(book.base()).is_none() {
+        if self.sources.vault.vfs.find(book.base()).is_none() {
             return;
         }
 
@@ -1648,7 +1655,7 @@ impl Builder<'_> {
     }
 
     fn missions(&mut self, parent: u32) {
-        let vfs = &self.app.vault.vfs;
+        let vfs = &self.sources.vault.vfs;
         let rewards = vfs.find(MISSION_TABLE).is_some();
 
         if !rewards && MISSION_BOOKS.iter().all(|book| vfs.find(book.base()).is_none()) {
@@ -1677,7 +1684,7 @@ impl Builder<'_> {
 
         let text = Sheet::MissionText;
 
-        if !self.app.vault.vfs.variants(text.base()).is_empty() {
+        if !copies(&self.sources.vault.vfs, text.base()).is_empty() {
             let unit = self.unit(Who::Global, folder, text.base().to_owned(), text.title().to_owned());
 
             self.rows(unit, Pane::Sheet(text), text.base(), Source::Variants);
@@ -1685,7 +1692,7 @@ impl Builder<'_> {
     }
 
     fn mission_rows(&mut self, parent: u32, table: &str, heading: &str, subject: figures::Subject) {
-        let vfs = &self.app.vault.vfs;
+        let vfs = &self.sources.vault.vfs;
 
         let Some(bytes) = vfs.load(table) else {
             return;
@@ -1697,7 +1704,7 @@ impl Builder<'_> {
             return;
         }
 
-        let named = vfs.variants(MISSION_NAMES).into_iter().next().unwrap_or_else(|| MISSION_NAMES.to_owned());
+        let named = copies(vfs, MISSION_NAMES).into_iter().next().unwrap_or_else(|| MISSION_NAMES.to_owned());
 
         let names: FxHashMap<u32, String> = vfs.find(named.as_str()).and_then(|path| vfs.read(&path).ok()).map_or_else(FxHashMap::default, |bytes| {
             common::scrub(&bytes)
@@ -1722,7 +1729,7 @@ impl Builder<'_> {
     }
 
     fn points(&mut self, parent: u32) {
-        let vfs = &self.app.vault.vfs;
+        let vfs = &self.sources.vault.vfs;
         let mut held: Vec<(Book, FxHashSet<u32>)> = Vec::new();
 
         for book in POINT_BOOKS {
@@ -1804,13 +1811,13 @@ impl Builder<'_> {
     }
 
     fn groups(&mut self, parent: u32) {
-        let app = self.app;
+        let sources = self.sources;
 
-        if app.vault.vfs.find(group::TABLE).is_none() {
+        if sources.vault.vfs.find(group::TABLE).is_none() {
             return;
         }
 
-        let table = app.vault.vds.stages.charagroups(&app.vault.vfs);
+        let table = sources.vault.vds.stages.charagroups(&sources.vault.vfs);
         let mut ids: Vec<u32> = table.keys().copied().collect();
 
         if ids.is_empty() {
@@ -1825,7 +1832,7 @@ impl Builder<'_> {
             let name = table
                 .get(&id)
                 .and_then(|held| held.text_id.as_deref())
-                .and_then(|key| app.localizable.lookup(key))
+                .and_then(|key| sources.localizable.lookup(key))
                 .map(str::trim)
                 .filter(|words| !words.is_empty())
                 .map_or_else(|| format!("{GROUP_NAME} {id}"), str::to_owned);
@@ -1837,9 +1844,9 @@ impl Builder<'_> {
     }
 
     fn orb_traits(&mut self, parent: u32) {
-        let app = self.app;
+        let sources = self.sources;
 
-        let Some(bytes) = app.vault.vfs.load(ORB_TRAIT_TABLE) else {
+        let Some(bytes) = sources.vault.vfs.load(ORB_TRAIT_TABLE) else {
             return;
         };
 
@@ -1857,7 +1864,7 @@ impl Builder<'_> {
         let folder = self.folder(Some(parent), ORB_TRAIT_TABLE.to_owned(), ORB_TRAIT_FOLDER.to_owned());
 
         for (trait_id, line) in lines.into_iter().enumerate() {
-            let name = orbs::TRAITS.get(trait_id).map_or_else(|| format!("{ORB_TRAIT_LINE} {trait_id}"), |identity| app.names.trait_label(*identity).to_owned());
+            let name = orb::TRAITS.get(trait_id).map_or_else(|| format!("{ORB_TRAIT_LINE} {trait_id}"), |identity| sources.names.trait_label(*identity).to_owned());
             let unit = self.unit(Who::Line(line), folder, format!("{ORB_TRAIT_LINE} {trait_id:02}"), name);
 
             self.listed(unit, Pane::Figures(figures::Subject::OrbTraits), ORB_TRAIT_TABLE, Source::Variants);
@@ -1865,7 +1872,7 @@ impl Builder<'_> {
     }
 
     fn grades(&mut self, parent: u32) {
-        if self.app.vault.vfs.find(ORB_GRADE_TABLE).is_none() {
+        if self.sources.vault.vfs.find(ORB_GRADE_TABLE).is_none() {
             return;
         }
 
@@ -1880,7 +1887,7 @@ impl Builder<'_> {
     }
 
     fn text_folder(&mut self, parent: u32, heading: &str, kinds: &[Sheet]) {
-        let present: Vec<Sheet> = kinds.iter().copied().filter(|kind| !self.app.vault.vfs.variants(kind.base()).is_empty()).collect();
+        let present: Vec<Sheet> = kinds.iter().copied().filter(|kind| !copies(&self.sources.vault.vfs, kind.base()).is_empty()).collect();
 
         if present.is_empty() {
             return;
@@ -1919,7 +1926,7 @@ impl Builder<'_> {
     fn medal_text(&mut self, parent: u32) {
         let kinds = [Sheet::MedalNames, Sheet::MedalDescriptions];
 
-        if self.app.vault.vfs.variants(Sheet::MedalNames.base()).is_empty() {
+        if copies(&self.sources.vault.vfs, Sheet::MedalNames.base()).is_empty() {
             return;
         }
 
@@ -1935,7 +1942,7 @@ impl Builder<'_> {
     fn combo_text(&mut self, parent: u32) {
         let kinds = [Sheet::ComboEffects, Sheet::ComboBands];
 
-        if kinds.iter().all(|kind| self.app.vault.vfs.variants(kind.base()).is_empty()) {
+        if kinds.iter().all(|kind| copies(&self.sources.vault.vfs, kind.base()).is_empty()) {
             return;
         }
 
@@ -1949,9 +1956,9 @@ impl Builder<'_> {
     }
 
     fn filters(&mut self, parent: u32) {
-        let app = self.app;
+        let sources = self.sources;
 
-        let Some(bytes) = app.vault.vfs.load(filter::TABLE) else {
+        let Some(bytes) = sources.vault.vfs.load(filter::TABLE) else {
             return;
         };
 
@@ -1965,7 +1972,7 @@ impl Builder<'_> {
         let folder = self.folder(Some(parent), filter::TABLE.to_owned(), filter::FOLDER.to_owned());
 
         for (line, raw) in lines.iter().enumerate() {
-            let first = filter::listed(raw).first().and_then(|effect| usize::try_from(*effect).ok()).map(|effect| combo_effect(app, effect));
+            let first = filter::listed(raw).first().and_then(|effect| usize::try_from(*effect).ok()).map(|effect| combo_effect(sources, effect));
 
             let name = match (line, first) {
                 (0, _) => format!("{} 0: {FILTER_ALL}", filter::NOUN),
@@ -1980,8 +1987,8 @@ impl Builder<'_> {
     }
 
     fn strengths(&mut self, parent: u32) {
-        let app = self.app;
-        let vfs = &app.vault.vfs;
+        let sources = self.sources;
+        let vfs = &sources.vault.vfs;
 
         let Some(rows) = vfs.find(COMBO_PARAM_TABLE).and_then(|path| vfs.read(&path).ok()).map(|bytes| common::scrub(&bytes).lines().count()) else {
             return;
@@ -1994,14 +2001,14 @@ impl Builder<'_> {
         let folder = self.folder(Some(parent), COMBO_PARAM_TABLE.to_owned(), STRENGTHS.to_owned());
 
         for line in 0..rows {
-            let unit = self.unit(Who::Line(line), folder, format!("{LINE_TAG} {line}"), combo_effect(app, line));
+            let unit = self.unit(Who::Line(line), folder, format!("{LINE_TAG} {line}"), combo_effect(sources, line));
 
             self.listed(unit, Pane::Figures(figures::Subject::ComboParam), COMBO_PARAM_TABLE, Source::Variants);
         }
     }
 
     fn labyrinth(&mut self, parent: u32) {
-        let vfs = &self.app.vault.vfs;
+        let vfs = &self.sources.vault.vfs;
         let tables: BTreeSet<String> = vfs.glob(LABYRINTH_PREFIX).iter().filter(|name| name.ends_with(".csv")).map(|name| name.to_string()).collect();
         let mut root: Option<u32> = None;
 
@@ -2039,7 +2046,7 @@ impl Builder<'_> {
     }
 
     fn realms(&mut self, parent: u32) {
-        let vfs = &self.app.vault.vfs;
+        let vfs = &self.sources.vault.vfs;
         let tables: BTreeSet<String> = vfs.glob(REALM_PREFIX).iter().filter(|name| name.ends_with(".csv")).map(|name| name.to_string()).collect();
         let mut root: Option<u32> = None;
 
@@ -2074,7 +2081,7 @@ impl Builder<'_> {
     }
 
     fn quest(&mut self, parent: u32) {
-        let vfs = &self.app.vault.vfs;
+        let vfs = &self.sources.vault.vfs;
         let mut root: Option<u32> = None;
 
         for (prefix, heading, noun, subject) in [
@@ -2119,7 +2126,7 @@ impl Builder<'_> {
     }
 
     fn map_layouts(&mut self, parent: u32) {
-        let vfs = &self.app.vault.vfs;
+        let vfs = &self.sources.vault.vfs;
 
         let tables: BTreeSet<String> = vfs
             .glob(maplayout::PREFIX)
@@ -2151,7 +2158,7 @@ impl Builder<'_> {
     }
 
     fn castles(&mut self, parent: u32) {
-        let vfs = &self.app.vault.vfs;
+        let vfs = &self.sources.vault.vfs;
         let mut root: Option<u32> = None;
 
         for (table, heading, prefix) in CASTLE_SETS {
@@ -2199,8 +2206,8 @@ impl Builder<'_> {
     }
 
     fn gacha(&mut self, parent: u32) {
-        let app = self.app;
-        let vfs = &app.vault.vfs;
+        let sources = self.sources;
+        let vfs = &sources.vault.vfs;
         let mut root: Option<u32> = None;
 
         for (capsule, heading) in roster::CAPSULES {
@@ -2276,8 +2283,8 @@ impl Builder<'_> {
     }
 
     fn treasures(&mut self, parent: u32) {
-        let app = self.app;
-        let catalog = app.vault.vds.treasures.catalog(&app.vault.vfs);
+        let sources = self.sources;
+        let catalog = sources.vault.vds.treasures.catalog(&sources.vault.vfs);
         let mut root: Option<u32> = None;
 
         for (slot, arc) in treasure::ARCS {
@@ -2285,7 +2292,7 @@ impl Builder<'_> {
                 continue;
             };
 
-            if app.vault.vfs.find(file.as_str()).is_none() {
+            if sources.vault.vfs.find(file.as_str()).is_none() {
                 continue;
             }
 
@@ -2311,7 +2318,7 @@ impl Builder<'_> {
         if let Some(holder) = root {
             let labels = Sheet::TreasureLabels;
 
-            if !app.vault.vfs.variants(labels.base()).is_empty() {
+            if !copies(&sources.vault.vfs, labels.base()).is_empty() {
                 let unit = self.unit(Who::Global, holder, labels.base().to_owned(), labels.title().to_owned());
 
                 self.rows(unit, Pane::Sheet(labels), labels.base(), Source::Languages);
@@ -2320,7 +2327,7 @@ impl Builder<'_> {
 
         let gauge = Book::Gauge;
 
-        if let (Some(holder), Some(_)) = (root, app.vault.vfs.find(gauge.base())) {
+        if let (Some(holder), Some(_)) = (root, sources.vault.vfs.find(gauge.base())) {
             let unit = self.unit(Who::Record(Vec::new()), holder, gauge.base().to_owned(), gauge.title().to_owned());
 
             self.listed(unit, Pane::Records(gauge), gauge.base(), Source::Variants);
@@ -2328,7 +2335,7 @@ impl Builder<'_> {
     }
 
     fn keyed(&mut self, parent: u32, table: &str, heading: &str, noun: &str, subject: figures::Subject) {
-        let Some(bytes) = self.app.vault.vfs.load(table) else {
+        let Some(bytes) = self.sources.vault.vfs.load(table) else {
             return;
         };
 
@@ -2348,7 +2355,7 @@ impl Builder<'_> {
     }
 
     fn numbered(&mut self, parent: u32, table: &str, heading: &str, noun: &str, subject: figures::Subject, skip: usize) {
-        let Some(bytes) = self.app.vault.vfs.load(table) else {
+        let Some(bytes) = self.sources.vault.vfs.load(table) else {
             return;
         };
 
@@ -2375,7 +2382,7 @@ impl Builder<'_> {
     }
 
     fn gamatoto(&mut self, parent: u32) {
-        let vfs = &self.app.vault.vfs;
+        let vfs = &self.sources.vault.vfs;
         let limit = vfs.find(GAMATOTO_LIMIT_TABLE).is_some();
 
         let keyed = |table: &str| -> Vec<u32> {
@@ -2390,8 +2397,8 @@ impl Builder<'_> {
         let unlocks = keyed(GAMATOTO_UNLOCK_TABLE);
         let drops = keyed(GAMATOTO_DROP_TABLE);
 
-        let worded = GAMATOTO_SHEETS.iter().any(|kind| !vfs.variants(kind.base()).is_empty())
-            || GAMATOTO_CAPTIONS.iter().any(|layout| !vfs.variants(layout.base()).is_empty());
+        let worded = GAMATOTO_SHEETS.iter().any(|kind| !copies(vfs, kind.base()).is_empty())
+            || GAMATOTO_CAPTIONS.iter().any(|layout| !copies(vfs, layout.base()).is_empty());
 
         let numbered = |table: &str| -> Vec<usize> {
             vfs.load(table).map_or_else(Vec::new, |bytes| {
@@ -2479,17 +2486,17 @@ impl Builder<'_> {
     }
 
     fn rank_text(&mut self, parent: u32) {
-        let vfs = &self.app.vault.vfs;
+        let vfs = &self.sources.vault.vfs;
         let messages = Sheet::RankMessages;
         let rewards = captions::Layout::RankRewards;
 
-        if vfs.variants(messages.base()).is_empty() && vfs.variants(rewards.base()).is_empty() {
+        if copies(vfs, messages.base()).is_empty() && copies(vfs, rewards.base()).is_empty() {
             return;
         }
 
         let folder = self.folder(Some(parent), RANK_TEXT.to_owned(), RANK_TEXT.to_owned());
 
-        if !vfs.variants(messages.base()).is_empty() {
+        if !copies(vfs, messages.base()).is_empty() {
             let unit = self.unit(Who::Global, folder, messages.title().to_owned(), messages.title().to_owned());
 
             self.languages(unit, Pane::Sheet(messages), messages.base());
@@ -2499,10 +2506,10 @@ impl Builder<'_> {
     }
 
     fn interface(&mut self, parent: u32) {
-        let vfs = &self.app.vault.vfs;
+        let vfs = &self.sources.vault.vfs;
 
-        let present = INTERFACE_SHEETS.iter().any(|kind| !vfs.variants(kind.base()).is_empty())
-            || captions::INTERFACE.iter().any(|layout| !vfs.variants(layout.base()).is_empty())
+        let present = INTERFACE_SHEETS.iter().any(|kind| !copies(vfs, kind.base()).is_empty())
+            || captions::INTERFACE.iter().any(|layout| !copies(vfs, layout.base()).is_empty())
             || vfs.find(TIP_RULE_TABLE).is_some();
 
         if !present {
@@ -2512,7 +2519,7 @@ impl Builder<'_> {
         let folder = self.folder(Some(parent), INTERFACE_TEXT.to_owned(), INTERFACE_TEXT.to_owned());
 
         for kind in INTERFACE_SHEETS {
-            if vfs.variants(kind.base()).is_empty() {
+            if copies(vfs, kind.base()).is_empty() {
                 continue;
             }
 
@@ -2529,12 +2536,12 @@ impl Builder<'_> {
     }
 
     fn story(&mut self, parent: u32) {
-        let vfs = &self.app.vault.vfs;
+        let vfs = &self.sources.vault.vfs;
 
-        let kinds: Vec<Sheet> = STORIES.iter().map(|(file, _)| Sheet::Story(file)).filter(|kind| !vfs.variants(kind.base()).is_empty()).collect();
+        let kinds: Vec<Sheet> = STORIES.iter().map(|(file, _)| Sheet::Story(file)).filter(|kind| !copies(vfs, kind.base()).is_empty()).collect();
         let unlocks = captions::Layout::ChapterUnlocks;
 
-        if kinds.is_empty() && vfs.variants(unlocks.base()).is_empty() {
+        if kinds.is_empty() && copies(vfs, unlocks.base()).is_empty() {
             return;
         }
 
@@ -2550,7 +2557,7 @@ impl Builder<'_> {
     }
 
     fn login_messages(&mut self, parent: u32) {
-        let vfs = &self.app.vault.vfs;
+        let vfs = &self.sources.vault.vfs;
 
         let ids: BTreeSet<u32> = vfs
             .glob(LOGIN_PREFIX)
@@ -2574,7 +2581,7 @@ impl Builder<'_> {
     }
 
     fn sounds(&mut self, parent: u32) {
-        let Some(bytes) = self.app.vault.vfs.load(SOUND_TABLE) else {
+        let Some(bytes) = self.sources.vault.vfs.load(SOUND_TABLE) else {
             return;
         };
 
@@ -2599,7 +2606,7 @@ impl Builder<'_> {
     }
 
     fn prizes(&mut self, parent: u32) {
-        let vfs = &self.app.vault.vfs;
+        let vfs = &self.sources.vault.vfs;
 
         for (prefix, heading, noun) in PRIZE_SETS {
             let tables: BTreeSet<String> = vfs.glob(prefix).iter().filter(|name| name.ends_with(".csv")).map(|name| name.to_string()).collect();
@@ -2636,7 +2643,7 @@ impl Builder<'_> {
     }
 
     fn reels(&mut self, parent: u32) {
-        let vfs = &self.app.vault.vfs;
+        let vfs = &self.sources.vault.vfs;
         let tables: BTreeSet<String> = vfs.glob(REEL_PREFIX).iter().filter(|name| name.ends_with(".csv")).map(|name| name.to_string()).collect();
 
         for table in tables {
@@ -2710,6 +2717,43 @@ impl Builder<'_> {
         }
     }
 
+    fn files(&mut self, parent: u32) {
+        let mut shelves: BTreeMap<String, BTreeMap<String, Vec<String>>> = BTreeMap::new();
+
+        for name in self.sources.vault.vfs.glob("").iter() {
+            if self.files_at.contains_key(name.as_ref()) {
+                continue;
+            }
+
+            let kind = name.rsplit_once('.').map_or_else(|| PLAIN_FILES.to_owned(), |(_, extension)| extension.to_ascii_uppercase());
+
+            shelves.entry(kind).or_default().entry(family(name)).or_default().push(name.to_string());
+        }
+
+        if shelves.is_empty() {
+            return;
+        }
+
+        let root = self.folder(Some(parent), FILES.to_owned(), FILES.to_owned());
+
+        for (kind, groups) in shelves {
+            let shelf = self.folder(Some(root), kind.clone(), kind);
+
+            for (stem, members) in groups {
+                let folder = match members.len() > 1 {
+                    true => self.folder(Some(shelf), stem.clone(), stem),
+                    false => shelf,
+                };
+
+                for name in members {
+                    let unit = self.unit(Who::Global, folder, name.clone(), name.clone());
+
+                    self.listed(unit, Pane::File, &name, Source::Single);
+                }
+            }
+        }
+    }
+
     fn sound_files(&mut self, parent: u32) {
         let mut names = std::mem::take(&mut self.sounds);
 
@@ -2759,7 +2803,7 @@ impl Builder<'_> {
     }
 
     fn map_markers(&mut self, parent: u32) {
-        let vfs = &self.app.vault.vfs;
+        let vfs = &self.sources.vault.vfs;
         let tables: BTreeSet<String> = vfs
             .glob(MAP_MARKER_PREFIX)
             .iter()
@@ -2796,7 +2840,7 @@ impl Builder<'_> {
     }
 
     fn enigma(&mut self, parent: u32) {
-        let vfs = &self.app.vault.vfs;
+        let vfs = &self.sources.vault.vfs;
         let sets = [
             (ENIGMA_LOTTERY_TABLE, ENIGMA_LOTTERY_FOLDER, ENIGMA_LOTTERY_NAME, figures::Subject::EnigmaLotteries, 0),
             (ENIGMA_RATE_TABLE, ENIGMA_RATE_FOLDER, ENIGMA_LEVEL_NAME, figures::Subject::EnigmaRates, 1),
@@ -2814,7 +2858,7 @@ impl Builder<'_> {
         let folder = self.folder(Some(parent), ENIGMA_FOLDER.to_owned(), ENIGMA_FOLDER.to_owned());
 
         for (table, heading, noun, subject, first) in sets {
-            let Some(bytes) = self.app.vault.vfs.load(table) else {
+            let Some(bytes) = self.sources.vault.vfs.load(table) else {
                 continue;
             };
 
@@ -2841,7 +2885,7 @@ impl Builder<'_> {
     }
 
     fn fanfares(&mut self, parent: u32) {
-        if self.app.vault.vfs.find(FANFARE_TABLE).is_none() {
+        if self.sources.vault.vfs.find(FANFARE_TABLE).is_none() {
             return;
         }
 
@@ -2851,7 +2895,7 @@ impl Builder<'_> {
     }
 
     fn shrine_tables(&mut self, parent: u32) {
-        let vfs = &self.app.vault.vfs;
+        let vfs = &self.sources.vault.vfs;
         let present = [SHRINE_OFFERING_TABLE, SHRINE_EXTRA_TABLE, FORTUNE_TABLE].map(|table| vfs.find(table).is_some());
 
         if !present.contains(&true) {
@@ -2889,7 +2933,7 @@ impl Builder<'_> {
     }
 
     fn login_events(&mut self, parent: u32) {
-        let Some(bytes) = self.app.vault.vfs.load(logins::TABLE) else {
+        let Some(bytes) = self.sources.vault.vfs.load(logins::TABLE) else {
             return;
         };
 
@@ -2915,7 +2959,7 @@ impl Builder<'_> {
     }
 
     fn unused(&mut self, parent: u32) {
-        let vfs = &self.app.vault.vfs;
+        let vfs = &self.sources.vault.vfs;
         let held: Vec<&str> = unused::FILES.into_iter().map(|(name, _)| name).filter(|name| vfs.find(*name).is_some()).collect();
         let families: Vec<(&str, Vec<Box<str>>)> = unused::FAMILIES
             .into_iter()
@@ -2951,9 +2995,9 @@ impl Builder<'_> {
     }
 
     fn chests(&mut self, parent: u32) {
-        let app = self.app;
+        let sources = self.sources;
 
-        let Some(bytes) = app.vault.vfs.load(CHEST_TABLE) else {
+        let Some(bytes) = sources.vault.vfs.load(CHEST_TABLE) else {
             return;
         };
 
@@ -2966,16 +3010,16 @@ impl Builder<'_> {
         let folder = self.folder(Some(parent), CHEST_TABLE.to_owned(), CHEST_FOLDER.to_owned());
 
         for id in ids {
-            let unit = self.unit(Who::Part(id), folder, format!("{ITEM_TAG} {id:03}"), item_label(app, id));
+            let unit = self.unit(Who::Part(id), folder, format!("{ITEM_TAG} {id:03}"), item_label(sources, id));
 
             self.listed(unit, Pane::Figures(figures::Subject::DojoChests), CHEST_TABLE, Source::Variants);
         }
     }
 
     fn catfruit(&mut self, parent: u32) {
-        let app = self.app;
+        let sources = self.sources;
 
-        let Some(bytes) = app.vault.vfs.load(catfruit::TABLE) else {
+        let Some(bytes) = sources.vault.vfs.load(catfruit::TABLE) else {
             return;
         };
 
@@ -2988,16 +3032,16 @@ impl Builder<'_> {
         let folder = self.folder(Some(parent), catfruit::TABLE.to_owned(), catfruit::FOLDER.to_owned());
 
         for id in ids {
-            let unit = self.unit(Who::Part(id), folder, format!("{ITEM_TAG} {id:03}"), item_label(app, id));
+            let unit = self.unit(Who::Part(id), folder, format!("{ITEM_TAG} {id:03}"), item_label(sources, id));
 
             self.listed(unit, Pane::Catfruit, catfruit::TABLE, Source::Variants);
         }
     }
 
     fn shrine(&mut self, parent: u32) {
-        let vfs = &self.app.vault.vfs;
+        let vfs = &self.sources.vault.vfs;
 
-        if captions::SHRINE.iter().all(|layout| vfs.variants(layout.base()).is_empty()) {
+        if captions::SHRINE.iter().all(|layout| copies(vfs, layout.base()).is_empty()) {
             return;
         }
 
@@ -3013,10 +3057,10 @@ impl Builder<'_> {
     }
 
     fn god(&mut self, parent: u32) {
-        let vfs = &self.app.vault.vfs;
+        let vfs = &self.sources.vault.vfs;
 
-        let present = GOD_SHEETS.iter().any(|kind| !vfs.variants(kind.base()).is_empty())
-            || GOD_CAPTIONS.iter().any(|layout| !vfs.variants(layout.base()).is_empty());
+        let present = GOD_SHEETS.iter().any(|kind| !copies(vfs, kind.base()).is_empty())
+            || GOD_CAPTIONS.iter().any(|layout| !copies(vfs, layout.base()).is_empty());
 
         if !present {
             return;
@@ -3025,7 +3069,7 @@ impl Builder<'_> {
         let folder = self.folder(Some(parent), CAT_GOD.to_owned(), CAT_GOD.to_owned());
 
         for kind in GOD_SHEETS {
-            if vfs.variants(kind.base()).is_empty() {
+            if copies(vfs, kind.base()).is_empty() {
                 continue;
             }
 
@@ -3042,7 +3086,7 @@ impl Builder<'_> {
     fn talent_names(&mut self, parent: u32) {
         let mut numbers: BTreeSet<String> = BTreeSet::new();
 
-        for name in self.app.vault.vfs.glob(TALENT_NAME_PREFIX).iter() {
+        for name in self.sources.vault.vfs.glob(TALENT_NAME_PREFIX).iter() {
             let Some((stem, extension)) = name.rsplit_once('.') else {
                 continue;
             };
@@ -3070,7 +3114,7 @@ impl Builder<'_> {
     fn talks(&mut self, parent: u32) {
         let mut scripts: BTreeSet<String> = BTreeSet::new();
 
-        for name in self.app.vault.vfs.glob(captions::TALK_PREFIX).iter() {
+        for name in self.sources.vault.vfs.glob(captions::TALK_PREFIX).iter() {
             let Some((stem, extension)) = name.rsplit_once('.') else {
                 continue;
             };
@@ -3101,10 +3145,10 @@ impl Builder<'_> {
     }
 
     fn captioned(&mut self, parent: u32, layout: captions::Layout, base: &str, title: String) {
-        let vfs = &self.app.vault.vfs;
+        let vfs = &self.sources.vault.vfs;
 
         let Some((name, bytes)) =
-            vfs.variants(base).into_iter().find(|name| own_language(base, name)).and_then(|name| vfs.load(&name).map(|bytes| (name, bytes)))
+            copies(vfs, base).into_iter().next().and_then(|name| vfs.load(&name).map(|bytes| (name, bytes)))
         else {
             return;
         };
@@ -3151,7 +3195,7 @@ impl Builder<'_> {
     }
 
     fn cpu(&mut self, parent: u32) {
-        let Some(bytes) = self.app.vault.vfs.load(CPU_TABLE) else {
+        let Some(bytes) = self.sources.vault.vfs.load(CPU_TABLE) else {
             return;
         };
 
@@ -3171,7 +3215,7 @@ impl Builder<'_> {
     }
 
     fn zombies(&mut self, parent: u32) {
-        let Some(bytes) = self.app.vault.vfs.load(ZOMBIE_TABLE) else {
+        let Some(bytes) = self.sources.vault.vfs.load(ZOMBIE_TABLE) else {
             return;
         };
 
@@ -3209,9 +3253,9 @@ impl Builder<'_> {
     }
 
     fn gifts(&mut self, parent: u32) {
-        let app = self.app;
+        let sources = self.sources;
 
-        let Some(bytes) = app.vault.vfs.load(gift::TABLE) else {
+        let Some(bytes) = sources.vault.vfs.load(gift::TABLE) else {
             return;
         };
 
@@ -3225,7 +3269,7 @@ impl Builder<'_> {
         let folder = self.folder(Some(parent), gift::TABLE.to_owned(), gift::FOLDER.to_owned());
 
         for (rank, line) in ranks {
-            let first = gift::rewards(line).first().and_then(|(item, _)| u32::try_from(*item).ok()).map(|item| item_label(app, item));
+            let first = gift::rewards(line).first().and_then(|(item, _)| u32::try_from(*item).ok()).map(|item| item_label(sources, item));
 
             let name = match first {
                 Some(item) => format!("{} {rank}: {item}", gift::NOUN),
@@ -3239,9 +3283,9 @@ impl Builder<'_> {
     }
 
     fn shop(&mut self, parent: u32) {
-        let app = self.app;
+        let sources = self.sources;
 
-        let Some(bytes) = app.vault.vfs.load(SHOP_TABLE) else {
+        let Some(bytes) = sources.vault.vfs.load(SHOP_TABLE) else {
             return;
         };
 
@@ -3262,7 +3306,7 @@ impl Builder<'_> {
         let folder = self.folder(Some(parent), SHOP_TABLE.to_owned(), ITEM_SHOP.to_owned());
 
         for (slot, item) in slots {
-            let name = item.map_or_else(|| format!("{SHOP_NAME} {slot}"), |item| format!("{SHOP_NAME} {slot}: {}", item_label(app, item)));
+            let name = item.map_or_else(|| format!("{SHOP_NAME} {slot}"), |item| format!("{SHOP_NAME} {slot}: {}", item_label(sources, item)));
             let unit = self.unit(Who::Part(slot), folder, format!("{SHOP_NAME} {slot:02}"), name);
 
             self.listed(unit, Pane::Figures(figures::Subject::Shop), SHOP_TABLE, Source::Variants);
@@ -3270,7 +3314,7 @@ impl Builder<'_> {
     }
 
     fn recipes(&mut self, parent: u32) {
-        let Some(bytes) = self.app.vault.vfs.load(RECIPE_TABLE) else {
+        let Some(bytes) = self.sources.vault.vfs.load(RECIPE_TABLE) else {
             return;
         };
 
@@ -3294,7 +3338,7 @@ impl Builder<'_> {
     }
 
     fn shakes(&mut self, parent: u32) {
-        let Some(bytes) = self.app.vault.vfs.load(SHAKE_TABLE) else {
+        let Some(bytes) = self.sources.vault.vfs.load(SHAKE_TABLE) else {
             return;
         };
 
@@ -3314,7 +3358,7 @@ impl Builder<'_> {
     }
 
     fn ex_lottery(&mut self, parent: u32) {
-        let Some(bytes) = self.app.vault.vfs.load(EX_LOTTERY_TABLE) else {
+        let Some(bytes) = self.sources.vault.vfs.load(EX_LOTTERY_TABLE) else {
             return;
         };
 
@@ -3342,8 +3386,8 @@ impl Builder<'_> {
     }
 
     fn base(&mut self, parent: u32) {
-        let app = self.app;
-        let vfs = &app.vault.vfs;
+        let sources = self.sources;
+        let vfs = &sources.vault.vfs;
         let parts = Parts::load(vfs);
 
         let statused: Vec<u32> = vfs.load(CANNON_STATUS_TABLE).map_or_else(Vec::new, |bytes| {
@@ -3352,7 +3396,7 @@ impl Builder<'_> {
 
         let recipes = captions::Layout::Recipes;
 
-        let mut captioned: BTreeMap<u32, String> = vfs.variants(recipes.base()).first().and_then(|name| vfs.load(name).map(|bytes| (name.clone(), bytes))).map_or_else(
+        let mut captioned: BTreeMap<u32, String> = copies(vfs, recipes.base()).first().and_then(|name| vfs.load(name).map(|bytes| (name.clone(), bytes))).map_or_else(
             BTreeMap::new,
             |(name, bytes)| {
                 let delimiter = captions::delimiter_of(&name);
@@ -3391,9 +3435,9 @@ impl Builder<'_> {
                 let part = i32::try_from(id).unwrap_or(i32::MAX);
 
                 let name = match assembly {
-                    Assembly::Cannon => app.names.cannon(part).map_or_else(|| sandbox_base::name(part), str::to_owned),
-                    Assembly::Foundation => parts.foundation_label(part, &app.names),
-                    Assembly::Style => parts.style_label(part, &app.names),
+                    Assembly::Cannon => sources.names.cannon(part).map_or_else(|| sandbox_base::name(part), str::to_owned),
+                    Assembly::Foundation => parts.foundation_label(part, sources.names),
+                    Assembly::Style => parts.style_label(part, sources.names),
                 };
 
                 let tag = format!("{PART_TAG} {id}");
@@ -3431,7 +3475,7 @@ impl Builder<'_> {
 
             let part = i32::try_from(id).unwrap_or(i32::MAX);
             let name = match named.is_empty() {
-                true => app.names.cannon(part).map_or_else(|| sandbox_base::name(part), str::to_owned),
+                true => sources.names.cannon(part).map_or_else(|| sandbox_base::name(part), str::to_owned),
                 false => named,
             };
             let unit = self.unit(Who::Part(id), holder, format!("{PART_TAG} {id}"), name);
@@ -3441,12 +3485,12 @@ impl Builder<'_> {
     }
 
     fn development(&mut self, parent: u32) {
-        let app = self.app;
-        let vfs = &app.vault.vfs;
+        let sources = self.sources;
+        let vfs = &sources.vault.vfs;
         let cannon = |id: u32| {
             let part = i32::try_from(id).unwrap_or(i32::MAX);
 
-            app.names.cannon(part).map_or_else(|| sandbox_base::name(part), str::to_owned)
+            sources.names.cannon(part).map_or_else(|| sandbox_base::name(part), str::to_owned)
         };
         let numbered = |text: &str| -> Vec<usize> {
             text.lines().enumerate().filter(|(_, line)| line.split(',').next().is_some_and(|cell| cell.trim().parse::<i64>().is_ok())).map(|(at, _)| at).collect()
@@ -3535,14 +3579,14 @@ impl Builder<'_> {
         let folder = self.folder(Some(holder), MATERIAL_MIX_TABLE.to_owned(), MATERIAL_MIX_FOLDER.to_owned());
 
         for id in mixes {
-            let unit = self.unit(Who::Part(id), folder, format!("{ITEM_TAG} {id:03}"), item_label(app, id));
+            let unit = self.unit(Who::Part(id), folder, format!("{ITEM_TAG} {id:03}"), item_label(sources, id));
 
             self.listed(unit, Pane::Figures(figures::Subject::MaterialMixes), MATERIAL_MIX_TABLE, Source::Variants);
         }
     }
 
     fn castle_growth(&mut self, parent: u32) {
-        let Some(bytes) = self.app.vault.vfs.load(CASTLE_GROWTH_TABLE) else {
+        let Some(bytes) = self.sources.vault.vfs.load(CASTLE_GROWTH_TABLE) else {
             return;
         };
 
@@ -3571,7 +3615,7 @@ impl Builder<'_> {
     }
 
     fn upgrades(&mut self, parent: u32) {
-        if self.app.vault.vfs.find(UPGRADE_TABLE).is_none() {
+        if self.sources.vault.vfs.find(UPGRADE_TABLE).is_none() {
             return;
         }
 
@@ -3585,7 +3629,7 @@ impl Builder<'_> {
     }
 
     fn backgrounds(&mut self, parent: u32) {
-        let vfs = &self.app.vault.vfs;
+        let vfs = &self.sources.vault.vfs;
 
         let table = vfs
             .find(background::TABLE)
@@ -3628,7 +3672,7 @@ impl Builder<'_> {
 
     fn strays(&self, prefix: &str, fits: fn(&str) -> bool) -> Vec<(String, Pane)> {
         let mut found: Vec<(String, Pane)> = self
-            .app
+            .sources
             .vault
             .vfs
             .glob(prefix)
@@ -3660,7 +3704,7 @@ impl Builder<'_> {
     }
 
     fn map_sheets(&mut self, parent: u32) {
-        let vfs = &self.app.vault.vfs;
+        let vfs = &self.sources.vault.vfs;
         let mut sets: BTreeMap<u32, Vec<(String, String, Pane)>> = BTreeMap::new();
 
         for name in vfs.glob(MAP_SHEET_PREFIX).iter() {
@@ -3728,8 +3772,8 @@ impl Builder<'_> {
     }
 
     fn items(&mut self, parent: u32) {
-        let app = self.app;
-        let catalog = app.vault.vds.items.catalog(&app.vault.vfs);
+        let sources = self.sources;
+        let catalog = sources.vault.vds.items.catalog(&sources.vault.vfs);
 
         let mut ids: Vec<u32> = catalog.iter().filter_map(|row| u32::try_from(row.stage_drop_item_id).ok()).collect();
 
@@ -3745,17 +3789,17 @@ impl Builder<'_> {
             let folder = self.folder(Some(parent), base.to_owned(), title.to_owned());
 
             for id in &ids {
-                let unit = self.unit(Who::Item(*id), folder, format!("{ITEM_TAG} {id:03}"), item_label(app, *id));
+                let unit = self.unit(Who::Item(*id), folder, format!("{ITEM_TAG} {id:03}"), item_label(sources, *id));
 
                 self.listed(unit, pane, base, source);
             }
         }
 
-        let vfs = &app.vault.vfs;
+        let vfs = &sources.vault.vfs;
 
         let icons: Vec<(u32, String)> = ids
             .iter()
-            .filter_map(|id| Some((*id, stage_files::gatya_item_img(app.vault.vds.items.icon_index(vfs, *id)?))))
+            .filter_map(|id| Some((*id, stage_files::gatya_item_img(sources.vault.vds.items.icon_index(vfs, *id)?))))
             .filter(|(_, file)| vfs.find(file).is_some())
             .collect();
 
@@ -3766,14 +3810,14 @@ impl Builder<'_> {
         let folder = self.folder(Some(parent), ITEM_ICON_RAW.to_owned(), ITEM_ICONS.to_owned());
 
         for (id, file) in icons {
-            let unit = self.unit(Who::Item(id), folder, format!("{ITEM_TAG} {id:03}"), item_label(app, id));
+            let unit = self.unit(Who::Item(id), folder, format!("{ITEM_TAG} {id:03}"), item_label(sources, id));
 
             self.listed(unit, Pane::Artwork(Art::ItemIcon), &file, Source::Languages);
         }
     }
 
     fn abilities(&mut self, parent: u32, faction: Faction) {
-        let names = &self.app.names;
+        let names = &self.sources.names;
         let file = glossary_file(faction);
 
         let pane = match faction {
@@ -3916,7 +3960,7 @@ impl Builder<'_> {
             return range.clone();
         }
 
-        let vfs = &self.app.vault.vfs;
+        let vfs = &self.sources.vault.vfs;
 
         let named: Vec<(String, String)> = match source {
             Source::Single => match vfs.rooted(architecture::GAME, base) {
@@ -3924,12 +3968,12 @@ impl Builder<'_> {
                 None => Vec::new(),
             },
             Source::Exception => match vfs.find(base) {
-                Some(_) => vec![(internal_name(self.app, &visible_name(self.app, base)), heading.to_owned())],
+                Some(_) => vec![(internal_name(self.sources, &visible_name(self.sources, base)), heading.to_owned())],
                 None => Vec::new(),
             },
-            Source::Image => vec![(internal_name(self.app, &visible_name(self.app, base)), heading.to_owned())],
+            Source::Image => vec![(internal_name(self.sources, &visible_name(self.sources, base)), heading.to_owned())],
             Source::Variants | Source::Languages => {
-                let names: Vec<String> = vfs.variants(base).into_iter().filter(|name| matches!(source, Source::Variants) || own_language(base, name)).collect();
+                let names = copies(vfs, base);
                 let shared = names.len() > 1;
 
                 names
@@ -3947,8 +3991,8 @@ impl Builder<'_> {
         };
 
         let regional: Vec<String> = match (source, named.first()) {
-            (Source::Image, Some((internal, _))) => {
-                vfs.variants(internal).into_iter().filter(|name| vfs.stripped(name).is_some_and(|base| base == *internal)).collect()
+            (Source::Image | Source::Exception, Some((internal, _))) => {
+                copies(vfs, internal)
             }
             _ => Vec::new(),
         };
@@ -4069,14 +4113,6 @@ mod tests {
         // forms count from 1, a repeated pair keeps its last row, and the table ends at the first row that is not a number
         assert_eq!(held.get(&(7, 2)), Some(&3));
         assert_eq!(held.len(), 3);
-    }
-
-    #[test]
-    fn a_longer_copy_is_not_mistaken_for_a_language() {
-        assert!(own_language("Text_1.csv", "Text_1_en.csv"));
-        assert!(own_language("Text_1.csv", "Text_1.csv"));
-        assert!(!own_language("Text_1.csv", "Text_1_Later_en.csv"));
-        assert!(own_language("Text_1_Later.csv", "Text_1_Later_en.csv"));
     }
 
     fn folder(raw: &str, resolved: &str, parent: Option<u32>, folders: Vec<u32>, leaves: Vec<u32>) -> Folder {

@@ -1,7 +1,7 @@
 import { ListView } from "std-widgets.slint";
 import { Theme } from "../theme.slint";
 import { SwipeGuard, Tap } from "../shell.slint";
-import { Btn, Tone, Input, TextBox, Combo, Label, Panel, Rule, Workspace, Toast } from "../widgets/basics.slint";
+import { Arrow, Btn, Tone, Input, TextBox, Combo, Label, Panel, Rule, Workspace, Toast } from "../widgets/basics.slint";
 import { Drawer, EdgeGrab } from "../widgets/drawer.slint";
 import { Shell } from "../shell.slint";
 
@@ -59,7 +59,7 @@ component Browser inherits Panel {
                     padding-left: 6px + row.depth * 24px;
                     padding-right: 6px;
                     spacing: 2px;
-                    if row.folder: Text { text: row.expanded ? "\u{25be}" : "\u{25b8}"; color: row.selected ? Theme.white : Theme.text; font-family: "Miscellaneous-Symbols"; font-size: 12px; width: 14px; vertical-alignment: center; }
+                    if row.folder: Arrow { open: row.expanded; tint: row.selected ? Theme.white : Theme.text; }
                     Text { text: row.name; color: row.selected ? Theme.white : Theme.text; font-size: 13px; vertical-alignment: center; horizontal-stretch: 1; overflow: elide; }
                 }
                 press := Tap { enabled: !Shell.swiping; tapped => { Files.activate(index); if !row.folder { Files.list-open = false; } } }

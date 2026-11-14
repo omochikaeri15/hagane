@@ -17,7 +17,7 @@ use foundry::common::keys::sanitize;
 use foundry::domains::cat::files as cat_files;
 use foundry::domains::import;
 use foundry::domains::settings::{
-    AnimSettings, COMBAT_HEIGHT_FLOOR, COMBAT_OPACITY_CEILING, CatDataSettings, CombatLayer, ExceptionList, ExceptionRule, FrameCount, HitPositions, ImportStructure, ReplaySource, SavedBcvName, RuleHandling, UpdateMode, UserKeys, Utf8Mode, lang,
+    AnimSettings, COMBAT_HEIGHT_FLOOR, COMBAT_OPACITY_CEILING, CatDataSettings, CombatLayer, EditorMode, ExceptionList, ExceptionRule, FrameCount, HitPositions, ImportStructure, ReplaySource, SavedBcvName, RuleHandling, UpdateMode, UserKeys, Utf8Mode, lang,
 };
 use foundry::systems::treasure::{self, ARCS, Catalog};
 
@@ -536,6 +536,15 @@ pub fn wire(window: &AppWindow, context: &Rc<Context>) -> Shared {
         if let Some(parsed) = overridden(&value, CatDataSettings::default().default_level) {
             ctx.state.apply(|settings| settings.cat_data.default_level = parsed);
         }
+
+        if let Some(ui) = weak.upgrade() {
+            refresh(&ui, &held, &ctx);
+        }
+    });
+
+    let (held, ctx, weak) = on(&state, context, window);
+    settings.on_editor_mode_set(move |index| {
+        ctx.state.apply(|settings| settings.files.editor_mode = if index == 1 { EditorMode::Raw } else { EditorMode::Resolved });
 
         if let Some(ui) = weak.upgrade() {
             refresh(&ui, &held, &ctx);
@@ -1079,6 +1088,7 @@ fn refresh(ui: &AppWindow, state: &Shared, context: &Rc<Context>) {
     settings.set_force_names(core.mods.force_name_fallbacks);
     settings.set_unlock_game(core.files.unlock_game_mount);
     settings.set_utf8_mode(if core.files.utf8_mode == Utf8Mode::Virtual { 1 } else { 0 });
+    settings.set_editor_mode(if core.files.editor_mode == EditorMode::Raw { 1 } else { 0 });
     settings.set_source_mode(if core.files.source_mode == UpdateMode::Prompt { 0 } else { 1 });
     settings.set_import_structure(if core.game_data.import_structure == ImportStructure::Flat { 1 } else { 0 });
     settings.set_ignore_modified(core.game_data.ignore_modified_app);

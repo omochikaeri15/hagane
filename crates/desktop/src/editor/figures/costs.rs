@@ -4,30 +4,36 @@ use iced::{Element, Length, Theme};
 
 use foundry::domains::settings::EditorMode;
 
+pub(crate) use foundry::systems::editor::figures::costs::*;
+
 use crate::app::theme;
 use crate::widget::smooth_scroll;
 
-use super::resolved::Rule;
 use super::schema::{COST_HEAD, COST_LEVELS};
 use super::{cards, Address, Draft, Frame, Marks, Message};
 
-const NOTICE: &str =
-    "Cost curves are shared by every unit\nDimmed IDs are ones this unit's talents never use";
-
 const NOTICE_SIZE: f32 = 11.0;
+
 const LABEL_SIZE: f32 = 12.0;
 
 const KEY_WIDTH: f32 = 34.0;
+
 const KEY_GAP: f32 = 4.0;
+
 const KEY_INSET: f32 = 3.0;
 
 const COLUMN_GAP: f32 = 6.0;
+
 const ROW_GAP: f32 = 2.0;
+
 const ROW_PADDING: f32 = 4.0;
+
 const HEAD_GAP: f32 = 6.0;
 
 const LEVEL_WIDTH: f32 = 68.0;
+
 const FIELD_WIDTH: f32 = 84.0;
+
 const TOTAL_WIDTH: f32 = 68.0;
 
 const HEADINGS: [(&str, f32); 3] =
@@ -95,10 +101,6 @@ fn curve_key<'a>(id: u32, current: bool, referenced: bool) -> Element<'a, Messag
         })
         .on_press(Message::Aimed(Address::Keyed(id)))
         .into()
-}
-
-fn references(used: Marks, id: u32) -> bool {
-    used.iter().any(|cost| u32::from(*cost) == id)
 }
 
 fn curve<'a>(draft: &'a Draft) -> Element<'a, Message> {
@@ -178,35 +180,4 @@ fn striped<'a>(content: Element<'a, Message>, index: usize) -> Element<'a, Messa
 
 fn centered<'a>(content: Element<'a, Message>) -> Element<'a, Message> {
     container(content).width(Length::Fill).center_x(Length::Fill).into()
-}
-
-fn unstored(draft: &Draft) -> Option<usize> {
-    (draft.stored() < draft.len()).then(|| draft.stored())
-}
-
-pub(super) fn rule(index: usize) -> Rule {
-    match index.checked_sub(COST_HEAD) {
-        None => Rule::Plain,
-        Some(level) if level < COST_LEVELS => Rule::Floor(0),
-        Some(_) => Rule::Opaque,
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::{rule, Rule, COST_HEAD, COST_LEVELS};
-
-    // codex parses each cost with u16::from_str and drops what fails, so a negative
-    // cost would not be stored as -1: it would vanish and shift every later level up one.
-    #[test]
-    fn every_level_refuses_a_cost_the_engine_would_drop() {
-        for index in COST_HEAD..COST_HEAD + COST_LEVELS {
-            assert_eq!(rule(index), Rule::Floor(0), "level column {index} must stay non-negative");
-        }
-    }
-
-    #[test]
-    fn a_column_past_the_tenth_level_is_flagged_rather_than_shown_as_a_cost() {
-        assert_eq!(rule(COST_HEAD + COST_LEVELS), Rule::Opaque);
-    }
 }

@@ -13,6 +13,8 @@ use foundry::domains::mods;
 use foundry::domains::settings::EditorMode;
 use foundry::Vfs;
 
+pub(crate) use foundry::systems::editor::treasure::*;
+
 use crate::app::theme;
 use crate::common::feedback::{Slot, CONFIRM_LABEL, FAILURE_LABEL};
 use crate::widget::{popup, smooth_scroll};
@@ -21,17 +23,6 @@ use super::{Mark, Reader};
 
 const SIZE: Size = Size::new(420.0, 500.0);
 const POPUP: popup::Spec = popup::Spec::new(popup::Kind::Treasure, SIZE);
-
-pub(super) const TITLE: &str = "Treasure Set";
-pub(super) const FOLDER: &str = "Treasures";
-
-pub(super) const ARCS: [(usize, &str); 5] = [
-    (0, "Empire of Cats"),
-    (4, "Into the Future"),
-    (7, "Cats of the Cosmos Ch. 1"),
-    (8, "Cats of the Cosmos Ch. 2"),
-    (9, "Cats of the Cosmos Ch. 3"),
-];
 
 const BODY_PADDING: f32 = 12.0;
 const GAP: f32 = 8.0;

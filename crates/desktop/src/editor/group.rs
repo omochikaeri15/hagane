@@ -22,10 +22,6 @@ use super::{Mark, Reader};
 const SIZE: Size = Size::new(420.0, 480.0);
 const POPUP: popup::Spec = popup::Spec::new(popup::Kind::Group, SIZE);
 
-pub(super) const TABLE: &str = "Charagroup.csv";
-pub(super) const TITLE: &str = "Unit Group";
-pub(super) const FOLDER: &str = "Unit Groups";
-
 const BODY_PADDING: f32 = 12.0;
 const GAP: f32 = 8.0;
 const CARD_GAP: f32 = 6.0;

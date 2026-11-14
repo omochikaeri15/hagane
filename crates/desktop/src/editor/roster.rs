@@ -12,6 +12,8 @@ use foundry::domains::mods;
 use foundry::domains::settings::EditorMode;
 use foundry::Vfs;
 
+pub(crate) use foundry::systems::editor::roster::*;
+
 use crate::app::theme;
 use crate::common::feedback::{Slot, CONFIRM_LABEL, CONFIRM_SHORT_LABEL, FAILURE_LABEL};
 use crate::widget::{popup, smooth_scroll};
@@ -20,38 +22,6 @@ use super::{Mark, Reader};
 
 const SIZE: Size = Size::new(420.0, 480.0);
 const POPUP: popup::Spec = popup::Spec::new(popup::Kind::Roster, SIZE);
-
-pub(super) const FOLDER: &str = "Gacha";
-pub(super) const SET_NAME: &str = "Set";
-
-pub(super) const CAPSULES: [(&str, &str); 3] = [("R", "Rare Capsules"), ("N", "Normal Capsules"), ("E", "Event Capsules")];
-pub(super) const TIERS: [Tier; 3] = [Tier::Units, Tier::Second, Tier::Third];
-
-pub(super) const PREFIX: &str = "GatyaDataSet";
-const EXTENSION: &str = "csv";
-const OPTIONS: &str = "GatyaData_Option_Set";
-const OPTIONS_EXTENSION: &str = "tsv";
-
-pub(super) const CHANCE_TABLE: &str = "GatyaData_Option_ChanceAnimation.tsv";
-pub(super) const CHANCE_NAME: &str = "Rule";
-pub(super) const CHANCE_FOLDER: &str = "Chance Animations";
-const ANY_SERIES: &str = "Any Series";
-const SERIES_LABEL: &str = "Series";
-
-pub(super) fn chance_name(capsule: Option<i64>, series: Option<i64>) -> Option<String> {
-    let heading = CAPSULES.get(usize::try_from(capsule?).ok()?).map(|(_, heading)| *heading)?;
-
-    let series = match series? {
-        -1 => ANY_SERIES.to_owned(),
-        held => format!("{SERIES_LABEL} {held}"),
-    };
-
-    Some(format!("{heading}, {series}"))
-}
-
-pub(super) fn options_file(capsule: &str) -> String {
-    format!("{OPTIONS}{capsule}.{OPTIONS_EXTENSION}")
-}
 
 const BODY_PADDING: f32 = 12.0;
 const GAP: f32 = 8.0;
@@ -74,8 +44,6 @@ const SYNC_LABEL: &str = "Sync With \"game\"";
 const MISSING_LABEL: &str = "This set is no longer in the file";
 const RAW_LABEL: &str = "Entries";
 const RAW_NOTE: &str = "Comma-separated, in the order the file holds them\nThe closing -1 is kept for you";
-const UNITS_NOTE: &str = "The cats this capsule set can roll";
-const ENTRIES_NOTE: &str = "The game reads this list for the set, but nothing it rolls is known to come from it";
 const EMPTY_UNITS: &str = "Nothing in this list";
 const ADD_LABEL: &str = "Add";
 const ADD_HINT: &str = "ID";
@@ -85,46 +53,6 @@ const ENTRY_LABEL: &str = "Entry";
 const LIST_JOINT: &str = ", ";
 const DELIMITER: char = ',';
 const END: &str = "-1";
-
-#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
-pub(crate) enum Tier {
-    Units,
-    Second,
-    Third,
-}
-
-impl Tier {
-    pub(super) fn title(self) -> &'static str {
-        match self {
-            Tier::Units => "Unit Roster",
-            Tier::Second => "Second Roster",
-            Tier::Third => "Third Roster",
-        }
-    }
-
-    fn number(self) -> usize {
-        match self {
-            Tier::Units => 1,
-            Tier::Second => 2,
-            Tier::Third => 3,
-        }
-    }
-
-    pub(super) fn file(self, capsule: &str) -> String {
-        format!("{PREFIX}{capsule}{}.{EXTENSION}", self.number())
-    }
-
-    fn unique(self) -> bool {
-        self == Tier::Units
-    }
-
-    fn note(self) -> &'static str {
-        match self {
-            Tier::Units => UNITS_NOTE,
-            Tier::Second | Tier::Third => ENTRIES_NOTE,
-        }
-    }
-}
 
 #[derive(Clone, PartialEq)]
 pub(crate) struct Plan {

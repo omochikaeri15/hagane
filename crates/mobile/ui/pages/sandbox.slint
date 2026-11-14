@@ -1,7 +1,7 @@
 import { ListView, ScrollView } from "std-widgets.slint";
 import { Theme } from "../theme.slint";
 import { SwipeGuard, Tap } from "../shell.slint";
-import { Btn, Tone, Input, Combo, Toggle, Label, Dialog, Rule, Progress, OutlinedCard, Card, Panel, Status, Slider, Tip } from "../widgets/basics.slint";
+import { Arrow, Btn, Tone, Input, Combo, Toggle, Label, Dialog, Rule, Progress, OutlinedCard, Card, Panel, Status, Slider, Tip } from "../widgets/basics.slint";
 import { HeaderToggle, RosterRow, OrbSlot, OrbPicture, Line, Lines } from "../widgets/detail.slint";
 import { Drawer, EdgeGrab } from "../widgets/drawer.slint";
 import { Shell } from "../shell.slint";
@@ -983,7 +983,7 @@ export component ReplayShelf inherits Rectangle {
                 padding-left: 6px + row.depth * 24px;
                 padding-right: 6px;
                 spacing: 2px;
-                if row.folder: Text { text: row.expanded ? "\u{25be}" : "\u{25b8}"; color: row.selected ? Theme.white : Theme.text; font-family: "Miscellaneous-Symbols"; font-size: 12px; width: 14px; vertical-alignment: center; }
+                if row.folder: Arrow { open: row.expanded; tint: row.selected ? Theme.white : Theme.text; }
                 Text { text: row.label; color: row.selected ? Theme.white : Theme.text; font-size: 13px; vertical-alignment: center; horizontal-stretch: 1; overflow: elide; }
             }
         }

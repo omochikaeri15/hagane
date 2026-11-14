@@ -47,6 +47,7 @@ export global Settings {
     in property <bool> force-names;
     in property <bool> unlock-game;
     in property <int> utf8-mode;
+    in property <int> editor-mode;
     in property <int> import-structure;
     in property <bool> ignore-modified;
     in property <int> frame-count;
@@ -122,6 +123,7 @@ export global Settings {
     callback toggle-force-names(bool);
     callback toggle-unlock-game(bool);
     callback utf8-mode-set(int);
+    callback editor-mode-set(int);
     callback structure-set(int);
     callback toggle-ignore-modified(bool);
     callback frame-count-set(int);
@@ -492,6 +494,7 @@ export component SettingsPage inherits Rectangle {
                     }
                     Section {
                         title: "Editor";
+                        Row { label: "Editor Mode"; Combo { width: 120px; height: 30px; text-size: 13px; options: ["Resolved", "Raw"]; current: Settings.editor-mode; selected(index) => { Settings.editor-mode-set(index); } } }
                         Toggle { value: Settings.unlock-game; label: "Unlock \"game\" Mount"; changed(value) => { Settings.toggle-unlock-game(value); } }
                     }
                 }

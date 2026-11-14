@@ -1,87 +1,34 @@
 mod values;
 
 use std::cell::RefCell;
-use std::fmt;
 use std::sync::LazyLock;
 
 use iced::alignment::{Horizontal, Vertical};
 use iced::widget::image::Handle;
 use iced::widget::{button, column, container, image as iced_image, scrollable, text, tooltip, Column, Row};
 use iced::{Element, Font, Length, Theme};
-use codex::combat::{get_ability, get_talent, targets_traits, Faction, Identity};
+use codex::combat::{get_ability, Faction, Identity};
 use rustc_hash::FxHashMap;
 
 use foundry::common::gfx::autocrop;
 use foundry::systems::combat::NameBook;
 use foundry::domains::settings::EditorMode;
-use foundry::systems::combat::registry::get_display_def;
 use foundry::{Vault, Vfs};
+
+pub(crate) use foundry::systems::editor::figures::talents::*;
 
 use crate::app::theme;
 use crate::common::glyphs::Ruler;
 use crate::widget::smooth_scroll;
 
-use super::resolved::{Rule, PERCENT_CEILING};
-use super::schema::{slot_of, TALENT_HEAD, TALENT_SLOTS, TALENT_STRIDE};
+use super::schema::{TALENT_HEAD, TALENT_SLOTS, TALENT_STRIDE};
 use super::{cards, Draft, Frame, Message, GLYPH_RATIO};
-use values::{Unit, Value};
-
-const ABILITY: usize = 0;
-const MAX_LEVEL: usize = 1;
-const VALUES: usize = 4;
-const MIN_1: usize = 2;
-const TEXT_ID: usize = 10;
-const COST_ID: usize = 11;
-const NAME_ID: usize = 12;
-const LIMIT: usize = 13;
-
-const TYPE_ID: usize = 1;
-
-const TRAITS: [Identity; 12] = [
-    Identity::TraitRed,
-    Identity::TraitFloating,
-    Identity::TraitDark,
-    Identity::TraitMetal,
-    Identity::TraitAngel,
-    Identity::TraitAlien,
-    Identity::TraitZombie,
-    Identity::TraitRelic,
-    Identity::TraitTraitless,
-    Identity::TraitWitch,
-    Identity::TraitEva,
-    Identity::TraitAku,
-];
+use values::Value;
 
 struct Heading {
     label: &'static str,
     content: f32,
 }
-
-const HEADINGS: [Heading; 6 + VALUES * 2] = [
-    Heading { label: "Ability", content: 100.0 },
-    Heading { label: "Image", content: 52.0 },
-    Heading { label: "Text ID", content: 48.0 },
-    Heading { label: "Cost", content: 48.0 },
-    Heading { label: "Ultra", content: 48.0 },
-    Heading { label: "Total Levels", content: 48.0 },
-    Heading { label: "Min Val 1", content: 40.0 },
-    Heading { label: "Max Val 1", content: 40.0 },
-    Heading { label: "Min Val 2", content: 40.0 },
-    Heading { label: "Max Val 2", content: 40.0 },
-    Heading { label: "Min Val 3", content: 40.0 },
-    Heading { label: "Max Val 3", content: 40.0 },
-    Heading { label: "Min Val 4", content: 40.0 },
-    Heading { label: "Max Val 4", content: 40.0 },
-];
-
-const ULTRA: i32 = 1;
-
-const RANGE_STEP: i32 = 4;
-const MONEY_NUMERATOR: i32 = 3;
-const MONEY_DENOMINATOR: i32 = 2;
-
-const HEADER_LINES: usize = 3;
-const ABILITY_COLUMN: usize = 0;
 
 static FLOOR: LazyLock<[f32; HEADINGS.len()]> = LazyLock::new(|| {
     HEADINGS.map(|heading| heading.content.max(wrapped(heading.label)))
@@ -109,42 +56,53 @@ fn wrapped(label: &str) -> f32 {
     widest as f32 * LABEL_SIZE * GLYPH_RATIO
 }
 
-fn split(words: &[usize], lines: usize) -> usize {
-    let per_line = words.len().div_ceil(lines);
-
-    words
-        .chunks(per_line)
-        .map(|chunk| chunk.iter().sum::<usize>() + chunk.len().saturating_sub(1))
-        .max()
-        .unwrap_or_default()
-}
-
 const COLUMN_GAP: f32 = 6.0;
+
 const ROW_GAP: f32 = 2.0;
+
 const SCROLLBAR_WIDTH: f32 = 6.0;
+
 const SCROLLBAR_SPACING: f32 = 2.0;
+
 const LABEL_SLACK: f32 = 1.0;
+
 const ROW_PADDING: f32 = 4.0;
+
+const HEADINGS: [Heading; 6 + VALUES * 2] = [
+    Heading { label: "Ability", content: 100.0 },
+    Heading { label: "Image", content: 52.0 },
+    Heading { label: "Text ID", content: 48.0 },
+    Heading { label: "Cost", content: 48.0 },
+    Heading { label: "Ultra", content: 48.0 },
+    Heading { label: "Total Levels", content: 48.0 },
+    Heading { label: "Min Val 1", content: 40.0 },
+    Heading { label: "Max Val 1", content: 40.0 },
+    Heading { label: "Min Val 2", content: 40.0 },
+    Heading { label: "Max Val 2", content: 40.0 },
+    Heading { label: "Min Val 3", content: 40.0 },
+    Heading { label: "Max Val 3", content: 40.0 },
+    Heading { label: "Min Val 4", content: 40.0 },
+    Heading { label: "Max Val 4", content: 40.0 },
+];
+
 #[cfg(test)]
 const FRAME_BORDER: f32 = 6.0;
 
 const LABEL_SIZE: f32 = 12.0;
+
 const NOTICE_SIZE: f32 = 11.0;
+
 const PREVIEW_HEIGHT: f32 = 15.0;
 
 const TRAIT_WIDTH: f32 = 74.0;
-const TRAIT_SIZE: f32 = 11.0;
-const TRAIT_INSET: f32 = 3.0;
-const HINT_PADDING: f32 = 6.0;
-const TILE_WIDTH: f32 = 92.0;
-const CHOOSER_COLUMNS: usize = 7;
 
-const SEARCH_PLACEHOLDER: &str = "Search fields";
-const IDLE_TYPE_ID: &str = "No Talents utilize Type ID";
-const NO_IMAGE: &str = "None";
-const IMAGE_HUNT: &str = "Search ID...";
-const WORDING_HUNT: &str = "Search ID or Content...";
-const TYPE_ID_TITLE: &str = "Type ID";
+const TRAIT_SIZE: f32 = 11.0;
+
+const TRAIT_INSET: f32 = 3.0;
+
+const HINT_PADDING: f32 = 6.0;
+
+const TILE_WIDTH: f32 = 92.0;
 
 #[cfg(test)]
 fn columns() -> f32 {
@@ -375,10 +333,6 @@ fn explained<'a>(field: Element<'a, Message>, meaning: Option<Value>) -> Element
     tooltip(field, bubble, tooltip::Position::Top).into()
 }
 
-fn offset(index: usize) -> usize {
-    index.saturating_sub(TALENT_HEAD) % TALENT_STRIDE
-}
-
 fn drills<'a>(label: String, index: usize) -> Element<'a, Message> {
     button(theme::centered_text(label).size(TRAIT_SIZE).width(Length::Fill).wrapping(text::Wrapping::None))
         .width(Length::Fill)
@@ -438,10 +392,6 @@ fn back<'a>() -> Element<'a, Message> {
     .into()
 }
 
-fn image_id(named: i32, ability: i32) -> i32 {
-    if named > 0 { named } else { ability }
-}
-
 fn traits<'a>(draft: &'a Draft, glossary: &'a NameBook) -> Element<'a, Message> {
     let mask = draft.reads_at(TYPE_ID).unwrap_or_default();
     let live = arming(draft);
@@ -489,99 +439,6 @@ fn trait_button<'a>(bit: usize, name: &'a str, mask: i32, live: bool) -> Element
     }
 
     control.into()
-}
-
-fn arming(draft: &Draft) -> bool {
-    (0..TALENT_SLOTS).any(|slot| {
-        draft
-            .reads_at(TALENT_HEAD + slot * TALENT_STRIDE + ABILITY)
-            .and_then(|id| u8::try_from(id).ok())
-            .is_some_and(targets_traits)
-    })
-}
-
-fn spare(draft: &Draft) -> Option<usize> {
-    let used = filled(draft);
-
-    (used < TALENT_SLOTS).then(|| TALENT_HEAD + used * TALENT_STRIDE)
-}
-
-fn dim_from(spare: Option<usize>, shown: &[usize]) -> Option<usize> {
-    let first = spare?;
-
-    shown.contains(&first).then_some(first)
-}
-
-fn filled(draft: &Draft) -> usize {
-    (0..TALENT_SLOTS)
-        .take_while(|slot| draft.reads_at(TALENT_HEAD + slot * TALENT_STRIDE) != Some(0))
-        .count()
-}
-
-#[derive(Clone, PartialEq, Eq)]
-pub(super) struct Skill {
-    id: i32,
-    name: Option<String>,
-}
-
-impl Skill {
-    fn of(id: i32, glossary: &NameBook) -> Skill {
-        catalog(glossary).into_iter().find(|skill| skill.id == id).unwrap_or(Skill { id, name: None })
-    }
-}
-
-impl fmt::Display for Skill {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match &self.name {
-            Some(name) => formatter.write_str(name),
-            None => write!(formatter, "{}", self.id),
-        }
-    }
-}
-
-static CATALOG: LazyLock<Vec<Skill>> = LazyLock::new(|| {
-    let mut listed = vec![Skill { id: 0, name: Some("None".to_owned()) }];
-
-    listed.extend((1..=u8::MAX).filter_map(|id| {
-        let ability = get_talent(id)?;
-        let name = get_display_def(ability.identity).name;
-
-        Some(Skill { id: i32::from(id), name: (!name.is_empty()).then(|| name.to_owned()) })
-    }));
-
-    listed
-});
-
-fn catalog(glossary: &NameBook) -> Vec<Skill> {
-    CATALOG
-        .iter()
-        .map(|skill| {
-            let named = u8::try_from(skill.id).ok().filter(|id| *id > 0).and_then(|id| {
-                glossary.talent(id).map(str::to_owned).or_else(|| get_talent(id).map(|ability| glossary.ability(ability.identity, Faction::Cat).to_owned()))
-            });
-
-            Skill { id: skill.id, name: named.or_else(|| skill.name.clone()) }
-        })
-        .collect()
-}
-
-#[derive(Clone, Copy, PartialEq, Eq)]
-pub(super) struct Named(i32);
-
-impl Named {
-    fn matches(self, wanted: &str) -> bool {
-        wanted.is_empty() || self.to_string().to_lowercase().contains(&wanted.to_lowercase())
-    }
-}
-
-impl fmt::Display for Named {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        if self.0 < 0 {
-            return formatter.write_str(NO_IMAGE);
-        }
-
-        write!(formatter, "{}", self.0)
-    }
 }
 
 #[derive(Default)]
@@ -683,65 +540,6 @@ fn load(vfs: &Vfs, id: i32) -> Option<Handle> {
     let cropped = autocrop(decoded.to_rgba8());
 
     Some(Handle::from_rgba(cropped.width(), cropped.height(), cropped.into_raw()))
-}
-
-fn available(vfs: &Vfs) -> Vec<i32> {
-    let mut found: Vec<i32> = vfs
-        .glob("Skill_name_")
-        .into_iter()
-        .filter_map(|name| {
-            let digits: String =
-                name.strip_prefix("Skill_name_")?.chars().take_while(char::is_ascii_digit).collect();
-
-            (digits.len() == 3).then(|| digits.parse().ok())?
-        })
-        .collect();
-
-    found.sort_unstable();
-    found.dedup();
-
-    found
-}
-
-pub(super) fn rule(index: usize, cells: &[i32]) -> Rule {
-    if slot_of(index).is_none() {
-        return Rule::Plain;
-    }
-
-    if offset(index) == NAME_ID {
-        return Rule::Floor(-1);
-    }
-
-    meaning(index, cells).map_or(Rule::Plain, |value| shape(value.unit()))
-}
-
-fn shape(unit: Unit) -> Rule {
-    match unit {
-        Unit::Percent => Rule::Percent,
-        Unit::Inverted => Rule::Inverted(PERCENT_CEILING),
-        Unit::Range => Rule::Ratio(1, RANGE_STEP),
-        Unit::Money => Rule::Ratio(MONEY_NUMERATOR, MONEY_DENOMINATOR),
-        Unit::Multiplier | Unit::Frames | Unit::Count => Rule::Plain,
-    }
-}
-
-fn meaning(index: usize, cells: &[i32]) -> Option<Value> {
-    let slot = slot_of(index)?;
-    let pair =
-        offset(index).checked_sub(MIN_1).map(|span| span / 2).filter(|pair| *pair < VALUES)?;
-    let ability = cells.get(TALENT_HEAD + slot * TALENT_STRIDE).copied().unwrap_or_default();
-
-    values::value(ability, pair)
-}
-
-pub(super) fn mirror(index: usize, cells: &[i32]) -> Option<usize> {
-    if !meaning(index, cells)?.is_fixed() {
-        return None;
-    }
-
-    let least = offset(index).saturating_sub(MIN_1).is_multiple_of(2);
-
-    Some(if least { index + 1 } else { index - 1 })
 }
 
 #[cfg(test)]

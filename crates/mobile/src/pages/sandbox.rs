@@ -9,6 +9,7 @@ mod state;
 use std::cell::RefCell;
 use std::collections::HashSet;
 use std::rc::Rc;
+use std::sync::Arc;
 use std::time::Duration;
 
 use slint::{ComponentHandle, Timer, TimerMode, VecModel};
@@ -59,8 +60,8 @@ pub struct Staging {
 
 pub struct State {
     pub store: Store,
-    pub cats: Option<Rc<Vec<CatEntry>>>,
-    pub bundle: Option<Rc<StageBundle>>,
+    pub cats: Option<Arc<Vec<CatEntry>>>,
+    pub bundle: Option<Arc<StageBundle>>,
     pub book: Option<Rc<Book>>,
     pub parts: Option<Rc<Parts>>,
     pub roster: Rc<Roster>,
@@ -438,10 +439,10 @@ fn sync(ui: &AppWindow, state: &Shared, context: &Rc<Context>) {
     let stages = context.catalogs.stages();
 
     if let Load::Ready(found) = &cats {
-        let fresh = state.borrow().cats.as_ref().is_none_or(|held| !Rc::ptr_eq(held, found));
+        let fresh = state.borrow().cats.as_ref().is_none_or(|held| !Arc::ptr_eq(held, found));
 
         if fresh {
-            state.borrow_mut().cats = Some(Rc::clone(found));
+            state.borrow_mut().cats = Some(Arc::clone(found));
 
             let forms = found.iter().map(|cat| (cat.id, cat.forms)).collect();
             let moved = {
@@ -461,10 +462,10 @@ fn sync(ui: &AppWindow, state: &Shared, context: &Rc<Context>) {
     }
 
     if let Load::Ready(bundle) = &stages {
-        let fresh = state.borrow().bundle.as_ref().is_none_or(|held| !Rc::ptr_eq(held, bundle));
+        let fresh = state.borrow().bundle.as_ref().is_none_or(|held| !Arc::ptr_eq(held, bundle));
 
         if fresh {
-            state.borrow_mut().bundle = Some(Rc::clone(bundle));
+            state.borrow_mut().bundle = Some(Arc::clone(bundle));
         }
     }
 

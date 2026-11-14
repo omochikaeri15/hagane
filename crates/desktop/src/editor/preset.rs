@@ -24,9 +24,6 @@ use super::{Mark, Reader, UPGRADE_NAMES, UPGRADE_TABLE};
 const SIZE: Size = Size::new(460.0, 560.0);
 const POPUP: popup::Spec = popup::Spec::new(popup::Kind::Preset, SIZE);
 
-pub(super) const TITLE: &str = "Fixed Lineup";
-pub(super) const FOLDER: &str = "Lineup Presets";
-
 const BODY_PADDING: f32 = 12.0;
 const GAP: f32 = 8.0;
 const CARD_GAP: f32 = 6.0;
@@ -47,7 +44,6 @@ const SCROLL_GAP: f32 = 12.0;
 const FRAME_GAP: f32 = 3.0;
 const FRAME_INSET: f32 = theme::CARD_BORDER_WIDTH + FRAME_GAP;
 const LINE_ROW: f32 = 30.0;
-
 
 const SYNC_LABEL: &str = "Sync With \"game\"";
 const SEARCH_HINT: &str = "Search Field...";
@@ -95,7 +91,6 @@ const COUNT: &str = "count";
 const NONE: &str = "none";
 
 const FORMS: [&str; 4] = ["Normal", "Evolved", "True", "Ultra"];
-
 
 const CHAPTERS: [(&str, &str); 9] = [
     ("0", "EoC Ch. 1"),

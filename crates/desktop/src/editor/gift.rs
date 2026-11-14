@@ -12,6 +12,8 @@ use foundry::domains::mods;
 use foundry::domains::settings::EditorMode;
 use foundry::Vfs;
 
+pub(crate) use foundry::systems::editor::gift::*;
+
 use crate::app::theme;
 use crate::common::feedback::{Slot, CONFIRM_LABEL, CONFIRM_SHORT_LABEL, FAILURE_LABEL};
 use crate::widget::{popup, smooth_scroll};
@@ -20,11 +22,6 @@ use super::{Mark, Reader};
 
 const SIZE: Size = Size::new(420.0, 460.0);
 const POPUP: popup::Spec = popup::Spec::new(popup::Kind::Gift, SIZE);
-
-pub(super) const TABLE: &str = "rankGift.csv";
-pub(super) const TITLE: &str = "Rank Reward";
-pub(super) const FOLDER: &str = "Rank Rewards";
-pub(super) const NOUN: &str = "Rank";
 
 const BODY_PADDING: f32 = 12.0;
 const GAP: f32 = 8.0;
@@ -53,8 +50,6 @@ const QUANTITY_LABEL: &str = "Qty";
 const FULL_NOTE: &str = "A rank can hold up to 10 rewards";
 const LIST_JOINT: &str = ", ";
 
-const DELIMITER: char = ',';
-const TERMINATOR: i64 = -1;
 const MAX_REWARDS: usize = 10;
 const NEW_ITEM: i64 = 0;
 const NEW_QUANTITY: i64 = 1;
@@ -102,17 +97,6 @@ fn keyed(line: &str) -> Option<u32> {
 
 fn entry(body: &str, rank: u32) -> Option<String> {
     body.lines().find(|line| keyed(line) == Some(rank)).map(str::to_owned)
-}
-
-pub(super) fn rewards(line: &str) -> Vec<(i64, i64)> {
-    let cells: Vec<i64> = line
-        .split(DELIMITER)
-        .skip(1)
-        .map(|cell| cell.trim().parse::<i64>().unwrap_or(0))
-        .take_while(|cell| *cell != TERMINATOR)
-        .collect();
-
-    cells.as_chunks::<2>().0.iter().map(|[item, quantity]| (*item, *quantity)).collect()
 }
 
 fn render(rank: u32, rewards: &[(i64, i64)]) -> String {

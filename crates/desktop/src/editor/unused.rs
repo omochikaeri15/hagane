@@ -3,6 +3,8 @@ use iced::{Element, Length, Size, Task};
 
 use emulator::runtime::VERSION;
 
+pub(crate) use foundry::systems::editor::unused::*;
+
 use crate::app::theme;
 use crate::widget::popup;
 
@@ -11,24 +13,8 @@ use super::Mark;
 const SIZE: Size = Size::new(420.0, 180.0);
 const POPUP: popup::Spec = popup::Spec::new(popup::Kind::Unused, SIZE);
 
-pub(super) const TITLE: &str = "Unused File";
-pub(super) const FOLDER: &str = "Unused";
-pub(super) const FILES: [(&str, Fate); 4] = [
-    ("AbilityLimit.csv", Fate::Unread),
-    ("point_condition.csv", Fate::Unread),
-    ("rewardStage.csv", Fate::Unheeded),
-    ("equipment_filter.tsv", Fate::Unheeded),
-];
-pub(super) const FAMILIES: [(&str, &str, &str); 1] = [("gatyachara_", "_z.png", "Black Gacha Images")];
-
 const NOTICE_SIZE: f32 = 14.0;
 const BODY_PADDING: f32 = 12.0;
-
-#[derive(Clone, Copy, PartialEq, Eq)]
-pub(super) enum Fate {
-    Unread,
-    Unheeded,
-}
 
 #[derive(Clone, PartialEq)]
 pub(crate) struct Plan {

@@ -39,6 +39,7 @@ pub struct Pages {
     pub stages: stages::Shared,
     pub sandbox: sandbox::Shared,
     pub settings: settings::Shared,
+    pub mods: mods::Shared,
 }
 
 pub struct Context {
@@ -173,6 +174,24 @@ impl Context {
         self.landed(ui);
     }
 
+    pub fn changed(&self, ui: &AppWindow, name: &str) {
+        let vault = self.engine.vault();
+
+        vault.vfs.evict(name);
+
+        let evicted = vault.vds.evict(name);
+        let config = self.state.settings().scanner_config(self.engine.mounted());
+
+        self.engine.shared().uncache();
+        self.images.forget_all();
+        self.catalogs.refresh(ui, &self.engine, config, evicted);
+        self.retreasure(ui);
+
+        if let Some(pages) = self.pages() {
+            mods::touched(ui, &pages.mods);
+        }
+    }
+
     pub fn retreasure(&self, ui: &AppWindow) {
         let Some(ticket) = *self.soft.borrow() else {
             return;
@@ -193,7 +212,7 @@ impl Context {
 
         if let Some(pages) = self.pages() {
             if page != Page::Files {
-                files::leave(&pages.files, self);
+                files::leave(ui, &pages.files, self);
             }
 
             if page != Page::Utilities {
@@ -225,6 +244,11 @@ impl Context {
                 }
             }
             Page::Stages => self.catalogs.load_stages(ui, &self.engine, config),
+            Page::Mods => {
+                if let Some(pages) = self.pages() {
+                    mods::entered(ui, &pages.mods, self);
+                }
+            }
             Page::Files => {
                 if let Some(pages) = self.pages() {
                     files::sync(ui, &pages.files, self);
@@ -280,11 +304,11 @@ pub fn wire(window: &AppWindow, context: &Rc<Context>) {
     let stages = stages::wire(window, context);
     let sandbox = sandbox::wire(window, context);
 
-    mods::wire(window, context);
+    let mods = mods::wire(window, context);
     import::wire(window, context);
     help::wire(window, context);
     let settings = settings::wire(window, context);
     picker::wire(window, context);
     update::wire(window, context);
-    *context.pages.borrow_mut() = Some(Rc::new(Pages { cats, enemies, files, utilities, stages, sandbox, settings }));
+    *context.pages.borrow_mut() = Some(Rc::new(Pages { cats, enemies, files, utilities, stages, sandbox, settings, mods }));
 }

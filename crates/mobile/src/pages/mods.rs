@@ -1,3 +1,6 @@
+mod finder;
+mod form;
+
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -49,9 +52,23 @@ pub struct State {
     metadata_path: Option<PathBuf>,
     jobs: Option<bridge::Ticket>,
     mounted: Option<bridge::Ticket>,
+    finder: Option<finder::Shared>,
+    form: Option<form::Shared>,
 }
 
 pub type Shared = Rc<RefCell<State>>;
+
+pub fn touched(ui: &AppWindow, state: &Shared) {
+    if let Some(rows) = &state.borrow().finder {
+        finder::touched(ui, rows);
+    }
+}
+
+pub fn entered(ui: &AppWindow, state: &Shared, context: &Rc<Context>) {
+    if let Some(rows) = &state.borrow().finder {
+        finder::sync(ui, rows, context);
+    }
+}
 
 fn job_finished(result: Result<(), String>) -> JobEvent {
     JobEvent::Finished(result.map_or_else(JobOutcome::Failed, |()| JobOutcome::Completed))
@@ -99,6 +116,8 @@ impl State {
             metadata_path: None,
             jobs: None,
             mounted: None,
+            finder: None,
+            form: None,
         }
     }
 
@@ -235,6 +254,23 @@ pub fn wire(window: &AppWindow, context: &Rc<Context>) -> Shared {
     mods.on_toggle(move || {
         if let Some(ui) = weak.upgrade() {
             toggle(&ui, &held, &ctx);
+        }
+    });
+
+    let forms = form::wire(window, context);
+    let rows = finder::wire(window, context, &forms);
+
+    {
+        let mut inner = state.borrow_mut();
+
+        inner.finder = Some(Rc::clone(&rows));
+        inner.form = Some(forms);
+    }
+
+    let (ctx, weak) = (Rc::clone(context), window.as_weak());
+    mods.on_open_edit(move || {
+        if let Some(ui) = weak.upgrade() {
+            finder::open(&ui, &rows, &ctx);
         }
     });
 
@@ -485,6 +521,7 @@ fn refresh(ui: &AppWindow, state: &Shared, context: &Rc<Context>) {
             mods.set_title(held.data.rename_buffer.as_str().into());
             mods.set_enabled(entry.enabled);
             mods.set_can_delete(!entry.enabled);
+            mods.set_can_edit(entry.enabled && !held.mounting);
             mods.set_author(entry.metadata.author.as_str().into());
             mods.set_version(entry.metadata.version.as_str().into());
             mods.set_package(entry.metadata.package.as_str().into());
@@ -493,6 +530,17 @@ fn refresh(ui: &AppWindow, state: &Shared, context: &Rc<Context>) {
         None => {
             mods.set_selected(false);
             mods.set_can_delete(false);
+            mods.set_can_edit(false);
+        }
+    }
+
+    if !mods.get_can_edit() {
+        if let Some(rows) = &held.finder {
+            finder::shut(ui, rows);
+        }
+
+        if let Some(forms) = &held.form {
+            form::shut(ui, forms, context);
         }
     }
 

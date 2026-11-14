@@ -20,7 +20,7 @@ path = "src/main.rs"
 ab_glyph = "0.2.32"
 codex = { workspace = true, features = ["graphics", "pack"] }
 emulator = { path = "../emulator" }
-foundry = { path = "../foundry", default-features = false, features = ["disk", "source", "import", "mods", "export", "statblock", "sandbox"] }
+foundry = { path = "../foundry", default-features = false, features = ["disk", "source", "import", "mods", "export", "statblock", "sandbox", "editor"] }
 slint = { version = "1.18", default-features = false, features = ["std", "compat-1-2", "backend-winit", "renderer-femtovg", "backend-android-activity-06"] }
 image = { version = "0.25.10", default-features = false, features = ["png", "rayon"] }
 rayon = "1.12"

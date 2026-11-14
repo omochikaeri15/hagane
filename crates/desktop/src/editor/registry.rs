@@ -2,10 +2,12 @@ use std::borrow::Cow;
 use std::path::Path;
 
 use foundry::common::architecture;
-use foundry::common::io::APP_LANGUAGES;
 use foundry::domains::settings::EditorMode;
+use foundry::systems::editor::plans::{cat_plan, enemy_plan, level_plan, mount, plans, Mount};
 
-use crate::app::{theme, Page};
+pub(crate) use foundry::systems::editor::registry::*;
+
+use crate::app::Page;
 use crate::common::feedback::LOCKED_NOTICE;
 
 use foundry::systems::animation::authoring;
@@ -87,20 +89,6 @@ fn manage(subject: &str, mount: &Mount<'_>) -> String {
 }
 
 #[derive(Clone, Copy)]
-struct Mount<'a> {
-    name: &'a str,
-    target: Option<&'a str>,
-    locked: bool,
-}
-
-fn mount<'a>(active_mod: Option<&'a str>, unlocked: bool) -> Mount<'a> {
-    match active_mod {
-        Some(name) => Mount { name, target: Some(name), locked: false },
-        None => Mount { name: architecture::GAME, target: None, locked: !unlocked },
-    }
-}
-
-#[derive(Clone, Copy)]
 enum Confirm {
     Never,
     Overwrite,
@@ -127,7 +115,11 @@ enum Labeling {
     Named,
 }
 
-impl Mount<'_> {
+trait Offered {
+    fn item(&self, label: String, action: Action, confirm: Confirm) -> Item;
+}
+
+impl Offered for Mount<'_> {
     fn item(&self, label: String, action: Action, confirm: Confirm) -> Item {
         if self.locked {
             return Item::disabled(label, LOCKED_NOTICE);
@@ -787,78 +779,8 @@ fn delete(scope: &Scope<'_>, name: &str, mount: &Mount<'_>, labeling: Labeling) 
     Item::new(label, Action::Delete { source: path.to_path_buf() }).confirming()
 }
 
-pub(super) fn prose_plans(target: &ProseTarget) -> Vec<prose::Plan> {
-    let mount = mount(target.active_mod.as_deref(), target.unlocked);
-
-    plans(target, &target.asset.scopes(mount.target.is_some()), mount.target).into_iter().flatten().collect()
-}
-
-fn plans(target: &ProseTarget, scopes: &[Scope<'_>], target_mod: Option<&str>) -> Vec<Option<prose::Plan>> {
-    scopes
-        .iter()
-        .map(|scope| {
-            let source = scope.source.or(scope.present)?;
-
-            let made = prose::plan(
-                target.subject,
-                target.row,
-                [target.label.as_str(), scope.name].join(theme::HEADER_SEPARATOR),
-                scope.name.to_owned(),
-                source,
-                target_mod.map(str::to_owned),
-            );
-
-            let made = match target.keyed {
-                Some(keyed) => made.keyed(keyed),
-                None => made,
-            };
-
-            let made = match target.cell {
-                Some(cell) => made.at(cell),
-                None => made,
-            };
-
-            let made = made.sourced().aiming(target.aim);
-
-            prose::seated(&made).then(|| made.over(target.rows.clone()))
-        })
-        .collect()
-}
-
-pub(super) fn language(name: &str) -> Option<&'static str> {
-    let stem = Path::new(name).file_stem()?.to_str()?;
-    let (_, code) = stem.rsplit_once('_')?;
-
-    APP_LANGUAGES.iter().find(|(known, _)| *known == code).map(|(_, label)| *label)
-}
-
 fn present<'a>(mount: &Mount<'_>, mod_copy: Option<&'a Path>, game: Option<&'a Path>) -> Option<&'a Path> {
     if mount.target.is_some() { mod_copy } else { game }
-}
-
-pub(super) fn cat_plan(cat: &CatTarget, target_mod: Option<String>, values: EditorMode) -> figures::Plan {
-    figures::plan(figures::Subject::Cat, figures::Address::Line(cat.form), cat.title(), &cat.source, target_mod, values)
-}
-
-pub(super) fn enemy_plan(enemy: &EnemyTarget, target_mod: Option<String>, values: EditorMode) -> figures::Plan {
-    figures::plan(figures::Subject::Enemy, figures::Address::Line(enemy.row), enemy.title(), &enemy.source, target_mod, values)
-}
-
-pub(super) fn level_plan(
-    level: &LevelTarget,
-    scope: &Scope<'_>,
-    target_mod: Option<String>,
-    values: EditorMode,
-) -> Option<figures::Plan> {
-    let source = scope.source.or(scope.present)?;
-
-    let made = figures::plan(level.subject, level.address, level.label.clone(), source, target_mod, values);
-    let made = made.anchored(level.anchor);
-
-    Some(match level.columns.is_empty() {
-        true => made,
-        false => made.named(level.columns.clone()),
-    })
 }
 
 fn files(items: &mut Vec<Item>, file: &FileTarget) {

@@ -9,6 +9,7 @@ use foundry::domains::cat::scanner::{self as cat_scanner, CatEntry};
 use foundry::domains::enemy::scanner::{self as enemy_scanner, EnemyEntry};
 use foundry::domains::settings::ScannerConfig;
 use foundry::domains::stage::scanner::{self as stage_scanner, StageBundle};
+use foundry::Evicted;
 
 use crate::AppWindow;
 use crate::bridge::{self, Ticket};
@@ -20,13 +21,13 @@ pub type Listener = Rc<dyn Fn(&AppWindow)>;
 pub enum Load<T> {
     Idle,
     Loading(usize, usize),
-    Ready(Rc<T>),
+    Ready(Arc<T>),
 }
 
 impl<T> Load<T> {
-    pub fn ready(&self) -> Option<Rc<T>> {
+    pub fn ready(&self) -> Option<Arc<T>> {
         match self {
-            Self::Ready(data) => Some(Rc::clone(data)),
+            Self::Ready(data) => Some(Arc::clone(data)),
             _ => None,
         }
     }
@@ -168,7 +169,6 @@ impl Catalogs {
             return;
         }
 
-        let round = self.0.generation.get();
         let label = match kind {
             Kind::Cats => "cats",
             Kind::Enemies => "enemies",
@@ -182,19 +182,43 @@ impl Catalogs {
         }
 
         self.notify(window);
+        info!(label, "Starting a scan");
+        self.launch(window, engine, kind, config, false);
+    }
+
+    pub fn refresh(&self, window: &AppWindow, engine: &Engine, config: ScannerConfig, evicted: Evicted) {
+        for (kind, touched) in [(Kind::Cats, evicted.cats), (Kind::Enemies, evicted.enemies), (Kind::Stages, evicted.stages)] {
+            if touched && self.held(&kind) && engine.shared().ready() {
+                self.launch(window, engine, kind, config.clone(), true);
+            }
+        }
+    }
+
+    fn held(&self, kind: &Kind) -> bool {
+        match kind {
+            Kind::Cats => matches!(*self.0.cats.borrow(), Load::Ready(_)),
+            Kind::Enemies => matches!(*self.0.enemies.borrow(), Load::Ready(_)),
+            Kind::Stages => matches!(*self.0.stages.borrow(), Load::Ready(_)),
+        }
+    }
+
+    fn launch(&self, window: &AppWindow, engine: &Engine, kind: Kind, config: ScannerConfig, quiet: bool) {
+        let round = self.0.generation.get();
 
         let (Some(progress), Some(landing)) = (self.0.progress.get(), self.0.landing.get()) else {
             return;
         };
         let weak = window.as_weak();
         let progress_weak = window.as_weak();
-        let cached = engine.shared().cached();
+        let cached = !quiet && engine.shared().cached();
         let vault: Arc<_> = engine.vault();
 
-        info!(label, cached, "Starting a scan");
-
         engine.run(move |_| {
-            let report = move |done: usize, total: usize| bridge::post(&progress_weak, progress, (round, kind, done, total));
+            let report = move |done: usize, total: usize| {
+                if !quiet {
+                    bridge::post(&progress_weak, progress, (round, kind, done, total));
+                }
+            };
 
             let landed = match kind {
                 Kind::Cats => Landed::Cats(cached.then(|| cat_scanner::hydrate(&vault)).flatten().map(|(_, cats)| cats).unwrap_or_else(|| {
@@ -238,15 +262,15 @@ impl Catalogs {
         match (kind, landed) {
             (Kind::Cats, Landed::Cats(cats)) => {
                 info!(count = cats.len(), "Cats are ready");
-                *self.0.cats.borrow_mut() = Load::Ready(Rc::new(cats));
+                *self.0.cats.borrow_mut() = Load::Ready(Arc::new(cats));
             }
             (Kind::Enemies, Landed::Enemies(enemies)) => {
                 info!(count = enemies.len(), "Enemies are ready");
-                *self.0.enemies.borrow_mut() = Load::Ready(Rc::new(enemies));
+                *self.0.enemies.borrow_mut() = Load::Ready(Arc::new(enemies));
             }
             (Kind::Stages, Landed::Stages(bundle)) => {
                 info!(stages = bundle.registry.stages.len(), "Stages are ready");
-                *self.0.stages.borrow_mut() = Load::Ready(Rc::new(*bundle));
+                *self.0.stages.borrow_mut() = Load::Ready(Arc::new(*bundle));
             }
             _ => {}
         }

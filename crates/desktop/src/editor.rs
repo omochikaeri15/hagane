@@ -1,3 +1,4 @@
+mod prose;
 mod artwork;
 mod audio;
 mod captions;
@@ -22,39 +23,33 @@ mod ground;
 mod menu;
 mod registry;
 mod figures;
-mod prose;
 mod target;
 mod watch;
 
 use std::fs;
 use std::io::{self, Read};
+use std::ops::Deref;
 use std::path::{Path, PathBuf};
-use std::rc::Rc;
-use std::slice;
 
 use iced::{Element, Point, Size, Task};
-use rustc_hash::FxHashMap;
 use tracing::{info, trace, warn};
 
 use foundry::domains::cat::animation as cat_animation;
 use codex::combat::{Faction, Identity};
-use foundry::domains::cat::combo as cat_combo;
 use foundry::domains::cat::files as cat_files;
-use foundry::domains::cat::waiter as cat_waiter;
 use foundry::domains::enemy::animation as enemy_animation;
-use foundry::domains::enemy::files as enemy_files;
-use foundry::domains::enemy::scanner::EnemyEntry;
 use foundry::common::architecture;
 use foundry::domains::mods;
-use foundry::domains::sandbox::{base, orb};
+use foundry::domains::sandbox::base;
 use foundry::domains::stage::files as stage_files;
 use foundry::domains::stage::authoring as stage_authoring;
-use foundry::domains::stage::materials as stage_materials;
 
-use foundry::domains::stage::{names, GlobalMapId, GlobalStageId};
+use foundry::domains::stage::{names, GlobalMapId};
 use foundry::domains::settings::{ContextScope, EditorMode};
+use foundry::systems::editor::tables::*;
+use foundry::systems::editor::plans::*;
+use foundry::systems::editor::{self as core};
 use foundry::Vfs;
-use codex::chapter::stage::RewardStructure;
 use codex::chapter::treasure::{data_file, STAGES as TREASURE_STAGES};
 use codex::common;
 use codex::graphics::tools::crash::Side;
@@ -62,7 +57,7 @@ use codex::graphics::tools::crash::Side;
 use crate::app::state::SandboxTab;
 use crate::app::{theme, HaganeApp, Page};
 use crate::domains::cat::DetailTab;
-use crate::domains::sandbox::orbs;
+use crate::domains::stage::category::CategoryExt;
 use crate::domains::studio;
 use foundry::domains::studio as foundry_studio;
 use crate::domains::enemy::DetailTab as EnemyTab;
@@ -70,7 +65,14 @@ use crate::common::dialog;
 use crate::widget::popup;
 use crate::common::feedback::{Slot, NO_ACTIONS_LABEL, NO_ACTIONS_NOTICE, UNSUPPORTED_NOTICE};
 
+pub(crate) use foundry::systems::editor::{Art, Mark, Pane, Reader};
 pub(crate) use target::{deflect, suppress, target};
+
+use prose::Framed;
+
+pub(crate) trait Paged {
+    fn page(self) -> Page;
+}
 pub(crate) use watch::watch;
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -163,335 +165,14 @@ struct AnimTarget {
     active_mod: Option<String>,
 }
 
-struct LevelTarget {
-    subject: figures::Subject,
-    asset: Asset,
-    label: String,
-    columns: Vec<String>,
-    address: figures::Address,
-    anchor: Option<(i32, i32)>,
-    unlocked: bool,
-    active_mod: Option<String>,
-}
-
 struct AssetTarget {
     asset: Asset,
     unlocked: bool,
     active_mod: Option<String>,
 }
 
-const LEVEL_FILES: [(figures::Subject, &str); 2] =
-    [(figures::Subject::Buy, cat_files::UNIT_BUY), (figures::Subject::Curve, cat_files::UNIT_LEVEL)];
-
-const FORM_FILES: [(figures::Subject, &str); 1] = [(figures::Subject::Buy, cat_files::UNIT_BUY)];
-
-const EXP_FILES: [(figures::Subject, &str); 1] = [(figures::Subject::ExpCurve, EXP_TABLE)];
-
-const EXP_TABLE: &str = "unitexp.csv";
-
-const TALENT_FILES: [(figures::Subject, &str); 2] = [
-    (figures::Subject::Talents, cat_files::SKILL_ACQUISITION),
-    (figures::Subject::Costs, cat_files::SKILL_LEVEL),
-];
-
 const ACQUISITION_ONLY: [(figures::Subject, &str); 1] =
     [(figures::Subject::Talents, cat_files::SKILL_ACQUISITION)];
-
-const FIRST_COST: u32 = 1;
-
-const RIG_TITLES: [&str; 3] = ["Sprite Sheet", "Sprite Cuts", "Model"];
-const ENTRY_SUFFIX: &str = "_entry";
-
-const BANNER_TITLES: [&str; 4] = ["Normal Banner", "Evolved Banner", "True Banner", "Ultra Banner"];
-const CAT_ICON_TITLE: &str = "Deploy Icon";
-const GACHA_IMAGE_TITLE: &str = "Gacha Image";
-const ICON_TITLE: &str = "Icon";
-const BANNER_TITLE: &str = "Banner";
-const UPGRADE_TABLE: &str = "AbilityData.csv";
-const COMBO_PARAM_TABLE: &str = "NyancomboParam.tsv";
-const ORB_SLOT_TABLE: &str = "equipmentslot.csv";
-const DIFFICULTY_TABLE: &str = "difficulty_level.tsv";
-const EX_OPTION_TABLE: &str = "EX_option.csv";
-const CANNON_STATUS_TABLE: &str = "CC_AllParts_status.csv";
-const ORB_GRADE_TABLE: &str = "equipmentgrade.csv";
-const ORB_GRADE_LABEL: &str = "Grade";
-const ORB_GRADES: &str = "Orb Grades";
-const COMBO_EFFECT_LABEL: &str = "Effect";
-const UPGRADE_LABEL: &str = "Power Up";
-const UPGRADE_NAMES: [&str; 10] = [
-    "Cat Cannon Attack",
-    "Cat Cannon Range",
-    "Cat Cannon Charge",
-    "Worker Cat Efficiency",
-    "Worker Cat Wallet",
-    "Cat Base Health",
-    "Research",
-    "Accounting",
-    "Study",
-    "Cat Energy",
-];
-const PRESET_PREFIX: &str = "Certification";
-const EX_LOTTERY_TABLE: &str = "EX_lottery.csv";
-const SHAKE_TABLE: &str = "battleshake_setting.csv";
-const SHAKE_NAME: &str = "Shake";
-const RECIPE_TABLE: &str = "CastleRecipeUnlockData.csv";
-const RECIPE_NAME: &str = "Unlock";
-const DEVELOPMENT_COST_SETS: [(&str, &str); 3] = [("CastleRecipe_", "Cannon"), ("BaseRecipe_", "Foundation"), ("DecoRecipe_", "Style")];
-const DEVELOPMENT_COST_FOLDER: &str = "Development Costs";
-const DEVELOPMENT_COST_NAME: &str = "From Level";
-const DEVELOPMENT_TIER_TABLE: &str = "CastleRecipeUnlock.csv";
-const DEVELOPMENT_TIER_FOLDER: &str = "Development Tiers";
-const DEVELOPMENT_TIER_NAME: &str = "Tier";
-const DEVELOPMENT_PARTS: [&str; 3] = ["Cannon", "Foundation", "Style"];
-const MATERIAL_MIX_TABLE: &str = "CastleMixRecipe.csv";
-const MATERIAL_MIX_FOLDER: &str = "Material Mixing";
-const MATERIAL_MIX_NAME: &str = "Mix";
-const ENGINEER_CAP_TABLE: &str = "CastleCustomLimit.csv";
-const ENGINEER_CAP_NAME: &str = "Engineer Cap";
-const BAND_TABLE: &str = "autoset_organization.csv";
-const BAND_FOLDER: &str = "Lineup Cost Bands";
-const BAND_NAME: &str = "Cost Band";
-const RANK_GROUP_TABLE: &str = "autoset_organization_group.csv";
-const RANK_GROUP_FOLDER: &str = "Lineup Rank Groups";
-const RANK_GROUP_NAME: &str = "Rank Group";
-const ABILITY_ICON_TABLE: &str = "nyankoPictureBookData_EffectAbility.csv";
-const ABILITY_ICON_FOLDER: &str = "Ability Icons";
-const ABILITY_ICON_NAME: &str = "Ability Icon";
-const TRAIT_ICON_TABLE: &str = "nyankoPictureBookData_Attribute.csv";
-const TRAIT_ICON_FOLDER: &str = "Trait Icons";
-const TRAIT_ICON_NAME: &str = "Trait Icon";
-const MENU_TEXT_TABLE: &str = "MainMenuTextSetting.csv";
-const MENU_TEXT_FOLDER: &str = "Main Menu Message Settings";
-const MENU_TEXT_NAME: &str = "Message";
-const RATING_TABLE: &str = "autoset_chara_rating.csv";
-const RATING_NAME: &str = "Lineup Rating";
-const GUIDE_TABLE: &str = "nyankoPictureBookData.csv";
-const GUIDE_NAME: &str = "Cat Guide Entry";
-const UNIT_LIMIT_TABLE: &str = "unitlimit.csv";
-const UNIT_LIMIT_NAME: &str = "Level Cap Groups";
-const ENEMY_GUIDE_TABLE: &str = "enemy_dictionary_list.csv";
-const ENEMY_GUIDE_NAME: &str = "Enemy Guide Entry";
-const SHOP_TABLE: &str = "itemShopData.tsv";
-const SHOP_NAME: &str = "Slot";
-const ZOMBIE_TABLE: &str = "zombie_lottery.csv";
-const ZOMBIE_LINE: &str = "Line";
-const CPU_TABLE: &str = "ScatCPUsetting.csv";
-const CPU_LINE: &str = "Setting";
-const ORB_TRAIT_TABLE: &str = "equipment_attribute.csv";
-const ORB_TRAIT_LINE: &str = "Orb Trait";
-const ORB_TRAIT_FOLDER: &str = "Orb Trait Targets";
-const ALTAR_TABLE: &str = "DemonCastlelimit.csv";
-const GAMATOTO_FOLDER: &str = "Gamatoto";
-const STAMP_TABLE: &str = "StampData.csv";
-const STAMP_LINE: &str = "Line";
-const STAMP_FOLDER: &str = "Stamp Card Rewards";
-const STAMP_DAY: &str = "Day";
-const SLOT_TABLE: &str = "UnitSlot_UnlockData.csv";
-const SLOT_LINE: &str = "Line";
-const SLOT_FOLDER: &str = "Lineup Slot Unlocks";
-const SLOT_NAME: &str = "Slot";
-const CLUB_TABLE: &str = "NyankoClubData.csv";
-const CLUB_NAME: &str = "Reward";
-const CLUB_FOLDER: &str = "Officers' Club Rewards";
-const MISSION_TABLE: &str = "Mission_Data.csv";
-const MISSION_NAME: &str = "Mission";
-const MISSION_REWARDS: &str = "Mission Rewards";
-const MISSION_NAMES: &str = "Mission_Name.csv";
-const CONDITION_TABLE: &str = "Mission_Condition.csv";
-const MISSION_CONDITIONS: &str = "Mission Conditions";
-const MISSION_UNLOCK_TABLE: &str = "Mission_Unlock_Condition.csv";
-const MISSION_UNLOCK_NAME: &str = "Unlock";
-const MISSION_UNLOCKS: &str = "Mission Unlocks";
-const MISSION_GROUP_TABLE: &str = "Mission_Group.csv";
-const MISSION_GROUP_NAME: &str = "Group";
-const MISSION_GROUPS: &str = "Mission Groups";
-const MISSION_SHORTCUT_TABLE: &str = "Mission_Condition_Setting.csv";
-const MISSION_SHORTCUT_NAME: &str = "Shortcut";
-const MISSION_SHORTCUTS: &str = "Mission Shortcuts";
-const MISSION_DESIGNATION_TABLE: &str = "Mission_designation.csv";
-const MISSION_DESIGNATIONS: &str = "Mission Designations";
-const MONTHLY_MISSION_TABLE: &str = "Mission_Monthly.csv";
-const MONTHLY_MISSION_NAME: &str = "Monthly Set";
-const MONTHLY_MISSIONS: &str = "Monthly Missions";
-const SOUND_TABLE: &str = "Sound_setting.tsv";
-const SOUND_NAME: &str = "Sound";
-const SOUND_FOLDER: &str = "Sound Settings";
-const CHEST_TABLE: &str = "TreasureBox.tsv";
-const CHEST_NAME: &str = "Chest";
-const CHEST_FOLDER: &str = "Dojo Chests";
-const POPUP_TRIGGER_TABLE: &str = "unlockPopup.tsv";
-const POPUP_TRIGGER_NAME: &str = "Popup";
-const POPUP_TRIGGER_FOLDER: &str = "Unlock Popup Triggers";
-const COMBO_CATEGORY_TABLE: &str = "ComboFiltering.tsv";
-const COMBO_CATEGORY_NAME: &str = "Category";
-const COMBO_CATEGORY_FOLDER: &str = "Combo Filter Categories";
-const CASTLE_GROWTH_TABLE: &str = "CC_Castle_growth.csv";
-const CASTLE_BRACKET_NAME: &str = "Bracket";
-const CASTLE_GROWTH_FOLDER: &str = "Castle Health";
-const CASTLE_LEVEL_LABEL: &str = "Up To Level";
-const DEMON_CASTLE_TABLE: &str = "DemonCastledefine.csv";
-const MAP_SHEET_TABLE: &str = "MapData_Image.tsv";
-const MAP_SHEET_NAME: &str = "Map";
-const MAP_SHEET_FOLDER: &str = "Map Sheets";
-const DEMON_CASTLE_NAME: &str = "Castle";
-const DEMON_CASTLE_FOLDER: &str = "Aku Altar Castles";
-const CASTLE_NAME: &str = "Castle";
-const CASTLE_FOLDER: &str = "Castle Placement";
-const CASTLE_SETS: [(&str, &str, &str); 4] = [
-    ("enemyCastleData0.csv", "Empire of Cats", "ec"),
-    ("enemyCastleData1.csv", "Into the Future", "wc"),
-    ("enemyCastleData2.csv", "Cats of the Cosmos", "sc"),
-    ("enemyCastleDataLegend.csv", "Legend", "rc"),
-];
-const CASTLE_IMAGE_TITLE: &str = "Castle Image";
-const BACKGROUND_IMAGE_TITLE: &str = "Background Image";
-const ITEM_ICON_TITLE: &str = "Item Icon";
-const IMAGE_TITLE: &str = "Image";
-const CASTLE_END: i32 = -999;
-const TIP_RULE_TABLE: &str = "LoseTextSetting.csv";
-const TIP_RULE_NAME: &str = "Rule";
-const TIP_RULE_FOLDER: &str = "Defeat Tip Rules";
-const QUEST_STAGE_NAME: &str = "Stage";
-const SLOT_LOTTERY_NAME: &str = "Clears";
-const QUEST_FOLDER: &str = "Legend Quest";
-const QUEST_STAGE_PREFIX: &str = "PlayDungeonD_";
-const SLOT_LOTTERY_PREFIX: &str = "RandomDungeon_";
-const QUEST_STAGE_FOLDER: &str = "Quest Stages";
-const SLOT_LOTTERY_FOLDER: &str = "Slot Lottery";
-const REALM_DRAW_NAME: &str = "Draw";
-const LABYRINTH_FLOOR_NAME: &str = "Floor";
-const LABYRINTH_FOLDER: &str = "Labyrinth";
-const LABYRINTH_PREFIX: &str = "PlayContentL_";
-const LABYRINTH_LOTTERY_TABLE: &str = "change_conditions.csv";
-const LABYRINTH_LOTTERY_FOLDER: &str = "Floor Lottery";
-const LABYRINTH_RULE_NAME: &str = "Rule";
-const REALM_ALTAR_NAME: &str = "Altar";
-const REALM_FOLDER: &str = "Aku Realm Lottery";
-const REALM_PREFIX: &str = "demon_lottery_DM";
-const GAMATOTO_LIMIT_TABLE: &str = "GamatotoExpedition_Limit.csv";
-const GAMATOTO_LIMIT_NAME: &str = "Expedition Limits";
-const GAMATOTO_UNLOCK_TABLE: &str = "GamatotoUnlockData.tsv";
-const GAMATOTO_UNLOCK_NAME: &str = "Unlock";
-const GAMATOTO_UNLOCKS: &str = "Unlocks";
-const GAMATOTO_DROP_TABLE: &str = "GamatotoExpedition_SpecialDropItem.csv";
-const GAMATOTO_DROP_NAME: &str = "Drop";
-const GAMATOTO_DROPS: &str = "Special Drops";
-const EXPEDITION_AREA_TABLES: [(&str, &str); 2] = [("GamatotoExpedition_Stage.csv", "Areas"), ("GamatotoExpedition_Stage_EVENT.csv", "Event Areas")];
-const EXPEDITION_AREA_NAME: &str = "Area";
-const GAMATOTO_LEVEL_TABLE: &str = "GamatotoExpedition.csv";
-const GAMATOTO_LEVEL_FOLDER: &str = "Levels";
-const GAMATOTO_LEVEL_NAME: &str = "Level";
-const PRIZE_SETS: [(&str, &str, &str); 2] = [("Slot_pattern_", "Slot Machines", "Slot"), ("Scratch_pattern_", "Scratch Cards", "Card")];
-const PRIZE_NAME: &str = "Prize";
-const REEL_PREFIX: &str = "slot_imagegroup_";
-const REEL_NAME: &str = "Symbol";
-const REEL_FOLDER: &str = "Reel Symbols";
-const PRIZE_ATTEMPT: &str = "Attempt";
-const SHRINE_OFFERING_TABLE: &str = "jinja_saisen.csv";
-const SHRINE_OFFERING_FOLDER: &str = "Offerings";
-const SHRINE_OFFERING_NAME: &str = "Offering";
-const SHRINE_EXTRA_TABLE: &str = "jinja_saisen_exdrop.csv";
-const SHRINE_EXTRA_FOLDER: &str = "Offering Bonuses";
-const SHRINE_EXTRA_NAME: &str = "Bonus";
-const FORTUNE_TABLE: &str = "omikuji_reward.csv";
-const FORTUNE_FOLDER: &str = "Fortune Odds";
-const FORTUNE_NAME: &str = "Fortune Rank";
-const ZONED_IN_TABLE: &str = "Gamatoto_Bonus.csv";
-const ZONED_IN_NAME: &str = "Zoned-In";
-const ZONED_IN_STEPS_NAME: &str = "Zoned-In Triggers";
-const FILTER_MAP_TABLE: &str = "FilterStage_Setting.csv";
-const FILTER_MAP_FOLDER: &str = "Stage Filter Maps";
-const FILTER_MAP_NAME: &str = "Filter Map";
-const EXCLUSION_TABLE: &str = "autoset_exclude_enemy.csv";
-const EXCLUSION_FOLDER: &str = "Lineup Exclusions";
-const EXCLUSION_NAME: &str = "Excluded Enemy";
-const ENIGMA_FOLDER: &str = "Enigma Stages";
-const ENIGMA_LOTTERY_TABLE: &str = "Hidden_lottery.csv";
-const ENIGMA_LOTTERY_FOLDER: &str = "Lotteries";
-const ENIGMA_LOTTERY_NAME: &str = "Lottery";
-const ENIGMA_RATE_TABLE: &str = "Hidden_rate.csv";
-const ENIGMA_RATE_FOLDER: &str = "Discovery Chances";
-const ENIGMA_DROP_TABLE: &str = "Hidden_drop.csv";
-const ENIGMA_DROP_FOLDER: &str = "Discovery Lotteries";
-const ENIGMA_LEVEL_NAME: &str = "Discovery Level";
-const ENIGMA_GROUP_TABLE: &str = "Hidden_group.csv";
-const ENIGMA_GROUP_FOLDER: &str = "Stage Discoveries";
-const ENIGMA_GROUP_NAME: &str = "Stage Discovery";
-const ENIGMA_MEDAL_TABLE: &str = "Discoverlv_growth.csv";
-const ENIGMA_MEDAL_FOLDER: &str = "Discovery Medals";
-const ENIGMA_MEDAL_NAME: &str = "Discovery Medal";
-const MAP_MARKER_PREFIX: &str = "mapCordData";
-const MAP_MARKER_FOLDER: &str = "World Map Markers";
-const MAP_MARKER_SET: &str = "World Map";
-const MAP_MARKER_NAME: &str = "Marker";
-const MAP_MARKER_ROWS: usize = 48;
-const ENIGMA_TIME_TABLE: &str = "Hidden_time.csv";
-const ENIGMA_TIME_FOLDER: &str = "Map Times";
-const ENIGMA_TIME_NAME: &str = "Enigma Map";
-const ENIGMA_RARITY_TABLE: &str = "Hidden_rarity.csv";
-const ENIGMA_RARITY_FOLDER: &str = "Rarities";
-const ENIGMA_RARITY_NAME: &str = "Rarity";
-const RECOMMEND_TABLE: &str = "beginner_recommend_powerup.csv";
-const LEVEL_UP_TABLE: &str = "Recommended_levelup.csv";
-const LEVEL_UP_FOLDER: &str = "Level-Up Offers";
-const LEVEL_UP_NAME: &str = "Event";
-const RECOMMEND_FOLDER: &str = "Recommended Upgrades";
-const RECOMMEND_NAME: &str = "Suggestion";
-const COUNTER_TABLE: &str = "autoset_effectability.csv";
-const COUNTER_FOLDER: &str = "Lineup Counters";
-const COUNTER_NAME: &str = "Counter";
-const ORB_CHOICE_TABLE: &str = "equipment_EffectAbility.csv";
-const ORB_CHOICE_FOLDER: &str = "Orb Filter Choices";
-const ORB_CHOICE_NAME: &str = "Choice";
-const ORB_OPTION_TABLE: &str = "equipment_option.csv";
-const ORB_OPTION_FOLDER: &str = "Orb Icon Options";
-const ORB_OPTION_NAME: &str = "Orb Ability";
-const REFUND_TABLE: &str = "LeadershipReturnMap.csv";
-const REFUND_FOLDER: &str = "Energy Refund Maps";
-const REFUND_NAME: &str = "Refund";
-const STAGE_SHORTCUT_TABLE: &str = "MapStage_Shortcut.csv";
-const STAGE_SHORTCUT_FOLDER: &str = "Stage Shortcuts";
-const STAGE_SHORTCUT_NAME: &str = "Shortcut";
-const FANFARE_TABLE: &str = "EventGatya_Setting.csv";
-const FANFARE_FOLDER: &str = "Fanfare Overrides";
-const FANFARE_NAME: &str = "Override";
-const SPOTLIGHT_TABLE: &str = "nyankoPictureBookData_CharaGet.csv";
-const SPOTLIGHT_FOLDER: &str = "Cat Guide Spotlights";
-const SPOTLIGHT_NAME: &str = "Spotlight";
-const TIP_SETTING_TABLE: &str = "TitleMessageSetting.csv";
-const TIP_SETTING_FOLDER: &str = "Title Tip Settings";
-const TIP_SETTING_NAME: &str = "Tip";
-const ALTAR_STAGE: &str = "Stage";
-const ALTAR_STAGE_SCALE: u32 = 100;
-const EX_GROUP: &str = "Group";
-const EX_MAP: &str = "Map";
-const EX_STAGE: &str = "Stage";
-const PRESET_EXTENSION: &str = ".preset";
-const ORB_GRADE: &str = "gradeID";
-const REWARD_ITEM: &str = "DropItemID";
-const NO_ITEM: i32 = -1;
-const NO_ITEM_LABEL: &str = "Nothing";
-const ORB_EFFECT: &str = "content";
-const ORB_TRAIT: &str = "attribute";
-const PRESET_CANNONS: [&str; 8] =
-    ["Basic", "Slow Beam", "Iron Wall", "Thunderbolt", "Waterblast", "Holy Blast", "Breakerblast", "Curseblast"];
-const ENEMY_ICON_TITLE: &str = "Enemy Icon";
-const MAP_BANNER_TITLE: &str = "Map Banner";
-const STAGE_BANNER_TITLE: &str = "Stage Banner";
-
-const FIRST_TALENT_TEXT: usize = 1;
-
-const GLOSSARY_FILES: [&str; 2] = ["nyankoPictureBook2.csv", "EnemyPictureBook2.csv"];
-
-const BACKGROUND_TABLE: &str = foundry::domains::utilities::background::TABLE;
-const BACKGROUND_LABEL: &str = "Background";
-
-#[derive(Clone)]
-struct AssetFile {
-    name: String,
-    game: Option<PathBuf>,
-    mod_copy: Option<PathBuf>,
-}
 
 fn scene(app: &HaganeApp) -> Page {
     if app.current_page != Page::Sandbox {
@@ -534,222 +215,58 @@ fn held_form(app: &HaganeApp) -> usize {
 #[derive(Clone, PartialEq, Debug)]
 pub(crate) struct Focus {
     page: Page,
-    cat: Option<u32>,
-    form: usize,
-    enemy: Option<u32>,
-    map: Option<GlobalMapId>,
-    stage: Option<GlobalStageId>,
-    active_mod: Option<String>,
-    unlocked: bool,
+    held: core::Focus,
+}
+
+impl Deref for Focus {
+    type Target = core::Focus;
+
+    fn deref(&self) -> &core::Focus {
+        &self.held
+    }
+}
+
+pub(crate) fn paged(realm: core::Realm) -> Page {
+    match realm {
+        core::Realm::Home => Page::Home,
+        core::Realm::Cats => Page::Cats,
+        core::Realm::Enemies => Page::Enemies,
+        core::Realm::Stages => Page::Stages,
+        core::Realm::Files => Page::Files,
+        core::Realm::Elsewhere => Page::Mods,
+    }
+}
+
+fn realm(page: Page) -> core::Realm {
+    match page {
+        Page::Home => core::Realm::Home,
+        Page::Cats => core::Realm::Cats,
+        Page::Enemies => core::Realm::Enemies,
+        Page::Stages => core::Realm::Stages,
+        Page::Files => core::Realm::Files,
+        _ => core::Realm::Elsewhere,
+    }
 }
 
 impl Focus {
     fn held(app: &HaganeApp) -> Focus {
+        let page = scene(app);
+
         Focus {
-            page: scene(app),
-            cat: held_cat(app),
-            form: held_form(app),
-            enemy: app.app_state.enemy.selected_enemy,
-            map: app.stage_state.data.selected_map.clone(),
-            stage: app.stage_state.data.selected_stage.clone(),
-            active_mod: app.mods_state.active_mod(),
-            unlocked: app.settings.files.unlock_game_mount,
+            page,
+            held: core::Focus {
+                realm: realm(page),
+                cat: held_cat(app),
+                form: held_form(app),
+                enemy: app.app_state.enemy.selected_enemy,
+                category: app.stage_state.data.selected_category.clone(),
+                map: app.stage_state.data.selected_map.clone(),
+                stage: app.stage_state.data.selected_stage.clone(),
+                active_mod: app.mods_state.active_mod(),
+                unlocked: app.settings.files.unlock_game_mount,
+            },
         }
     }
-
-    fn mount(&self) -> Option<&str> {
-        self.active_mod.as_deref()
-    }
-}
-
-fn asset_files(app: &HaganeApp, focus: &Focus, base: &str) -> Vec<AssetFile> {
-    variant_sets(app, focus, slice::from_ref(&base)).pop().unwrap_or_default()
-}
-
-fn variant_sets(app: &HaganeApp, focus: &Focus, bases: &[&str]) -> Vec<Vec<AssetFile>> {
-    let groups: Vec<Vec<String>> = bases.iter().map(|base| app.vault.vfs.variants(base)).collect();
-
-    let located: FxHashMap<String, PathBuf> = {
-        let names = groups.iter().flatten().map(String::as_str);
-
-        mod_copies(app, focus, names).into_iter().map(|(name, path)| (name.to_owned(), path)).collect()
-    };
-
-    groups
-        .into_iter()
-        .map(|group| {
-            group
-                .into_iter()
-                .map(|name| AssetFile {
-                    game: app.vault.vfs.rooted(architecture::GAME, &name),
-                    mod_copy: located.get(&name).cloned(),
-                    name,
-                })
-                .collect()
-        })
-        .collect()
-}
-
-fn mod_copies<'a>(
-    app: &HaganeApp,
-    focus: &Focus,
-    names: impl IntoIterator<Item = &'a str>,
-) -> FxHashMap<&'a str, PathBuf> {
-    focus.mount().map_or_else(FxHashMap::default, |active| mods::find_all(&app.vault.vfs, active, names))
-}
-
-struct Exception {
-    internal: String,
-    vanilla: Option<PathBuf>,
-    mod_copy: Option<PathBuf>,
-    variants: Vec<AssetFile>,
-}
-
-struct Scope<'a> {
-    name: &'a str,
-    source: Option<&'a Path>,
-    present: Option<&'a Path>,
-    title: Option<&'a str>,
-}
-
-fn exception(app: &HaganeApp, focus: &Focus, wanted: String) -> Option<Exception> {
-    exceptions(app, focus, vec![wanted]).pop()
-}
-
-fn internal_name(app: &HaganeApp, visible: &str) -> String {
-    app.vault.vfs.stripped(visible).unwrap_or_else(|| visible.to_owned())
-}
-
-fn exceptions(app: &HaganeApp, focus: &Focus, wanted: Vec<String>) -> Vec<Exception> {
-    let visible: Vec<String> = wanted.iter().map(|name| visible_name(app, name)).collect();
-
-    let internal: Vec<String> = visible.iter().map(|name| internal_name(app, name)).collect();
-
-    let groups: Vec<Vec<String>> = internal.iter().map(|name| app.vault.vfs.variants(name)).collect();
-
-    let located: FxHashMap<String, PathBuf> = {
-        let names = internal.iter().map(String::as_str).chain(groups.iter().flatten().map(String::as_str));
-
-        mod_copies(app, focus, names).into_iter().map(|(name, path)| (name.to_owned(), path)).collect()
-    };
-
-    visible
-        .into_iter()
-        .zip(internal)
-        .zip(groups)
-        .map(|((seen, internal), group)| {
-            let variants: Vec<AssetFile> = group
-                .into_iter()
-                .map(|name| AssetFile {
-                    game: app.vault.vfs.rooted(architecture::GAME, &name),
-                    mod_copy: located.get(&name).cloned(),
-                    name,
-                })
-                .collect();
-
-            let vanilla = app
-                .vault
-                .vfs
-                .rooted(architecture::GAME, &seen)
-                .or_else(|| variants.iter().find_map(|file| file.game.clone()));
-
-            Exception { mod_copy: located.get(&internal).cloned(), variants, vanilla, internal }
-        })
-        .collect()
-}
-
-fn visible_name(app: &HaganeApp, wanted: &str) -> String {
-    app.vault
-        .vfs
-        .find(wanted)
-        .as_deref()
-        .and_then(Path::file_name)
-        .map_or_else(|| wanted.to_owned(), |name| name.to_string_lossy().into_owned())
-}
-
-impl Exception {
-    fn scopes(&self, in_mod: bool) -> Vec<Scope<'_>> {
-        if in_mod {
-            return vec![Scope {
-                name: &self.internal,
-                source: self.vanilla.as_deref(),
-                present: self.mod_copy.as_deref(),
-                title: None,
-            }];
-        }
-
-        self.variants
-            .iter()
-            .map(|file| Scope {
-                name: &file.name,
-                source: file.game.as_deref(),
-                present: file.game.as_deref(),
-                title: None,
-            })
-            .collect()
-    }
-}
-
-enum Asset {
-    Variants { key: String, files: Vec<AssetFile> },
-    Exception(Exception),
-}
-
-impl Asset {
-    fn key(&self) -> &str {
-        match self {
-            Asset::Exception(exception) => &exception.internal,
-            Asset::Variants { key, .. } => key,
-        }
-    }
-
-    fn names(&self) -> Vec<String> {
-        match self {
-            Asset::Exception(exception) => {
-                exception.variants.iter().map(|file| file.name.clone()).collect()
-            }
-            Asset::Variants { files, .. } => files.iter().map(|file| file.name.clone()).collect(),
-        }
-    }
-
-    fn scopes(&self, in_mod: bool) -> Vec<Scope<'_>> {
-        match self {
-            Asset::Exception(exception) => exception.scopes(in_mod),
-            Asset::Variants { files, .. } => files
-                .iter()
-                .map(|file| Scope {
-                    name: &file.name,
-                    source: file.game.as_deref(),
-                    present: if in_mod { file.mod_copy.as_deref() } else { file.game.as_deref() },
-                    title: None,
-                })
-                .collect(),
-        }
-    }
-}
-
-struct ProseTarget {
-    subject: prose::Subject,
-    asset: Asset,
-    label: String,
-    row: usize,
-    rows: Vec<usize>,
-    keyed: Option<prose::Keyed>,
-    cell: Option<usize>,
-    unlocked: bool,
-    active_mod: Option<String>,
-    aim: Option<(Identity, Faction)>,
-}
-
-impl ProseTarget {
-    fn keyed(self, keyed: prose::Keyed) -> ProseTarget {
-        ProseTarget { keyed: Some(keyed), ..self }
-    }
-
-    fn celled(self, cell: usize) -> ProseTarget {
-        ProseTarget { cell: Some(cell), ..self }
-    }
-
 }
 
 struct IconTarget {
@@ -795,49 +312,7 @@ impl BannerTarget {
     }
 }
 
-const ENEMY_HEADER_ROWS: usize = 2;
 const NORMAL_FORM: usize = 0;
-const NO_EGGS: (i32, i32) = (-1, -1);
-
-struct EnemyTarget {
-    file: String,
-    mod_copy: Option<PathBuf>,
-    name: Option<String>,
-    source: PathBuf,
-    row: usize,
-    unlocked: bool,
-    active_mod: Option<String>,
-}
-
-impl EnemyTarget {
-    fn title(&self) -> String {
-        match self.name.as_deref() {
-            Some(name) if !name.is_empty() => [name, self.file.as_str()].join(theme::HEADER_SEPARATOR),
-            _ => self.file.clone(),
-        }
-    }
-}
-
-struct CatTarget {
-    file: String,
-    mod_copy: Option<PathBuf>,
-    name: Option<String>,
-    source: PathBuf,
-    form: usize,
-    unlocked: bool,
-    active_mod: Option<String>,
-}
-
-impl CatTarget {
-    fn title(&self) -> String {
-        let form = figures::FORMS.get(self.form).copied().unwrap_or("Unknown");
-
-        match self.name.as_deref() {
-            Some(name) => [name, form, self.file.as_str()].join(theme::HEADER_SEPARATOR),
-            None => [self.file.as_str(), form].join(theme::HEADER_SEPARATOR),
-        }
-    }
-}
 
 struct FileTarget {
     source: PathBuf,
@@ -1874,7 +1349,7 @@ impl State {
         let bank = &self.banks[seat.slot()];
         let pinned = seat == Seat::Mods;
         let held = held_cat(app);
-        let (held_cap, held_used) = (level_cap(app, held), talent_costs(app, held));
+        let (held_cap, held_used) = (level_cap(app, held), talent_costs(&sources(app), held));
 
         for subject in prose::SUBJECTS {
             if !pinned && (subject.page() != scene(app) || !prose_tab(app, subject)) {
@@ -1903,7 +1378,7 @@ impl State {
                 true => {
                     let cat = bank.pins.figures[subject.slot()].as_ref().and_then(|pick| pick.focus.cat);
 
-                    (level_cap(app, cat), talent_costs(app, cat))
+                    (level_cap(app, cat), talent_costs(&sources(app), cat))
                 }
                 false => (held_cap, held_used),
             };
@@ -2639,7 +2114,7 @@ pub(crate) fn context(app: &HaganeApp, target: Option<Target>) -> Context {
         images: stage_images(app, focus, reached(Target::MapBanner), reached(Target::StageBanner)),
         assets: Vec::new(),
         prose: prose_payloads(app, focus, target, broad),
-        levels: level_payloads(app, focus, reached(Target::CatLevels), reached(Target::CatForms))
+        levels: level_payloads(&sources(app), focus, reached(Target::CatLevels), reached(Target::CatForms))
             .into_iter()
             .chain(talent_payloads(app, focus, reached(Target::CatTalents)))
             .chain(combo_payloads(app, focus, target, broad))
@@ -2689,7 +2164,7 @@ fn stage_images(app: &HaganeApp, focus: &Focus, map: bool, stage: bool) -> Vec<I
 
     let bases: Vec<&str> = wanted.iter().map(|(_, key)| key.as_str()).collect();
 
-    variant_sets(app, focus, &bases)
+    variant_sets(&sources(app), focus, &bases)
         .into_iter()
         .zip(wanted)
         .map(|(files, (title, key))| match focus.active_mod.is_some() {
@@ -2723,57 +2198,7 @@ fn stage_data_payloads(app: &HaganeApp, focus: &Focus, reached: bool) -> Vec<Lev
         return Vec::new();
     }
 
-    stage_data_targets(app, focus)
-}
-
-fn stage_data_targets(app: &HaganeApp, focus: &Focus) -> Vec<LevelTarget> {
-    if focus.page != Page::Stages {
-        return Vec::new();
-    }
-
-    let Some(chosen) = focus.stage.as_ref() else {
-        return Vec::new();
-    };
-
-    let registry = &app.stage_state.data.registry;
-    let map = GlobalMapId { category: chosen.category.clone(), map: chosen.map };
-
-    let Some(name) = registry.addresses.get(&map).and_then(|held| held.data_file.as_deref()) else {
-        return Vec::new();
-    };
-
-    let files = asset_files(app, focus, name);
-
-    if files.is_empty() {
-        return Vec::new();
-    }
-
-    let chapter = registry
-        .maps
-        .get(&map)
-        .map(|found| found.name.trim())
-        .filter(|found| !found.is_empty())
-        .map_or_else(|| format!("{:03}", map.map), str::to_owned);
-
-    let stage = registry
-        .stages
-        .get(chosen)
-        .map(|found| found.name.trim())
-        .filter(|found| !found.is_empty())
-        .map_or_else(|| format!("{:02}", chosen.stage), str::to_owned);
-
-    let line = figures::MAP_HEADER_LINES + chosen.stage as usize;
-
-    vec![LevelTarget {
-        subject: figures::Subject::MapStage,
-        asset: Asset::Variants { key: name.to_owned(), files },
-        label: [chapter.as_str(), stage.as_str(), name].join(theme::HEADER_SEPARATOR),
-        columns: Vec::new(),
-        address: figures::Address::Line(line),
-        anchor: None,
-        unlocked: focus.unlocked,
-        active_mod: focus.active_mod.clone(),
-    }]
+    stage_data_targets(&sources(app), focus)
 }
 
 fn drop_chara_payloads(app: &HaganeApp, focus: &Focus, reached: bool) -> Vec<LevelTarget> {
@@ -2781,7 +2206,7 @@ fn drop_chara_payloads(app: &HaganeApp, focus: &Focus, reached: bool) -> Vec<Lev
         return Vec::new();
     }
 
-    drop_chara_targets(app, focus)
+    drop_chara_targets(&sources(app), focus)
 }
 
 fn map_drop_payloads(app: &HaganeApp, focus: &Focus, reached: bool) -> Vec<LevelTarget> {
@@ -2789,594 +2214,17 @@ fn map_drop_payloads(app: &HaganeApp, focus: &Focus, reached: bool) -> Vec<Level
         return Vec::new();
     }
 
-    map_drop_targets(app, focus)
-}
-
-// DropItem.csv holds one row per map, addressed by the routed global id in its leading cell.
-// The eight material slots are named by the items `MAT_IDS` points them at, read from the
-// game's own item table rather than translated here.
-fn map_drop_targets(app: &HaganeApp, focus: &Focus) -> Vec<LevelTarget> {
-    if focus.page != Page::Stages {
-        return Vec::new();
-    }
-
-    let Some(map) = focus.map.as_ref() else {
-        return Vec::new();
-    };
-
-    let registry = &app.stage_state.data.registry;
-
-    let Some(global) = registry.addresses.get(map).and_then(|held| held.global) else {
-        return Vec::new();
-    };
-
-    // The file covers a little over a hundred maps and is keyed by the routed global id, so
-    // a story chapter's 3000-3008 reaches no row at all. The scanner already looked the row
-    // up, so asking it costs nothing and stops the menu offering an Edit that opens nothing.
-    if registry.maps.get(map).is_none_or(|found| found.drop_items.is_none()) {
-        return Vec::new();
-    }
-
-    let files = asset_files(app, focus, stage_files::DROP_ITEM);
-
-    if files.is_empty() {
-        return Vec::new();
-    }
-
-    let chapter = registry
-        .maps
-        .get(map)
-        .map(|found| found.name.trim())
-        .filter(|found| !found.is_empty())
-        .map_or_else(|| format!("{:03}", map.map), str::to_owned);
-
-    vec![LevelTarget {
-        subject: figures::Subject::MapDrops,
-        asset: Asset::Variants { key: stage_files::DROP_ITEM.to_owned(), files },
-        label: [chapter.as_str(), stage_files::DROP_ITEM].join(theme::HEADER_SEPARATOR),
-        columns: material_names(app),
-        address: figures::Address::Keyed(global),
-        anchor: None,
-        unlocked: focus.unlocked,
-        active_mod: focus.active_mod.clone(),
-    }]
-}
-
-fn map_option_targets(app: &HaganeApp, focus: &Focus) -> Vec<LevelTarget> {
-    if focus.page != Page::Stages {
-        return Vec::new();
-    }
-
-    let Some(map) = focus.map.as_ref() else {
-        return Vec::new();
-    };
-
-    let registry = &app.stage_state.data.registry;
-
-    let Some(global) = registry.addresses.get(map).and_then(|held| held.global) else {
-        return Vec::new();
-    };
-
-    let files = asset_files(app, focus, stage_files::MAP_OPTION);
-
-    if files.is_empty() {
-        return Vec::new();
-    }
-
-    let chapter = registry
-        .maps
-        .get(map)
-        .map(|found| found.name.trim())
-        .filter(|found| !found.is_empty())
-        .map_or_else(|| format!("{:03}", map.map), str::to_owned);
-
-    vec![LevelTarget {
-        subject: figures::Subject::MapOption,
-        asset: Asset::Variants { key: stage_files::MAP_OPTION.to_owned(), files },
-        label: [chapter.as_str(), stage_files::MAP_OPTION].join(theme::HEADER_SEPARATOR),
-        columns: Vec::new(),
-        address: figures::Address::Keyed(global),
-        anchor: None,
-        unlocked: focus.unlocked,
-        active_mod: focus.active_mod.clone(),
-    }]
-}
-
-fn background_targets(app: &HaganeApp, focus: &Focus, id: Option<u32>) -> Vec<LevelTarget> {
-    let Some(id) = id else {
-        return Vec::new();
-    };
-
-    let files = asset_files(app, focus, BACKGROUND_TABLE);
-
-    if files.is_empty() {
-        return Vec::new();
-    }
-
-    let label = format!("{BACKGROUND_LABEL} {id:03}");
-
-    vec![LevelTarget {
-        subject: figures::Subject::Background,
-        asset: Asset::Variants { key: BACKGROUND_TABLE.to_owned(), files },
-        label: [label.as_str(), BACKGROUND_TABLE].join(theme::HEADER_SEPARATOR),
-        columns: Vec::new(),
-        address: figures::Address::Keyed(id),
-        anchor: None,
-        unlocked: focus.unlocked,
-        active_mod: focus.active_mod.clone(),
-    }]
-}
-
-pub(super) fn altar_key(app: &HaganeApp, stage: &GlobalStageId) -> Option<u32> {
-    let map = GlobalMapId { category: stage.category.clone(), map: stage.map };
-    let global = app.stage_state.data.registry.addresses.get(&map)?.global?;
-
-    global.checked_mul(ALTAR_STAGE_SCALE)?.checked_add(stage.stage)
-}
-
-fn altar_targets(app: &HaganeApp, focus: &Focus) -> Vec<LevelTarget> {
-    let Some(stage) = focus.stage.as_ref() else {
-        return Vec::new();
-    };
-
-    let Some(key) = altar_key(app, stage) else {
-        return Vec::new();
-    };
-
-    let files = asset_files(app, focus, ALTAR_TABLE);
-
-    if files.is_empty() {
-        return Vec::new();
-    }
-
-    let named = app.stage_state.data.registry.stages.get(stage).map(|found| found.name.trim().to_owned()).filter(|name| !name.is_empty());
-    let label = named.unwrap_or_else(|| format!("{ALTAR_STAGE} {:02}", stage.stage));
-
-    vec![LevelTarget {
-        subject: figures::Subject::Altar,
-        asset: Asset::Variants { key: ALTAR_TABLE.to_owned(), files },
-        label: [label.as_str(), ALTAR_TABLE].join(theme::HEADER_SEPARATOR),
-        columns: Vec::new(),
-        address: figures::Address::Keyed(key),
-        anchor: None,
-        unlocked: focus.unlocked,
-        active_mod: focus.active_mod.clone(),
-    }]
-}
-
-fn keyed_targets(
-    app: &HaganeApp,
-    focus: &Focus,
-    id: Option<u32>,
-    subject: figures::Subject,
-    table: &str,
-    noun: &str,
-) -> Vec<LevelTarget> {
-    let Some(id) = id else {
-        return Vec::new();
-    };
-
-    let files = asset_files(app, focus, table);
-
-    if files.is_empty() {
-        return Vec::new();
-    }
-
-    let label = format!("{noun} {id}");
-
-    vec![LevelTarget {
-        subject,
-        asset: Asset::Variants { key: table.to_owned(), files },
-        label: [label.as_str(), table].join(theme::HEADER_SEPARATOR),
-        columns: Vec::new(),
-        address: figures::Address::Keyed(id),
-        anchor: None,
-        unlocked: focus.unlocked,
-        active_mod: focus.active_mod.clone(),
-    }]
-}
-
-fn line_targets(
-    app: &HaganeApp,
-    focus: &Focus,
-    line: Option<usize>,
-    subject: figures::Subject,
-    table: &str,
-    noun: &str,
-) -> Vec<LevelTarget> {
-    let Some(line) = line else {
-        return Vec::new();
-    };
-
-    let files = asset_files(app, focus, table);
-
-    if files.is_empty() {
-        return Vec::new();
-    }
-
-    let label = format!("{noun} {line}");
-
-    vec![LevelTarget {
-        subject,
-        asset: Asset::Variants { key: table.to_owned(), files },
-        label: [label.as_str(), table].join(theme::HEADER_SEPARATOR),
-        columns: Vec::new(),
-        address: figures::Address::Line(line),
-        anchor: None,
-        unlocked: focus.unlocked,
-        active_mod: focus.active_mod.clone(),
-    }]
-}
-
-fn orb_grade_targets(app: &HaganeApp, focus: &Focus, line: Option<usize>) -> Vec<LevelTarget> {
-    let Some(line) = line else {
-        return Vec::new();
-    };
-
-    let files = asset_files(app, focus, ORB_GRADE_TABLE);
-
-    if files.is_empty() {
-        return Vec::new();
-    }
-
-    let grade = line.checked_sub(1).and_then(|at| orb::GRADES.get(at)).copied().unwrap_or_default();
-    let label = format!("{ORB_GRADE_LABEL} {grade}");
-
-    vec![LevelTarget {
-        subject: figures::Subject::OrbGrades,
-        asset: Asset::Variants { key: ORB_GRADE_TABLE.to_owned(), files },
-        label: [label.as_str(), ORB_GRADE_TABLE].join(theme::HEADER_SEPARATOR),
-        columns: Vec::new(),
-        address: figures::Address::Line(line),
-        anchor: None,
-        unlocked: focus.unlocked,
-        active_mod: focus.active_mod.clone(),
-    }]
-}
-
-fn cannon_status_targets(app: &HaganeApp, focus: &Focus, part: Option<u32>) -> Vec<LevelTarget> {
-    let Some(part) = part else {
-        return Vec::new();
-    };
-
-    let files = asset_files(app, focus, CANNON_STATUS_TABLE);
-
-    if files.is_empty() {
-        return Vec::new();
-    }
-
-    let held = i32::try_from(part).unwrap_or(i32::MAX);
-    let label = app.names.cannon(held).map_or_else(|| base::name(held), str::to_owned);
-
-    vec![LevelTarget {
-        subject: figures::Subject::CannonStatus,
-        asset: Asset::Variants { key: CANNON_STATUS_TABLE.to_owned(), files },
-        label: [label.as_str(), CANNON_STATUS_TABLE].join(theme::HEADER_SEPARATOR),
-        columns: Vec::new(),
-        address: figures::Address::Keyed(part),
-        anchor: None,
-        unlocked: focus.unlocked,
-        active_mod: focus.active_mod.clone(),
-    }]
-}
-
-fn keyed_map_targets(app: &HaganeApp, focus: &Focus, subject: figures::Subject, table: &str) -> Vec<LevelTarget> {
-    let Some(map) = focus.map.as_ref() else {
-        return Vec::new();
-    };
-
-    let registry = &app.stage_state.data.registry;
-
-    let Some(global) = registry.addresses.get(map).and_then(|held| held.global) else {
-        return Vec::new();
-    };
-
-    let files = asset_files(app, focus, table);
-
-    if files.is_empty() {
-        return Vec::new();
-    }
-
-    let chapter = registry
-        .maps
-        .get(map)
-        .map(|found| found.name.trim())
-        .filter(|found| !found.is_empty())
-        .map_or_else(|| format!("{:03}", map.map), str::to_owned);
-
-    vec![LevelTarget {
-        subject,
-        asset: Asset::Variants { key: table.to_owned(), files },
-        label: [chapter.as_str(), table].join(theme::HEADER_SEPARATOR),
-        columns: Vec::new(),
-        address: figures::Address::Keyed(global),
-        anchor: None,
-        unlocked: focus.unlocked,
-        active_mod: focus.active_mod.clone(),
-    }]
-}
-
-fn orb_slot_targets(app: &HaganeApp, focus: &Focus) -> Vec<LevelTarget> {
-    let Some(id) = focus.cat else {
-        return Vec::new();
-    };
-
-    let files = asset_files(app, focus, ORB_SLOT_TABLE);
-
-    if files.is_empty() {
-        return Vec::new();
-    }
-
-    let label = app
-        .cat_state
-        .data
-        .cats
-        .iter()
-        .find(|cat| cat.id == id)
-        .map_or_else(|| format!("{id:03}"), |cat| cat.display_name(focus.form));
-
-    vec![LevelTarget {
-        subject: figures::Subject::OrbSlots,
-        asset: Asset::Variants { key: ORB_SLOT_TABLE.to_owned(), files },
-        label: [label.as_str(), ORB_SLOT_TABLE].join(theme::HEADER_SEPARATOR),
-        columns: Vec::new(),
-        address: figures::Address::Keyed(id),
-        anchor: None,
-        unlocked: focus.unlocked,
-        active_mod: focus.active_mod.clone(),
-    }]
-}
-
-fn combo_param_targets(app: &HaganeApp, focus: &Focus, line: Option<usize>) -> Vec<LevelTarget> {
-    let Some(line) = line else {
-        return Vec::new();
-    };
-
-    let files = asset_files(app, focus, COMBO_PARAM_TABLE);
-
-    if files.is_empty() {
-        return Vec::new();
-    }
-
-    let label = combo_effect(app, line);
-
-    vec![LevelTarget {
-        subject: figures::Subject::ComboParam,
-        asset: Asset::Variants { key: COMBO_PARAM_TABLE.to_owned(), files },
-        label: [label.as_str(), COMBO_PARAM_TABLE].join(theme::HEADER_SEPARATOR),
-        columns: Vec::new(),
-        address: figures::Address::Line(line),
-        anchor: None,
-        unlocked: focus.unlocked,
-        active_mod: focus.active_mod.clone(),
-    }]
-}
-
-fn combo_effect(app: &HaganeApp, line: usize) -> String {
-    app.vault
-        .vds
-        .cats
-        .combo_effects(&app.vault.vfs)
-        .get(line)
-        .and_then(Option::as_deref)
-        .map(str::trim)
-        .filter(|name| !name.is_empty())
-        .map_or_else(|| format!("{COMBO_EFFECT_LABEL} {line}"), str::to_owned)
-}
-
-fn upgrade_targets(app: &HaganeApp, focus: &Focus, line: Option<usize>) -> Vec<LevelTarget> {
-    let Some(line) = line else {
-        return Vec::new();
-    };
-
-    let files = asset_files(app, focus, UPGRADE_TABLE);
-
-    if files.is_empty() {
-        return Vec::new();
-    }
-
-    let label = UPGRADE_NAMES.get(line).map_or_else(|| format!("{UPGRADE_LABEL} {line}"), |name| (*name).to_owned());
-
-    vec![LevelTarget {
-        subject: figures::Subject::Upgrade,
-        asset: Asset::Variants { key: UPGRADE_TABLE.to_owned(), files },
-        label: [label.as_str(), UPGRADE_TABLE].join(theme::HEADER_SEPARATOR),
-        columns: Vec::new(),
-        address: figures::Address::Line(line),
-        anchor: None,
-        unlocked: focus.unlocked,
-        active_mod: focus.active_mod.clone(),
-    }]
-}
-
-// What a broad right-click aims the item editors at when no treasure row was hit.
-fn first_drop(app: &HaganeApp, focus: &Focus) -> Option<u32> {
-    let chosen = focus.stage.as_ref()?;
-    let stage = app.stage_state.data.registry.stages.get(chosen)?;
-
-    drop_ids(stage).next()
+    map_drop_targets(&sources(app), focus)
 }
 
 fn item_buy_payloads(app: &HaganeApp, focus: &Focus, target: Option<Target>, broad: bool) -> Vec<LevelTarget> {
     let item = match target {
         Some(Target::TreasureDrop(item)) => Some(item),
-        _ if broad || target == Some(Target::StageDrops) => first_drop(app, focus),
+        _ if broad || target == Some(Target::StageDrops) => first_drop(&sources(app), focus),
         _ => None,
     };
 
-    item_buy_targets(app, focus, item)
-}
-
-// Gatyaitembuy.csv names the item in its fourth column, so the row is found by that rather
-// than by counting past a header the file need not carry.
-fn item_buy_targets(app: &HaganeApp, focus: &Focus, item: Option<u32>) -> Vec<LevelTarget> {
-    if focus.page != Page::Stages {
-        return Vec::new();
-    }
-
-    let Some(item) = item.or_else(|| first_drop(app, focus)) else {
-        return Vec::new();
-    };
-
-    if app.vault.vds.items.line(&app.vault.vfs, item).is_none() {
-        return Vec::new();
-    }
-
-    let files = asset_files(app, focus, stage_files::GATYA_ITEM_BUY);
-
-    if files.is_empty() {
-        return Vec::new();
-    }
-
-    vec![LevelTarget {
-        subject: figures::Subject::ItemBuy,
-        asset: Asset::Variants { key: stage_files::GATYA_ITEM_BUY.to_owned(), files },
-        label: [item_label(app, item).as_str(), stage_files::GATYA_ITEM_BUY].join(theme::HEADER_SEPARATOR),
-        columns: Vec::new(),
-        address: figures::Address::Column { at: figures::ITEM_ID_COLUMN, id: item },
-        anchor: None,
-        unlocked: focus.unlocked,
-        active_mod: focus.active_mod.clone(),
-    }]
-}
-
-// The name file has no header, so an item's catalog line is its line here outright --
-// codex's `icon_index` states that pairing.
-fn item_name_target(app: &HaganeApp, focus: &Focus, item: Option<u32>) -> Option<ProseTarget> {
-    if focus.page != Page::Stages {
-        return None;
-    }
-
-    let item = item.or_else(|| first_drop(app, focus))?;
-    let row = app.vault.vds.items.line(&app.vault.vfs, item)?;
-
-    Some(ProseTarget {
-        subject: prose::Subject::ItemName,
-        asset: Asset::Exception(exception(app, focus, stage_files::GATYA_ITEM_NAME.to_owned())?),
-        label: item_label(app, item),
-        row,
-        rows: Vec::new(),
-        keyed: None,
-        cell: None,
-        unlocked: focus.unlocked,
-        active_mod: focus.active_mod.clone(),
-        aim: None,
-    })
-}
-
-fn glossary_file(faction: Faction) -> &'static str {
-    match faction {
-        Faction::Cat => GLOSSARY_FILES[0],
-        Faction::Enemy => GLOSSARY_FILES[1],
-    }
-}
-
-fn glossary_target(app: &HaganeApp, focus: &Focus, identity: Identity, faction: Faction) -> Option<ProseTarget> {
-    let (subject, page) = match faction {
-        Faction::Cat => (prose::Subject::CatGlossary, Page::Cats),
-        Faction::Enemy => (prose::Subject::EnemyGlossary, Page::Enemies),
-    };
-
-    if focus.page != page {
-        return None;
-    }
-
-    let row = usize::from(app.names.glossary_line(identity, faction)?).checked_sub(1)?;
-
-    Some(ProseTarget {
-        subject,
-        asset: Asset::Exception(exception(app, focus, glossary_file(faction).to_owned())?),
-        label: app.names.ability(identity, faction).to_owned(),
-        row,
-        rows: Vec::new(),
-        keyed: None,
-        cell: None,
-        unlocked: focus.unlocked,
-        active_mod: focus.active_mod.clone(),
-        aim: Some((identity, faction)),
-    })
-}
-
-fn item_label(app: &HaganeApp, item: u32) -> String {
-    app.vault
-        .vds
-        .items
-        .name(&app.vault.vfs, item)
-        .filter(|name| !name.trim().is_empty())
-        .unwrap_or_else(|| format!("Item {item}"))
-}
-
-// A stage unlocks a unit when one of its reward ids has a row in drop_chara.csv. Measured on
-// the shipped corpus, 327 stages reference exactly one and none reference two, so the row is
-// addressed outright; a stage that drops no unit offers nothing.
-fn drop_chara_targets(app: &HaganeApp, focus: &Focus) -> Vec<LevelTarget> {
-    if focus.page != Page::Stages {
-        return Vec::new();
-    }
-
-    let Some(chosen) = focus.stage.as_ref() else {
-        return Vec::new();
-    };
-
-    let data = &app.stage_state.data;
-
-    let Some(stage) = data.registry.stages.get(chosen) else {
-        return Vec::new();
-    };
-
-    let Some(drop) = drop_ids(stage).find(|id| data.drop_chara_registry.contains_key(id)) else {
-        return Vec::new();
-    };
-
-    let files = asset_files(app, focus, stage_files::DROP_CHARA);
-
-    if files.is_empty() {
-        return Vec::new();
-    }
-
-    let unit = data
-        .drop_chara_registry
-        .get(&drop)
-        .and_then(|id| data.cat_name_registry.get(id))
-        .and_then(|names| names.first())
-        .filter(|name| !name.trim().is_empty())
-        .map_or_else(|| format!("Drop {drop}"), |name| name.clone());
-
-    vec![LevelTarget {
-        subject: figures::Subject::DropChara,
-        asset: Asset::Variants { key: stage_files::DROP_CHARA.to_owned(), files },
-        label: [unit.as_str(), stage_files::DROP_CHARA].join(theme::HEADER_SEPARATOR),
-        columns: Vec::new(),
-        address: figures::Address::Keyed(drop),
-        anchor: None,
-        unlocked: focus.unlocked,
-        active_mod: focus.active_mod.clone(),
-    }]
-}
-
-fn drop_ids(stage: &foundry::domains::stage::Stage) -> impl Iterator<Item = u32> + '_ {
-    let timed = match &stage.rewards {
-        RewardStructure::Timed { scores, .. } => Some(scores.iter().map(|score| score.item_id)),
-        _ => None,
-    };
-
-    stage.rewards.drops().iter().map(|drop| drop.item_id).chain(timed.into_iter().flatten())
-}
-
-fn material_names(app: &HaganeApp) -> Vec<String> {
-    let items = &app.vault.vds.items;
-    let vfs = &app.vault.vfs;
-
-    (0..figures::MAP_DROPS_WIDTH)
-        .map(|index| {
-            let slot = index.checked_sub(figures::MAP_DROPS_MATERIALS);
-
-            slot.and_then(|slot| stage_materials::MAT_IDS.get(slot))
-                .and_then(|id| items.name(vfs, *id))
-                .filter(|name| !name.trim().is_empty())
-                .map_or_else(String::new, |name| format!("{name} %"))
-        })
-        .collect()
+    item_buy_targets(&sources(app), focus, item)
 }
 
 // Creating a stage or a map only makes sense into a mod: the files are new, so there is no
@@ -3457,10 +2305,10 @@ fn making(
     let ground = stage_authoring::renumbered(&sibling, at, Some(stage))?;
     let data_file = stage_authoring::renumbered(held.data_file.as_deref()?, at, None)?;
 
-    let plate = visible_name(app, &stage_files::stage_banner_file(&map.category, map.map, 0, &image));
+    let plate = core::visible_name(&sources(app), &stage_files::stage_banner_file(&map.category, map.map, 0, &image));
     let plate = stage_authoring::renumbered(&plate, at, Some(stage))?;
 
-    let map_plate = visible_name(app, &stage_files::map_banner_file(map.map, &image));
+    let map_plate = core::visible_name(&sources(app), &stage_files::map_banner_file(map.map, &image));
     let map_plate = stage_authoring::renumbered(&map_plate, at, None)?;
 
     let (name_key, name_cell) = names::stage_name_address(&prefix, at, stage);
@@ -3540,7 +2388,7 @@ fn ground_source(app: &HaganeApp, focus: &Focus) -> Option<GroundTarget> {
 
 fn named_files(app: &HaganeApp, focus: &Focus, names: Vec<String>) -> Vec<AssetFile> {
     let copies: Vec<Option<PathBuf>> = {
-        let located = mod_copies(app, focus, names.iter().map(String::as_str));
+        let located = mod_copies(&sources(app), focus, names.iter().map(String::as_str));
 
         names.iter().map(|name| located.get(name.as_str()).cloned()).collect()
     };
@@ -3818,25 +2666,25 @@ fn icon_subject(focus: &Focus, target: Option<Target>, broad: bool) -> Option<Ic
 
 fn prose_payloads(app: &HaganeApp, focus: &Focus, target: Option<Target>, broad: bool) -> Vec<ProseTarget> {
     if let Some(Target::CatCombo(line)) = target {
-        return combo_name_target(app, focus, Some(line)).into_iter().collect();
+        return combo_name_target(&sources(app), focus, Some(line)).into_iter().collect();
     }
 
     // A list row is the one place a name is offered for something that is not the
     // selection, so the row's own id wins over it -- right-click does not select.
     if let Some(Target::MapRow(map)) = target {
-        return map_name_target(app, focus, Some(map)).into_iter().collect();
+        return map_name_target(&sources(app), focus, Some(map)).into_iter().collect();
     }
 
     if let Some(Target::StageRow(stage)) = target {
-        return stage_name_target(app, focus, Some(stage)).into_iter().collect();
+        return stage_name_target(&sources(app), focus, Some(stage)).into_iter().collect();
     }
 
     if let Some(Target::TreasureDrop(item)) = target {
-        return item_name_target(app, focus, Some(item)).into_iter().collect();
+        return item_name_target(&sources(app), focus, Some(item)).into_iter().collect();
     }
 
     if let Some(Target::Ability(identity, faction)) = target {
-        return glossary_target(app, focus, identity, faction).into_iter().collect();
+        return glossary_target(&sources(app), focus, identity, faction).into_iter().collect();
     }
 
     if !broad {
@@ -3844,25 +2692,15 @@ fn prose_payloads(app: &HaganeApp, focus: &Focus, target: Option<Target>, broad:
             return Vec::new();
         };
 
-        return prose_target(app, focus, subject).into_iter().collect();
+        return prose_target(&sources(app), focus, subject).into_iter().collect();
     }
 
     prose::SUBJECTS
         .into_iter()
         .filter(|subject| subject.page() == focus.page && prose_tab(app, *subject))
         .filter(|subject| prose_offered(app, *subject))
-        .flat_map(|subject| prose_target(app, focus, subject))
+        .flat_map(|subject| prose_target(&sources(app), focus, subject))
         .collect()
-}
-
-fn level_payloads(app: &HaganeApp, focus: &Focus, levels: bool, forms: bool) -> Vec<LevelTarget> {
-    let files: &[(figures::Subject, &str)] = match (levels, forms) {
-        (true, _) => &LEVEL_FILES,
-        (false, true) => &FORM_FILES,
-        (false, false) => return Vec::new(),
-    };
-
-    roster_payloads(app, focus, files)
 }
 
 fn combo_payloads(app: &HaganeApp, focus: &Focus, target: Option<Target>, broad: bool) -> Vec<LevelTarget> {
@@ -3876,47 +2714,11 @@ fn combo_payloads(app: &HaganeApp, focus: &Focus, target: Option<Target>, broad:
         _ => return Vec::new(),
     };
 
-    combo_target(app, focus, line).into_iter().collect()
+    combo_target(&sources(app), focus, line).into_iter().collect()
 }
 
 fn combo_joined(app: &HaganeApp, focus: &Focus) -> bool {
-    focus.cat.is_some_and(|id| combo_line(app, id, focus.form).is_some())
-}
-
-fn combo_target(app: &HaganeApp, focus: &Focus, line: Option<usize>) -> Option<LevelTarget> {
-    if focus.page != Page::Cats {
-        return None;
-    }
-
-    let id = focus.cat?;
-    let files = asset_files(app, focus, cat_files::NYANCOMBO_DATA);
-
-    if files.is_empty() {
-        return None;
-    }
-
-    let address = line.map_or(figures::Address::Appended, figures::Address::Line);
-
-    Some(LevelTarget {
-        subject: figures::Subject::Combo,
-        asset: Asset::Variants { key: cat_files::NYANCOMBO_DATA.to_owned(), files },
-        label: [cat_label(app, focus, id).as_str(), cat_files::NYANCOMBO_DATA].join(theme::HEADER_SEPARATOR),
-        columns: Vec::new(),
-        address,
-        anchor: combo_anchor(focus, id),
-        unlocked: focus.unlocked,
-        active_mod: focus.active_mod.clone(),
-    })
-}
-
-fn combo_anchor(focus: &Focus, id: u32) -> Option<(i32, i32)> {
-    let form = i32::try_from(focus.form).ok()?;
-
-    Some((i32::try_from(id).ok()?, form))
-}
-
-fn combo_line(app: &HaganeApp, id: u32, form: usize) -> Option<usize> {
-    cat_combo::combo_lines(&app.vault, id, form).first().copied()
+    focus.cat.is_some_and(|id| combo_line(&sources(app), id, focus.form).is_some())
 }
 
 fn talent_payloads(app: &HaganeApp, focus: &Focus, reached: bool) -> Vec<LevelTarget> {
@@ -3927,133 +2729,11 @@ fn talent_payloads(app: &HaganeApp, focus: &Focus, reached: bool) -> Vec<LevelTa
     let files: &[(figures::Subject, &str)] =
         if talents_tab(app) { &TALENT_FILES } else { &ACQUISITION_ONLY };
 
-    roster_payloads(app, focus, files)
+    roster_payloads(&sources(app), focus, files)
 }
 
 fn talents_tab(app: &HaganeApp) -> bool {
     held_view(app).selected_tab == DetailTab::Talents
-}
-
-fn address(app: &HaganeApp, subject: figures::Subject, id: u32) -> figures::Address {
-    match subject {
-        figures::Subject::Talents => figures::Address::Keyed(id),
-        figures::Subject::Costs => {
-            figures::Address::Keyed(talent_costs(app, Some(id)).first().map_or(FIRST_COST, |cost| u32::from(*cost)))
-        }
-        _ => figures::Address::Line(id as usize),
-    }
-}
-
-fn talent_costs(app: &HaganeApp, cat: Option<u32>) -> figures::Marks {
-    let mut used = figures::Marks::default();
-
-    let Some(id) = cat else {
-        return used;
-    };
-
-    let Some(talents) =
-        app.cat_state.data.cats.iter().find(|cat| cat.id == id).and_then(|cat| cat.talent_data.as_ref())
-    else {
-        return used;
-    };
-
-    let mut costs: Vec<u8> = talents
-        .groups
-        .iter()
-        .filter(|group| group.ability_id != 0)
-        .map(|group| group.cost_id)
-        .collect();
-
-    costs.sort_unstable();
-    costs.dedup();
-
-    for (slot, cost) in used.iter_mut().zip(costs) {
-        *slot = cost;
-    }
-
-    used
-}
-
-fn roster_payloads(app: &HaganeApp, focus: &Focus, files: &[(figures::Subject, &str)]) -> Vec<LevelTarget> {
-    if focus.page != Page::Cats {
-        return Vec::new();
-    }
-
-    let Some(id) = focus.cat else {
-        return Vec::new();
-    };
-
-    let label = cat_label(app, focus, id);
-
-    files
-        .iter()
-        .copied()
-        .filter_map(|(subject, name)| {
-            let files = asset_files(app, focus, name);
-
-            if files.is_empty() {
-                return None;
-            }
-
-            Some(LevelTarget {
-                subject,
-                asset: Asset::Variants { key: name.to_owned(), files },
-                label: [label.as_str(), name].join(theme::HEADER_SEPARATOR),
-                columns: Vec::new(),
-                address: address(app, subject, id),
-                anchor: None,
-                unlocked: focus.unlocked,
-                active_mod: focus.active_mod.clone(),
-            })
-        })
-        .collect()
-}
-
-fn talent_text_target(app: &HaganeApp, focus: &Focus) -> Option<ProseTarget> {
-    if focus.page != Page::Cats {
-        return None;
-    }
-
-    let id = focus.cat?;
-    let rows = talent_texts(app, id);
-
-    Some(ProseTarget {
-        subject: prose::Subject::TalentText,
-        asset: Asset::Exception(exception(app, focus, cat_files::SKILL_DESCRIPTIONS.to_owned())?),
-        label: [cat_label(app, focus, id).as_str(), cat_files::SKILL_DESCRIPTIONS].join(theme::HEADER_SEPARATOR),
-        row: rows.first().copied().unwrap_or(FIRST_TALENT_TEXT),
-        rows,
-        keyed: None,
-        cell: None,
-        unlocked: focus.unlocked,
-        active_mod: focus.active_mod.clone(),
-        aim: None,
-    })
-}
-
-fn talent_texts(app: &HaganeApp, id: u32) -> Vec<usize> {
-    let Some(talents) = app
-        .cat_state
-        .data
-        .cats
-        .iter()
-        .find(|cat| cat.id == id)
-        .and_then(|cat| cat.talent_data.as_ref())
-    else {
-        return Vec::new();
-    };
-
-    let mut held: Vec<usize> = talents
-        .groups
-        .iter()
-        .filter(|group| group.ability_id != 0)
-        .map(|group| usize::from(group.text_id))
-        .collect();
-
-    held.sort_unstable();
-    held.dedup();
-
-    held
 }
 
 fn level_cap(app: &HaganeApp, cat: Option<u32>) -> Option<i32> {
@@ -4063,23 +2743,12 @@ fn level_cap(app: &HaganeApp, cat: Option<u32>) -> Option<i32> {
     Some(cat.unitbuy.level_cap_catseye + cat.unitbuy.level_cap_plus)
 }
 
-fn cat_label(app: &HaganeApp, focus: &Focus, id: u32) -> String {
-    app.cat_state
-        .data
-        .cats
-        .iter()
-        .find(|cat| cat.id == id)
-        .and_then(|cat| cat.names.get(focus.form).cloned().flatten())
-        .filter(|name| !name.is_empty())
-        .unwrap_or_else(|| format!("{id:03}-C"))
-}
-
 fn cat_payloads(app: &HaganeApp, focus: &Focus, reached: bool) -> Vec<CatTarget> {
     if !reached || !figures_tab(app, figures::Subject::Cat) {
         return Vec::new();
     }
 
-    cat_subject(app, focus).into_iter().collect()
+    cat_subject(&sources(app), focus).into_iter().collect()
 }
 
 fn enemy_payloads(app: &HaganeApp, focus: &Focus, reached: bool) -> Vec<EnemyTarget> {
@@ -4087,7 +2756,7 @@ fn enemy_payloads(app: &HaganeApp, focus: &Focus, reached: bool) -> Vec<EnemyTar
         return Vec::new();
     }
 
-    enemy_subject(app, focus).into_iter().collect()
+    enemy_subject(&sources(app), focus).into_iter().collect()
 }
 
 fn prose_tab(app: &HaganeApp, subject: prose::Subject) -> bool {
@@ -4157,231 +2826,6 @@ fn prose_subject(target: Option<Target>) -> Option<prose::Subject> {
     }
 }
 
-fn prose_target(app: &HaganeApp, focus: &Focus, subject: prose::Subject) -> Option<ProseTarget> {
-    match subject {
-        prose::Subject::Explanation => explanation_target(app, focus, focus.cat?),
-        prose::Subject::EnemyName => enemy_name_target(app, focus),
-        prose::Subject::EnemyDescription => enemy_description_target(app, focus),
-        prose::Subject::ComboName => combo_name_target(app, focus, None),
-        prose::Subject::TalentText => talent_text_target(app, focus),
-        prose::Subject::MapName => map_name_target(app, focus, None),
-        prose::Subject::StageName => stage_name_target(app, focus, None),
-        prose::Subject::ItemName => item_name_target(app, focus, None),
-        prose::Subject::CatGlossary | prose::Subject::EnemyGlossary => None,
-    }
-}
-
-fn map_key(app: &HaganeApp, focus: &Focus, map: Option<u32>) -> Option<GlobalMapId> {
-    let Some(map) = map else {
-        return focus.map.clone();
-    };
-
-    Some(GlobalMapId { category: app.stage_state.data.selected_category.clone()?, map })
-}
-
-fn stage_key(focus: &Focus, stage: Option<u32>) -> Option<GlobalStageId> {
-    let Some(stage) = stage else {
-        return focus.stage.clone();
-    };
-
-    let map = focus.map.as_ref()?;
-
-    Some(GlobalStageId { category: map.category.clone(), map: map.map, stage })
-}
-
-fn map_name_target(app: &HaganeApp, focus: &Focus, map: Option<u32>) -> Option<ProseTarget> {
-    if focus.page != Page::Stages {
-        return None;
-    }
-
-    let key = map_key(app, focus, map)?;
-    let registry = &app.stage_state.data.registry;
-    let global = registry.addresses.get(&key)?.global?;
-
-    let label = registry
-        .maps
-        .get(&key)
-        .map(|found| found.name.trim())
-        .filter(|name| !name.is_empty())
-        .map_or_else(|| format!("{:03}", key.map), str::to_owned);
-
-    Some(ProseTarget {
-        subject: prose::Subject::MapName,
-        asset: Asset::Exception(exception(app, focus, stage_files::MAP_NAME.to_owned())?),
-        label,
-        row: 0,
-        rows: Vec::new(),
-        keyed: None,
-        cell: None,
-        unlocked: focus.unlocked,
-        active_mod: focus.active_mod.clone(),
-        aim: None,
-    })
-    .map(|target| target.keyed(prose::Keyed::Map(global)))
-}
-
-// The story chapters put one stage per line and read the first cell; every other chapter
-// puts a whole map on one line and reads the cell at the stage index.
-fn stage_name_target(app: &HaganeApp, focus: &Focus, stage: Option<u32>) -> Option<ProseTarget> {
-    if focus.page != Page::Stages {
-        return None;
-    }
-
-    let key = stage_key(focus, stage)?;
-    let registry = &app.stage_state.data.registry;
-    let map = GlobalMapId { category: key.category.clone(), map: key.map };
-    let file = registry.addresses.get(&map)?.name_file.as_deref()?;
-
-    let (keyed, cell) = names::stage_name_address(&key.category.map_prefix(), key.map, key.stage);
-
-    let label = registry
-        .stages
-        .get(&key)
-        .map(|found| found.name.trim())
-        .filter(|name| !name.is_empty())
-        .map_or_else(|| format!("{:02}", key.stage), str::to_owned);
-
-    let files = asset_files(app, focus, file);
-
-    if files.is_empty() {
-        return None;
-    }
-
-    Some(ProseTarget {
-        subject: prose::Subject::StageName,
-        asset: Asset::Variants { key: file.to_owned(), files },
-        label,
-        row: 0,
-        rows: Vec::new(),
-        keyed: None,
-        cell: None,
-        unlocked: focus.unlocked,
-        active_mod: focus.active_mod.clone(),
-        aim: None,
-    })
-    .map(|target| target.keyed(prose::Keyed::Stage(keyed)).celled(cell))
-}
-
-fn combo_name_target(app: &HaganeApp, focus: &Focus, line: Option<usize>) -> Option<ProseTarget> {
-    if focus.page != Page::Cats {
-        return None;
-    }
-
-    let id = focus.cat?;
-    let row = line.or_else(|| combo_line(app, id, focus.form))?;
-    let files = asset_files(app, focus, cat_files::NYANCOMBO_NAME);
-
-    if files.is_empty() {
-        return None;
-    }
-
-    Some(ProseTarget {
-        subject: prose::Subject::ComboName,
-        asset: Asset::Variants { key: cat_files::NYANCOMBO_NAME.to_owned(), files },
-        label: [cat_label(app, focus, id).as_str(), cat_files::NYANCOMBO_NAME].join(theme::HEADER_SEPARATOR),
-        row,
-        rows: Vec::new(),
-        keyed: None,
-        cell: None,
-        unlocked: focus.unlocked,
-        active_mod: focus.active_mod.clone(),
-        aim: None,
-    })
-}
-
-fn mod_copy(app: &HaganeApp, focus: &Focus, file: &str) -> Option<PathBuf> {
-    mods::find(&app.vault.vfs, focus.mount()?, Path::new(file))
-}
-
-fn enemy_name_target(app: &HaganeApp, focus: &Focus) -> Option<ProseTarget> {
-    let id = focus.enemy?;
-
-    Some(ProseTarget {
-        subject: prose::Subject::EnemyName,
-        asset: Asset::Exception(exception(app, focus, enemy_files::NAMES.to_owned())?),
-        label: enemy_label(app, id),
-        row: id as usize,
-        rows: Vec::new(),
-        keyed: None,
-        cell: None,
-        unlocked: focus.unlocked,
-        active_mod: focus.active_mod.clone(),
-        aim: None,
-    })
-}
-
-fn enemy_description_target(app: &HaganeApp, focus: &Focus) -> Option<ProseTarget> {
-    let id = focus.enemy?;
-    let files = asset_files(app, focus, enemy_files::PICTURE_BOOK);
-
-    if files.is_empty() {
-        return None;
-    }
-
-    Some(ProseTarget {
-        subject: prose::Subject::EnemyDescription,
-        asset: Asset::Variants { key: enemy_files::PICTURE_BOOK.to_owned(), files },
-        label: enemy_label(app, id),
-        row: id as usize,
-        rows: Vec::new(),
-        keyed: None,
-        cell: None,
-        unlocked: focus.unlocked,
-        active_mod: focus.active_mod.clone(),
-        aim: None,
-    })
-}
-
-fn enemy_label(app: &HaganeApp, id: u32) -> String {
-    app.enemy_state
-        .data
-        .enemies
-        .iter()
-        .find(|enemy| enemy.id == id)
-        .map_or_else(|| format!("{id:03}-E"), EnemyEntry::display_name)
-}
-
-fn explanation_target(app: &HaganeApp, focus: &Focus, id: u32) -> Option<ProseTarget> {
-    let form = focus.form;
-
-    cat_waiter::unitexplanation_source(&app.vault.vfs, id, form)?;
-
-    let key = cat_files::explanation_file(id);
-    let files = asset_files(app, focus, &key);
-
-    if files.is_empty() {
-        return None;
-    }
-
-    let name = app
-        .cat_state
-        .data
-        .cats
-        .iter()
-        .find(|cat| cat.id == id)
-        .and_then(|cat| cat.names.get(form).cloned().flatten());
-
-    let form_label = figures::FORMS.get(form).copied().unwrap_or("Unknown");
-
-    let label = match name.as_deref() {
-        Some(name) if !name.is_empty() => [name, form_label].join(theme::HEADER_SEPARATOR),
-        _ => form_label.to_owned(),
-    };
-
-    Some(ProseTarget {
-        subject: prose::Subject::Explanation,
-        asset: Asset::Variants { key, files },
-        label,
-        row: form,
-        rows: Vec::new(),
-        keyed: None,
-        cell: None,
-        unlocked: focus.unlocked,
-        active_mod: focus.active_mod.clone(),
-        aim: None,
-    })
-}
-
 fn icon_target(app: &HaganeApp, focus: &Focus, subject: Option<IconSubject>) -> Option<IconTarget> {
     let (resolved, title) = match subject? {
         IconSubject::Cat(id) => {
@@ -4399,7 +2843,7 @@ fn icon_target(app: &HaganeApp, focus: &Focus, subject: Option<IconSubject>) -> 
     let name = resolved.file_name()?.to_string_lossy().into_owned();
 
     Some(IconTarget {
-        asset: exception(app, focus, name)?,
+        asset: exception(&sources(app), focus, name)?,
         title,
         unlocked: focus.unlocked,
         active_mod: focus.active_mod.clone(),
@@ -4425,7 +2869,7 @@ fn banner_target(app: &HaganeApp, focus: &Focus, id: u32) -> Option<BannerTarget
     let wanted: Vec<String> =
         (0..cat.forms.len()).map(|form| cat_files::banner_file(id, form, egg_ids)).collect();
 
-    let forms: Vec<(Option<&'static str>, Exception)> = exceptions(app, focus, wanted)
+    let forms: Vec<(Option<&'static str>, Exception)> = exceptions(&sources(app), focus, wanted)
         .into_iter()
         .enumerate()
         .filter_map(|(form, asset)| {
@@ -4653,67 +3097,6 @@ fn place_image(file: &str, target_mod: Option<&str>, game: Option<&Path>, source
         .is_ok()
 }
 
-fn cat_subject(app: &HaganeApp, focus: &Focus) -> Option<CatTarget> {
-    if focus.page != Page::Cats {
-        return None;
-    }
-
-    let id = focus.cat?;
-    let file = cat_files::stats_file(id);
-    let source = app.vault.vfs.rooted(architecture::GAME, &file)?;
-    let form = focus.form;
-
-    let mod_copy = mod_copy(app, focus, &file);
-
-    let name = app
-        .cat_state
-        .data
-        .cats
-        .iter()
-        .find(|cat| cat.id == id)
-        .and_then(|cat| cat.names.get(form).cloned().flatten());
-
-    Some(CatTarget {
-        file,
-        mod_copy,
-        name,
-        source,
-        form,
-        unlocked: focus.unlocked,
-        active_mod: focus.active_mod.clone(),
-    })
-}
-
-fn enemy_subject(app: &HaganeApp, focus: &Focus) -> Option<EnemyTarget> {
-    if focus.page != Page::Enemies {
-        return None;
-    }
-
-    let id = focus.enemy?;
-    let file = enemy_files::STATS.to_owned();
-    let source = app.vault.vfs.rooted(architecture::GAME, &file)?;
-
-    let mod_copy = mod_copy(app, focus, &file);
-
-    let name = app
-        .enemy_state
-        .data
-        .enemies
-        .iter()
-        .find(|enemy| enemy.id == id)
-        .map(|enemy| enemy.name.clone());
-
-    Some(EnemyTarget {
-        file,
-        mod_copy,
-        name,
-        source,
-        row: ENEMY_HEADER_ROWS + id as usize,
-        unlocked: focus.unlocked,
-        active_mod: focus.active_mod.clone(),
-    })
-}
-
 pub(crate) fn refresh(app: &HaganeApp, editor: &State, force: bool) -> Option<Update> {
     if !editor.drafting() {
         return None;
@@ -4749,7 +3132,7 @@ fn snapshot(app: &HaganeApp, editor: &State) -> Snapshot {
                 return None;
             }
 
-            current_plan(app, focus, subject, Aim::default())
+            current_plan(&sources(app), focus, subject, Aim::default(), app.settings.files.editor_mode)
         }),
         prose: prose::SUBJECTS.map(|subject| {
             if subject.page() != focus.page || !editor.prose_drafting(seat, subject) {
@@ -4757,11 +3140,11 @@ fn snapshot(app: &HaganeApp, editor: &State) -> Snapshot {
             }
 
             let target = match (subject, editor.glossary_aim(seat)) {
-                (prose::Subject::CatGlossary | prose::Subject::EnemyGlossary, Some((identity, faction))) => glossary_target(app, focus, identity, faction),
-                _ => prose_target(app, focus, subject),
+                (prose::Subject::CatGlossary | prose::Subject::EnemyGlossary, Some((identity, faction))) => glossary_target(&sources(app), focus, identity, faction),
+                _ => prose_target(&sources(app), focus, subject),
             };
 
-            target.map(|target| registry::prose_plans(&target)).unwrap_or_default()
+            target.map(|target| prose_plans(&target)).unwrap_or_default()
         }),
         ground: current_ground(app, focus),
         artwork: None,
@@ -4895,354 +3278,15 @@ fn current_ground(app: &HaganeApp, focus: &Focus) -> Option<ground::Plan> {
     ))
 }
 
-#[derive(Default)]
-struct Aim<'a> {
-    key: Option<u32>,
-    line: Option<usize>,
-    file: Option<&'a str>,
-}
-
-fn current_plan(app: &HaganeApp, focus: &Focus, subject: figures::Subject, aim: Aim<'_>) -> Option<figures::Plan> {
-    let values = app.settings.files.editor_mode;
-
-    match subject {
-        figures::Subject::Cat => {
-            let cat = cat_subject(app, focus)?;
-            let active = cat.active_mod.clone();
-
-            Some(registry::cat_plan(&cat, active, values))
-        }
-        figures::Subject::Enemy => {
-            let enemy = enemy_subject(app, focus)?;
-            let active = enemy.active_mod.clone();
-
-            Some(registry::enemy_plan(&enemy, active, values))
-        }
-        figures::Subject::Buy
-        | figures::Subject::Curve
-        | figures::Subject::Talents
-        | figures::Subject::Costs
-        | figures::Subject::Combo
-        | figures::Subject::MapStage
-        | figures::Subject::MapDrops
-        | figures::Subject::DropChara
-        | figures::Subject::ItemBuy
-        | figures::Subject::MapOption
-        | figures::Subject::Background
-        | figures::Subject::Upgrade
-        | figures::Subject::ComboParam
-        | figures::Subject::OrbSlots
-        | figures::Subject::Difficulty
-        | figures::Subject::ExInvasion
-        | figures::Subject::CannonStatus
-        | figures::Subject::ExpCurve
-        | figures::Subject::OrbGrades
-        | figures::Subject::ExLottery
-        | figures::Subject::Shakes
-        | figures::Subject::Recipes
-        | figures::Subject::Shop
-        | figures::Subject::ZombieHeader
-        | figures::Subject::ZombieTier
-        | figures::Subject::Cpu
-        | figures::Subject::OrbTraits
-        | figures::Subject::Altar
-        | figures::Subject::GamatotoLimit
-        | figures::Subject::GamatotoUnlock
-        | figures::Subject::GamatotoDrop
-        | figures::Subject::Stamps
-        | figures::Subject::SlotUnlocks
-        | figures::Subject::Club
-        | figures::Subject::Missions
-        | figures::Subject::Conditions
-        | figures::Subject::MissionUnlocks
-        | figures::Subject::MissionGroups
-        | figures::Subject::GachaOptions
-        | figures::Subject::ChanceAnimations
-        | figures::Subject::Castles
-        | figures::Subject::TipRules
-        | figures::Subject::QuestStages
-        | figures::Subject::SlotLottery
-        | figures::Subject::RealmAltar
-        | figures::Subject::RealmDraws
-        | figures::Subject::LabyrinthFloors
-        | figures::Subject::LabyrinthLottery
-        | figures::Subject::MissionShortcuts
-        | figures::Subject::MissionDesignations
-        | figures::Subject::MonthlyMissions
-        | figures::Subject::SoundSettings
-        | figures::Subject::DojoChests
-        | figures::Subject::PopupTriggers
-        | figures::Subject::ComboCategories
-        | figures::Subject::CastleGrowth
-        | figures::Subject::DevelopmentCosts
-        | figures::Subject::DevelopmentTiers
-        | figures::Subject::MaterialMixes
-        | figures::Subject::GuideEntries
-        | figures::Subject::UnitLimits
-        | figures::Subject::EnemyGuide
-        | figures::Subject::ExpeditionAreas
-        | figures::Subject::GamatotoLevels
-        | figures::Subject::PrizePatterns
-        | figures::Subject::ShrineOfferings
-        | figures::Subject::ShrineExtras
-        | figures::Subject::FortuneOdds
-        | figures::Subject::ZonedIn
-        | figures::Subject::ZonedInSteps
-        | figures::Subject::FilterMaps
-        | figures::Subject::LineupExclusions
-        | figures::Subject::EnigmaLotteries
-        | figures::Subject::EnigmaRates
-        | figures::Subject::EnigmaDrops
-        | figures::Subject::EnigmaGroups
-        | figures::Subject::DiscoveryMedals
-        | figures::Subject::MapMarkers
-        | figures::Subject::EnigmaTimes
-        | figures::Subject::RecommendedUpgrades
-        | figures::Subject::LineupCounters
-        | figures::Subject::OrbOptions
-        | figures::Subject::EnergyRefunds
-        | figures::Subject::StageShortcuts
-        | figures::Subject::FanfareTiers
-        | figures::Subject::GuideSpotlights
-        | figures::Subject::TipSettings
-        | figures::Subject::EnigmaRarities
-        | figures::Subject::EngineerCap
-        | figures::Subject::LineupRatings
-        | figures::Subject::LineupBands
-        | figures::Subject::LineupRankGroups
-        | figures::Subject::AbilityIcons
-        | figures::Subject::TraitIcons
-        | figures::Subject::MenuTextSettings
-        | figures::Subject::MapSheets
-        | figures::Subject::OrbFilterChoices
-        | figures::Subject::ReelSymbols
-        | figures::Subject::LevelUpOffers
-        | figures::Subject::DemonCastles => {
-            let sources = match subject {
-                figures::Subject::Talents | figures::Subject::Costs => match focus.cat.is_some() {
-                    true => roster_payloads(app, focus, &TALENT_FILES),
-                    false => Vec::new(),
-                },
-                figures::Subject::Combo => combo_target(app, focus, aim.line).into_iter().collect(),
-                figures::Subject::MapStage => stage_data_targets(app, focus),
-                figures::Subject::MapDrops => map_drop_targets(app, focus),
-                figures::Subject::DropChara => drop_chara_targets(app, focus),
-                figures::Subject::ItemBuy => item_buy_targets(app, focus, aim.key),
-                figures::Subject::MapOption => map_option_targets(app, focus),
-                figures::Subject::Background => background_targets(app, focus, aim.key),
-                figures::Subject::Upgrade => upgrade_targets(app, focus, aim.line),
-                figures::Subject::ComboParam => combo_param_targets(app, focus, aim.line),
-                figures::Subject::OrbSlots => orb_slot_targets(app, focus),
-                figures::Subject::Difficulty => keyed_map_targets(app, focus, figures::Subject::Difficulty, DIFFICULTY_TABLE),
-                figures::Subject::ExInvasion => keyed_map_targets(app, focus, figures::Subject::ExInvasion, EX_OPTION_TABLE),
-                figures::Subject::CannonStatus => cannon_status_targets(app, focus, aim.key),
-                figures::Subject::ExpCurve => roster_payloads(app, focus, &EXP_FILES),
-                figures::Subject::OrbGrades => orb_grade_targets(app, focus, aim.line),
-                figures::Subject::ExLottery => line_targets(app, focus, aim.line, figures::Subject::ExLottery, EX_LOTTERY_TABLE, EX_GROUP),
-                figures::Subject::Shakes => keyed_targets(app, focus, aim.key, figures::Subject::Shakes, SHAKE_TABLE, SHAKE_NAME),
-                figures::Subject::Recipes => keyed_targets(app, focus, aim.key, figures::Subject::Recipes, RECIPE_TABLE, RECIPE_NAME),
-                figures::Subject::Shop => keyed_targets(app, focus, aim.key, figures::Subject::Shop, SHOP_TABLE, SHOP_NAME),
-                figures::Subject::ZombieHeader | figures::Subject::ZombieTier => {
-                    line_targets(app, focus, aim.line, subject, ZOMBIE_TABLE, ZOMBIE_LINE)
-                }
-                figures::Subject::Cpu => line_targets(app, focus, aim.line, subject, CPU_TABLE, CPU_LINE),
-                figures::Subject::OrbTraits => line_targets(app, focus, aim.line, subject, ORB_TRAIT_TABLE, ORB_TRAIT_LINE),
-                figures::Subject::Altar => altar_targets(app, focus),
-                figures::Subject::GamatotoLimit => line_targets(app, focus, aim.line, subject, GAMATOTO_LIMIT_TABLE, GAMATOTO_LIMIT_NAME),
-                figures::Subject::GamatotoUnlock => keyed_targets(app, focus, aim.key, subject, GAMATOTO_UNLOCK_TABLE, GAMATOTO_UNLOCK_NAME),
-                figures::Subject::GamatotoDrop => keyed_targets(app, focus, aim.key, subject, GAMATOTO_DROP_TABLE, GAMATOTO_DROP_NAME),
-                figures::Subject::Stamps => line_targets(app, focus, aim.line, subject, STAMP_TABLE, STAMP_LINE),
-                figures::Subject::SlotUnlocks => line_targets(app, focus, aim.line, subject, SLOT_TABLE, SLOT_LINE),
-                figures::Subject::Club => keyed_targets(app, focus, aim.key, subject, CLUB_TABLE, CLUB_NAME),
-                figures::Subject::Missions => keyed_targets(app, focus, aim.key, subject, MISSION_TABLE, MISSION_NAME),
-                figures::Subject::Conditions => keyed_targets(app, focus, aim.key, subject, CONDITION_TABLE, MISSION_NAME),
-                figures::Subject::MissionUnlocks => keyed_targets(app, focus, aim.key, subject, MISSION_UNLOCK_TABLE, MISSION_UNLOCK_NAME),
-                figures::Subject::MissionGroups => keyed_targets(app, focus, aim.key, subject, MISSION_GROUP_TABLE, MISSION_GROUP_NAME),
-                figures::Subject::GachaOptions => aim.file.map_or_else(Vec::new, |file| keyed_targets(app, focus, aim.key, subject, file, roster::SET_NAME)),
-                figures::Subject::ChanceAnimations => line_targets(app, focus, aim.line, subject, roster::CHANCE_TABLE, roster::CHANCE_NAME),
-                figures::Subject::Castles => aim.file.map_or_else(Vec::new, |file| line_targets(app, focus, aim.line, subject, file, CASTLE_NAME)),
-                figures::Subject::TipRules => keyed_targets(app, focus, aim.key, subject, TIP_RULE_TABLE, TIP_RULE_NAME),
-                figures::Subject::QuestStages => aim.file.map_or_else(Vec::new, |file| line_targets(app, focus, aim.line, subject, file, QUEST_STAGE_NAME)),
-                figures::Subject::SlotLottery => aim.file.map_or_else(Vec::new, |file| line_targets(app, focus, aim.line, subject, file, SLOT_LOTTERY_NAME)),
-                figures::Subject::LabyrinthFloors => aim.file.map_or_else(Vec::new, |file| line_targets(app, focus, aim.line, subject, file, LABYRINTH_FLOOR_NAME)),
-                figures::Subject::LabyrinthLottery => keyed_targets(app, focus, aim.key, subject, LABYRINTH_LOTTERY_TABLE, LABYRINTH_RULE_NAME),
-                figures::Subject::MissionShortcuts => keyed_targets(app, focus, aim.key, subject, MISSION_SHORTCUT_TABLE, MISSION_SHORTCUT_NAME),
-                figures::Subject::MissionDesignations => keyed_targets(app, focus, aim.key, subject, MISSION_DESIGNATION_TABLE, MISSION_NAME),
-                figures::Subject::MonthlyMissions => keyed_targets(app, focus, aim.key, subject, MONTHLY_MISSION_TABLE, MONTHLY_MISSION_NAME),
-                figures::Subject::SoundSettings => line_targets(app, focus, aim.line, subject, SOUND_TABLE, SOUND_NAME),
-                figures::Subject::DojoChests => keyed_targets(app, focus, aim.key, subject, CHEST_TABLE, CHEST_NAME),
-                figures::Subject::PopupTriggers => keyed_targets(app, focus, aim.key, subject, POPUP_TRIGGER_TABLE, POPUP_TRIGGER_NAME),
-                figures::Subject::ComboCategories => keyed_targets(app, focus, aim.key, subject, COMBO_CATEGORY_TABLE, COMBO_CATEGORY_NAME),
-                figures::Subject::CastleGrowth => line_targets(app, focus, aim.line, subject, CASTLE_GROWTH_TABLE, CASTLE_BRACKET_NAME),
-                figures::Subject::DemonCastles => keyed_targets(app, focus, aim.key, subject, DEMON_CASTLE_TABLE, DEMON_CASTLE_NAME),
-                figures::Subject::LevelUpOffers => keyed_targets(app, focus, aim.key, subject, LEVEL_UP_TABLE, LEVEL_UP_NAME),
-                figures::Subject::ReelSymbols => aim.file.map_or_else(Vec::new, |file| line_targets(app, focus, aim.line, subject, file, REEL_NAME)),
-                figures::Subject::OrbFilterChoices => line_targets(app, focus, aim.line, subject, ORB_CHOICE_TABLE, ORB_CHOICE_NAME),
-                figures::Subject::MapSheets => keyed_targets(app, focus, aim.key, subject, MAP_SHEET_TABLE, MAP_SHEET_NAME),
-                figures::Subject::MenuTextSettings => keyed_targets(app, focus, aim.key, subject, MENU_TEXT_TABLE, MENU_TEXT_NAME),
-                figures::Subject::TraitIcons => line_targets(app, focus, aim.line, subject, TRAIT_ICON_TABLE, TRAIT_ICON_NAME),
-                figures::Subject::AbilityIcons => line_targets(app, focus, aim.line, subject, ABILITY_ICON_TABLE, ABILITY_ICON_NAME),
-                figures::Subject::LineupRankGroups => line_targets(app, focus, aim.line, subject, RANK_GROUP_TABLE, RANK_GROUP_NAME),
-                figures::Subject::LineupBands => line_targets(app, focus, aim.line, subject, BAND_TABLE, BAND_NAME),
-                figures::Subject::LineupRatings => line_targets(app, focus, aim.line, subject, RATING_TABLE, RATING_NAME),
-                figures::Subject::EngineerCap => line_targets(app, focus, aim.line, subject, ENGINEER_CAP_TABLE, ENGINEER_CAP_NAME),
-                figures::Subject::EnigmaRarities => line_targets(app, focus, aim.line, subject, ENIGMA_RARITY_TABLE, ENIGMA_RARITY_NAME),
-                figures::Subject::TipSettings => keyed_targets(app, focus, aim.key, subject, TIP_SETTING_TABLE, TIP_SETTING_NAME),
-                figures::Subject::GuideSpotlights => line_targets(app, focus, aim.line, subject, SPOTLIGHT_TABLE, SPOTLIGHT_NAME),
-                figures::Subject::FanfareTiers => line_targets(app, focus, aim.line, subject, FANFARE_TABLE, FANFARE_NAME),
-                figures::Subject::StageShortcuts => line_targets(app, focus, aim.line, subject, STAGE_SHORTCUT_TABLE, STAGE_SHORTCUT_NAME),
-                figures::Subject::EnergyRefunds => line_targets(app, focus, aim.line, subject, REFUND_TABLE, REFUND_NAME),
-                figures::Subject::OrbOptions => keyed_targets(app, focus, aim.key, subject, ORB_OPTION_TABLE, ORB_OPTION_NAME),
-                figures::Subject::LineupCounters => line_targets(app, focus, aim.line, subject, COUNTER_TABLE, COUNTER_NAME),
-                figures::Subject::RecommendedUpgrades => line_targets(app, focus, aim.line, subject, RECOMMEND_TABLE, RECOMMEND_NAME),
-                figures::Subject::EnigmaTimes => line_targets(app, focus, aim.line, subject, ENIGMA_TIME_TABLE, ENIGMA_TIME_NAME),
-                figures::Subject::MapMarkers => aim.file.map_or_else(Vec::new, |file| line_targets(app, focus, aim.line, subject, file, MAP_MARKER_NAME)),
-                figures::Subject::DiscoveryMedals => line_targets(app, focus, aim.line, subject, ENIGMA_MEDAL_TABLE, ENIGMA_MEDAL_NAME),
-                figures::Subject::EnigmaGroups => line_targets(app, focus, aim.line, subject, ENIGMA_GROUP_TABLE, ENIGMA_GROUP_NAME),
-                figures::Subject::EnigmaDrops => line_targets(app, focus, aim.line, subject, ENIGMA_DROP_TABLE, ENIGMA_LEVEL_NAME),
-                figures::Subject::EnigmaRates => line_targets(app, focus, aim.line, subject, ENIGMA_RATE_TABLE, ENIGMA_LEVEL_NAME),
-                figures::Subject::EnigmaLotteries => line_targets(app, focus, aim.line, subject, ENIGMA_LOTTERY_TABLE, ENIGMA_LOTTERY_NAME),
-                figures::Subject::LineupExclusions => line_targets(app, focus, aim.line, subject, EXCLUSION_TABLE, EXCLUSION_NAME),
-                figures::Subject::FilterMaps => line_targets(app, focus, aim.line, subject, FILTER_MAP_TABLE, FILTER_MAP_NAME),
-                figures::Subject::ZonedInSteps => line_targets(app, focus, aim.line, subject, ZONED_IN_TABLE, ZONED_IN_STEPS_NAME),
-                figures::Subject::ZonedIn => line_targets(app, focus, aim.line, subject, ZONED_IN_TABLE, ZONED_IN_NAME),
-                figures::Subject::FortuneOdds => keyed_targets(app, focus, aim.key, subject, FORTUNE_TABLE, FORTUNE_NAME),
-                figures::Subject::ShrineExtras => line_targets(app, focus, aim.line, subject, SHRINE_EXTRA_TABLE, SHRINE_EXTRA_NAME),
-                figures::Subject::ShrineOfferings => keyed_targets(app, focus, aim.key, subject, SHRINE_OFFERING_TABLE, SHRINE_OFFERING_NAME),
-                figures::Subject::PrizePatterns => aim.file.map_or_else(Vec::new, |file| line_targets(app, focus, aim.line, subject, file, PRIZE_NAME)),
-                figures::Subject::GamatotoLevels => line_targets(app, focus, aim.line, subject, GAMATOTO_LEVEL_TABLE, GAMATOTO_LEVEL_NAME),
-                figures::Subject::ExpeditionAreas => aim.file.map_or_else(Vec::new, |file| line_targets(app, focus, aim.line, subject, file, EXPEDITION_AREA_NAME)),
-                figures::Subject::EnemyGuide => keyed_targets(app, focus, focus.enemy, subject, ENEMY_GUIDE_TABLE, ENEMY_GUIDE_NAME),
-                figures::Subject::UnitLimits => focus.cat.map_or_else(Vec::new, |id| line_targets(app, focus, Some(id as usize), subject, UNIT_LIMIT_TABLE, UNIT_LIMIT_NAME)),
-                figures::Subject::GuideEntries => focus.cat.map_or_else(Vec::new, |id| line_targets(app, focus, Some(id as usize), subject, GUIDE_TABLE, GUIDE_NAME)),
-                figures::Subject::MaterialMixes => keyed_targets(app, focus, aim.key, subject, MATERIAL_MIX_TABLE, MATERIAL_MIX_NAME),
-                figures::Subject::DevelopmentTiers => line_targets(app, focus, aim.line, subject, DEVELOPMENT_TIER_TABLE, DEVELOPMENT_TIER_NAME),
-                figures::Subject::DevelopmentCosts => aim.file.map_or_else(Vec::new, |file| line_targets(app, focus, aim.line, subject, file, DEVELOPMENT_COST_NAME)),
-                figures::Subject::RealmAltar | figures::Subject::RealmDraws => {
-                    aim.file.map_or_else(Vec::new, |file| line_targets(app, focus, aim.line, subject, file, REALM_DRAW_NAME))
-                }
-                _ => level_payloads(app, focus, true, false),
-            };
-
-            let target = sources.into_iter().find(|level| level.subject == subject)?;
-            let mount = target.active_mod.clone();
-            let scopes = target.asset.scopes(mount.is_some());
-
-            let scope = match aim.file {
-                Some(wanted) => scopes.iter().find(|scope| scope.name == wanted)?,
-                None => scopes.first()?,
-            };
-
-            registry::level_plan(&target, scope, mount, values)
-        }
-    }
-}
-
-#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
-pub(crate) enum Art {
-    DeployIcon,
-    Banner,
-    Gacha,
-    EnemyIcon,
-    MapBanner,
-    StageBanner,
-    Castle,
-    Background,
-    ItemIcon,
-    Image,
-}
-
-impl Art {
+impl Paged for Art {
     fn page(self) -> Page {
-        match self {
-            Art::DeployIcon | Art::Banner | Art::Gacha => Page::Cats,
-            Art::EnemyIcon => Page::Enemies,
-            Art::ItemIcon | Art::Image => Page::Home,
-            Art::MapBanner | Art::StageBanner | Art::Castle | Art::Background => Page::Stages,
-        }
-    }
-
-    fn title(self) -> &'static str {
-        match self {
-            Art::DeployIcon => CAT_ICON_TITLE,
-            Art::Gacha => GACHA_IMAGE_TITLE,
-            Art::EnemyIcon => ICON_TITLE,
-            Art::Banner | Art::MapBanner | Art::StageBanner => BANNER_TITLE,
-            Art::Castle => CASTLE_IMAGE_TITLE,
-            Art::Background => BACKGROUND_IMAGE_TITLE,
-            Art::ItemIcon => ITEM_ICON_TITLE,
-            Art::Image => IMAGE_TITLE,
-        }
+        paged(self.realm())
     }
 }
 
-#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
-pub(crate) enum Pane {
-    Figures(figures::Subject),
-    Prose(prose::Subject),
-    Ground,
-    Artwork(Art),
-    Sheet(sheet::Sheet),
-    Ledger(ledger::Ledger),
-    Records(records::Book),
-    Preset,
-    Group,
-    Treasure,
-    Gift,
-    Filter,
-    Evolve,
-    Roster(roster::Tier),
-    Captions(captions::Layout),
-    Catfruit,
-    MapLayout,
-    Dungeon,
-    Cuts,
-    Logins,
-    Unused,
-    Audio,
-}
-
-impl Pane {
+impl Paged for Pane {
     fn page(self) -> Page {
-        match self {
-            Pane::Figures(subject) => subject.page(),
-            Pane::Prose(subject) => subject.page(),
-            Pane::Ground => Page::Stages,
-            Pane::Artwork(art) => art.page(),
-            Pane::Sheet(_) => Page::Home,
-            Pane::Ledger(_) => Page::Stages,
-            Pane::Records(_) => Page::Home,
-            Pane::Preset | Pane::Group | Pane::Treasure | Pane::MapLayout | Pane::Dungeon => Page::Stages,
-            Pane::Gift | Pane::Roster(_) | Pane::Captions(_) | Pane::Catfruit | Pane::Cuts | Pane::Logins | Pane::Unused | Pane::Audio => Page::Home,
-            Pane::Filter | Pane::Evolve => Page::Cats,
-        }
-    }
-
-    fn title(self) -> &'static str {
-        match self {
-            Pane::Figures(subject) => subject.title(),
-            Pane::Prose(subject) => subject.title(),
-            Pane::Ground => ground::TITLE,
-            Pane::Artwork(art) => art.title(),
-            Pane::Sheet(kind) => kind.title(),
-            Pane::Ledger(kind) => kind.title(),
-            Pane::Records(book) => book.title(),
-            Pane::Preset => preset::TITLE,
-            Pane::Group => group::TITLE,
-            Pane::Treasure => treasure::TITLE,
-            Pane::Gift => gift::TITLE,
-            Pane::Filter => filter::TITLE,
-            Pane::Evolve => evolve::TITLE,
-            Pane::Roster(tier) => tier.title(),
-            Pane::Captions(layout) => layout.title(),
-            Pane::Catfruit => catfruit::TITLE,
-            Pane::MapLayout => maplayout::TITLE,
-            Pane::Dungeon => dungeon::TITLE,
-            Pane::Cuts => cuts::TITLE,
-            Pane::Logins => logins::TITLE,
-            Pane::Unused => unused::TITLE,
-            Pane::Audio => audio::TITLE,
-        }
+        paged(self.realm())
     }
 }
 
@@ -5256,6 +3300,16 @@ pub(crate) struct Pick {
     file: String,
     label: String,
     path: Vec<String>,
+}
+
+impl Pick {
+    pub(crate) fn loose(&self) -> bool {
+        self.pane == Pane::File
+    }
+
+    pub(crate) fn file(&self) -> &str {
+        &self.file
+    }
 }
 
 pub(crate) enum Planned {
@@ -5339,43 +3393,6 @@ impl Planned {
     }
 }
 
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub(crate) enum Mark {
-    Same,
-    Changed,
-    Added,
-}
-
-impl Mark {
-    fn of<T: PartialEq>(ours: Option<T>, theirs: Option<T>) -> Mark {
-        match (ours, theirs) {
-            (None, None) => Mark::Same,
-            (Some(_), None) => Mark::Added,
-            (ours, theirs) if ours == theirs => Mark::Same,
-            _ => Mark::Changed,
-        }
-    }
-}
-
-#[derive(Default)]
-struct Reader {
-    held: FxHashMap<PathBuf, Option<Rc<str>>>,
-}
-
-impl Reader {
-    fn text(&mut self, path: &Path) -> Option<Rc<str>> {
-        if let Some(held) = self.held.get(path) {
-            return held.clone();
-        }
-
-        let read = fs::read(path).ok().map(|bytes| Rc::<str>::from(common::scrub(&bytes)));
-
-        self.held.insert(path.to_path_buf(), read.clone());
-
-        read
-    }
-}
-
 pub(crate) fn marks(app: &HaganeApp, leaves: &[u32], target: &str) -> Vec<(u32, Mark)> {
     let values = app.settings.files.editor_mode;
     let vfs = &app.vault.vfs;
@@ -5388,36 +3405,64 @@ pub(crate) fn marks(app: &HaganeApp, leaves: &[u32], target: &str) -> Vec<(u32, 
                 .editor
                 .finder
                 .pick(*leaf, target.to_owned())
-                .and_then(|pick| pick_plan(app, &pick, values))
-                .map_or(Mark::Same, |planned| planned.mark(vfs, &mut reader));
+                .and_then(|pick| match pick.loose() {
+                    true => Some(loose_mark(vfs, &pick)),
+                    false => pick_plan(app, &pick, values).map(|planned| planned.mark(vfs, &mut reader)),
+                })
+                .unwrap_or(Mark::Same);
 
             (*leaf, mark)
         })
         .collect()
 }
 
+fn loose_mark(vfs: &Vfs, pick: &Pick) -> Mark {
+    pick.focus.active_mod.as_deref().map_or(Mark::Same, |target| core::file_mark(vfs, target, &pick.file))
+}
+
+pub(crate) fn place_loose(app: &HaganeApp, pick: &Pick) -> Option<String> {
+    let vfs = &app.vault.vfs;
+    let target = pick.focus.active_mod.clone()?;
+    let source = vfs.rooted(architecture::GAME, &pick.file).or_else(|| vfs.find(pick.file.as_str()))?;
+
+    let placed = mods::ensure_as(vfs, &target, &source, &pick.file)
+        .inspect_err(|err| warn!(file = pick.file, "The file could not be copied into the mod: {}", err))
+        .ok()?;
+
+    if let Err(err) = vfs.create((target.as_str(), placed.as_path())) {
+        warn!(path = %placed.display(), "Failed to index the mod's new file: {}", err);
+    }
+
+    Some(target)
+}
+
+pub(crate) fn drop_loose(app: &HaganeApp, pick: &Pick) -> bool {
+    pick.focus.active_mod.as_deref().is_some_and(|target| core::file_reset(&app.vault.vfs, target, &pick.file))
+}
+
 fn pick_plan(app: &HaganeApp, pick: &Pick, values: EditorMode) -> Option<Planned> {
     let focus = &pick.focus;
 
     match pick.pane {
+        Pane::File => None,
         Pane::Figures(subject) => {
             let aim = Aim { key: pick.key, line: pick.line, file: Some(&pick.file) };
 
-            current_plan(app, focus, subject, aim).map(Planned::Figures)
+            current_plan(&sources(app), focus, subject, aim, app.settings.files.editor_mode).map(Planned::Figures)
         }
         Pane::Prose(subject) => {
             let target = match subject {
                 prose::Subject::CatGlossary | prose::Subject::EnemyGlossary => {
                     let (identity, faction) = pick.aim?;
 
-                    glossary_target(app, focus, identity, faction)
+                    glossary_target(&sources(app), focus, identity, faction)
                 }
-                prose::Subject::ItemName => item_name_target(app, focus, pick.key),
-                prose::Subject::ComboName => combo_name_target(app, focus, pick.line),
-                _ => prose_target(app, focus, subject),
+                prose::Subject::ItemName => item_name_target(&sources(app), focus, pick.key),
+                prose::Subject::ComboName => combo_name_target(&sources(app), focus, pick.line),
+                _ => prose_target(&sources(app), focus, subject),
             }?;
 
-            let mut plans = registry::prose_plans(&target);
+            let mut plans = prose_plans(&target);
             let at = plans.iter().position(|plan| plan.file() == pick.file)?;
 
             Some(Planned::Prose(plans.swap_remove(at)))
@@ -5667,26 +3712,13 @@ fn reward_named(app: &HaganeApp) -> records::Named {
 
     let mut items = vec![(NO_ITEM, NO_ITEM_LABEL.to_owned())];
 
-    items.extend(ids.into_iter().filter_map(|id| Some((i32::try_from(id).ok()?, item_label(app, id)))));
+    items.extend(ids.into_iter().filter_map(|id| Some((i32::try_from(id).ok()?, core::item_label(&sources(app), id)))));
 
     vec![(REWARD_ITEM, items)]
 }
 
 fn orb_named(app: &HaganeApp) -> records::Named {
-    let numbered = |at: usize| i32::try_from(at).unwrap_or(i32::MAX);
-
-    let grades = orb::GRADES.iter().enumerate().map(|(at, grade)| (numbered(at), (*grade).to_owned())).collect();
-
-    let effects = orbs::effect_names(&app.vault.vfs)
-        .into_iter()
-        .enumerate()
-        .filter(|(_, name)| !name.is_empty())
-        .map(|(at, name)| (numbered(at), name))
-        .collect();
-
-    let traits = orbs::TRAITS.iter().enumerate().map(|(at, identity)| (numbered(at), app.names.trait_label(*identity).to_owned())).collect();
-
-    vec![(ORB_GRADE, grades), (ORB_EFFECT, effects), (ORB_TRAIT, traits)]
+    core::orb_named(&sources(app))
 }
 
 fn evolve_plan(app: &HaganeApp, pick: &Pick, values: EditorMode) -> Option<Planned> {
@@ -5807,7 +3839,7 @@ fn gift_plan(app: &HaganeApp, pick: &Pick, values: EditorMode) -> Option<Planned
     ids.sort_unstable();
     ids.dedup();
 
-    let items = ids.into_iter().map(|id| (i64::from(id), item_label(app, id))).collect();
+    let items = ids.into_iter().map(|id| (i64::from(id), core::item_label(&sources(app), id))).collect();
 
     Some(Planned::Gift(gift::plan(gift::Seed {
         label: pick.label.clone(),
@@ -5872,8 +3904,44 @@ pub(crate) fn chosen(app: &HaganeApp, pick: &Pick) -> Option<Planned> {
     pick_plan(app, pick, app.settings.files.editor_mode)
 }
 
+pub(crate) fn sources(app: &HaganeApp) -> core::Sources<'_> {
+    core::Sources {
+        vault: &app.vault,
+        cats: &app.cat_state.data.cats,
+        enemies: &app.enemy_state.data.enemies,
+        registry: &app.stage_state.data.registry,
+        drops: &app.stage_state.data.drop_chara_registry,
+        cat_names: &app.stage_state.data.cat_name_registry,
+        names: &app.names,
+        localizable: &app.localizable,
+        category: |category| category.display_name(),
+        order: |category| category.sort_order(),
+    }
+}
+
 pub(crate) fn catalog(app: &HaganeApp) -> finder::Catalog {
-    finder::Catalog::build(app)
+    finder::Catalog::build(&sources(app))
+}
+
+fn adopted(held: core::Pick, target: String) -> Pick {
+    let page = held.pane.page();
+
+    let focus = Focus {
+        page,
+        held: core::Focus {
+            realm: realm(page),
+            cat: held.cat,
+            form: held.form,
+            enemy: held.enemy,
+            category: None,
+            map: held.map,
+            stage: held.stage,
+            active_mod: Some(target),
+            unlocked: false,
+        },
+    };
+
+    Pick { pane: held.pane, focus, key: held.key, line: held.line, aim: held.aim, file: held.file, label: held.label, path: held.path }
 }
 
 fn file_target(app: &HaganeApp, focus: &Focus, target: Option<Target>) -> Option<FileTarget> {

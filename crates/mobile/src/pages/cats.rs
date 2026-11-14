@@ -90,7 +90,7 @@ struct Available {
 }
 
 pub struct State {
-    pub cats: Option<Rc<Vec<CatEntry>>>,
+    pub cats: Option<Arc<Vec<CatEntry>>>,
     pub selected: Option<u32>,
     pub arriving: Option<(u32, usize)>,
     pub form: usize,
@@ -1106,7 +1106,7 @@ pub fn sync(ui: &AppWindow, state: &Shared, context: &Rc<Context>) {
 
     match &load {
         Load::Ready(found) => {
-            let fresh = state.borrow().cats.as_ref().is_none_or(|held| !Rc::ptr_eq(held, found));
+            let fresh = state.borrow().cats.as_ref().is_none_or(|held| !Arc::ptr_eq(held, found));
 
             if fresh {
                 let entries: Vec<Entry> = found.iter().map(|cat| Entry { id: cat.id, banner: cat.image_path.clone(), tooltip: tooltip(cat).into() }).collect();
@@ -1114,7 +1114,7 @@ pub fn sync(ui: &AppWindow, state: &Shared, context: &Rc<Context>) {
                 {
                     let mut held = state.borrow_mut();
 
-                    held.cats = Some(Rc::clone(found));
+                    held.cats = Some(Arc::clone(found));
                     held.stats.clear();
                     held.available = None;
                     held.seeded_for = None;

@@ -304,27 +304,29 @@ impl State {
         vfs.root(self.mount.as_deref()?).map(|root| root.join(relative))
     }
 
-    fn commit(&mut self, vfs: &Vfs, unlocked: bool) {
+    fn commit(&mut self, vfs: &Vfs, unlocked: bool) -> Option<String> {
         let writable = self.writable(unlocked);
-        let Some(draft) = self.draft.as_mut() else {
-            return;
-        };
+        let draft = self.draft.as_mut()?;
 
         if !draft.dirty || !writable {
-            return;
+            return None;
         }
 
-        let Some(target) = self.mount.as_deref().and_then(|mount| vfs.root(mount)).map(|root| root.join(&draft.relative)) else {
-            return;
-        };
+        let target = self.mount.as_deref().and_then(|mount| vfs.root(mount)).map(|root| root.join(&draft.relative))?;
 
         match preview::save(&target, draft.body.as_bytes(), draft.stamp) {
             Ok(stamp) => {
                 draft.stamp = stamp;
                 draft.dirty = false;
                 info!(path = %target.display(), "File edits saved");
+
+                target.file_name().map(|name| name.to_string_lossy().into_owned())
             }
-            Err(err) => warn!(path = %target.display(), "discarding edits: {}", err),
+            Err(err) => {
+                warn!(path = %target.display(), "discarding edits: {}", err);
+
+                None
+            }
         }
     }
 
@@ -384,7 +386,7 @@ pub fn wire(window: &AppWindow, context: &Rc<Context>) -> Shared {
         if let Some(mount) = picked
             && held.borrow().mount.as_deref() != Some(mount.as_str())
         {
-            leave(&held, &ctx);
+            leave(&ui, &held, &ctx);
             {
                 let mut state = held.borrow_mut();
 
@@ -448,7 +450,7 @@ pub fn wire(window: &AppWindow, context: &Rc<Context>) -> Shared {
                 state.expanded.insert(path);
             }
         } else {
-            leave(&held, &ctx);
+            leave(&ui, &held, &ctx);
             held.borrow_mut().selected = Some(path);
         }
 
@@ -486,9 +488,8 @@ pub fn wire(window: &AppWindow, context: &Rc<Context>) -> Shared {
 
     let (held, ctx, weak) = on(&state, context, window);
     files.on_save(move || {
-        leave(&held, &ctx);
-
         if let Some(ui) = weak.upgrade() {
+            leave(&ui, &held, &ctx);
             refresh(&ui, &held, &ctx);
         }
     });
@@ -536,11 +537,39 @@ fn raise(ui: &AppWindow, state: &Shared, text: &str) {
     });
 }
 
-pub fn leave(state: &Shared, context: &Rc<Context>) {
+pub fn open(ui: &AppWindow, state: &Shared, context: &Rc<Context>, mount: String, relative: PathBuf) {
+    leave(ui, state, context);
+
+    {
+        let mut held = state.borrow_mut();
+
+        held.mount = Some(mount.clone());
+        held.reset();
+        held.draft = None;
+        held.search.clear();
+        held.expanded.extend(relative.ancestors().skip(1).map(Path::to_path_buf));
+        held.selected = Some(relative);
+
+        if held.mode == Mode::Pack {
+            held.mode = Mode::Tree;
+        }
+    }
+
+    let files = ui.global::<Files>();
+
+    files.set_search("".into());
+    files.set_list_open(false);
+    context.memory.update(|memory| memory.files_mount = Some(mount));
+}
+
+pub fn leave(ui: &AppWindow, state: &Shared, context: &Rc<Context>) {
     let vault = context.engine.vault();
     let unlocked = context.state.settings().files.unlock_game_mount;
+    let saved = state.borrow_mut().commit(&vault.vfs, unlocked);
 
-    state.borrow_mut().commit(&vault.vfs, unlocked);
+    if let Some(name) = saved {
+        context.changed(ui, &name);
+    }
 }
 
 fn replace_image(ui: &AppWindow, state: &Shared, context: &Rc<Context>, source: &Path) {

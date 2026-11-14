@@ -9,17 +9,14 @@ use iced::{Element, Length, Task};
 
 use foundry::common::formats::SpriteSheet as CoreSpriteSheet;
 use foundry::systems::combat::NameBook;
-use codex::combat::Identity;
-use foundry::domains::sandbox::orb::{self, Allowance, Kind, GRADES};
-use foundry::{Vault, Vfs};
+use foundry::domains::sandbox::orb::{self, effect_names, Allowance, Kind, GRADES, TRAITS};
+use foundry::Vault;
 use image::{imageops, RgbaImage};
 use codex::cat::unit::Equipment;
 
 use crate::app::theme;
 use crate::common::{ensure_sheet_loaded, SpriteSheet};
 
-const EXPLANATION: &str = "equipment_explonation.tsv";
-const PLACEHOLDER: &str = "%@";
 const ROW_SPACING: f32 = 8.0;
 const LABEL_WIDTH: f32 = 44.0;
 const PICK_WIDTH: f32 = 230.0;
@@ -31,20 +28,6 @@ const OVERSAMPLE: f32 = 2.0;
 const BEST_GRADE: usize = 4;
 const IDLE_PADDING: f32 = 5.0;
 
-pub(crate) const TRAITS: [Identity; 12] = [
-    Identity::TraitRed,
-    Identity::TraitFloating,
-    Identity::TraitDark,
-    Identity::TraitMetal,
-    Identity::TraitAngel,
-    Identity::TraitAlien,
-    Identity::TraitZombie,
-    Identity::TraitRelic,
-    Identity::TraitTraitless,
-    Identity::TraitWitch,
-    Identity::TraitEva,
-    Identity::TraitAku,
-];
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Layer {
@@ -337,24 +320,6 @@ impl State {
             .padding(POPUP_PADDING)
             .into()
     }
-}
-
-pub(crate) fn effect_names(vfs: &Vfs) -> Vec<String> {
-    let named = vfs.variants(EXPLANATION).into_iter().next().unwrap_or_else(|| EXPLANATION.to_owned());
-
-    vfs.find(named.as_str())
-        .and_then(|path| vfs.read(&path).ok())
-        .and_then(|bytes| String::from_utf8(bytes.to_vec()).ok())
-        .map_or_else(Vec::new, |content| {
-            content
-                .lines()
-                .map(|line| {
-                    let head = line.split('\t').next().unwrap_or_default();
-
-                    head.split(PLACEHOLDER).next().unwrap_or_default().trim().trim_end_matches(':').trim().to_owned()
-                })
-                .collect()
-        })
 }
 
 fn label(effects: &[String], content: i32) -> String {

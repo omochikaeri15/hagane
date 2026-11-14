@@ -1,12 +1,31 @@
 use std::collections::HashMap;
 
 use codex::cat::unit::Equipment;
-use codex::combat::Entity;
+use codex::combat::{Entity, Identity};
 
 use crate::domains::cat::game::talents::apply_talent_stats;
 use crate::domains::cat::scanner::CatEntry;
+use crate::Vfs;
 
 pub const GRADES: [&str; 5] = ["D", "C", "B", "A", "S"];
+
+const EXPLANATION: &str = "equipment_explonation.tsv";
+const PLACEHOLDER: &str = "%@";
+
+pub const TRAITS: [Identity; 12] = [
+    Identity::TraitRed,
+    Identity::TraitFloating,
+    Identity::TraitDark,
+    Identity::TraitMetal,
+    Identity::TraitAngel,
+    Identity::TraitAlien,
+    Identity::TraitZombie,
+    Identity::TraitRelic,
+    Identity::TraitTraitless,
+    Identity::TraitWitch,
+    Identity::TraitEva,
+    Identity::TraitAku,
+];
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Kind {
@@ -153,6 +172,24 @@ pub fn pick(orbs: &[Equipment], wanted: Kind, grade: usize) -> Option<u32> {
         .find(|(held, _)| *held == grade)
         .or_else(|| offered.iter().max_by_key(|(held, _)| *held))
         .map(|(_, orb)| *orb)
+}
+
+pub fn effect_names(vfs: &Vfs) -> Vec<String> {
+    let named = vfs.variants(EXPLANATION).into_iter().next().unwrap_or_else(|| EXPLANATION.to_owned());
+
+    vfs.find(named.as_str())
+        .and_then(|path| vfs.read(&path).ok())
+        .and_then(|bytes| String::from_utf8(bytes.to_vec()).ok())
+        .map_or_else(Vec::new, |content| {
+            content
+                .lines()
+                .map(|line| {
+                    let head = line.split('\t').next().unwrap_or_default();
+
+                    head.split(PLACEHOLDER).next().unwrap_or_default().trim().trim_end_matches(':').trim().to_owned()
+                })
+                .collect()
+        })
 }
 
 #[cfg(test)]

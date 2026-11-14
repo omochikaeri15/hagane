@@ -21,10 +21,6 @@ use super::{Mark, Reader};
 const SIZE: Size = Size::new(440.0, 540.0);
 const POPUP: popup::Spec = popup::Spec::new(popup::Kind::MapLayout, SIZE);
 
-pub(super) const TITLE: &str = "Map Layout";
-pub(super) const FOLDER: &str = "Map Layouts";
-pub(super) const PREFIX: &str = "MapData_";
-
 const BODY_PADDING: f32 = 12.0;
 const GAP: f32 = 8.0;
 const CARD_GAP: f32 = 6.0;

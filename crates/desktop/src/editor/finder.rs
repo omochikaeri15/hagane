@@ -1,23 +1,20 @@
-mod catalog;
-
 use iced::alignment::Vertical;
 use iced::widget::{button, column, container, operation, responsive, row, scrollable, space, text, text_input, Column, Id};
 use iced::{Color, Element, Length, Padding, Size, Task, Theme};
 use rustc_hash::{FxHashMap, FxHashSet};
 
 use foundry::domains::settings::EditorMode;
+use foundry::systems::editor::finder::{words, Entry, Filter, Line};
 
 use crate::app::theme;
 use crate::common::feedback::{Slot, CONFIRM_LABEL, FAILURE_LABEL};
 use crate::common::fonts;
 use crate::common::row_window::{self, RowWindow};
-use crate::widget::{branches, open_mark, popup, smooth_scroll, tinted_row, Branches, Tint};
+use crate::widget::{branches, open_mark, popup, smooth_scroll, tinted_row, Branches, Guide, Tint, Tracer};
 
 use super::{Mark, Pick};
 
-use catalog::{Entry, Filter, Line};
-
-pub(crate) use catalog::Catalog;
+pub(crate) use foundry::systems::editor::finder::Catalog;
 
 const SIZE: Size = Size::new(440.0, 480.0);
 const POPUP: popup::Spec = popup::Spec::new(popup::Kind::ModEdit, SIZE);
@@ -55,37 +52,6 @@ const MODES: [EditorMode; 2] = [EditorMode::Raw, EditorMode::Resolved];
 const SYNC_LABEL: &str = "Sync With \"game\"";
 const MARK_REACH: f32 = 1600.0;
 const MARK_ALPHA: f32 = 0.3;
-
-struct Words {
-    title: &'static str,
-    note: &'static str,
-    hint: &'static str,
-    action: &'static str,
-    empty: &'static str,
-}
-
-const RAW_WORDS: Words = Words {
-    title: "Edit File",
-    note: "Search a file to edit.",
-    hint: "Search files...",
-    action: "Edit File",
-    empty: "No files found",
-};
-
-const RESOLVED_WORDS: Words = Words {
-    title: "Search Attribute",
-    note: "Search an attribute to edit.",
-    hint: "Search attributes...",
-    action: "Edit Attribute",
-    empty: "No attributes found",
-};
-
-fn words(values: EditorMode) -> &'static Words {
-    match values {
-        EditorMode::Raw => &RAW_WORDS,
-        EditorMode::Resolved => &RESOLVED_WORDS,
-    }
-}
 
 fn mode_slot(values: EditorMode) -> usize {
     match values {
@@ -150,6 +116,7 @@ pub(super) struct State {
     query: String,
     filter: Filter,
     lines: Vec<Line>,
+    guides: Vec<Guide>,
     expanded: FxHashSet<u32>,
     collapsed: FxHashSet<u32>,
     widest: [f32; MODES.len()],
@@ -217,7 +184,7 @@ impl State {
             return None;
         }
 
-        self.catalog.pick(self.picked?, target?)
+        Some(super::adopted(self.catalog.pick(self.picked?)?, target?))
     }
 
     pub(super) fn failed(&mut self) -> Task<Message> {
@@ -233,7 +200,7 @@ impl State {
             return None;
         }
 
-        self.catalog.pick(self.picked?, target?)
+        Some(super::adopted(self.catalog.pick(self.picked?)?, target?))
     }
 
     pub(super) fn reset_failed(&mut self) -> Task<Message> {
@@ -241,7 +208,7 @@ impl State {
     }
 
     pub(super) fn pick(&self, leaf: u32, target: String) -> Option<Pick> {
-        self.catalog.pick(leaf, target)
+        Some(super::adopted(self.catalog.pick(leaf)?, target))
     }
 
     pub(super) fn unmarked(&self) -> Vec<u32> {
@@ -280,6 +247,17 @@ impl State {
             true => !collapsed.contains(&id),
             false => expanded.contains(&id),
         });
+
+        let mut tracer = Tracer::default();
+
+        self.guides = vec![Guide::default(); self.lines.len()];
+
+        for index in (0..self.lines.len()).rev() {
+            let depth = self.lines[index].depth;
+            let above = index.checked_sub(1).map(|prev| self.lines[prev].depth);
+
+            self.guides[index] = tracer.back(depth, above);
+        }
 
         self.widest = MODES.map(|values| {
             self.lines
@@ -455,7 +433,7 @@ impl State {
                 continue;
             };
 
-            list = list.push(self.line(line, width, values));
+            list = list.push(self.line(line, self.guides.get(index).copied().unwrap_or_default(), width, values));
         }
 
         if pad_after > 0.0 {
@@ -476,10 +454,10 @@ impl State {
         smooth_scroll(area).into()
     }
 
-    fn line<'a>(&'a self, line: &Line, width: f32, values: EditorMode) -> Element<'a, Message> {
+    fn line<'a>(&'a self, line: &Line, guide: Guide, width: f32, values: EditorMode) -> Element<'a, Message> {
         let label = self.catalog.label(line.entry, values);
         let picked = matches!(line.entry, Entry::Leaf(leaf) if self.picked == Some(leaf));
-        let stem = branches(line.guide, line.depth, INDENT, ROW_HEIGHT, MARKER_SIZE);
+        let stem = branches(guide, line.depth, INDENT, ROW_HEIGHT, MARKER_SIZE);
 
         let mark = match line.entry {
             Entry::Leaf(leaf) => self.marks.get(&leaf).copied(),
