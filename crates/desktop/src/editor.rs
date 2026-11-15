@@ -602,7 +602,7 @@ struct Pins {
 }
 
 struct Bank {
-    figures: [figures::State; figures::COUNT],
+    figures: Box<[figures::State]>,
     prose: [prose::State; prose::COUNT],
     ground: ground::State,
     artwork: artwork::State,
@@ -660,7 +660,7 @@ impl Default for Pins {
 impl Default for Bank {
     fn default() -> Self {
         Bank {
-            figures: std::array::from_fn(|_| figures::State::default()),
+            figures: (0..figures::COUNT).map(|_| figures::State::default()).collect(),
             prose: Default::default(),
             ground: ground::State::default(),
             artwork: artwork::State::default(),
@@ -1031,7 +1031,6 @@ impl Bank {
     }
 }
 
-#[derive(Default)]
 pub(crate) struct State {
     open: Option<Open>,
     opened: Option<Page>,
@@ -1040,9 +1039,26 @@ pub(crate) struct State {
     pending: Option<Trail>,
     confirm: Slot<Trail>,
     failed: Slot<Trail>,
-    banks: [Bank; SEATS],
+    banks: Box<[Bank]>,
     finder: finder::State,
     synced: Option<Key>,
+}
+
+impl Default for State {
+    fn default() -> Self {
+        State {
+            open: None,
+            opened: None,
+            rescan: false,
+            dropped: None,
+            pending: None,
+            confirm: Slot::default(),
+            failed: Slot::default(),
+            banks: (0..SEATS).map(|_| Bank::default()).collect(),
+            finder: finder::State::default(),
+            synced: None,
+        }
+    }
 }
 
 struct Snapshot {

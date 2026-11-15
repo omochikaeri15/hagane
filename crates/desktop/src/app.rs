@@ -2880,3 +2880,24 @@ mod tests {
     }
 }
 
+#[cfg(test)]
+mod boot {
+    use std::mem::size_of;
+    use std::thread;
+
+    use super::HaganeApp;
+
+    const WINDOWS_STACK: usize = 1024 * 1024;
+
+    // Windows gives the main thread 1 MB where Linux gives 8, and the whole app state is
+    // built on it before the window opens. At 520 KB it no longer fit and the app died at launch.
+    #[test]
+    fn the_app_state_is_built_on_a_windows_sized_stack() {
+        assert!(size_of::<HaganeApp>() < WINDOWS_STACK / 8, "the app state is {} bytes", size_of::<HaganeApp>());
+
+        let built = thread::Builder::new().stack_size(WINDOWS_STACK).spawn(|| drop(HaganeApp::default())).unwrap().join();
+
+        assert!(built.is_ok());
+    }
+}
+
