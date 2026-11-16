@@ -213,7 +213,13 @@ pub(crate) fn Mods() -> Element {
 
     rsx! {
         div { class: "mods-page scroll",
-            input { class: "input mods-title", r#type: "text", readonly: true, placeholder: TITLE_HINT, value: "{info.title}" }
+            div { class: "input field mods-title",
+                if info.title.is_empty() {
+                    span { class: "field-hint", "{TITLE_HINT}" }
+                } else {
+                    "{info.title}"
+                }
+            }
             div { class: "rule mods-rule" }
             div { class: "mods-actions",
                 button {
@@ -300,7 +306,7 @@ pub(crate) fn Mods() -> Element {
                     for (label, value) in [("Author", info.author.clone()), ("Version", info.version.clone()), ("Package", info.package.clone())] {
                         div { key: "{label}", class: "mods-field",
                             span { class: "mods-label", "{label}" }
-                            input { class: "input mods-value", r#type: "text", readonly: true, value: "{value}" }
+                            div { class: "input field mods-value", "{value}" }
                         }
                     }
                 }
@@ -309,7 +315,7 @@ pub(crate) fn Mods() -> Element {
                 div { class: "section",
                     div { class: "section-title", "Description" }
                     div { class: "rule" }
-                    textarea { class: "input mods-text", readonly: true, value: "{info.description}" }
+                    div { class: "input mods-text scroll", "{info.description}" }
                 }
             }
             div { class: "toast-slot",

@@ -321,7 +321,7 @@ pub(crate) fn Replays(globals: Shared, cats: Option<Cats>) -> Element {
 
     rsx! {
         div { class: "replay-page scroll",
-            input { class: "input replay-title", r#type: "text", readonly: true, value: "{title}" }
+            div { class: "input field replay-title", "{title}" }
             div { class: "rule replay-rule" }
             Card { title: "Meta",
                 Field { label: "Time",

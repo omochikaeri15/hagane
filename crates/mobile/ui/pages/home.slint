@@ -24,13 +24,70 @@ component NavButton inherits Btn {
     clicked => { Shell.navigate(root.page); }
 }
 
+component Corner inherits Rectangle {
+    in property <string> first;
+    in property <string> second;
+    in property <bool> stacked;
+    in property <bool> trailing;
+    callback first-clicked();
+    callback second-clicked();
+    out property <length> wide: a.preferred-width + bar.preferred-width + b.preferred-width + 12px;
+    out property <length> tall: max(a.preferred-width, b.preferred-width);
+    property <length> pitch: root.stacked ? 18px : 32px;
+    property <length> seam: 5px;
+    width: root.stacked ? root.tall : root.wide;
+    height: root.stacked ? root.pitch * 2 + root.seam : root.pitch;
+    a := Btn {
+        x: root.stacked && root.trailing ? root.width - self.width : 0px;
+        y: 0px;
+        width: self.preferred-width;
+        height: root.pitch;
+        label: root.first;
+        tone: Tone.text;
+        text-size: 13px;
+        pad-x: 0px;
+        pad-y: 0px;
+        clicked => { root.first-clicked(); }
+    }
+    bar := Label {
+        visible: !root.stacked;
+        x: a.width + 6px;
+        y: 0px;
+        width: self.preferred-width;
+        height: root.pitch;
+        text: "|";
+        font-size: 13px;
+        vertical-alignment: center;
+    }
+    Rectangle {
+        visible: root.stacked;
+        x: 0px;
+        y: root.pitch + (root.seam - self.height) / 2;
+        width: root.width;
+        height: 1px;
+        background: Theme.text;
+    }
+    b := Btn {
+        x: root.stacked ? (root.trailing ? root.width - self.width : 0px) : bar.x + bar.width + 6px;
+        y: root.stacked ? root.pitch + root.seam : 0px;
+        width: self.preferred-width;
+        height: root.pitch;
+        label: root.second;
+        tone: Tone.text;
+        text-size: 13px;
+        pad-x: 0px;
+        pad-y: 0px;
+        clicked => { root.second-clicked(); }
+    }
+}
+
 export component HomePage inherits Rectangle {
     property <length> avail: root.width - 32px;
     property <float> title-fit: min(1.0, root.avail / max(probe.preferred-width, 1px));
     property <length> cell: min(120px, (root.avail - 30px) / 4);
     probe := Text { text: "Hagane"; font-size: 32px; wrap: no-wrap; visible: false; x: 0; y: 0; }
     line-probe := Text { text: "Not affiliated with PONOS Corp."; font-size: 13px; wrap: no-wrap; visible: false; x: 0; y: 0; }
-    half-probe := Text { text: "Not affiliated with"; font-size: 13px; wrap: no-wrap; visible: false; x: 0; y: 0; }
+    half-probe := Text { text: "Not affiliated with\nPONOS Corp."; font-size: 13px; wrap: no-wrap; visible: false; x: 0; y: 0; }
     Flickable { interactive: !Shell.swiping && !Shell.sliding;
         mouse-drag-pan-enabled: true;
         width: 100%;
@@ -117,37 +174,41 @@ export component HomePage inherits Rectangle {
             Rectangle { vertical-stretch: 1; min-height: 24px; }
             VerticalLayout {
                 padding-bottom: 10px;
-                spacing: 6px;
-                links := HorizontalLayout {
-                    spacing: 8px;
-                    HorizontalLayout {
-                        horizontal-stretch: 0;
-                        spacing: 6px;
-                        Btn { label: "v" + Home.version; tone: Tone.text; text-size: 13px; pad-x: 0px; pad-y: 0px; clicked => { Home.open-url("https://github.com/omochikaeri15/hagane/releases/tag/v" + Home.version); } }
-                        Label { text: "|"; font-size: 13px; vertical-alignment: center; }
-                        Btn { label: "Changelogs"; tone: Tone.text; text-size: 13px; pad-x: 0px; pad-y: 0px; clicked => { Home.changelog-open = true; Home.open-changelog(); } }
+                links := Rectangle {
+                    property <length> gap: 8px;
+                    property <length> beside-line: (self.width - line-probe.preferred-width) / 2 - self.gap;
+                    property <bool> split: max(left.wide, right.wide) > self.beside-line;
+                    property <length> anchor: self.split ? half-probe.preferred-width : line-probe.preferred-width;
+                    property <length> corner: max(left.width, right.width) + self.gap;
+                    height: max(left.height, right.height, note.height);
+                    left := Corner {
+                        x: 0px;
+                        y: (parent.height - self.height) / 2;
+                        first: "v" + Home.version;
+                        second: "Changelogs";
+                        stacked: links.split;
+                        first-clicked => { Home.open-url("https://github.com/omochikaeri15/hagane/releases/tag/v" + Home.version); }
+                        second-clicked => { Home.changelog-open = true; Home.open-changelog(); }
                     }
-                    Rectangle {
-                        property <bool> split: self.width < line-probe.preferred-width;
-                        property <length> widest: self.split ? half-probe.preferred-width : line-probe.preferred-width;
-                        horizontal-stretch: 1;
-                        Text {
-                            visible: parent.width > 0px;
-                            x: clamp((links.width - self.width) / 2 - parent.x, 0px, parent.width - self.width);
-                            y: (parent.height - self.height) / 2;
-                            text: parent.split ? "Not affiliated with\nPONOS Corp." : line-probe.text;
-                            color: Theme.weak-text;
-                            font-size: 13px * min(1.0, parent.width / max(parent.widest, 1px));
-                            horizontal-alignment: center;
-                            wrap: no-wrap;
-                        }
+                    note := Text {
+                        visible: links.width > 0px;
+                        x: (parent.width - self.width) / 2;
+                        y: (parent.height - self.height) / 2;
+                        text: links.split ? half-probe.text : line-probe.text;
+                        color: Theme.weak-text;
+                        font-size: 13px * clamp((links.width - 2 * links.corner) / max(links.anchor, 1px), 0.0, 1.0);
+                        horizontal-alignment: center;
+                        wrap: no-wrap;
                     }
-                    HorizontalLayout {
-                        horizontal-stretch: 0;
-                        spacing: 6px;
-                        Btn { label: "Discord"; tone: Tone.text; text-size: 13px; pad-x: 0px; pad-y: 0px; clicked => { Home.open-url("https://discord.gg/MyPwdv2j4s"); } }
-                        Label { text: "|"; font-size: 13px; vertical-alignment: center; }
-                        Btn { label: "GitHub"; tone: Tone.text; text-size: 13px; pad-x: 0px; pad-y: 0px; clicked => { Home.open-url("https://github.com/omochikaeri15/hagane"); } }
+                    right := Corner {
+                        x: parent.width - self.width;
+                        y: (parent.height - self.height) / 2;
+                        first: "Discord";
+                        second: "GitHub";
+                        trailing: true;
+                        stacked: links.split;
+                        first-clicked => { Home.open-url("https://discord.gg/MyPwdv2j4s"); }
+                        second-clicked => { Home.open-url("https://github.com/omochikaeri15/hagane"); }
                     }
                 }
             }
