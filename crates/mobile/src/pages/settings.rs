@@ -29,7 +29,12 @@ const FEEDBACK_MS: u64 = 2000;
 const OPEN_FILES_LABEL: &str = "Open \"files\" Folder";
 const CONFIRM_MS: u64 = 3000;
 const ENTRY_DIGITS: usize = 4;
-const LICENSES: &str = include_str!("../../../foundry/assets/licenses.txt");
+const LICENSES: &str = concat!(
+    "========================================================================\nHAGANE\n========================================================================\n",
+    include_str!("../../../../LICENSE"),
+    "\n",
+    include_str!("../../../foundry/assets/licenses.txt"),
+);
 const CHAPTER_TITLES: [[&str; 3]; 3] = [
     ["Empire of Cats Ch. 1", "Empire of Cats Ch. 2", "Empire of Cats Ch. 3"],
     ["Into the Future Ch. 1", "Into the Future Ch. 2", "Into the Future Ch. 3"],

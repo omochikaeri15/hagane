@@ -159,14 +159,11 @@ input, select, textarea { font: inherit; color: inherit; }
 .home-row { display: flex; flex-wrap: wrap; justify-content: center; gap: 10px; margin-bottom: 20px; }
 .home-nav { width: 120px; font-size: 15px; }
 .home-footer { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; padding: 10px; font-size: 13px; }
-.home-footer .btn-text { font-size: 13px; }
-.home-links { display: flex; align-items: center; }
-.home-links-left { padding-right: 10px; }
-.home-links-right { padding-left: 10px; }
+.home-terms { padding-right: 10px; white-space: nowrap; }
+.home-version { padding-left: 10px; white-space: nowrap; }
 .home-disclaimer { position: relative; }
 .home-disclaimer-text { position: relative; display: inline-block; white-space: nowrap; text-align: center; }
 .home-disclaimer-probe { position: absolute; top: 0; left: 0; white-space: nowrap; visibility: hidden; pointer-events: none; }
-.home-sep { padding: 0 6px; }
 .settings { padding: 20px 16px; display: flex; flex-direction: column; gap: 20px; max-width: 640px; }
 .setting-row { display: flex; align-items: center; gap: 10px; }
 

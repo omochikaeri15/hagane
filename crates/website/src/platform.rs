@@ -154,7 +154,6 @@ pub trait Host {
     fn can_copy(&self) -> bool;
     fn has_address_bar(&self) -> bool;
     fn copy_image(&self, png: Bytes) -> Pending<Result<(), Fault>>;
-    fn copy_text(&self, text: &str) -> Pending<Result<(), Fault>>;
     fn capture_pointer(&self, element: &str, pointer: i32);
     fn pick_file(&self, accept: &str, limit: u64) -> Pending<Result<Option<Picked>, Fault>>;
     fn can_film(&self) -> bool;

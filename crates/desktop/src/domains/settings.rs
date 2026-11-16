@@ -132,6 +132,12 @@ pub struct State {
     source: source::State,
 }
 
+const LICENSES: &str = concat!(
+    "========================================================================\nHAGANE\n========================================================================\n",
+    include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../LICENSE")),
+    "\n",
+    include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../foundry/assets/licenses.txt")),
+);
 const KEY_PROMPT: &str = "Press a key...";
 const KEY_UNBOUND: &str = "Unbound";
 const KEY_LABEL_WIDTH: f32 = 230.0;
@@ -952,8 +958,6 @@ impl State {
     }
 
     fn view_about<'a>(&'a self) -> Element<'a, Message> {
-        let license_text = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../foundry/assets/licenses.txt"));
-
         let header = column![
             text("About Hagane").size(32),
             text("Suite for a tower-defense cat game. Create custom characters, build unique combat encounters, and share your own grand adventures!"),
@@ -962,7 +966,7 @@ impl State {
 
         let legal_area = container(
             smooth_scroll(
-                scrollable(text(license_text).size(11))
+                scrollable(text(LICENSES).size(11))
                     .width(Length::Fill)
                     .height(Length::Fill)
             )

@@ -649,20 +649,6 @@ impl Host for WebHost {
         })
     }
 
-    fn copy_text(&self, text: &str) -> Pending<Result<(), Fault>> {
-        let text = text.to_owned();
-
-        Box::pin(async move {
-            let clipboard = clipboard().ok_or_else(|| Fault("the clipboard is not available".to_owned()))?;
-            let write: Function = Reflect::get(&clipboard, &JsValue::from_str("writeText")).map_err(describe)?.dyn_into().map_err(describe)?;
-            let promise: Promise = write.call1(&clipboard, &JsValue::from_str(&text)).map_err(describe)?.dyn_into().map_err(describe)?;
-
-            JsFuture::from(promise).await.map_err(describe)?;
-
-            Ok(())
-        })
-    }
-
     fn pick_file(&self, accept: &str, limit: u64) -> Pending<Result<Option<Picked>, Fault>> {
         let opened = open_picker(accept);
 

@@ -1,18 +1,11 @@
 use dioxus::prelude::*;
-use tracing::warn;
 
 use crate::app::Route;
-use crate::platform::Platform;
-use crate::systems::turn;
 
-const REPO: &str = "https://github.com/omochikaeri15/hagane";
-const SITE: &str = "https://hagane.app";
 const VERSION: &str = env!("CARGO_PKG_VERSION");
-const COPIED: &str = "Link Copied!";
+const TERMS: &str = "Non-commercial use only";
 const DISCLAIMER_HEAD: &str = "Not affiliated with";
 const DISCLAIMER_TAIL: &str = "PONOS Corp.";
-const COPIED_MS: u32 = 2000;
-const TIP_GAP: f64 = 4.0;
 
 #[derive(Clone, Copy, PartialEq, Default)]
 struct Footing {
@@ -48,43 +41,9 @@ impl Footing {
 
 #[component]
 pub(crate) fn Home() -> Element {
-    let platform = use_context::<Platform>();
-    let mut anchor: Signal<Option<MountedEvent>> = use_signal(|| None);
-    let mut copied: Signal<Option<(f64, f64)>> = use_signal(|| None);
-    let mut round = use_signal(|| 0u32);
     let mut footing = use_signal(Footing::default);
     let placed = footing().place();
     let shown = if placed.ready { "visible" } else { "hidden" };
-    let turn = turn::turn();
-    let share = move |_| {
-        let platform = platform.clone();
-
-        spawn(async move {
-            if let Err(fault) = platform.host().copy_text(SITE).await {
-                warn!("The site link could not be copied: {fault}");
-
-                return;
-            }
-
-            let Some(anchor) = anchor() else {
-                return;
-            };
-            let Ok(rect) = anchor.get_client_rect().await else {
-                return;
-            };
-            let next = *round.peek() + 1;
-
-            let area = turn.area(rect.origin.x, rect.origin.y, rect.size.width, rect.size.height);
-
-            round.set(next);
-            copied.set(Some((area.x + area.width / 2.0, area.y - TIP_GAP)));
-            platform.host().sleep(COPIED_MS).await;
-
-            if *round.peek() == next {
-                copied.set(None);
-            }
-        });
-    };
 
     rsx! {
         div { class: "home",
@@ -115,15 +74,13 @@ pub(crate) fn Home() -> Element {
                     }
                 },
                 div {
-                    class: "home-links home-links-left",
+                    class: "home-terms weak",
                     onresize: move |event| {
                         if let Ok(size) = event.data().get_border_box_size() {
                             footing.with_mut(|held| held.left = size.width);
                         }
                     },
-                    a { class: "btn btn-text", href: "{REPO}/releases/tag/v{VERSION}", target: "_blank", rel: "noopener", "v{VERSION}" }
-                    span { class: "home-sep", "|" }
-                    a { class: "btn btn-text", href: "{REPO}/releases", target: "_blank", rel: "noopener", "Changelogs" }
+                    "{TERMS}"
                 }
                 div {
                     class: "home-disclaimer weak",
@@ -160,14 +117,7 @@ pub(crate) fn Home() -> Element {
                         "{DISCLAIMER_TAIL}"
                     }
                 }
-                div { class: "home-links home-links-right",
-                    button { class: "btn btn-text", onmounted: move |event| anchor.set(Some(event)), onclick: share, "Share" }
-                    if let Some((x, y)) = copied() {
-                        span { class: "tip-body bordered-box", style: "left: {x}px; top: {y}px;", "{COPIED}" }
-                    }
-                    span { class: "home-sep", "|" }
-                    a { class: "btn btn-text", href: REPO, target: "_blank", rel: "noopener", "GitHub" }
-                }
+                div { class: "home-version weak", "v{VERSION}" }
             }
         }
     }

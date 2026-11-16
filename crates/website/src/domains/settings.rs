@@ -150,7 +150,12 @@ pub(crate) fn provide_logging(platform: &Platform) -> Logging {
 
     use_context_provider(|| Logging { launched, chosen: Signal::new(launched) })
 }
-const LICENSES: &str = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../foundry/assets/licenses.txt"));
+const LICENSES: &str = concat!(
+    "========================================================================\nHAGANE\n========================================================================\n",
+    include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../LICENSE")),
+    "\n",
+    include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../foundry/assets/licenses.txt")),
+);
 const REPLAY_SOURCE_HINT: &str = "Hybrid plays a replay with the game files it was recorded with and your own files for anything it did not keep, BCV uses the recorded files only, VFS uses your own game files only";
 const KEY_PROMPT: &str = "Press a key...";
 const KEY_UNBOUND: &str = "Unbound";
