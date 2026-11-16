@@ -1,3 +1,2 @@
 Changes:
-- Improved Mod Edit popup performance.
-- Added a tagline.
+- Added License to `Settings > About`.
