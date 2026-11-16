@@ -65,6 +65,7 @@ use crate::common::dialog;
 use crate::widget::popup;
 use crate::common::feedback::{Slot, NO_ACTIONS_LABEL, NO_ACTIONS_NOTICE, UNSUPPORTED_NOTICE};
 
+pub(crate) use foundry::systems::editor::finder::Shift;
 pub(crate) use foundry::systems::editor::{Art, Mark, Pane, Reader};
 pub(crate) use target::{deflect, suppress, target};
 
@@ -1629,6 +1630,18 @@ impl State {
 
     pub(crate) fn refind(&mut self, catalog: finder::Catalog) {
         self.finder.rebuild(catalog);
+    }
+
+    pub(crate) fn outdate(&mut self) -> Task<Message> {
+        self.finder.outdate().map(Message::Find)
+    }
+
+    pub(crate) fn editing(&self) -> bool {
+        self.finder.finding() && self.banks[Seat::Mods.slot()].drafting()
+    }
+
+    pub(crate) fn trailing(&self) -> bool {
+        self.finder.due()
     }
 
     pub(crate) fn take_choice(&mut self, target: Option<String>) -> Option<Pick> {
@@ -3937,6 +3950,15 @@ pub(crate) fn sources(app: &HaganeApp) -> core::Sources<'_> {
 
 pub(crate) fn catalog(app: &HaganeApp) -> finder::Catalog {
     finder::Catalog::build(&sources(app))
+}
+
+pub(crate) fn retouch(app: &mut HaganeApp, names: &[&str], shift: Shift) -> bool {
+    let mut finder = std::mem::take(&mut app.editor.finder);
+    let stale = finder.touch(&sources(app), names, shift);
+
+    app.editor.finder = finder;
+
+    stale
 }
 
 fn adopted(held: core::Pick, target: String) -> Pick {

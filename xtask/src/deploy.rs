@@ -22,6 +22,7 @@ const LIVE: &str = "website-deploy";
 const PID_FILE: &str = "website-deploy.pid";
 const LOG_FILE: &str = "website-deploy.log";
 const HEADERS_FILE: &str = "_headers";
+const ICONS: [(&str, &str); 2] = [("crates/website/assets/icon.ico", "favicon.ico"), ("crates/mobile/ios/AppIcon.png", "icon.png")];
 const DETACH: char = '!';
 const INDEX: &str = "index.html";
 const WASM_FLAGS: &str = "-C target-feature=+simd128";
@@ -120,6 +121,10 @@ pub(super) fn website() {
 
     fs::rename(&bundle, &live).expect("Failed to move the new bundle into place");
     fs::copy(root.join(WEBSITE).join(HEADERS_FILE), live.join(HEADERS_FILE)).expect("Failed to copy the headers file");
+
+    for (source, name) in ICONS {
+        fs::copy(root.join(source), live.join(name)).expect("Failed to copy a site icon");
+    }
 
     let log = target.join(LOG_FILE);
     let output = File::create(&log).expect("Failed to create the deploy log");

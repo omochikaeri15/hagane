@@ -2,7 +2,7 @@
 name = "hagane"
 
 [web.app]
-title = "Hagane"
+title = "Hagane - Cat Game Suite"
 
 [web.wasm_opt]
 level = "4"

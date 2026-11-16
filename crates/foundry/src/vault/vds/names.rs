@@ -50,10 +50,14 @@ impl NameStore {
         vfs.list(CAT_GLOSSARY).first().is_none_or(|path| language(path).is_none_or(|code| code == ENGLISH))
     }
 
-    pub(super) fn evict(&self, filename: &str) {
-        if PREFIXES.iter().any(|prefix| filename.starts_with(prefix)) {
+    pub(super) fn evict(&self, filename: &str) -> bool {
+        let named = PREFIXES.iter().any(|prefix| filename.starts_with(prefix));
+
+        if named {
             self.clear();
         }
+
+        named
     }
 
     pub(super) fn clear(&self) {

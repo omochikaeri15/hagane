@@ -87,15 +87,17 @@ impl ItemStore {
         self.catalog(vfs).get(line).and_then(|row| u32::try_from(row.icon_index(line)).ok())
     }
 
-    pub(super) fn evict(&self, filename: &str) {
+    pub(super) fn evict(&self, filename: &str) -> bool {
         match filename {
             GATYA_ITEM_BUY => {
                 super::reset(&self.catalog);
                 super::reset(&self.lines);
             }
             GATYA_ITEM_NAME => super::reset(&self.names),
-            _ => (),
+            _ => return false,
         }
+
+        true
     }
 
     pub(super) fn clear(&self) {

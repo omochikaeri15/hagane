@@ -254,8 +254,11 @@ jobs:
           path: hagane-website-wasm.zip
           retention-days: 1
 
-      - name: Add the Pages headers file
-        run: cp crates/website/_headers target/dx/website/release/web/public/_headers
+      - name: Add the Pages headers file and the site icons
+        run: |
+          cp crates/website/_headers target/dx/website/release/web/public/_headers
+          cp crates/website/assets/icon.ico target/dx/website/release/web/public/favicon.ico
+          cp crates/mobile/ios/AppIcon.png target/dx/website/release/web/public/icon.png
 
       - name: Upload Website Bundle
         uses: actions/upload-artifact@v4

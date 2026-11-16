@@ -785,15 +785,20 @@ impl HaganeApp {
         let mut pruned = false;
         let mut evicted = Evicted::default();
         let mut tables: Vec<&str> = Vec::new();
+        let mut edited: Vec<&str> = Vec::new();
+        let mut renamed = false;
         let stages_before = self.vault.vds.stages.clone();
 
         for path in &paths {
             let Some(mount) = watcher::mount_of(path) else { continue; };
             let Some(name) = path.file_name().and_then(|name| name.to_str()) else { continue; };
 
+            edited.push(name);
+            renamed |= mount == architecture::GAME || self.vault.vfs.rooted(architecture::GAME, name).is_none();
+
             let hit = if mount != architecture::GAME || path.is_file() { self.vault.evict(name) } else { Evicted::default() };
 
-            if hit != Evicted::default() {
+            if hit.scanned() {
                 tables.push(name);
             }
 
@@ -834,7 +839,7 @@ impl HaganeApp {
 
                 let pruned_tables = self.vault.vds.evict(name);
 
-                if pruned_tables != Evicted::default() {
+                if pruned_tables.scanned() {
                     tables.push(name);
                 }
 
@@ -935,16 +940,31 @@ impl HaganeApp {
 
         self.stage_state.invalidate_assets(&items, &enemies, stage_coarse, &self.vault);
         self.editor.forget_enemies(enemies.union(&enemy_data));
-        self.refresh_finder();
+
+        let shift = editor::Shift {
+            cats: evicted.cats || !cat_data.is_empty() || !units.is_empty() || !items.is_empty(),
+            enemies: evicted.enemies || !enemies.is_empty() || !enemy_data.is_empty(),
+            stages: evicted.stages || !enemies.is_empty() || !enemy_data.is_empty() || !items.is_empty(),
+            other: evicted.other || !items.is_empty(),
+        };
+
+        let finder_task = match renamed || pruned || !remounted_mods.is_empty() || editor::retouch(self, &edited, shift) {
+            true => self.outdate_finder(),
+            false => {
+                self.mark_finder();
+
+                Task::none()
+            }
+        };
 
         self.index_dirty = true;
         self.last_change_at = Some(Instant::now());
 
         if units.is_empty() && cat_data.is_empty() && !evicted.cats {
-            return Task::batch([files_task, stage_rescan]);
+            return Task::batch([files_task, stage_rescan, finder_task]);
         }
 
-        Task::batch([files_task, stage_rescan, self.adopt_sandbox_cats()])
+        Task::batch([files_task, stage_rescan, finder_task, self.adopt_sandbox_cats()])
     }
 
     fn refresh_stages(&mut self, before: &StageStore, tables: &[&str], relist: bool) -> Task<Message> {
@@ -1138,15 +1158,28 @@ impl HaganeApp {
         Task::none()
     }
 
+    fn outdate_finder(&mut self) -> Task<Message> {
+        if self.editor.editing() {
+            return self.editor.outdate().map(Message::Editor);
+        }
+
+        self.refresh_finder();
+
+        Task::none()
+    }
+
     fn refresh_finder(&mut self) {
         if !self.editor.finding() {
             return;
         }
 
+        let started = Instant::now();
         let catalog = editor::catalog(self);
 
         self.editor.refind(catalog);
         self.mark_finder();
+
+        debug!(ms = started.elapsed().as_millis(), "Edit Mod list rebuilt");
     }
 
     fn mark_finder(&mut self) {
@@ -1648,9 +1681,10 @@ impl HaganeApp {
                 self.cat_state.sync_state(&mut self.app_state.cat);
                 self.sync_editor(loaded);
 
-                if loaded {
-                    self.refresh_finder();
-                }
+                let task = match loaded {
+                    true => Task::batch([task, self.outdate_finder()]),
+                    false => task,
+                };
 
                 self.sync_popup(ActivePopup::CatExport, self.cat_state.export_popup_open());
                 self.sync_popup(ActivePopup::CatFilter, self.cat_state.filter_popup_open());
@@ -1692,9 +1726,10 @@ impl HaganeApp {
                 self.enemy_state.sync_state(&mut self.app_state.enemy);
                 self.sync_editor(enemies_loaded);
 
-                if enemies_loaded {
-                    self.refresh_finder();
-                }
+                let task = match enemies_loaded {
+                    true => Task::batch([task, self.outdate_finder()]),
+                    false => task,
+                };
 
                 self.sync_popup(ActivePopup::EnemyFilter, self.enemy_state.filter_popup_open());
                 self.sync_popup(ActivePopup::EnemyExport, self.enemy_state.export_popup_open());
@@ -1735,9 +1770,10 @@ impl HaganeApp {
                 self.sync_popup(ActivePopup::StageAttributes, self.stage_state.attributes_popup_open());
                 self.sync_editor(stages_loaded);
 
-                if stages_loaded {
-                    self.refresh_finder();
-                }
+                let task = match stages_loaded {
+                    true => Task::batch([task, self.outdate_finder()]),
+                    false => task,
+                };
 
 
                 let task = Task::batch([task, self.sync_sandbox_rules()]);
@@ -2028,6 +2064,10 @@ impl HaganeApp {
                     .editor
                     .update(msg, &self.vault.vfs, &mut self.studio_state)
                     .map(Message::Editor);
+
+                if self.editor.trailing() {
+                    self.refresh_finder();
+                }
 
                 let target = self.editor.choosing().then(|| self.mods_state.editable_mod()).flatten();
 

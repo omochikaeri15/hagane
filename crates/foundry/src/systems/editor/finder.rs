@@ -26,6 +26,7 @@ use crate::domains::settings::EditorMode;
 use crate::domains::stage::files as stage_files;
 use crate::domains::stage::{GlobalMapId, GlobalStageId};
 use crate::domains::utilities::background;
+use crate::Vfs;
 
 use super::ledger::{Assembly, Ledger, ASSEMBLIES};
 use super::records::{self, Book, Named, BOOKS};
@@ -344,6 +345,7 @@ const KEY_JOINT: char = '\u{1f}';
 type Maps = Vec<(u32, Vec<u32>)>;
 type Sets = FxHashMap<(Pane, &'static str), FxHashMap<Box<str>, Range<usize>>>;
 
+#[derive(PartialEq)]
 enum Who {
     Cat { id: u32, form: usize },
     Egg,
@@ -447,6 +449,8 @@ pub struct Catalog {
     titles: Vec<Box<str>>,
     title_keys: Vec<Box<str>>,
     rows: Vec<Row>,
+    kit: Kit,
+    trails: Vec<Trail>,
 }
 
 struct Hits {
@@ -546,169 +550,67 @@ fn bonused(sources: &Sources<'_>) -> FxHashSet<u32> {
 
 impl Catalog {
     pub fn build(sources: &Sources<'_>) -> Catalog {
-        let mut pictures: Vec<String> = Vec::new();
-        let mut cuts: Vec<String> = Vec::new();
-        let mut rigs: Vec<String> = Vec::new();
-        let mut sounds: Vec<String> = Vec::new();
+        let mut builder = Builder { sources, catalog: Catalog::default(), claimed: None, masked: FxHashSet::default() };
 
-        for name in sources.vault.vfs.glob("").iter() {
-            let lowered = name.to_ascii_lowercase();
+        for (feed, run) in STEPS {
+            let from = builder.reach();
 
-            match lowered.rsplit_once('.').map(|(_, extension)| extension) {
-                Some(PICTURE_EXTENSION) => pictures.push(name.to_string()),
-                Some(CUT_EXTENSION) => cuts.push(name.to_string()),
-                Some(RIG_EXTENSION) => rigs.push(name.to_string()),
-                Some(extension) if audio::EXTENSIONS.contains(&extension) => sounds.push(name.to_string()),
-                _ => {}
+            builder.claimed = feed.reads().then(Vec::new);
+
+            let ((), reads) = Vfs::witnessed(|| run(&mut builder));
+            let span = builder.span(&from);
+            let claims = builder.claimed.take().unwrap_or_default().into_iter().map(|(name, _)| name).collect();
+
+            builder.catalog.trails.push(Trail { reads, span, claims });
+        }
+
+        builder.catalog
+    }
+
+    pub fn touch(&mut self, sources: &Sources<'_>, names: &[&str], shift: Shift) -> Touched {
+        if self.trails.len() != STEPS.len() {
+            return Touched { patched: false, stale: true };
+        }
+
+        let vfs = &sources.vault.vfs;
+        let wanted: FxHashSet<String> = names.iter().flat_map(|name| [Some((*name).to_owned()), vfs.stripped(name)]).flatten().collect();
+
+        let affected: Vec<usize> = STEPS
+            .iter()
+            .zip(&self.trails)
+            .enumerate()
+            .filter(|(_, ((feed, _), trail))| feed.fed(shift) || (feed.reads() && wanted.iter().any(|name| trail.reads.contains(name.as_str()))))
+            .map(|(at, _)| at)
+            .collect();
+
+        if affected.is_empty() {
+            return Touched::default();
+        }
+
+        let mut builder = Builder { sources, catalog: std::mem::take(self), claimed: None, masked: FxHashSet::default() };
+        let mut touched = Touched::default();
+
+        for at in affected {
+            match builder.replay(at) {
+                Replay::Alike => {}
+                Replay::Swapped => touched.patched = true,
+                Replay::Unfit => {
+                    touched.stale = true;
+
+                    break;
+                }
             }
         }
 
-        rigs.sort_unstable();
+        *self = builder.catalog;
 
-        let mut builder = Builder {
-            sources,
-            catalog: Catalog::default(),
-            files_at: FxHashMap::default(),
-            titles_at: FxHashMap::default(),
-            sets: FxHashMap::default(),
-            arena: Vec::new(),
-            ruled: ruled(sources),
-            bonused: bonused(sources),
-            pointed: scored::score_stage_maps(&sources.vault.vfs),
-            drawn: leading_keys(sources, Ledger::StageDraws),
-            checkpointed: leading_keys(sources, Ledger::Checkpoints),
-            limited: leading_keys(sources, Ledger::StageLimits),
-            ex_drawn: column_keys(sources, Ledger::ExDraws, EX_MAP_COLUMN),
-            rewarded: keyed_maps(sources, Book::ClearRewards),
-            displayed: keyed_maps(sources, Book::EventDisplay),
-            cat_base: None,
-            cat_homes: FxHashMap::default(),
-            form_homes: FxHashMap::default(),
-            homes: FxHashMap::default(),
-            galleries: FxHashMap::default(),
-            cpu_locked: column_keys(sources, Ledger::CpuLocks, LOCK_MAP_COLUMN),
-            altars: sources.vault.vfs.load(ALTAR_TABLE).map_or_else(FxHashSet::default, |bytes| {
-                common::scrub(&bytes).lines().filter_map(|line| line.split(',').next()?.trim().parse().ok()).collect()
-            }),
-            pictures,
-            cuts,
-            rigs,
-            sounds,
-        };
+        touched
+    }
 
-        let cats = builder.folder(None, CATS.to_owned(), CATS.to_owned());
-        let units = builder.folder(Some(cats), UNITS.to_owned(), UNITS.to_owned());
-        builder.cats(units);
-        builder.unit_images(units);
-        builder.numbered(cats, SPOTLIGHT_TABLE, SPOTLIGHT_FOLDER, SPOTLIGHT_NAME, figures::Subject::GuideSpotlights, 0);
+    pub fn file(&self, leaf: u32) -> Option<&str> {
+        let row = self.rows.get(leaf as usize)?;
 
-        let eggs = builder.folder(Some(cats), EGGS.to_owned(), EGGS.to_owned());
-        builder.eggs(eggs);
-        builder.talent_names(cats);
-        builder.abilities(cats, Faction::Cat);
-        builder.book(cats, Book::Orbs);
-        builder.grades(cats);
-        builder.orb_traits(cats);
-        builder.book(cats, Book::Catseyes);
-        builder.strengths(cats);
-        builder.filters(cats);
-        builder.keyed(cats, COMBO_CATEGORY_TABLE, COMBO_CATEGORY_FOLDER, COMBO_CATEGORY_NAME, figures::Subject::ComboCategories);
-        builder.combo_text(cats);
-        builder.captions(cats, captions::Layout::HiddenHint);
-        builder.text_folder(cats, ORB_TEXT, &[Sheet::OrbNames, Sheet::OrbDescriptions, Sheet::TraitNames, Sheet::TraitDescriptions]);
-
-        let enemies = builder.folder(None, ENEMIES.to_owned(), ENEMIES.to_owned());
-        let units = builder.folder(Some(enemies), UNITS.to_owned(), UNITS.to_owned());
-        builder.enemies(units);
-        builder.abilities(enemies, Faction::Enemy);
-        builder.captions(enemies, captions::Layout::UnseenEnemy);
-
-        let stages = builder.folder(None, STAGES.to_owned(), STAGES.to_owned());
-        builder.stages(stages);
-        builder.castles(stages);
-        builder.backgrounds(stages);
-        builder.map_layouts(stages);
-        builder.map_sheets(stages);
-        builder.quest(stages);
-        builder.realms(stages);
-        builder.keyed(stages, DEMON_CASTLE_TABLE, DEMON_CASTLE_FOLDER, DEMON_CASTLE_NAME, figures::Subject::DemonCastles);
-        builder.labyrinth(stages);
-        builder.enigma(stages);
-        builder.map_markers(stages);
-        builder.numbered(stages, FILTER_MAP_TABLE, FILTER_MAP_FOLDER, FILTER_MAP_NAME, figures::Subject::FilterMaps, 1);
-        builder.numbered(stages, REFUND_TABLE, REFUND_FOLDER, REFUND_NAME, figures::Subject::EnergyRefunds, 0);
-        builder.numbered(stages, STAGE_SHORTCUT_TABLE, STAGE_SHORTCUT_FOLDER, STAGE_SHORTCUT_NAME, figures::Subject::StageShortcuts, 0);
-        builder.captions(stages, captions::Layout::StageLimits);
-        builder.captions(stages, captions::Layout::FirstTips);
-        builder.captions(stages, captions::Layout::ClearGifts);
-        builder.captions(stages, captions::Layout::StageHints);
-
-        let other = builder.folder(None, OTHER.to_owned(), OTHER.to_owned());
-        builder.roguelike(other);
-        builder.upgrades(other);
-        builder.base(other);
-        builder.ex_lottery(other);
-        builder.shakes(other);
-        builder.recipes(other);
-        builder.shop(other);
-        builder.gifts(other);
-        builder.gacha(other);
-        builder.fanfares(other);
-        builder.rank_text(other);
-        builder.zombies(other);
-        builder.cpu(other);
-        builder.gamatoto(other);
-        builder.god(other);
-        builder.interface(other);
-        builder.story(other);
-        builder.shrine(other);
-        builder.shrine_tables(other);
-        builder.catfruit(other);
-        builder.sounds(other);
-        builder.sound_files(other);
-        builder.captions(other, captions::Layout::CollabSends);
-        builder.chests(other);
-        builder.prizes(other);
-        builder.reels(other);
-        builder.keyed(other, TIP_SETTING_TABLE, TIP_SETTING_FOLDER, TIP_SETTING_NAME, figures::Subject::TipSettings);
-        builder.keyed(other, MENU_TEXT_TABLE, MENU_TEXT_FOLDER, MENU_TEXT_NAME, figures::Subject::MenuTextSettings);
-        builder.numbered(other, EXCLUSION_TABLE, EXCLUSION_FOLDER, EXCLUSION_NAME, figures::Subject::LineupExclusions, 0);
-        builder.numbered(other, COUNTER_TABLE, COUNTER_FOLDER, COUNTER_NAME, figures::Subject::LineupCounters, 0);
-        builder.captions(other, captions::Layout::Vibrations);
-        builder.talks(other);
-        builder.numbered(other, ABILITY_ICON_TABLE, ABILITY_ICON_FOLDER, ABILITY_ICON_NAME, figures::Subject::AbilityIcons, 0);
-        builder.numbered(other, TRAIT_ICON_TABLE, TRAIT_ICON_FOLDER, TRAIT_ICON_NAME, figures::Subject::TraitIcons, 0);
-        builder.numbered(other, BAND_TABLE, BAND_FOLDER, BAND_NAME, figures::Subject::LineupBands, 0);
-        builder.numbered(other, RANK_GROUP_TABLE, RANK_GROUP_FOLDER, RANK_GROUP_NAME, figures::Subject::LineupRankGroups, 0);
-        builder.numbered(other, RECOMMEND_TABLE, RECOMMEND_FOLDER, RECOMMEND_NAME, figures::Subject::RecommendedUpgrades, 0);
-        builder.keyed(other, LEVEL_UP_TABLE, LEVEL_UP_FOLDER, LEVEL_UP_NAME, figures::Subject::LevelUpOffers);
-        builder.numbered(other, ORB_CHOICE_TABLE, ORB_CHOICE_FOLDER, ORB_CHOICE_NAME, figures::Subject::OrbFilterChoices, 0);
-        builder.keyed(other, ORB_OPTION_TABLE, ORB_OPTION_FOLDER, ORB_OPTION_NAME, figures::Subject::OrbOptions);
-        builder.unused(other);
-        builder.numbered(other, STAMP_TABLE, STAMP_FOLDER, STAMP_DAY, figures::Subject::Stamps, 0);
-        builder.numbered(other, SLOT_TABLE, SLOT_FOLDER, SLOT_NAME, figures::Subject::SlotUnlocks, 1);
-        builder.keyed(other, CLUB_TABLE, CLUB_FOLDER, CLUB_NAME, figures::Subject::Club);
-        builder.treasures(other);
-        builder.groups(other);
-        builder.book(other, Book::RuleBans);
-        builder.book(other, Book::Medals);
-        builder.medal_text(other);
-        builder.book(other, Book::MapConditions);
-        builder.points(other);
-        builder.missions(other);
-        builder.book(other, Book::GachaBonus);
-        builder.book(other, Book::LoginStamps);
-        builder.login_events(other);
-        builder.login_messages(other);
-        builder.book(other, Book::UnlockPopups);
-        builder.keyed(other, POPUP_TRIGGER_TABLE, POPUP_TRIGGER_FOLDER, POPUP_TRIGGER_NAME, figures::Subject::PopupTriggers);
-        builder.whole(other, Book::RemoteConfig);
-        builder.items(other);
-        builder.sheets(other);
-        builder.images(other);
-        builder.files(other);
-
-        builder.catalog
+        self.files.get(row.file as usize).map(AsRef::as_ref)
     }
 
     pub fn label(&self, entry: Entry, values: EditorMode) -> &str {
@@ -856,6 +758,7 @@ impl Catalog {
 
     pub fn folder_ids(&self) -> FxHashMap<String, u32> {
         (0..u32::try_from(self.folders.len()).unwrap_or(u32::MAX))
+            .filter(|id| self.folders.get(*id as usize).is_some_and(|folder| folder.parent != Some(GONE)))
             .filter_map(|id| Some((self.folder_key(id)?, id)))
             .collect()
     }
@@ -933,13 +836,72 @@ enum Source {
     Image,
 }
 
-struct Builder<'a> {
-    sources: &'a Sources<'a>,
-    catalog: Catalog,
-    files_at: FxHashMap<Box<str>, u32>,
-    titles_at: FxHashMap<Box<str>, u32>,
-    sets: Sets,
-    arena: Vec<(u32, u32)>,
+const GONE: u32 = u32::MAX;
+
+type Run = fn(&mut Builder<'_>);
+
+#[derive(Clone, Copy)]
+enum Anchor {
+    Cats,
+    CatUnits,
+    Eggs,
+    Enemies,
+    EnemyUnits,
+    Stages,
+    Other,
+}
+
+const ANCHORS: usize = 7;
+
+#[derive(Clone, Copy)]
+enum Feed {
+    Frame,
+    Names,
+    Files,
+    Cats,
+    Enemies,
+    Stages,
+    Mixed,
+}
+
+impl Feed {
+    fn fed(self, shift: Shift) -> bool {
+        match self {
+            Feed::Frame | Feed::Names | Feed::Files => false,
+            Feed::Cats => shift.cats,
+            Feed::Enemies => shift.enemies,
+            Feed::Stages => shift.stages,
+            Feed::Mixed => shift.cats || shift.enemies || shift.stages || shift.other,
+        }
+    }
+
+    fn reads(self) -> bool {
+        !matches!(self, Feed::Frame | Feed::Names)
+    }
+}
+
+#[derive(Clone, Copy, Default)]
+pub struct Shift {
+    pub cats: bool,
+    pub enemies: bool,
+    pub stages: bool,
+    pub other: bool,
+}
+
+#[derive(Clone, Copy, Default)]
+pub struct Touched {
+    pub patched: bool,
+    pub stale: bool,
+}
+
+enum Replay {
+    Alike,
+    Swapped,
+    Unfit,
+}
+
+#[derive(Clone, Default, PartialEq)]
+struct Gathered {
     ruled: FxHashSet<u32>,
     bonused: FxHashSet<u32>,
     pointed: BTreeSet<i32>,
@@ -949,17 +911,969 @@ struct Builder<'a> {
     ex_drawn: FxHashSet<u32>,
     rewarded: FxHashSet<u32>,
     displayed: FxHashSet<u32>,
+    cpu_locked: FxHashSet<u32>,
+    altars: FxHashSet<u32>,
+}
+
+#[derive(Default)]
+struct Kit {
+    files_at: FxHashMap<Box<str>, u32>,
+    titles_at: FxHashMap<Box<str>, u32>,
+    sets: Sets,
+    arena: Vec<(u32, u32)>,
+    aliases: FxHashMap<u32, Vec<Box<str>>>,
+    gathered: Gathered,
     cat_base: Option<u32>,
     cat_homes: FxHashMap<u32, u32>,
     form_homes: FxHashMap<(u32, usize), u32>,
     homes: FxHashMap<&'static str, u32>,
     galleries: FxHashMap<(&'static str, &'static str), u32>,
-    cpu_locked: FxHashSet<u32>,
-    altars: FxHashSet<u32>,
     pictures: Vec<String>,
     cuts: Vec<String>,
     rigs: Vec<String>,
     sounds: Vec<String>,
+    anchors: [u32; ANCHORS],
+}
+
+#[derive(Clone, Default)]
+struct Span {
+    units: Range<u32>,
+    folders: Range<u32>,
+    rows: Range<u32>,
+}
+
+impl Span {
+    fn folder(&self, id: u32, onto: &Span) -> u32 {
+        match self.folders.contains(&id) {
+            true => id - self.folders.start + onto.folders.start,
+            false => id,
+        }
+    }
+
+    fn unit(&self, id: u32, onto: &Span) -> u32 {
+        match self.units.contains(&id) {
+            true => id - self.units.start + onto.units.start,
+            false => id,
+        }
+    }
+
+    fn row(&self, id: u32, onto: &Span) -> u32 {
+        match self.rows.contains(&id) {
+            true => id - self.rows.start + onto.rows.start,
+            false => id,
+        }
+    }
+}
+
+struct Trail {
+    reads: FxHashSet<Box<str>>,
+    span: Span,
+    claims: Vec<Box<str>>,
+}
+
+struct Reach {
+    units: usize,
+    folders: usize,
+    rows: usize,
+    files: usize,
+    titles: usize,
+    arena: usize,
+}
+
+struct Saved {
+    reach: Reach,
+    gathered: Gathered,
+    cat_base: Option<u32>,
+    cat_homes: FxHashMap<u32, u32>,
+    form_homes: FxHashMap<(u32, usize), u32>,
+    homes: FxHashMap<&'static str, u32>,
+    galleries: FxHashMap<(&'static str, &'static str), u32>,
+}
+
+#[derive(PartialEq)]
+struct Hang {
+    target: Option<u32>,
+    leaves: bool,
+    held: Vec<u32>,
+}
+
+const STEPS: &[(Feed, Run)] = &[
+    (Feed::Names, |builder| builder.sweep()),
+    (Feed::Files, |builder| builder.gather()),
+    (Feed::Frame, |builder| builder.anchor(Anchor::Cats, None, CATS)),
+    (Feed::Frame, |builder| builder.anchor(Anchor::CatUnits, Some(Anchor::Cats), UNITS)),
+    (Feed::Cats, |builder| {
+        let units = builder.at(Anchor::CatUnits);
+
+        builder.cats(units);
+    }),
+    (Feed::Mixed, |builder| {
+        let units = builder.at(Anchor::CatUnits);
+
+        builder.unit_images(units);
+    }),
+    (Feed::Mixed, |builder| {
+        let cats = builder.at(Anchor::Cats);
+
+        builder.numbered(cats, SPOTLIGHT_TABLE, SPOTLIGHT_FOLDER, SPOTLIGHT_NAME, figures::Subject::GuideSpotlights, 0);
+    }),
+    (Feed::Frame, |builder| builder.anchor(Anchor::Eggs, Some(Anchor::Cats), EGGS)),
+    (Feed::Mixed, |builder| {
+        let eggs = builder.at(Anchor::Eggs);
+
+        builder.eggs(eggs);
+    }),
+    (Feed::Mixed, |builder| {
+        let cats = builder.at(Anchor::Cats);
+
+        builder.talent_names(cats);
+    }),
+    (Feed::Mixed, |builder| {
+        let cats = builder.at(Anchor::Cats);
+
+        builder.abilities(cats, Faction::Cat);
+    }),
+    (Feed::Mixed, |builder| {
+        let cats = builder.at(Anchor::Cats);
+
+        builder.book(cats, Book::Orbs);
+    }),
+    (Feed::Mixed, |builder| {
+        let cats = builder.at(Anchor::Cats);
+
+        builder.grades(cats);
+    }),
+    (Feed::Mixed, |builder| {
+        let cats = builder.at(Anchor::Cats);
+
+        builder.orb_traits(cats);
+    }),
+    (Feed::Mixed, |builder| {
+        let cats = builder.at(Anchor::Cats);
+
+        builder.book(cats, Book::Catseyes);
+    }),
+    (Feed::Mixed, |builder| {
+        let cats = builder.at(Anchor::Cats);
+
+        builder.strengths(cats);
+    }),
+    (Feed::Mixed, |builder| {
+        let cats = builder.at(Anchor::Cats);
+
+        builder.filters(cats);
+    }),
+    (Feed::Mixed, |builder| {
+        let cats = builder.at(Anchor::Cats);
+
+        builder.keyed(cats, COMBO_CATEGORY_TABLE, COMBO_CATEGORY_FOLDER, COMBO_CATEGORY_NAME, figures::Subject::ComboCategories);
+    }),
+    (Feed::Mixed, |builder| {
+        let cats = builder.at(Anchor::Cats);
+
+        builder.combo_text(cats);
+    }),
+    (Feed::Mixed, |builder| {
+        let cats = builder.at(Anchor::Cats);
+
+        builder.captions(cats, captions::Layout::HiddenHint);
+    }),
+    (Feed::Mixed, |builder| {
+        let cats = builder.at(Anchor::Cats);
+
+        builder.text_folder(cats, ORB_TEXT, &[Sheet::OrbNames, Sheet::OrbDescriptions, Sheet::TraitNames, Sheet::TraitDescriptions]);
+    }),
+    (Feed::Frame, |builder| builder.anchor(Anchor::Enemies, None, ENEMIES)),
+    (Feed::Frame, |builder| builder.anchor(Anchor::EnemyUnits, Some(Anchor::Enemies), UNITS)),
+    (Feed::Enemies, |builder| {
+        let units = builder.at(Anchor::EnemyUnits);
+
+        builder.enemies(units);
+    }),
+    (Feed::Mixed, |builder| {
+        let enemies = builder.at(Anchor::Enemies);
+
+        builder.abilities(enemies, Faction::Enemy);
+    }),
+    (Feed::Mixed, |builder| {
+        let enemies = builder.at(Anchor::Enemies);
+
+        builder.captions(enemies, captions::Layout::UnseenEnemy);
+    }),
+    (Feed::Frame, |builder| builder.anchor(Anchor::Stages, None, STAGES)),
+    (Feed::Stages, |builder| {
+        let stages = builder.at(Anchor::Stages);
+
+        builder.stages(stages);
+    }),
+    (Feed::Mixed, |builder| {
+        let stages = builder.at(Anchor::Stages);
+
+        builder.castles(stages);
+    }),
+    (Feed::Mixed, |builder| {
+        let stages = builder.at(Anchor::Stages);
+
+        builder.backgrounds(stages);
+    }),
+    (Feed::Mixed, |builder| {
+        let stages = builder.at(Anchor::Stages);
+
+        builder.map_layouts(stages);
+    }),
+    (Feed::Mixed, |builder| {
+        let stages = builder.at(Anchor::Stages);
+
+        builder.map_sheets(stages);
+    }),
+    (Feed::Mixed, |builder| {
+        let stages = builder.at(Anchor::Stages);
+
+        builder.quest(stages);
+    }),
+    (Feed::Mixed, |builder| {
+        let stages = builder.at(Anchor::Stages);
+
+        builder.realms(stages);
+    }),
+    (Feed::Mixed, |builder| {
+        let stages = builder.at(Anchor::Stages);
+
+        builder.keyed(stages, DEMON_CASTLE_TABLE, DEMON_CASTLE_FOLDER, DEMON_CASTLE_NAME, figures::Subject::DemonCastles);
+    }),
+    (Feed::Mixed, |builder| {
+        let stages = builder.at(Anchor::Stages);
+
+        builder.labyrinth(stages);
+    }),
+    (Feed::Mixed, |builder| {
+        let stages = builder.at(Anchor::Stages);
+
+        builder.enigma(stages);
+    }),
+    (Feed::Mixed, |builder| {
+        let stages = builder.at(Anchor::Stages);
+
+        builder.map_markers(stages);
+    }),
+    (Feed::Mixed, |builder| {
+        let stages = builder.at(Anchor::Stages);
+
+        builder.numbered(stages, FILTER_MAP_TABLE, FILTER_MAP_FOLDER, FILTER_MAP_NAME, figures::Subject::FilterMaps, 1);
+    }),
+    (Feed::Mixed, |builder| {
+        let stages = builder.at(Anchor::Stages);
+
+        builder.numbered(stages, REFUND_TABLE, REFUND_FOLDER, REFUND_NAME, figures::Subject::EnergyRefunds, 0);
+    }),
+    (Feed::Mixed, |builder| {
+        let stages = builder.at(Anchor::Stages);
+
+        builder.numbered(stages, STAGE_SHORTCUT_TABLE, STAGE_SHORTCUT_FOLDER, STAGE_SHORTCUT_NAME, figures::Subject::StageShortcuts, 0);
+    }),
+    (Feed::Mixed, |builder| {
+        let stages = builder.at(Anchor::Stages);
+
+        builder.captions(stages, captions::Layout::StageLimits);
+    }),
+    (Feed::Mixed, |builder| {
+        let stages = builder.at(Anchor::Stages);
+
+        builder.captions(stages, captions::Layout::FirstTips);
+    }),
+    (Feed::Mixed, |builder| {
+        let stages = builder.at(Anchor::Stages);
+
+        builder.captions(stages, captions::Layout::ClearGifts);
+    }),
+    (Feed::Mixed, |builder| {
+        let stages = builder.at(Anchor::Stages);
+
+        builder.captions(stages, captions::Layout::StageHints);
+    }),
+    (Feed::Frame, |builder| builder.anchor(Anchor::Other, None, OTHER)),
+    (Feed::Mixed, |builder| {
+        let other = builder.at(Anchor::Other);
+
+        builder.roguelike(other);
+    }),
+    (Feed::Mixed, |builder| {
+        let other = builder.at(Anchor::Other);
+
+        builder.upgrades(other);
+    }),
+    (Feed::Mixed, |builder| {
+        let other = builder.at(Anchor::Other);
+
+        builder.base(other);
+    }),
+    (Feed::Mixed, |builder| {
+        let other = builder.at(Anchor::Other);
+
+        builder.ex_lottery(other);
+    }),
+    (Feed::Mixed, |builder| {
+        let other = builder.at(Anchor::Other);
+
+        builder.shakes(other);
+    }),
+    (Feed::Mixed, |builder| {
+        let other = builder.at(Anchor::Other);
+
+        builder.recipes(other);
+    }),
+    (Feed::Mixed, |builder| {
+        let other = builder.at(Anchor::Other);
+
+        builder.shop(other);
+    }),
+    (Feed::Mixed, |builder| {
+        let other = builder.at(Anchor::Other);
+
+        builder.gifts(other);
+    }),
+    (Feed::Mixed, |builder| {
+        let other = builder.at(Anchor::Other);
+
+        builder.gacha(other);
+    }),
+    (Feed::Mixed, |builder| {
+        let other = builder.at(Anchor::Other);
+
+        builder.fanfares(other);
+    }),
+    (Feed::Mixed, |builder| {
+        let other = builder.at(Anchor::Other);
+
+        builder.rank_text(other);
+    }),
+    (Feed::Mixed, |builder| {
+        let other = builder.at(Anchor::Other);
+
+        builder.zombies(other);
+    }),
+    (Feed::Mixed, |builder| {
+        let other = builder.at(Anchor::Other);
+
+        builder.cpu(other);
+    }),
+    (Feed::Mixed, |builder| {
+        let other = builder.at(Anchor::Other);
+
+        builder.gamatoto(other);
+    }),
+    (Feed::Mixed, |builder| {
+        let other = builder.at(Anchor::Other);
+
+        builder.god(other);
+    }),
+    (Feed::Mixed, |builder| {
+        let other = builder.at(Anchor::Other);
+
+        builder.interface(other);
+    }),
+    (Feed::Mixed, |builder| {
+        let other = builder.at(Anchor::Other);
+
+        builder.story(other);
+    }),
+    (Feed::Mixed, |builder| {
+        let other = builder.at(Anchor::Other);
+
+        builder.shrine(other);
+    }),
+    (Feed::Mixed, |builder| {
+        let other = builder.at(Anchor::Other);
+
+        builder.shrine_tables(other);
+    }),
+    (Feed::Mixed, |builder| {
+        let other = builder.at(Anchor::Other);
+
+        builder.catfruit(other);
+    }),
+    (Feed::Mixed, |builder| {
+        let other = builder.at(Anchor::Other);
+
+        builder.sounds(other);
+    }),
+    (Feed::Mixed, |builder| {
+        let other = builder.at(Anchor::Other);
+
+        builder.sound_files(other);
+    }),
+    (Feed::Mixed, |builder| {
+        let other = builder.at(Anchor::Other);
+
+        builder.captions(other, captions::Layout::CollabSends);
+    }),
+    (Feed::Mixed, |builder| {
+        let other = builder.at(Anchor::Other);
+
+        builder.chests(other);
+    }),
+    (Feed::Mixed, |builder| {
+        let other = builder.at(Anchor::Other);
+
+        builder.prizes(other);
+    }),
+    (Feed::Mixed, |builder| {
+        let other = builder.at(Anchor::Other);
+
+        builder.reels(other);
+    }),
+    (Feed::Mixed, |builder| {
+        let other = builder.at(Anchor::Other);
+
+        builder.keyed(other, TIP_SETTING_TABLE, TIP_SETTING_FOLDER, TIP_SETTING_NAME, figures::Subject::TipSettings);
+    }),
+    (Feed::Mixed, |builder| {
+        let other = builder.at(Anchor::Other);
+
+        builder.keyed(other, MENU_TEXT_TABLE, MENU_TEXT_FOLDER, MENU_TEXT_NAME, figures::Subject::MenuTextSettings);
+    }),
+    (Feed::Mixed, |builder| {
+        let other = builder.at(Anchor::Other);
+
+        builder.numbered(other, EXCLUSION_TABLE, EXCLUSION_FOLDER, EXCLUSION_NAME, figures::Subject::LineupExclusions, 0);
+    }),
+    (Feed::Mixed, |builder| {
+        let other = builder.at(Anchor::Other);
+
+        builder.numbered(other, COUNTER_TABLE, COUNTER_FOLDER, COUNTER_NAME, figures::Subject::LineupCounters, 0);
+    }),
+    (Feed::Mixed, |builder| {
+        let other = builder.at(Anchor::Other);
+
+        builder.captions(other, captions::Layout::Vibrations);
+    }),
+    (Feed::Mixed, |builder| {
+        let other = builder.at(Anchor::Other);
+
+        builder.talks(other);
+    }),
+    (Feed::Mixed, |builder| {
+        let other = builder.at(Anchor::Other);
+
+        builder.numbered(other, ABILITY_ICON_TABLE, ABILITY_ICON_FOLDER, ABILITY_ICON_NAME, figures::Subject::AbilityIcons, 0);
+    }),
+    (Feed::Mixed, |builder| {
+        let other = builder.at(Anchor::Other);
+
+        builder.numbered(other, TRAIT_ICON_TABLE, TRAIT_ICON_FOLDER, TRAIT_ICON_NAME, figures::Subject::TraitIcons, 0);
+    }),
+    (Feed::Mixed, |builder| {
+        let other = builder.at(Anchor::Other);
+
+        builder.numbered(other, BAND_TABLE, BAND_FOLDER, BAND_NAME, figures::Subject::LineupBands, 0);
+    }),
+    (Feed::Mixed, |builder| {
+        let other = builder.at(Anchor::Other);
+
+        builder.numbered(other, RANK_GROUP_TABLE, RANK_GROUP_FOLDER, RANK_GROUP_NAME, figures::Subject::LineupRankGroups, 0);
+    }),
+    (Feed::Mixed, |builder| {
+        let other = builder.at(Anchor::Other);
+
+        builder.numbered(other, RECOMMEND_TABLE, RECOMMEND_FOLDER, RECOMMEND_NAME, figures::Subject::RecommendedUpgrades, 0);
+    }),
+    (Feed::Mixed, |builder| {
+        let other = builder.at(Anchor::Other);
+
+        builder.keyed(other, LEVEL_UP_TABLE, LEVEL_UP_FOLDER, LEVEL_UP_NAME, figures::Subject::LevelUpOffers);
+    }),
+    (Feed::Mixed, |builder| {
+        let other = builder.at(Anchor::Other);
+
+        builder.numbered(other, ORB_CHOICE_TABLE, ORB_CHOICE_FOLDER, ORB_CHOICE_NAME, figures::Subject::OrbFilterChoices, 0);
+    }),
+    (Feed::Mixed, |builder| {
+        let other = builder.at(Anchor::Other);
+
+        builder.keyed(other, ORB_OPTION_TABLE, ORB_OPTION_FOLDER, ORB_OPTION_NAME, figures::Subject::OrbOptions);
+    }),
+    (Feed::Mixed, |builder| {
+        let other = builder.at(Anchor::Other);
+
+        builder.unused(other);
+    }),
+    (Feed::Mixed, |builder| {
+        let other = builder.at(Anchor::Other);
+
+        builder.numbered(other, STAMP_TABLE, STAMP_FOLDER, STAMP_DAY, figures::Subject::Stamps, 0);
+    }),
+    (Feed::Mixed, |builder| {
+        let other = builder.at(Anchor::Other);
+
+        builder.numbered(other, SLOT_TABLE, SLOT_FOLDER, SLOT_NAME, figures::Subject::SlotUnlocks, 1);
+    }),
+    (Feed::Mixed, |builder| {
+        let other = builder.at(Anchor::Other);
+
+        builder.keyed(other, CLUB_TABLE, CLUB_FOLDER, CLUB_NAME, figures::Subject::Club);
+    }),
+    (Feed::Mixed, |builder| {
+        let other = builder.at(Anchor::Other);
+
+        builder.treasures(other);
+    }),
+    (Feed::Mixed, |builder| {
+        let other = builder.at(Anchor::Other);
+
+        builder.groups(other);
+    }),
+    (Feed::Mixed, |builder| {
+        let other = builder.at(Anchor::Other);
+
+        builder.book(other, Book::RuleBans);
+    }),
+    (Feed::Mixed, |builder| {
+        let other = builder.at(Anchor::Other);
+
+        builder.book(other, Book::Medals);
+    }),
+    (Feed::Mixed, |builder| {
+        let other = builder.at(Anchor::Other);
+
+        builder.medal_text(other);
+    }),
+    (Feed::Mixed, |builder| {
+        let other = builder.at(Anchor::Other);
+
+        builder.book(other, Book::MapConditions);
+    }),
+    (Feed::Mixed, |builder| {
+        let other = builder.at(Anchor::Other);
+
+        builder.points(other);
+    }),
+    (Feed::Mixed, |builder| {
+        let other = builder.at(Anchor::Other);
+
+        builder.missions(other);
+    }),
+    (Feed::Mixed, |builder| {
+        let other = builder.at(Anchor::Other);
+
+        builder.book(other, Book::GachaBonus);
+    }),
+    (Feed::Mixed, |builder| {
+        let other = builder.at(Anchor::Other);
+
+        builder.book(other, Book::LoginStamps);
+    }),
+    (Feed::Mixed, |builder| {
+        let other = builder.at(Anchor::Other);
+
+        builder.login_events(other);
+    }),
+    (Feed::Mixed, |builder| {
+        let other = builder.at(Anchor::Other);
+
+        builder.login_messages(other);
+    }),
+    (Feed::Mixed, |builder| {
+        let other = builder.at(Anchor::Other);
+
+        builder.book(other, Book::UnlockPopups);
+    }),
+    (Feed::Mixed, |builder| {
+        let other = builder.at(Anchor::Other);
+
+        builder.keyed(other, POPUP_TRIGGER_TABLE, POPUP_TRIGGER_FOLDER, POPUP_TRIGGER_NAME, figures::Subject::PopupTriggers);
+    }),
+    (Feed::Mixed, |builder| {
+        let other = builder.at(Anchor::Other);
+
+        builder.whole(other, Book::RemoteConfig);
+    }),
+    (Feed::Mixed, |builder| {
+        let other = builder.at(Anchor::Other);
+
+        builder.items(other);
+    }),
+    (Feed::Mixed, |builder| {
+        let other = builder.at(Anchor::Other);
+
+        builder.sheets(other);
+    }),
+    (Feed::Names, |builder| {
+        let other = builder.at(Anchor::Other);
+
+        builder.images(other);
+    }),
+    (Feed::Names, |builder| {
+        let other = builder.at(Anchor::Other);
+
+        builder.files(other);
+    }),
+];
+
+struct Builder<'a> {
+    sources: &'a Sources<'a>,
+    catalog: Catalog,
+    claimed: Option<Vec<(Box<str>, bool)>>,
+    masked: FxHashSet<Box<str>>,
+}
+
+impl Builder<'_> {
+    fn sweep(&mut self) {
+        let kit = &mut self.catalog.kit;
+
+        for name in self.sources.vault.vfs.glob("").iter() {
+            let lowered = name.to_ascii_lowercase();
+
+            match lowered.rsplit_once('.').map(|(_, extension)| extension) {
+                Some(PICTURE_EXTENSION) => kit.pictures.push(name.to_string()),
+                Some(CUT_EXTENSION) => kit.cuts.push(name.to_string()),
+                Some(RIG_EXTENSION) => kit.rigs.push(name.to_string()),
+                Some(extension) if audio::EXTENSIONS.contains(&extension) => kit.sounds.push(name.to_string()),
+                _ => {}
+            }
+        }
+
+        kit.rigs.sort_unstable();
+    }
+
+    fn gather(&mut self) {
+        let sources = self.sources;
+
+        self.catalog.kit.gathered = Gathered {
+            ruled: ruled(sources),
+            bonused: bonused(sources),
+            pointed: scored::score_stage_maps(&sources.vault.vfs),
+            drawn: leading_keys(sources, Ledger::StageDraws),
+            checkpointed: leading_keys(sources, Ledger::Checkpoints),
+            limited: leading_keys(sources, Ledger::StageLimits),
+            ex_drawn: column_keys(sources, Ledger::ExDraws, EX_MAP_COLUMN),
+            rewarded: keyed_maps(sources, Book::ClearRewards),
+            displayed: keyed_maps(sources, Book::EventDisplay),
+            cpu_locked: column_keys(sources, Ledger::CpuLocks, LOCK_MAP_COLUMN),
+            altars: sources.vault.vfs.load(ALTAR_TABLE).map_or_else(FxHashSet::default, |bytes| {
+                common::scrub(&bytes).lines().filter_map(|line| line.split(',').next()?.trim().parse().ok()).collect()
+            }),
+        };
+    }
+
+    fn anchor(&mut self, anchor: Anchor, parent: Option<Anchor>, name: &str) {
+        let parent = parent.map(|held| self.at(held));
+
+        self.catalog.kit.anchors[anchor as usize] = self.folder(parent, name.to_owned(), name.to_owned());
+    }
+
+    fn at(&self, anchor: Anchor) -> u32 {
+        self.catalog.kit.anchors[anchor as usize]
+    }
+
+    fn reach(&self) -> Reach {
+        Reach {
+            units: self.catalog.units.len(),
+            folders: self.catalog.folders.len(),
+            rows: self.catalog.rows.len(),
+            files: self.catalog.files.len(),
+            titles: self.catalog.titles.len(),
+            arena: self.catalog.kit.arena.len(),
+        }
+    }
+
+    fn span(&self, from: &Reach) -> Span {
+        let wide = |len: usize| u32::try_from(len).unwrap_or(GONE);
+
+        Span {
+            units: wide(from.units)..wide(self.catalog.units.len()),
+            folders: wide(from.folders)..wide(self.catalog.folders.len()),
+            rows: wide(from.rows)..wide(self.catalog.rows.len()),
+        }
+    }
+
+    fn replay(&mut self, at: usize) -> Replay {
+        let Some(((_, run), old)) = STEPS.get(at).zip(self.catalog.trails.get(at).map(|trail| trail.span.clone())) else {
+            return Replay::Unfit;
+        };
+
+        let kit = &self.catalog.kit;
+
+        let saved = Saved {
+            reach: self.reach(),
+            gathered: kit.gathered.clone(),
+            cat_base: kit.cat_base,
+            cat_homes: kit.cat_homes.clone(),
+            form_homes: kit.form_homes.clone(),
+            homes: kit.homes.clone(),
+            galleries: kit.galleries.clone(),
+        };
+
+        let hung = self.hangs(&old);
+
+        self.vacate(&old);
+        self.claimed = Some(Vec::new());
+        self.masked = self.catalog.trails.get(at).map_or_else(FxHashSet::default, |trail| trail.claims.iter().cloned().collect());
+
+        let ((), reads) = Vfs::witnessed(|| run(self));
+        let new = self.span(&saved.reach);
+        let claimed = self.claimed.take().unwrap_or_default();
+        let fresh = self.hangs(&new);
+
+        let settled = self.catalog.kit.gathered == saved.gathered
+            && std::mem::take(&mut self.masked).is_empty()
+            && claimed.iter().all(|(_, added)| !added);
+
+        if settled && self.alike(&old, &new, &hung, &fresh) {
+            self.undo(saved, &fresh, &claimed);
+
+            if let Some(trail) = self.catalog.trails.get_mut(at) {
+                trail.reads = reads;
+            }
+
+            return Replay::Alike;
+        }
+
+        if !settled || !self.loose(&old, &new) || !self.fits(&old, &new, &hung, &fresh) {
+            self.undo(saved, &fresh, &claimed);
+
+            return Replay::Unfit;
+        }
+
+        self.swap(&old, &hung, fresh);
+
+        if let Some(trail) = self.catalog.trails.get_mut(at) {
+            trail.reads = reads;
+            trail.span = new;
+        }
+
+        Replay::Swapped
+    }
+
+    fn hangs(&self, span: &Span) -> Vec<Hang> {
+        let mut hangs: Vec<Hang> = Vec::new();
+
+        let mut hang = |target: Option<u32>, leaves: bool, id: u32| match hangs.iter_mut().find(|hang| hang.target == target && hang.leaves == leaves) {
+            Some(hang) => hang.held.push(id),
+            None => hangs.push(Hang { target, leaves, held: vec![id] }),
+        };
+
+        for id in span.folders.clone() {
+            let Some(folder) = self.catalog.folders.get(id as usize) else {
+                continue;
+            };
+
+            if folder.parent.is_none_or(|parent| !span.folders.contains(&parent)) {
+                hang(folder.parent, false, id);
+            }
+        }
+
+        for id in span.rows.clone() {
+            let Some(row) = self.catalog.rows.get(id as usize) else {
+                continue;
+            };
+
+            if !span.folders.contains(&row.folder) {
+                hang(Some(row.folder), true, id);
+            }
+        }
+
+        hangs
+    }
+
+    fn vacate(&mut self, old: &Span) {
+        let kit = &mut self.catalog.kit;
+
+        kit.cat_base = kit.cat_base.filter(|id| !old.folders.contains(id));
+        kit.homes.retain(|_, id| !old.folders.contains(id));
+        kit.galleries.retain(|_, id| !old.folders.contains(id));
+        kit.cat_homes.retain(|_, id| !old.folders.contains(id));
+        kit.form_homes.retain(|_, id| !old.units.contains(id));
+    }
+
+    fn claims(&self, name: &str) -> bool {
+        self.catalog.kit.files_at.contains_key(name) && !self.masked.contains(name)
+    }
+
+    fn reclaim(&mut self, name: &str) {
+        if self.masked.remove(name)
+            && let Some(claimed) = self.claimed.as_mut()
+        {
+            claimed.push((name.into(), false));
+        }
+    }
+
+    fn undo(&mut self, saved: Saved, fresh: &[Hang], claimed: &[(Box<str>, bool)]) {
+        let catalog = &mut self.catalog;
+
+        for hang in fresh {
+            let list = match (hang.target, hang.leaves) {
+                (None, _) => Some(&mut catalog.roots),
+                (Some(target), true) => catalog.folders.get_mut(target as usize).map(|folder| &mut folder.leaves),
+                (Some(target), false) => catalog.folders.get_mut(target as usize).map(|folder| &mut folder.folders),
+            };
+
+            if let Some(list) = list {
+                list.retain(|id| !hang.held.contains(id));
+            }
+        }
+
+        catalog.units.truncate(saved.reach.units);
+        catalog.folders.truncate(saved.reach.folders);
+        catalog.rows.truncate(saved.reach.rows);
+
+        if catalog.files.len() > saved.reach.files {
+            catalog.files.truncate(saved.reach.files);
+            catalog.file_keys.truncate(saved.reach.files);
+        }
+
+        for (name, _) in claimed.iter().filter(|(_, added)| *added) {
+            catalog.kit.files_at.remove(name);
+        }
+
+        if catalog.titles.len() > saved.reach.titles {
+            let kept = u32::try_from(saved.reach.titles).unwrap_or(GONE);
+
+            catalog.titles.truncate(saved.reach.titles);
+            catalog.title_keys.truncate(saved.reach.titles);
+            catalog.kit.titles_at.retain(|_, at| *at < kept);
+        }
+
+        if catalog.kit.arena.len() > saved.reach.arena {
+            catalog.kit.arena.truncate(saved.reach.arena);
+
+            for held in catalog.kit.sets.values_mut() {
+                held.retain(|_, range| range.end <= saved.reach.arena);
+            }
+        }
+
+        catalog.kit.gathered = saved.gathered;
+        catalog.kit.cat_base = saved.cat_base;
+        catalog.kit.cat_homes = saved.cat_homes;
+        catalog.kit.form_homes = saved.form_homes;
+        catalog.kit.homes = saved.homes;
+        catalog.kit.galleries = saved.galleries;
+    }
+
+    fn alike(&self, old: &Span, new: &Span, hung: &[Hang], fresh: &[Hang]) -> bool {
+        let catalog = &self.catalog;
+
+        if old.units.len() != new.units.len() || old.folders.len() != new.folders.len() || old.rows.len() != new.rows.len() {
+            return false;
+        }
+
+        let units = old.units.clone().zip(new.units.clone()).all(|(before, after)| {
+            catalog.units.get(before as usize).zip(catalog.units.get(after as usize)).is_some_and(|(before, after)| {
+                before.who == after.who && old.folder(before.folder, new) == after.folder && before.tag == after.tag && before.named == after.named
+            })
+        });
+
+        let folders = || {
+            old.folders.clone().zip(new.folders.clone()).all(|(before, after)| {
+                catalog.folders.get(before as usize).zip(catalog.folders.get(after as usize)).is_some_and(|(before, after)| {
+                    before.raw == after.raw
+                        && before.resolved == after.resolved
+                        && before.parent.map(|parent| old.folder(parent, new)) == after.parent
+                        && before.folders.iter().filter(|id| old.folders.contains(id)).map(|id| old.folder(*id, new)).eq(after.folders.iter().copied())
+                        && before.leaves.iter().filter(|id| old.rows.contains(id)).map(|id| old.row(*id, new)).eq(after.leaves.iter().copied())
+                })
+            })
+        };
+
+        let rows = || {
+            old.rows.clone().zip(new.rows.clone()).all(|(before, after)| {
+                catalog.rows.get(before as usize).zip(catalog.rows.get(after as usize)).is_some_and(|(before, after)| {
+                    before.pane == after.pane
+                        && old.unit(before.unit, new) == after.unit
+                        && before.file == after.file
+                        && before.title == after.title
+                        && old.folder(before.folder, new) == after.folder
+                        && before.face == after.face
+                })
+            })
+        };
+
+        let hangs = || {
+            hung.len() == fresh.len()
+                && hung.iter().zip(fresh).all(|(before, after)| {
+                    before.target == after.target
+                        && before.leaves == after.leaves
+                        && before.held.iter().map(|id| if before.leaves { old.row(*id, new) } else { old.folder(*id, new) }).eq(after.held.iter().copied())
+                })
+        };
+
+        units && folders() && rows() && hangs()
+    }
+
+    fn loose(&self, old: &Span, new: &Span) -> bool {
+        let catalog = &self.catalog;
+        let outside = |at: usize, own: &Range<u32>, next: &Range<u32>| u32::try_from(at).is_ok_and(|at| !own.contains(&at) && !next.contains(&at));
+
+        let folders = catalog.folders.iter().enumerate().all(|(at, folder)| {
+            !outside(at, &old.folders, &new.folders) || folder.parent.is_none_or(|parent| !old.folders.contains(&parent))
+        });
+
+        let units = || catalog.units.iter().enumerate().all(|(at, unit)| !outside(at, &old.units, &new.units) || !old.folders.contains(&unit.folder));
+
+        let rows = || {
+            catalog.rows.iter().enumerate().all(|(at, row)| {
+                !outside(at, &old.rows, &new.rows) || (!old.units.contains(&row.unit) && !old.folders.contains(&row.folder))
+            })
+        };
+
+        folders && units() && rows()
+    }
+
+    fn fits(&self, old: &Span, new: &Span, hung: &[Hang], fresh: &[Hang]) -> bool {
+        let files = |span: &Span| -> BTreeSet<u32> { span.rows.clone().filter_map(|id| self.catalog.rows.get(id as usize)).map(|row| row.file).collect() };
+
+        let targets = |hangs: &[Hang]| -> BTreeSet<(Option<u32>, bool)> { hangs.iter().map(|hang| (hang.target, hang.leaves)).collect() };
+
+        files(old) == files(new) && targets(hung) == targets(fresh)
+    }
+
+    fn swap(&mut self, old: &Span, hung: &[Hang], fresh: Vec<Hang>) {
+        let catalog = &mut self.catalog;
+
+        for hang in hung {
+            let Some(next) = fresh.iter().find(|next| next.target == hang.target && next.leaves == hang.leaves) else {
+                continue;
+            };
+
+            let list = match (hang.target, hang.leaves) {
+                (None, _) => Some(&mut catalog.roots),
+                (Some(target), true) => catalog.folders.get_mut(target as usize).map(|folder| &mut folder.leaves),
+                (Some(target), false) => catalog.folders.get_mut(target as usize).map(|folder| &mut folder.folders),
+            };
+
+            let Some(list) = list else {
+                continue;
+            };
+
+            let seat = hang.held.first().and_then(|first| list.iter().position(|id| id == first)).unwrap_or(list.len());
+
+            list.retain(|id| !hang.held.contains(id) && !next.held.contains(id));
+
+            let seat = seat.min(list.len());
+
+            list.splice(seat..seat, next.held.iter().copied());
+        }
+
+        for id in old.rows.clone() {
+            if let Some(row) = catalog.rows.get_mut(id as usize) {
+                row.folder = GONE;
+                row.unit = GONE;
+            }
+        }
+
+        for id in old.units.clone() {
+            if let Some(unit) = catalog.units.get_mut(id as usize) {
+                unit.folder = GONE;
+            }
+        }
+
+        for id in old.folders.clone() {
+            if let Some(folder) = catalog.folders.get_mut(id as usize) {
+                folder.parent = Some(GONE);
+                folder.folders.clear();
+                folder.leaves.clear();
+            }
+        }
+    }
 }
 
 impl Builder<'_> {
@@ -981,7 +1895,7 @@ impl Builder<'_> {
             let orbed = talented || slotted.contains_key(&cat.id);
             let parent = self.folder(Some(root), format!("{:03}", cat.id), cat.display_name(0));
 
-            self.cat_homes.insert(cat.id, parent);
+            self.catalog.kit.cat_homes.insert(cat.id, parent);
 
             for (form, held) in cat.forms.iter().enumerate() {
                 if !held {
@@ -992,7 +1906,7 @@ impl Builder<'_> {
                 let folder = self.folder(Some(parent), tag.clone(), cat.display_name(form));
                 let unit = self.unit(Who::Cat { id: cat.id, form }, folder, tag, cat.display_name(form));
 
-                self.form_homes.insert((cat.id, form), unit);
+                self.catalog.kit.form_homes.insert((cat.id, form), unit);
                 self.rows(unit, Pane::Figures(figures::Subject::Cat), &stats, Source::Single);
                 self.rows(unit, Pane::Prose(prose::Subject::Explanation), &explanation, Source::Variants);
                 self.rows(unit, Pane::Figures(figures::Subject::Buy), cat_files::UNIT_BUY, Source::Variants);
@@ -1066,14 +1980,14 @@ impl Builder<'_> {
         let mut loose: Vec<(u32, usize, Art, String)> = [ICON_PREFIX, BANNER_PREFIX]
             .into_iter()
             .flat_map(|prefix| vfs.glob(prefix))
-            .filter(|name| !self.files_at.contains_key(name.as_ref()))
+            .filter(|name| !self.claims(name.as_ref()))
             .filter_map(|name| unit_image(&name).map(|(id, form, art)| (id, form, art, name.to_string())))
             .collect();
 
         loose.sort_unstable_by(|left, right| (left.0, left.1, &left.3).cmp(&(right.0, right.1, &right.3)));
 
         for (id, form, art, name) in loose {
-            if self.files_at.contains_key(name.as_str()) {
+            if self.claims(name.as_str()) {
                 continue;
             }
 
@@ -1083,15 +1997,15 @@ impl Builder<'_> {
                 false => Source::Image,
             };
 
-            let unit = match self.form_homes.get(&(id, form)).copied() {
+            let unit = match self.catalog.kit.form_homes.get(&(id, form)).copied() {
                 Some(unit) => unit,
                 None => {
-                    let home = match self.cat_homes.get(&id).copied() {
+                    let home = match self.catalog.kit.cat_homes.get(&id).copied() {
                         Some(home) => home,
                         None => {
                             let home = self.folder(Some(root), format!("{id:03}"), format!("{id:03}"));
 
-                            self.cat_homes.insert(id, home);
+                            self.catalog.kit.cat_homes.insert(id, home);
                             home
                         }
                     };
@@ -1101,7 +2015,7 @@ impl Builder<'_> {
                     let folder = self.folder(Some(home), tag.clone(), titled.clone());
                     let unit = self.unit(Who::Global, folder, tag, titled);
 
-                    self.form_homes.insert((id, form), unit);
+                    self.catalog.kit.form_homes.insert((id, form), unit);
                     unit
                 }
             };
@@ -1229,9 +2143,9 @@ impl Builder<'_> {
         let global = address.and_then(|held| held.global);
         let options = sources.vault.vds.stages.map_options(&sources.vault.vfs);
         let formations = sources.vault.vds.stages.fixed_formations(&sources.vault.vfs);
-        let ruled = global.is_some_and(|id| self.ruled.contains(&id));
-        let bonused = global.is_some_and(|id| self.bonused.contains(&id));
-        let pointed = global.and_then(|id| i32::try_from(id).ok()).is_some_and(|id| self.pointed.contains(&id));
+        let ruled = global.is_some_and(|id| self.catalog.kit.gathered.ruled.contains(&id));
+        let bonused = global.is_some_and(|id| self.catalog.kit.gathered.bonused.contains(&id));
+        let pointed = global.and_then(|id| i32::try_from(id).ok()).is_some_and(|id| self.catalog.kit.gathered.pointed.contains(&id));
         let rated = global.is_some_and(|id| sources.vault.vds.stages.difficulties(&sources.vault.vfs).contains_key(&id));
         let invades = global.is_some_and(|id| sources.vault.vds.stages.ex_options(&sources.vault.vfs).contains_key(&id));
 
@@ -1283,13 +2197,13 @@ impl Builder<'_> {
             self.rows(unit, Pane::Figures(figures::Subject::ExInvasion), EX_OPTION_TABLE, Source::Variants);
         }
 
-        if global.is_some_and(|id| self.displayed.contains(&id)) {
+        if global.is_some_and(|id| self.catalog.kit.gathered.displayed.contains(&id)) {
             let display = Book::EventDisplay;
 
             self.rows(unit, Pane::Records(display), display.base(), Source::Variants);
         }
 
-        if global.is_some_and(|id| self.rewarded.contains(&id)) {
+        if global.is_some_and(|id| self.catalog.kit.gathered.rewarded.contains(&id)) {
             let rewards = Book::ClearRewards;
 
             self.rows(unit, Pane::Records(rewards), rewards.base(), Source::Variants);
@@ -1311,31 +2225,31 @@ impl Builder<'_> {
             self.rows(unit, Pane::Ledger(assignments), assignments.base(), Source::Variants);
         }
 
-        if global.is_some_and(|id| self.cpu_locked.contains(&id)) {
+        if global.is_some_and(|id| self.catalog.kit.gathered.cpu_locked.contains(&id)) {
             let locks = Ledger::CpuLocks;
 
             self.rows(unit, Pane::Ledger(locks), locks.base(), Source::Variants);
         }
 
-        if global.is_some_and(|id| self.ex_drawn.contains(&id)) {
+        if global.is_some_and(|id| self.catalog.kit.gathered.ex_drawn.contains(&id)) {
             let draws = Ledger::ExDraws;
 
             self.rows(unit, Pane::Ledger(draws), draws.base(), Source::Variants);
         }
 
-        if global.is_some_and(|id| self.limited.contains(&id)) {
+        if global.is_some_and(|id| self.catalog.kit.gathered.limited.contains(&id)) {
             let limits = Ledger::StageLimits;
 
             self.rows(unit, Pane::Ledger(limits), limits.base(), Source::Variants);
         }
 
-        if global.is_some_and(|id| self.checkpointed.contains(&id)) {
+        if global.is_some_and(|id| self.catalog.kit.gathered.checkpointed.contains(&id)) {
             let checkpoints = Ledger::Checkpoints;
 
             self.rows(unit, Pane::Ledger(checkpoints), checkpoints.base(), Source::Variants);
         }
 
-        if global.is_some_and(|id| self.drawn.contains(&id)) {
+        if global.is_some_and(|id| self.catalog.kit.gathered.drawn.contains(&id)) {
             let draws = Ledger::StageDraws;
 
             self.rows(unit, Pane::Ledger(draws), draws.base(), Source::Variants);
@@ -1349,7 +2263,7 @@ impl Builder<'_> {
 
         for stage in stages {
             let key = GlobalStageId { category: map.category.clone(), map: map.map, stage };
-            let altared = altar_key(sources, &key).is_some_and(|held| self.altars.contains(&held));
+            let altared = altar_key(sources, &key).is_some_and(|held| self.catalog.kit.gathered.altars.contains(&held));
             let entry = registry.stages.get(&key);
 
             let named = entry
@@ -2226,7 +3140,7 @@ impl Builder<'_> {
 
             let holder = *root.get_or_insert_with(|| self.folder(Some(parent), roster::FOLDER.to_owned(), roster::FOLDER.to_owned()));
 
-            self.homes.insert(roster::FOLDER, holder);
+            self.catalog.kit.homes.insert(roster::FOLDER, holder);
             let folder = self.folder(Some(holder), format!("{}{capsule}", roster::PREFIX), heading.to_owned());
 
             for line in 0..lines {
@@ -2421,7 +3335,7 @@ impl Builder<'_> {
 
         let folder = self.folder(Some(parent), GAMATOTO_FOLDER.to_owned(), GAMATOTO_FOLDER.to_owned());
 
-        self.homes.insert(GAMATOTO_FOLDER, folder);
+        self.catalog.kit.homes.insert(GAMATOTO_FOLDER, folder);
 
         if limit {
             let unit = self.unit(Who::Line(0), folder, GAMATOTO_LIMIT_TABLE.to_owned(), GAMATOTO_LIMIT_NAME.to_owned());
@@ -2628,7 +3542,7 @@ impl Builder<'_> {
 
                 let holder = *root.get_or_insert_with(|| self.folder(Some(parent), prefix.to_owned(), heading.to_owned()));
 
-                self.homes.insert(heading, holder);
+                self.catalog.kit.homes.insert(heading, holder);
 
                 let folder = self.folder(Some(holder), table.clone(), format!("{noun} {number}"));
 
@@ -2673,16 +3587,16 @@ impl Builder<'_> {
     }
 
     fn images(&mut self, parent: u32) {
-        let mut pictures = std::mem::take(&mut self.pictures);
-        let mut cuts = std::mem::take(&mut self.cuts);
+        let mut pictures = self.catalog.kit.pictures.clone();
+        let mut cuts = self.catalog.kit.cuts.clone();
 
-        pictures.retain(|name| !rigged(&self.rigs, name));
-        cuts.retain(|name| !rigged(&self.rigs, name));
+        pictures.retain(|name| !rigged(&self.catalog.kit.rigs, name));
+        cuts.retain(|name| !rigged(&self.catalog.kit.rigs, name));
 
         let mut root: Option<u32> = None;
 
         for (mut names, heading, pane) in [(pictures, PICTURES, Pane::Artwork(Art::Image)), (cuts, CUT_LISTS, Pane::Cuts)] {
-            names.retain(|name| !self.files_at.contains_key(name.as_str()));
+            names.retain(|name| !self.claims(name.as_str()));
             names.sort_unstable();
 
             let mut shelf: Option<u32> = None;
@@ -2721,7 +3635,7 @@ impl Builder<'_> {
         let mut shelves: BTreeMap<String, BTreeMap<String, Vec<String>>> = BTreeMap::new();
 
         for name in self.sources.vault.vfs.glob("").iter() {
-            if self.files_at.contains_key(name.as_ref()) {
+            if self.claims(name.as_ref()) {
                 continue;
             }
 
@@ -2755,9 +3669,9 @@ impl Builder<'_> {
     }
 
     fn sound_files(&mut self, parent: u32) {
-        let mut names = std::mem::take(&mut self.sounds);
+        let mut names = self.catalog.kit.sounds.clone();
 
-        names.retain(|name| !self.files_at.contains_key(name.as_str()));
+        names.retain(|name| !self.claims(name.as_str()));
         names.sort_unstable();
 
         let mut root: Option<u32> = None;
@@ -2785,18 +3699,18 @@ impl Builder<'_> {
     }
 
     fn home(&mut self, parent: u32, home: &'static str) -> u32 {
-        match (home == CAT_BASE, self.homes.get(home).copied()) {
+        match (home == CAT_BASE, self.catalog.kit.homes.get(home).copied()) {
             (true, _) => {
-                let held = self.cat_base.unwrap_or_else(|| self.folder(Some(parent), CAT_BASE.to_owned(), CAT_BASE.to_owned()));
+                let held = self.catalog.kit.cat_base.unwrap_or_else(|| self.folder(Some(parent), CAT_BASE.to_owned(), CAT_BASE.to_owned()));
 
-                self.cat_base = Some(held);
+                self.catalog.kit.cat_base = Some(held);
                 held
             }
             (false, Some(held)) => held,
             (false, None) => {
                 let held = self.folder(Some(parent), home.to_owned(), home.to_owned());
 
-                self.homes.insert(home, held);
+                self.catalog.kit.homes.insert(home, held);
                 held
             }
         }
@@ -2920,14 +3834,14 @@ impl Builder<'_> {
     fn partner(&mut self, parent: u32, home: &'static str) -> u32 {
         let key = (home, IMAGES);
 
-        if let Some(folder) = self.galleries.get(&key) {
+        if let Some(folder) = self.catalog.kit.galleries.get(&key) {
             return *folder;
         }
 
         let holder = self.home(parent, home);
         let folder = self.folder(Some(holder), IMAGES.to_owned(), IMAGES.to_owned());
 
-        self.galleries.insert(key, folder);
+        self.catalog.kit.galleries.insert(key, folder);
 
         folder
     }
@@ -2949,7 +3863,7 @@ impl Builder<'_> {
 
         let folder = self.folder(Some(parent), logins::TABLE.to_owned(), logins::FOLDER.to_owned());
 
-        self.homes.insert(logins::FOLDER, folder);
+        self.catalog.kit.homes.insert(logins::FOLDER, folder);
 
         for (line, id) in events {
             let unit = self.unit(Who::Line(line), folder, format!("{LINE_TAG} {line:03}"), format!("{} {id}", logins::TITLE));
@@ -3047,7 +3961,7 @@ impl Builder<'_> {
 
         let folder = self.folder(Some(parent), SHRINE.to_owned(), SHRINE.to_owned());
 
-        self.homes.insert(SHRINE, folder);
+        self.catalog.kit.homes.insert(SHRINE, folder);
 
         for layout in captions::SHRINE {
             self.captions(folder, layout);
@@ -3131,7 +4045,7 @@ impl Builder<'_> {
 
         let folder = self.folder(Some(parent), TALK_FOLDER.to_owned(), TALK_FOLDER.to_owned());
 
-        self.homes.insert(TALK_FOLDER, folder);
+        self.catalog.kit.homes.insert(TALK_FOLDER, folder);
 
         for number in scripts {
             let base = format!("{}{number}.{TALK_EXTENSION}", captions::TALK_PREFIX);
@@ -3324,9 +4238,9 @@ impl Builder<'_> {
             return;
         }
 
-        let holder = self.cat_base.unwrap_or_else(|| self.folder(Some(parent), CAT_BASE.to_owned(), CAT_BASE.to_owned()));
+        let holder = self.catalog.kit.cat_base.unwrap_or_else(|| self.folder(Some(parent), CAT_BASE.to_owned(), CAT_BASE.to_owned()));
 
-        self.cat_base = Some(holder);
+        self.catalog.kit.cat_base = Some(holder);
 
         let folder = self.folder(Some(holder), RECIPE_TABLE.to_owned(), RECIPES.to_owned());
 
@@ -3424,9 +4338,9 @@ impl Builder<'_> {
                 continue;
             }
 
-            let holder = self.cat_base.unwrap_or_else(|| self.folder(Some(parent), CAT_BASE.to_owned(), CAT_BASE.to_owned()));
+            let holder = self.catalog.kit.cat_base.unwrap_or_else(|| self.folder(Some(parent), CAT_BASE.to_owned(), CAT_BASE.to_owned()));
 
-            self.cat_base = Some(holder);
+            self.catalog.kit.cat_base = Some(holder);
 
             let folder = self.folder(Some(holder), kind.base().to_owned(), kind.folder().to_owned());
 
@@ -3469,9 +4383,9 @@ impl Builder<'_> {
         self.development(parent);
 
         for (id, named) in captioned {
-            let holder = self.cat_base.unwrap_or_else(|| self.folder(Some(parent), CAT_BASE.to_owned(), CAT_BASE.to_owned()));
+            let holder = self.catalog.kit.cat_base.unwrap_or_else(|| self.folder(Some(parent), CAT_BASE.to_owned(), CAT_BASE.to_owned()));
 
-            self.cat_base = Some(holder);
+            self.catalog.kit.cat_base = Some(holder);
 
             let part = i32::try_from(id).unwrap_or(i32::MAX);
             let name = match named.is_empty() {
@@ -3510,9 +4424,9 @@ impl Builder<'_> {
                     continue;
                 }
 
-                let holder = self.cat_base.unwrap_or_else(|| self.folder(Some(parent), CAT_BASE.to_owned(), CAT_BASE.to_owned()));
+                let holder = self.catalog.kit.cat_base.unwrap_or_else(|| self.folder(Some(parent), CAT_BASE.to_owned(), CAT_BASE.to_owned()));
 
-                self.cat_base = Some(holder);
+                self.catalog.kit.cat_base = Some(holder);
 
                 let root = *costs.get_or_insert_with(|| self.folder(Some(holder), DEVELOPMENT_COST_FOLDER.to_owned(), DEVELOPMENT_COST_FOLDER.to_owned()));
                 let folder = self.folder(Some(root), table.clone(), format!("{}: {part}", cannon(id)));
@@ -3540,9 +4454,9 @@ impl Builder<'_> {
                 .collect();
 
             if !tiers.is_empty() {
-                let holder = self.cat_base.unwrap_or_else(|| self.folder(Some(parent), CAT_BASE.to_owned(), CAT_BASE.to_owned()));
+                let holder = self.catalog.kit.cat_base.unwrap_or_else(|| self.folder(Some(parent), CAT_BASE.to_owned(), CAT_BASE.to_owned()));
 
-                self.cat_base = Some(holder);
+                self.catalog.kit.cat_base = Some(holder);
 
                 let folder = self.folder(Some(holder), DEVELOPMENT_TIER_TABLE.to_owned(), DEVELOPMENT_TIER_FOLDER.to_owned());
 
@@ -3555,9 +4469,9 @@ impl Builder<'_> {
         }
 
         if vfs.find(ENGINEER_CAP_TABLE).is_some() {
-            let holder = self.cat_base.unwrap_or_else(|| self.folder(Some(parent), CAT_BASE.to_owned(), CAT_BASE.to_owned()));
+            let holder = self.catalog.kit.cat_base.unwrap_or_else(|| self.folder(Some(parent), CAT_BASE.to_owned(), CAT_BASE.to_owned()));
 
-            self.cat_base = Some(holder);
+            self.catalog.kit.cat_base = Some(holder);
 
             let unit = self.unit(Who::Line(0), holder, ENGINEER_CAP_TABLE.to_owned(), ENGINEER_CAP_NAME.to_owned());
 
@@ -3572,9 +4486,9 @@ impl Builder<'_> {
             return;
         }
 
-        let holder = self.cat_base.unwrap_or_else(|| self.folder(Some(parent), CAT_BASE.to_owned(), CAT_BASE.to_owned()));
+        let holder = self.catalog.kit.cat_base.unwrap_or_else(|| self.folder(Some(parent), CAT_BASE.to_owned(), CAT_BASE.to_owned()));
 
-        self.cat_base = Some(holder);
+        self.catalog.kit.cat_base = Some(holder);
 
         let folder = self.folder(Some(holder), MATERIAL_MIX_TABLE.to_owned(), MATERIAL_MIX_FOLDER.to_owned());
 
@@ -3600,9 +4514,9 @@ impl Builder<'_> {
             return;
         }
 
-        let holder = self.cat_base.unwrap_or_else(|| self.folder(Some(parent), CAT_BASE.to_owned(), CAT_BASE.to_owned()));
+        let holder = self.catalog.kit.cat_base.unwrap_or_else(|| self.folder(Some(parent), CAT_BASE.to_owned(), CAT_BASE.to_owned()));
 
-        self.cat_base = Some(holder);
+        self.catalog.kit.cat_base = Some(holder);
 
         let folder = self.folder(Some(holder), CASTLE_GROWTH_TABLE.to_owned(), CASTLE_GROWTH_FOLDER.to_owned());
 
@@ -3685,7 +4599,7 @@ impl Builder<'_> {
                     _ => return None,
                 };
 
-                (fits(stem) && !self.files_at.contains_key(name.as_ref()) && !rigged(&self.rigs, name)).then(|| (name.to_string(), pane))
+                (fits(stem) && !self.claims(name.as_ref()) && !rigged(&self.catalog.kit.rigs, name)).then(|| (name.to_string(), pane))
             })
             .collect();
 
@@ -3920,7 +4834,7 @@ impl Builder<'_> {
 
     fn attach(&mut self, unit: u32, pane: Pane, set: Range<usize>, folder: u32, face: Face) {
         for at in set {
-            let Some(&(file, title)) = self.arena.get(at) else {
+            let Some(&(file, title)) = self.catalog.kit.arena.get(at) else {
                 continue;
             };
 
@@ -3940,7 +4854,7 @@ impl Builder<'_> {
         };
 
         let Some(&(file, _)) =
-            self.set(pane, base, Source::Variants, pane.title()).next().and_then(|at| self.arena.get(at))
+            self.set(pane, base, Source::Variants, pane.title()).next().and_then(|at| self.catalog.kit.arena.get(at))
         else {
             return;
         };
@@ -3956,8 +4870,23 @@ impl Builder<'_> {
     }
 
     fn set(&mut self, pane: Pane, base: &str, source: Source, heading: &'static str) -> Range<usize> {
-        if let Some(range) = self.sets.get(&(pane, heading)).and_then(|held| held.get(base)) {
-            return range.clone();
+        if let Some(range) = self.catalog.kit.sets.get(&(pane, heading)).and_then(|held| held.get(base)).cloned() {
+            if !self.masked.is_empty() {
+                let catalog = &self.catalog;
+
+                let names: Vec<Box<str>> = range
+                    .clone()
+                    .filter_map(|at| catalog.kit.arena.get(at))
+                    .flat_map(|(file, _)| catalog.files.get(*file as usize).into_iter().chain(catalog.kit.aliases.get(file).into_iter().flatten()))
+                    .cloned()
+                    .collect();
+
+                for name in names {
+                    self.reclaim(&name);
+                }
+            }
+
+            return range;
         }
 
         let vfs = &self.sources.vault.vfs;
@@ -3997,44 +4926,62 @@ impl Builder<'_> {
             _ => Vec::new(),
         };
 
-        let start = self.arena.len();
+        let start = self.catalog.kit.arena.len();
 
         for (name, title) in named {
             let file = self.file(&name);
             let title = self.title(&title);
 
-            self.arena.push((file, title));
+            self.catalog.kit.arena.push((file, title));
         }
 
-        if let Some(&(file, _)) = self.arena.get(start) {
+        if let Some(&(file, _)) = self.catalog.kit.arena.get(start) {
             for name in regional {
-                self.files_at.entry(name.into()).or_insert(file);
+                self.catalog.kit.aliases.entry(file).or_default().push(name.as_str().into());
+
+                if self.catalog.kit.files_at.contains_key(name.as_str()) {
+                    self.reclaim(&name);
+
+                    continue;
+                }
+
+                if let Some(claimed) = self.claimed.as_mut() {
+                    claimed.push((name.as_str().into(), true));
+                }
+
+                self.catalog.kit.files_at.insert(name.into(), file);
             }
         }
 
-        let range = start..self.arena.len();
+        let range = start..self.catalog.kit.arena.len();
 
-        self.sets.entry((pane, heading)).or_default().insert(base.into(), range.clone());
+        self.catalog.kit.sets.entry((pane, heading)).or_default().insert(base.into(), range.clone());
 
         range
     }
 
     fn file(&mut self, name: &str) -> u32 {
-        if let Some(at) = self.files_at.get(name) {
-            return *at;
+        if let Some(at) = self.catalog.kit.files_at.get(name).copied() {
+            self.reclaim(name);
+
+            return at;
         }
 
         let at = u32::try_from(self.catalog.files.len()).unwrap_or(u32::MAX);
 
         self.catalog.files.push(name.into());
         self.catalog.file_keys.push(name.to_lowercase().into());
-        self.files_at.insert(name.into(), at);
+        self.catalog.kit.files_at.insert(name.into(), at);
+
+        if let Some(claimed) = self.claimed.as_mut() {
+            claimed.push((name.into(), true));
+        }
 
         at
     }
 
     fn title(&mut self, title: &str) -> u32 {
-        if let Some(at) = self.titles_at.get(title) {
+        if let Some(at) = self.catalog.kit.titles_at.get(title) {
             return *at;
         }
 
@@ -4042,7 +4989,7 @@ impl Builder<'_> {
 
         self.catalog.titles.push(title.into());
         self.catalog.title_keys.push(title.to_lowercase().into());
-        self.titles_at.insert(title.into(), at);
+        self.catalog.kit.titles_at.insert(title.into(), at);
 
         at
     }
@@ -4104,6 +5051,74 @@ mod tests {
         assert!(!castle_stem("ec000_n_en") && !castle_stem("scratch_00"));
     }
 
+    fn outline(catalog: &Catalog) -> Vec<(u16, String, String)> {
+        let filter = catalog.filter("");
+
+        catalog
+            .lines(&filter, |_| true)
+            .into_iter()
+            .map(|line| (line.depth, catalog.label(line.entry, EditorMode::Raw).to_owned(), catalog.label(line.entry, EditorMode::Resolved).to_owned()))
+            .collect()
+    }
+
+    #[test]
+    fn an_edited_table_patches_only_its_own_rows_and_matches_a_fresh_build() {
+        use std::collections::HashMap;
+
+        use codex::files::Localizable;
+
+        use crate::domains::stage::StageRegistry;
+        use crate::systems::combat::NameBook;
+        use crate::{Memory, Vault};
+
+        let held = |body: &str| -> std::sync::Arc<[u8]> { body.as_bytes().into() };
+
+        let vault = Vault::with_priority(&[]);
+        let game = vec![(STAMP_TABLE.into(), held("1,5\n2,6\n3,7\n")), (CLUB_TABLE.into(), held("10,1\n20,2\n"))];
+        vault.vfs.create(Memory { key: "game", files: game }).unwrap();
+
+        let (registry, drops, cat_names) = (StageRegistry::default(), HashMap::new(), HashMap::new());
+        let (names, localizable) = (NameBook::default(), Localizable::default());
+
+        let sources = Sources {
+            vault: &vault,
+            cats: &[],
+            enemies: &[],
+            registry: &registry,
+            drops: &drops,
+            cat_names: &cat_names,
+            names: &names,
+            localizable: &localizable,
+            category: |_| "",
+            order: |_| 0,
+        };
+
+        let mut catalog = Catalog::build(&sources);
+        let vanilla = outline(&catalog);
+
+        // a mod drops the last stamp day
+        vault.vfs.create(Memory { key: "mod", files: vec![(STAMP_TABLE.into(), held("1,5\n2,6\n"))] }).unwrap();
+        vault.evict(STAMP_TABLE);
+
+        let touched = catalog.touch(&sources, &[STAMP_TABLE], Shift::default());
+        assert!(touched.patched && !touched.stale);
+        assert_eq!(outline(&catalog), outline(&Catalog::build(&sources)));
+        assert_ne!(outline(&catalog), vanilla);
+
+        // a file nothing read, and a save that changed no row, both leave the list alone
+        let idle = catalog.touch(&sources, &["unrelated.csv"], Shift::default());
+        let saved = catalog.touch(&sources, &[STAMP_TABLE], Shift::default());
+        assert!(!idle.patched && !idle.stale && !saved.patched && !saved.stale);
+
+        // the mod goes away again and the list is back where it started
+        vault.vfs.destroy(Memory { key: "mod", files: Vec::new() });
+        vault.evict(STAMP_TABLE);
+
+        let touched = catalog.touch(&sources, &[STAMP_TABLE], Shift::default());
+        assert!(touched.patched && !touched.stale);
+        assert_eq!(outline(&catalog), vanilla);
+    }
+
     #[test]
     fn a_rating_row_is_found_by_its_unit_and_form() {
         let held = rated(b"0,1,1000\r\n0,2,900\n7,3,400\n7,3,1\n8,0,5\n//unit,form,rating\n9,1,5\n");
@@ -4160,6 +5175,7 @@ mod tests {
             titles: vec!["Progression".into()],
             title_keys: vec!["progression".into()],
             rows: vec![row(0, 0, 2), row(0, 1, 2), row(1, 0, 4)],
+            ..Catalog::default()
         }
     }
 

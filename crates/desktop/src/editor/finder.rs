@@ -1,10 +1,13 @@
+use std::time::Duration;
+
 use iced::alignment::Vertical;
 use iced::widget::{button, column, container, operation, responsive, row, scrollable, space, text, text_input, Column, Id};
 use iced::{Color, Element, Length, Padding, Size, Task, Theme};
 use rustc_hash::{FxHashMap, FxHashSet};
 
 use foundry::domains::settings::EditorMode;
-use foundry::systems::editor::finder::{words, Entry, Filter, Line};
+use foundry::systems::editor::finder::{words, Entry, Filter, Lead, Line, Shift};
+use foundry::systems::editor::Sources;
 
 use crate::app::theme;
 use crate::common::feedback::{Slot, CONFIRM_LABEL, FAILURE_LABEL};
@@ -52,6 +55,7 @@ const MODES: [EditorMode; 2] = [EditorMode::Raw, EditorMode::Resolved];
 const SYNC_LABEL: &str = "Sync With \"game\"";
 const MARK_REACH: f32 = 1600.0;
 const MARK_ALPHA: f32 = 0.3;
+const QUIET: Duration = Duration::from_millis(600);
 
 fn mode_slot(values: EditorMode) -> usize {
     match values {
@@ -104,8 +108,15 @@ pub enum Message {
     Scrolled(f32),
     Edit,
     Sync,
+    Settled,
     ConfirmExpired,
     FailureExpired,
+}
+
+struct Held {
+    expanded: Vec<String>,
+    collapsed: Vec<String>,
+    picked: Option<Lead>,
 }
 
 #[derive(Default)]
@@ -125,6 +136,8 @@ pub(super) struct State {
     choosing: bool,
     resetting: bool,
     marks: FxHashMap<u32, Mark>,
+    behind: Slot<()>,
+    settled: bool,
     confirm: Slot<()>,
     failed: Slot<Act>,
 }
@@ -154,24 +167,67 @@ impl State {
         *self = State::default();
     }
 
+    pub(super) fn outdate(&mut self) -> Task<Message> {
+        if !self.open {
+            return Task::none();
+        }
+
+        self.settled = false;
+
+        self.behind.set_after((), Message::Settled, QUIET)
+    }
+
+    pub(super) fn due(&self) -> bool {
+        self.behind.is_set() && (self.settled || self.choosing || self.resetting)
+    }
+
     pub(super) fn rebuild(&mut self, catalog: Catalog) {
+        let held = self.held();
+
+        self.catalog = catalog;
+        self.marks.clear();
+        self.behind.clear();
+        self.settled = false;
+        self.settle(held);
+    }
+
+    pub(super) fn touch(&mut self, sources: &Sources<'_>, names: &[&str], shift: Shift) -> bool {
+        if !self.open {
+            return false;
+        }
+
+        let held = self.held();
+        let touched = self.catalog.touch(sources, names, shift);
+
+        self.marks.retain(|leaf, _| !self.catalog.file(*leaf).is_some_and(|file| names.contains(&file)));
+
+        if touched.patched {
+            self.settle(held);
+        }
+
+        touched.stale
+    }
+
+    fn held(&self) -> Held {
         let keyed = |ids: &FxHashSet<u32>| -> Vec<String> {
             ids.iter().filter_map(|id| self.catalog.folder_key(*id)).collect()
         };
 
-        let (expanded, collapsed) = (keyed(&self.expanded), keyed(&self.collapsed));
-        let picked = self.picked.and_then(|leaf| self.catalog.lead(leaf));
+        Held {
+            expanded: keyed(&self.expanded),
+            collapsed: keyed(&self.collapsed),
+            picked: self.picked.and_then(|leaf| self.catalog.lead(leaf)),
+        }
+    }
 
-        self.catalog = catalog;
-
+    fn settle(&mut self, held: Held) {
         let folders = self.catalog.folder_ids();
         let found = |keys: Vec<String>| -> FxHashSet<u32> { keys.iter().filter_map(|key| folders.get(key).copied()).collect() };
 
-        self.expanded = found(expanded);
-        self.collapsed = found(collapsed);
+        self.expanded = found(held.expanded);
+        self.collapsed = found(held.collapsed);
         self.filter = self.catalog.filter(&self.query);
-        self.picked = picked.and_then(|lead| self.catalog.follow(&lead, &folders)).filter(|leaf| self.filter.keeps(*leaf));
-        self.marks.clear();
+        self.picked = held.picked.and_then(|lead| self.catalog.follow(&lead, &folders)).filter(|leaf| self.filter.keeps(*leaf));
         self.relayout();
     }
 
@@ -332,6 +388,11 @@ impl State {
                 }
 
                 self.resetting = true;
+
+                Task::none()
+            }
+            Message::Settled => {
+                self.settled = true;
 
                 Task::none()
             }

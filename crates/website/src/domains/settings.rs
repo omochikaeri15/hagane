@@ -258,7 +258,7 @@ fn About() -> Element {
         div { class: "about",
             div { class: "about-header",
                 div { class: "about-title", "About Hagane" }
-                div { "A high-performance cat game toolkit built by Omochi" }
+                div { "Suite for a tower-defense cat game. Use your friends' custom characters, experience their unique combat encounters, and partake in their grand adventures!" }
                 div { class: "about-subtitle", "Open Source & Legal Info" }
             }
             div { class: "rule" }

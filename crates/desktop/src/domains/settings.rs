@@ -956,7 +956,7 @@ impl State {
 
         let header = column![
             text("About Hagane").size(32),
-            text("A high-performance cat game toolkit built by Omochi"),
+            text("Suite for a tower-defense cat game. Create custom characters, build unique combat encounters, and share your own grand adventures!"),
             text("Open Source & Legal Info").size(20),
         ].spacing(10);
 

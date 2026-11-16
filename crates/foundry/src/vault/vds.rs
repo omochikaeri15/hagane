@@ -29,6 +29,13 @@ pub struct Evicted {
     pub cats: bool,
     pub enemies: bool,
     pub stages: bool,
+    pub other: bool,
+}
+
+impl Evicted {
+    pub fn scanned(self) -> bool {
+        self.cats || self.enemies || self.stages
+    }
 }
 
 impl BitOrAssign for Evicted {
@@ -36,6 +43,7 @@ impl BitOrAssign for Evicted {
         self.cats |= other.cats;
         self.enemies |= other.enemies;
         self.stages |= other.stages;
+        self.other |= other.other;
     }
 }
 
@@ -51,17 +59,16 @@ pub struct Vds {
 
 impl Vds {
     pub fn evict(&self, filename: &str) -> Evicted {
-        let evicted = Evicted {
+        let items = self.items.evict(filename);
+        let names = self.names.evict(filename);
+        let treasures = self.treasures.evict(filename);
+
+        Evicted {
             cats: self.cats.evict(filename),
             enemies: self.enemies.evict(filename),
             stages: self.stages.evict(filename),
-        };
-
-        self.items.evict(filename);
-        self.names.evict(filename);
-        self.treasures.evict(filename);
-
-        evicted
+            other: items || names || treasures,
+        }
     }
 
     pub fn purge(&self, filenames: &[Box<str>]) {

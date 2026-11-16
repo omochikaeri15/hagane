@@ -8,6 +8,7 @@ mod walk;
 #[cfg(feature = "disk")]
 use std::env;
 use std::borrow::Cow;
+use std::cell::RefCell;
 use std::ffi::OsStr;
 use std::hash::{Hash, Hasher};
 #[cfg(feature = "disk")]
@@ -19,7 +20,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::collections::BTreeSet;
 use std::sync::{Arc, Mutex, RwLock, RwLockWriteGuard};
 
-use rustc_hash::{FxHashMap, FxHasher};
+use rustc_hash::{FxHashMap, FxHashSet, FxHasher};
 use serde::{Deserialize, Serialize};
 use tracing::{debug, warn};
 
@@ -32,6 +33,24 @@ type MountKey = Box<str>;
 type Index = FxHashMap<MountKey, MountedDir>;
 type Sorted = Option<(u64, Arc<[MountKey]>)>;
 type Printed = Option<(u64, u64)>;
+
+thread_local! {
+    static WITNESS: RefCell<Option<FxHashSet<Box<str>>>> = RefCell::default();
+}
+
+fn witness(filenames: &[&str]) {
+    WITNESS.with(|held| {
+        if let Ok(mut held) = held.try_borrow_mut()
+            && let Some(seen) = held.as_mut()
+        {
+            for name in filenames {
+                if !seen.contains(*name) {
+                    seen.insert(Box::from(*name));
+                }
+            }
+        }
+    });
+}
 
 #[derive(Clone, Serialize, Deserialize)]
 struct Entry {
@@ -510,6 +529,14 @@ impl Vfs {
         held.unwrap_or_else(|| head_disk(path, len))
     }
 
+    pub fn witnessed<T>(run: impl FnOnce() -> T) -> (T, FxHashSet<Box<str>>) {
+        let outer = WITNESS.with(|held| held.replace(Some(FxHashSet::default())));
+        let value = run();
+        let seen = WITNESS.with(|held| held.replace(outer)).unwrap_or_default();
+
+        (value, seen)
+    }
+
     pub fn traced(&self) -> BTreeSet<PathBuf> {
         self.trace.as_ref().and_then(|trace| trace.lock().ok().map(|mut seen| std::mem::take(&mut *seen))).unwrap_or_default()
     }
@@ -570,6 +597,8 @@ impl Vfs {
     }
 
     pub fn locate(&self, filename: &str) -> Option<PathBuf> {
+        witness(&[filename]);
+
         let found = self.mounts.read().ok().and_then(|mounts| resolve(&mounts, filename));
 
         self.note(&found);
@@ -591,6 +620,8 @@ impl Vfs {
     }
 
     fn gathered(&self, filenames: &[&str]) -> Vec<PathBuf> {
+        witness(filenames);
+
         let Ok(order) = self.priority.read() else {
             return Vec::new();
         };
@@ -607,6 +638,8 @@ impl Vfs {
     }
 
     fn untouched(&self, filenames: &[&str]) -> Option<PathBuf> {
+        witness(filenames);
+
         let Ok(order) = self.priority.read() else {
             return None;
         };
@@ -619,6 +652,8 @@ impl Vfs {
     }
 
     fn first(&self, filenames: &[&str]) -> Option<PathBuf> {
+        witness(filenames);
+
         let Ok(order) = self.priority.read() else {
             return None;
         };
@@ -637,6 +672,8 @@ impl Vfs {
     }
 
     fn collect(&self, filenames: &[&str]) -> Vec<PathBuf> {
+        witness(filenames);
+
         let Ok(order) = self.priority.read() else {
             return Vec::new();
         };
@@ -672,6 +709,8 @@ impl Vfs {
     }
 
     pub fn load(&self, filename: &str) -> Option<Arc<[u8]>> {
+        witness(&[filename]);
+
         if let Ok(cache) = self.cache.read()
             && let Some(bytes) = cache.get(filename)
         {

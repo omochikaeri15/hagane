@@ -32,10 +32,14 @@ impl TreasureStore {
         })
     }
 
-    pub(super) fn evict(&self, filename: &str) {
-        if filename.starts_with(DATA_PREFIX) || TEXT_PREFIXES.iter().any(|prefix| filename.starts_with(prefix)) {
+    pub(super) fn evict(&self, filename: &str) -> bool {
+        let held = filename.starts_with(DATA_PREFIX) || TEXT_PREFIXES.iter().any(|prefix| filename.starts_with(prefix));
+
+        if held {
             super::reset(&self.catalog);
         }
+
+        held
     }
 
     pub(super) fn clear(&self) {
