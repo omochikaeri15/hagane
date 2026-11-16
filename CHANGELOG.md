@@ -1,8 +1,6 @@
 Changes:
-- New "Edit" button under mods that lets you search for moddable atrributes and open their respective editor popups.
-- Added more editor popups accessible through the Edit button under mods.
-- Mobile now has basic modding capabilities.
+- Removed the pink line from the animation viewer. It is still present in the sandbox.
 
 Bug Fixes:
-- Fixed some stage initialization bugs.
-- Fixed a Windows initialization bug. If you were on 26.11.14 on Windows, you will need to download the 12.11.15 release manually or downgrade to 12.11.13 and update from there to fix initialization.
+- Fixed a bug that caused some hitbox hit flashes to be skipped with speed-up.
+- Fixed a bug that caused the pink back-bound line to disappear when it shouldn't.

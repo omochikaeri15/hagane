@@ -1034,7 +1034,7 @@ impl Driver {
             let redrawn = self.frame.borrow_mut().shed(held.0, held.1);
 
             if redrawn {
-                self.collision.paint(&self.ctx, &mut self.frame.borrow_mut());
+                self.collision.paint(&mut self.ctx, &mut self.frame.borrow_mut());
                 self.stamp_frame();
             }
 
@@ -1057,7 +1057,7 @@ impl Driver {
 
         self.frame.borrow_mut().clear();
         emulator::engine::app_on_draw(&mut self.ctx).map_err(|fault| (fault.site(), format!("app_on_draw::{fault}")))?;
-        self.collision.paint(&self.ctx, &mut self.frame.borrow_mut());
+        self.collision.paint(&mut self.ctx, &mut self.frame.borrow_mut());
         self.stamp_frame();
 
         Ok(())

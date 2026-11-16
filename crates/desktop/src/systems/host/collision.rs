@@ -9,7 +9,7 @@ use emulator::engine::{
 use codex::combat::{Faction, Span};
 use foundry::domains::settings::CombatLook;
 use foundry::systems::animation::collision::{
-    self as layout, Color, Mark, Point, Profile, Seat, Slab, BLAST_COLORS, CANNON_COLOR, LINE_RISE, SWEEP_COLOR,
+    self as layout, Color, Mark, Point, Profile, Seat, Slab, Swing, BLAST_COLORS, CANNON_COLOR, LINE_RISE, SWEEP_COLOR,
 };
 
 use super::sink::{Frame, Lens, Quad};
@@ -42,6 +42,7 @@ pub(super) struct Overlay {
     health: BTreeMap<(i32, i32), Vital>,
     grounds: BTreeMap<(i32, i32), f32>,
     pinned: BTreeMap<Pin, f32>,
+    swings: BTreeMap<(i32, i32), Swing>,
 }
 
 #[derive(Clone, Copy)]
@@ -68,6 +69,7 @@ struct Unit {
     ground: Point,
     bound: Option<f32>,
     vital: Vital,
+    swing: Swing,
 }
 
 impl Overlay {
@@ -75,13 +77,14 @@ impl Overlay {
         self.look = look;
     }
 
-    pub(super) fn paint(&mut self, ctx: &AppContext, frame: &mut Frame) {
+    pub(super) fn paint(&mut self, ctx: &mut AppContext, frame: &mut Frame) {
         let Some(look) = self.look else {
             self.lit.clear();
             self.hurt.clear();
             self.health.clear();
             self.grounds.clear();
             self.pinned.clear();
+            self.swings.clear();
             return;
         };
 
@@ -99,12 +102,14 @@ impl Overlay {
 
         for (faction, side) in FACTIONS {
             for slot in 1..SLOTS_PER_FACTION {
-                let Some((unit, landed)) = read(ctx, faction, side, slot) else {
+                let Some(unit) = read(ctx, faction, side, slot) else {
                     continue;
                 };
 
-                for attack in landed {
-                    self.lit.insert((faction, slot, attack), now);
+                let before = self.swings.insert((faction, slot), unit.swing);
+
+                for (attack, age) in unit.profile.landed(before, unit.swing) {
+                    self.lit.insert((faction, slot, attack), now.wrapping_sub(age));
                 }
 
                 live.push((faction, slot));
@@ -125,7 +130,6 @@ impl Overlay {
                     zoom: 1.0,
                     bound: unit.bound,
                     crest: unit.ground.1 - LINE_RISE,
-                    spans_bound: false,
                     hurt: self.hurt.get(&(faction, slot)).map_or(0.0, faded),
                 };
 
@@ -158,6 +162,7 @@ impl Overlay {
         self.lit.retain(|(faction, slot, _), _| live.contains(&(*faction, *slot)));
         self.hurt.retain(|unit, _| live.contains(unit));
         self.health.retain(|unit, _| live.contains(unit));
+        self.swings.retain(|unit, _| live.contains(unit));
     }
 }
 
@@ -420,12 +425,26 @@ fn pixels(steps: i32) -> f32 {
     steps as f32 / STEPS_PER_PIXEL as f32
 }
 
-fn read(ctx: &AppContext, faction: i32, side: Faction, slot: i32) -> Option<(Unit, Vec<usize>)> {
+fn back_bound(ctx: &mut AppContext, faction: i32, slot: i32) -> Option<i32> {
+    let field = AppContext::entity_field(faction, slot, Entity::BACK_BOUND);
+    let held = ctx.i32_at(field).ok()?;
+    let probed = emulator::engine::compute_back_bound(ctx, faction, slot);
+    let bound = ctx.i32_at(field).ok()?;
+
+    ctx.set_i32_at(field, held).ok()?;
+
+    probed.ok().map(|()| bound)
+}
+
+fn read(ctx: &mut AppContext, faction: i32, side: Faction, slot: i32) -> Option<Unit> {
     let occupant = emulator::engine::get_occupant(ctx, faction, slot).ok()?;
 
     if occupant == 0 || occupant == BASE_OCCUPANT {
         return None;
     }
+
+    let limit = back_bound(ctx, faction, slot);
+    let ctx = &*ctx;
 
     let field = |field: usize| ctx.i32_at(AppContext::entity_field(faction, slot, field)).ok();
 
@@ -441,7 +460,6 @@ fn read(ctx: &AppContext, faction: i32, side: Faction, slot: i32) -> Option<(Uni
     let frame = emulator::engine::get_entity_frame(ctx, faction, slot).ok()?;
 
     let mut strikes = Vec::new();
-    let mut landed = Vec::new();
 
     for attack in 0..count {
         let foreswing = emulator::engine::get_attack_foreswing(ctx, faction, slot, attack).ok()?;
@@ -455,16 +473,17 @@ fn read(ctx: &AppContext, faction: i32, side: Faction, slot: i32) -> Option<(Uni
             Span { near: 0.0, far: pixels(field(Entity::STANDING_RANGE)?) }
         };
 
-        if state == ATTACKING && frame == foreswing {
-            landed.push(attack as usize);
-        }
-
         strikes.push((foreswing, reach));
     }
 
     let (near, far) = (pixels(field(Entity::HITBOX_POS)?), pixels(field(Entity::HITBOX_WIDTH)?));
     let hurtbox = Span { near: near.min(far), far: near.max(far) };
-    let bound = field(Entity::BACK_BOUND).filter(|bound| *bound != 0).map(across);
+    let bound = limit.map(across);
+    let swing = Swing {
+        frame: (state == ATTACKING).then_some(frame),
+        cooldown: field(Entity::ATTACK_COOLDOWN)?,
+        interval: field(Entity::ATTACK_INTERVAL)?,
+    };
 
     let vital = Vital {
         health: emulator::engine::get_hp(ctx, faction, slot).ok()?,
@@ -473,5 +492,5 @@ fn read(ctx: &AppContext, faction: i32, side: Faction, slot: i32) -> Option<(Uni
         guard: (field(Entity::SHIELD_VFX)?, field(Entity::SHIELD_VFX_FRAME)?),
     };
 
-    Some((Unit { profile: Profile::measured(side, hurtbox, pixels(field(Entity::STANDING_RANGE)?), strikes), ground, bound, vital }, landed))
+    Some(Unit { profile: Profile::measured(side, hurtbox, pixels(field(Entity::STANDING_RANGE)?), strikes), ground, bound, vital, swing })
 }

@@ -52,12 +52,40 @@ impl Profile {
         &self.strikes
     }
 
+    pub fn landed(&self, before: Option<Swing>, now: Swing) -> Vec<(usize, i32)> {
+        let held = before.and_then(|before| before.frame);
+        let rested = (now.interval - now.cooldown).max(0);
+        let closing = self
+            .strikes
+            .last()
+            .filter(|_| before.is_some_and(|before| now.cooldown > before.cooldown))
+            .map(|(foreswing, _)| *foreswing);
+
+        self.strikes
+            .iter()
+            .enumerate()
+            .filter_map(|(attack, (foreswing, _))| {
+                let seen = now.frame.and_then(|frame| crossed(held, frame, *foreswing));
+                let proven = || closing.and_then(|last| crossed(held, last, *foreswing)).map(|age| age + rested);
+
+                seen.or_else(proven).map(|age| (attack, age))
+            })
+            .collect()
+    }
+
     fn facing(&self) -> f32 {
         match self.faction {
             Faction::Cat => -1.0,
             Faction::Enemy => 1.0,
         }
     }
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct Swing {
+    pub frame: Option<i32>,
+    pub cooldown: i32,
+    pub interval: i32,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -93,7 +121,6 @@ pub struct Seat {
     pub zoom: f32,
     pub bound: Option<f32>,
     pub crest: f32,
-    pub spans_bound: bool,
     pub hurt: f32,
 }
 
@@ -115,6 +142,12 @@ pub fn ramp(fade: i32, age: f32) -> f32 {
 
 pub fn glow(fade: i32, period: Option<i32>, frame: f32, landed: i32) -> f32 {
     ramp(fade, aged(period, frame, landed))
+}
+
+fn crossed(before: Option<i32>, frame: i32, foreswing: i32) -> Option<i32> {
+    let passed = before.filter(|before| *before <= frame);
+
+    (foreswing <= frame && passed.is_none_or(|passed| passed < foreswing)).then(|| frame - foreswing)
 }
 
 fn rows(strikes: &[(i32, Span)], positions: HitPositions) -> Vec<(f32, f32)> {
@@ -169,12 +202,9 @@ pub fn posed(
     let lifted = pose.offset.and_then(anchored).unwrap_or((0.0, 0.0));
     let ground = to_screen(combat.0 - lifted.0, combat.1 - lifted.1);
 
-    let bound = anchored(profile.faction.bound_row())
-        .map(|(reach, _)| ground.0 - profile.facing() * profile.faction.bound_depth(reach) * pose.zoom);
-
     let crest = pose.crest.map_or(ground.1 - LINE_RISE * pose.zoom, |crest| to_screen(0.0, crest).1);
 
-    let seat = Seat { ground, zoom: pose.zoom, bound, crest: crest.min(ground.1), spans_bound: true, hurt: 1.0 };
+    let seat = Seat { ground, zoom: pose.zoom, bound: None, crest: crest.min(ground.1), hurt: 1.0 };
 
     arranged(profile, look, &seat, lit)
 }
@@ -196,7 +226,6 @@ pub fn arranged(profile: &Profile, look: CombatLook, seat: &Seat, lit: impl Fn(u
 
     let (left, right) = [ground.0, ahead(-profile.hurtbox.near), ahead(-profile.hurtbox.far), ahead(profile.range)]
         .into_iter()
-        .chain(bound.filter(|_| seat.spans_bound))
         .chain(profile.strikes.iter().flat_map(|(_, reach)| [ahead(reach.near), ahead(reach.far)]))
         .fold((ground.0, ground.0), |(left, right), x| (left.min(x), right.max(x)));
 
@@ -292,6 +321,39 @@ mod tests {
 
             assert!(after <= before || pair[1] == landed as f32, "rose at frame {}", pair[1]);
         }
+    }
+
+    // Speed-up steps the battle more than once per drawn frame, so a hit can land
+    // on a frame nobody draws. It still has to light up, aged by how long ago it was.
+    #[test]
+    fn a_hit_that_lands_between_two_draws_still_lights_once() {
+        assert_eq!(crossed(Some(9), 10, 10), Some(0), "drawn on the hit frame itself");
+        assert_eq!(crossed(Some(9), 11, 10), Some(1), "the hit frame was skipped");
+        assert_eq!(crossed(Some(11), 13, 10), None, "already counted on an earlier draw");
+        assert_eq!(crossed(Some(11), 11, 10), None, "a unit frozen mid-swing lands nothing new");
+        assert_eq!(crossed(None, 2, 1), Some(1), "a swing that began and hit since the last draw");
+        assert_eq!(crossed(Some(40), 2, 1), Some(1), "and so does one that restarted");
+        assert_eq!(crossed(None, 3, 10), None, "the hit is still ahead");
+    }
+
+    fn swing(frame: Option<i32>, cooldown: i32) -> Swing {
+        Swing { frame, cooldown, interval: 60 }
+    }
+
+    // A unit knocked out of its attack right after a skipped hit frame shows no attack
+    // frame at all. Its cooldown starting over is what proves the last hit landed.
+    #[test]
+    fn a_cooldown_that_starts_over_proves_the_last_hit_even_after_the_swing_is_gone() {
+        let hitbox = Span { near: 0.0, far: 10.0 };
+        let reach = Span { near: 0.0, far: 100.0 };
+        let twice = Profile::measured(Faction::Cat, hitbox, 100.0, vec![(10, reach), (20, reach)]);
+        let quick = Profile::measured(Faction::Cat, hitbox, 100.0, vec![(1, reach), (2, reach)]);
+
+        assert_eq!(twice.landed(Some(swing(Some(19), 0)), swing(None, 59)), vec![(1, 1)]);
+        assert_eq!(quick.landed(Some(swing(None, 0)), swing(None, 59)), vec![(0, 2), (1, 1)], "earlier hits came first");
+        assert_eq!(twice.landed(Some(swing(Some(19), 0)), swing(Some(21), 59)), vec![(1, 1)], "seen and proven agree");
+        assert_eq!(twice.landed(Some(swing(Some(9), 0)), swing(None, 0)), vec![], "nothing shows the first hit landed");
+        assert_eq!(twice.landed(None, swing(None, 59)), vec![], "a unit never seen before has no cooldown to compare");
     }
 
     fn span(near: f32, far: f32) -> (i32, Span) {

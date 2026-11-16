@@ -1,4 +1,4 @@
-use super::{Entity, Faction};
+use super::Entity;
 
 const RANGE_STEPS: f32 = 4.0;
 const STEPS_PER_PIXEL: f32 = 10.0;
@@ -12,22 +12,6 @@ pub struct Span {
 impl Span {
     fn ordered(from: f32, to: f32) -> Self {
         Self { near: from.min(to), far: from.max(to) }
-    }
-}
-
-impl Faction {
-    pub fn bound_row(self) -> usize {
-        match self {
-            Faction::Cat => 1,
-            Faction::Enemy => 0,
-        }
-    }
-
-    pub fn bound_depth(self, reach: f32) -> f32 {
-        match self {
-            Faction::Cat => reach * 2.0,
-            Faction::Enemy => reach,
-        }
     }
 }
 
