@@ -131,13 +131,21 @@ enum Verdict {
     Write,
 }
 
-fn verdict(present: bool, region: &str, size: usize, checksum: u64, record: &manifest::FileRecord) -> Verdict {
+fn verdict(present: bool, region: &str, size: usize, checksum: u64, record: &manifest::FileRecord, yielding: &[&str]) -> Verdict {
     if !present {
         return Verdict::Write;
     }
 
-    if region != record.winner && (size < record.size || (size == record.size && outranks(&record.winner, region))) {
-        return Verdict::Skip;
+    if region != record.winner {
+        let (humble, held) = (yielding.contains(&region), yielding.contains(&record.winner.as_str()));
+
+        if humble && !held {
+            return Verdict::Skip;
+        }
+
+        if humble == held && (size < record.size || (size == record.size && outranks(&record.winner, region))) {
+            return Verdict::Skip;
+        }
     }
 
     if size == record.size && checksum == record.checksum {
@@ -145,6 +153,10 @@ fn verdict(present: bool, region: &str, size: usize, checksum: u64, record: &man
     }
 
     Verdict::Write
+}
+
+fn supersedes(size: usize, region: &str, record: &manifest::FileRecord) -> bool {
+    size > record.encrypted || (size == record.encrypted && region != record.winner && outranks(region, &record.winner))
 }
 
 fn absorb_pack_hashes(ledger: &mut manifest::Ledger, hashes: HashMap<String, HashMap<String, u64>>) -> bool {
@@ -172,6 +184,7 @@ pub(crate) fn run_universal_import(
     abort_flag: &AtomicBool,
     progress: &ProgressCounter,
     seed_builds: Vec<mining::Build>,
+    yielding: &[&str],
 ) -> Result<(), String> {
     let user_keys = UserKeys::load();
     if user_keys.is_empty() {
@@ -469,7 +482,7 @@ pub(crate) fn run_universal_import(
             if let Some(existing_placement) = ledger.placement(&resolved_filename) {
                 for candidate in &regional_winners_to_decrypt {
                     if candidate.is_loose {
-                        if candidate.byte_size > existing_placement.record.encrypted {
+                        if supersedes(candidate.byte_size, &candidate.region_code, &existing_placement.record) {
                             requires_memory_decryption = true;
                             break;
                         }
@@ -629,10 +642,10 @@ pub(crate) fn run_universal_import(
             }
 
             decrypted_candidates.sort_by(|candidate_a, candidate_b| {
-                candidate_a
-                    .clean_data
-                    .len()
-                    .cmp(&candidate_b.clean_data.len())
+                yielding
+                    .contains(&candidate_b.task.region_code.as_str())
+                    .cmp(&yielding.contains(&candidate_a.task.region_code.as_str()))
+                    .then_with(|| candidate_a.clean_data.len().cmp(&candidate_b.clean_data.len()))
                     .then_with(|| get_region_priority(&candidate_a.task.region_code).cmp(&get_region_priority(&candidate_b.task.region_code)))
                     .then_with(|| candidate_b.task.region_code.cmp(&candidate_a.task.region_code))
             });
@@ -665,6 +678,7 @@ pub(crate) fn run_universal_import(
                     winning_size,
                     winning_checksum,
                     &existing_placement.record,
+                    yielding,
                 );
 
                 match call {
@@ -798,31 +812,56 @@ mod tests {
     fn a_record_for_a_missing_file_never_preempts_the_write() {
         let held = record("ja", 50567, 11);
 
-        assert!(matches!(verdict(false, "en", 4000, 22, &held), Verdict::Write));
+        assert!(matches!(verdict(false, "en", 4000, 22, &held, &[]), Verdict::Write));
     }
 
     #[test]
     fn a_smaller_rival_region_still_loses_to_a_file_that_is_on_disk() {
         let held = record("ja", 50567, 11);
 
-        assert!(matches!(verdict(true, "en", 4000, 22, &held), Verdict::Skip));
+        assert!(matches!(verdict(true, "en", 4000, 22, &held, &[]), Verdict::Skip));
     }
 
     // Two regions shipping different files of the same size used to go to whichever was imported last.
     #[test]
     fn an_exact_size_tie_goes_to_the_same_region_in_either_import_order() {
-        assert!(matches!(verdict(true, "en", 453, 22, &record("ja", 453, 11)), Verdict::Skip));
-        assert!(matches!(verdict(true, "ja", 453, 11, &record("en", 453, 22)), Verdict::Write));
+        assert!(matches!(verdict(true, "en", 453, 22, &record("ja", 453, 11), &[]), Verdict::Skip));
+        assert!(matches!(verdict(true, "ja", 453, 11, &record("en", 453, 22), &[]), Verdict::Write));
 
-        assert!(matches!(verdict(true, "th", 2360, 22, &record("de", 2360, 11)), Verdict::Skip));
-        assert!(matches!(verdict(true, "de", 2360, 11, &record("th", 2360, 22)), Verdict::Write));
+        assert!(matches!(verdict(true, "th", 2360, 22, &record("de", 2360, 11), &[]), Verdict::Skip));
+        assert!(matches!(verdict(true, "de", 2360, 11, &record("th", 2360, 22), &[]), Verdict::Write));
+    }
+
+    // A loose file has no pack checksum to compare, so a same-size copy from a higher region was never even read.
+    #[test]
+    fn a_loose_file_of_the_same_size_is_reread_only_for_a_region_that_outranks_the_held_one() {
+        let held = record("tw", 275, 11);
+
+        assert!(supersedes(275, "en", &held));
+        assert!(!supersedes(275, "ko", &held));
+        assert!(!supersedes(275, "tw", &held));
+        assert!(supersedes(276, "ko", &held));
+        assert!(!supersedes(274, "ja", &held));
+    }
+
+    // A file with no language in its name is one slot for every language, so a region told to yield may fill it but never take it.
+    #[test]
+    fn a_yielding_region_adds_files_but_never_takes_one_from_a_region_that_does_not_yield() {
+        let yielding = ["fr", "th"];
+
+        assert!(matches!(verdict(true, "fr", 9000, 22, &record("en", 400, 11), &yielding), Verdict::Skip));
+        assert!(matches!(verdict(true, "en", 400, 11, &record("fr", 9000, 22), &yielding), Verdict::Write));
+        assert!(matches!(verdict(true, "th", 9000, 22, &record("fr", 400, 11), &yielding), Verdict::Write));
+        assert!(matches!(verdict(true, "th", 300, 22, &record("fr", 400, 11), &yielding), Verdict::Skip));
+        assert!(matches!(verdict(false, "fr", 9000, 22, &record("en", 400, 11), &yielding), Verdict::Write));
+        assert!(matches!(verdict(true, "fr", 9000, 22, &record("en", 400, 11), &[]), Verdict::Write));
     }
 
     #[test]
     fn an_unchanged_file_on_disk_is_left_alone() {
         let held = record("en", 400, 11);
 
-        assert!(matches!(verdict(true, "en", 400, 11, &held), Verdict::Keep));
-        assert!(matches!(verdict(true, "en", 400, 99, &held), Verdict::Write));
+        assert!(matches!(verdict(true, "en", 400, 11, &held, &[]), Verdict::Keep));
+        assert!(matches!(verdict(true, "en", 400, 99, &held, &[]), Verdict::Write));
     }
 }

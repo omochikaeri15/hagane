@@ -98,6 +98,134 @@
       }
     },
     {
+      "pattern": "gatya_(e_)?bnr[0-9]+",
+      "extension": "png",
+      "handling": "Only",
+      "languages": {
+        "en": true,
+        "ja": true,
+        "tw": true,
+        "ko": true,
+        "es": true,
+        "de": true,
+        "fr": true,
+        "it": true,
+        "th": true
+      }
+    },
+    {
+      "pattern": "gatya_(n_)?btn[0-9]+",
+      "extension": "png",
+      "handling": "Only",
+      "languages": {
+        "en": true,
+        "ja": true,
+        "tw": true,
+        "ko": true,
+        "es": true,
+        "de": true,
+        "fr": true,
+        "it": true,
+        "th": true
+      }
+    },
+    {
+      "pattern": "itemPack_bnr_[0-9]+",
+      "extension": "png",
+      "handling": "Only",
+      "languages": {
+        "en": true,
+        "ja": true,
+        "tw": true,
+        "ko": true,
+        "es": true,
+        "de": true,
+        "fr": true,
+        "it": true,
+        "th": true
+      }
+    },
+    {
+      "pattern": "[Cc]ombo_name_[0-9]+",
+      "extension": "png",
+      "handling": "Only",
+      "languages": {
+        "en": true,
+        "ja": true,
+        "tw": true,
+        "ko": true,
+        "es": true,
+        "de": true,
+        "fr": true,
+        "it": true,
+        "th": true
+      }
+    },
+    {
+      "pattern": "(DecoBaseCustom|castleCustom|equipment)_name_[0-9]+",
+      "extension": "png",
+      "handling": "Only",
+      "languages": {
+        "en": true,
+        "ja": true,
+        "tw": true,
+        "ko": true,
+        "es": true,
+        "de": true,
+        "fr": true,
+        "it": true,
+        "th": true
+      }
+    },
+    {
+      "pattern": "gama_map_(event_)?[0-9]+",
+      "extension": "png",
+      "handling": "Only",
+      "languages": {
+        "en": true,
+        "ja": true,
+        "tw": true,
+        "ko": true,
+        "es": true,
+        "de": true,
+        "fr": true,
+        "it": true,
+        "th": true
+      }
+    },
+    {
+      "pattern": "(slot|scratch)button_[0-9]+",
+      "extension": "png",
+      "handling": "Only",
+      "languages": {
+        "en": true,
+        "ja": true,
+        "tw": true,
+        "ko": true,
+        "es": true,
+        "de": true,
+        "fr": true,
+        "it": true,
+        "th": true
+      }
+    },
+    {
+      "pattern": "gatyaitemD_[0-9]+_f",
+      "extension": "png",
+      "handling": "Only",
+      "languages": {
+        "en": true,
+        "ja": true,
+        "tw": true,
+        "ko": true,
+        "es": true,
+        "de": true,
+        "fr": true,
+        "it": true,
+        "th": true
+      }
+    },
+    {
       "pattern": "Enemyname|localizable",
       "extension": "tsv",
       "handling": "Only",

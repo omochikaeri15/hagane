@@ -87,7 +87,7 @@ pub fn run(
 
     emit_log("Starting Processing Phase...".to_owned());
 
-    engine::run_universal_import(&directories, import_config.structure, &emit, abort_flag, progress, builds).map_err(|reason| format!("Universal Import Failed: {reason}"))?;
+    engine::run_universal_import(&directories, import_config.structure, &emit, abort_flag, progress, builds, &[]).map_err(|reason| format!("Universal Import Failed: {reason}"))?;
 
     emit_log("All Operations Complete!".to_owned());
 

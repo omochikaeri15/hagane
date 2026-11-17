@@ -45,7 +45,7 @@ pub fn run(
 
     emit(JobEvent::Log("Starting Processing Phase...".to_string()));
 
-    engine::run_universal_import(&pull.directories, import_config.structure, &emit, abort_flag, progress, pull.builds)
+    engine::run_universal_import(&pull.directories, import_config.structure, &emit, abort_flag, progress, pull.builds, &[])
         .map_err(|engine_error| format!("Universal Import Failed: {}", engine_error))?;
 
     emit(JobEvent::Log("All Operations Complete!".to_string()));
