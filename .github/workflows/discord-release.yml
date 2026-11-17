@@ -16,7 +16,6 @@ jobs:
           RELEASE_DATA=$(curl -s -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
             "https://api.github.com/repos/${{ github.repository }}/releases" | jq '.[0]')
           
-          echo "name=$(echo $RELEASE_DATA | jq -r .name)" >> $GITHUB_OUTPUT
           echo "tag=$(echo $RELEASE_DATA | jq -r .tag_name)" >> $GITHUB_OUTPUT
           echo "url=$(echo $RELEASE_DATA | jq -r .html_url)" >> $GITHUB_OUTPUT
           echo "date=$(echo $RELEASE_DATA | jq -r .published_at)" >> $GITHUB_OUTPUT
@@ -30,13 +29,11 @@ jobs:
           GH_API_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           if [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
-            REL_NAME="${{ steps.latest_release.outputs.name }}"
             REL_TAG="${{ steps.latest_release.outputs.tag }}"
             REL_URL="${{ steps.latest_release.outputs.url }}"
             REL_DATE=$(echo "${{ steps.latest_release.outputs.date }}" | cut -c1-10)
             MESSAGE_BODY=$(cat release_body.txt)
           else
-            REL_NAME="${{ github.event.release.name }}"
             REL_TAG="${{ github.event.release.tag_name }}"
             REL_URL="${{ github.event.release.html_url }}"
             REL_DATE=$(echo "${{ github.event.release.published_at }}" | cut -c1-10)
@@ -68,17 +65,8 @@ jobs:
             MESSAGE_BODY=$(printf "**%s**\n\n%s" "${TARGETS% | }" "$MESSAGE_BODY")
           fi
 
-          CLEAN_BODY=$(echo "$MESSAGE_BODY" | jq -Rs .)
+          MESSAGE_BODY=$(printf "## [Release v%s](%s)\n%s" "${REL_TAG#v}" "$REL_URL" "$MESSAGE_BODY")
 
-          curl -H "Content-Type: application/json" \
-          -d "{
-            \"content\": \"**$REL_NAME**\",
-            \"embeds\": [{
-              \"title\": \"Release\",
-              \"url\": \"$REL_URL\",
-              \"description\": $CLEAN_BODY,
-              \"color\": 2058496,
-              \"footer\": { \"text\": \"Release Date: $REL_DATE\" }
-            }]
-          }" \
-          "$DISCORD_WEBHOOK"
+          jq -n --arg description "$MESSAGE_BODY" --arg footer "Release Date: $REL_DATE" \
+            '{embeds: [{description: $description, color: 2058496, footer: {text: $footer}}]}' \
+            | curl -H "Content-Type: application/json" -d @- "$DISCORD_WEBHOOK"
