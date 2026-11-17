@@ -6,7 +6,7 @@ use std::sync::Arc;
 
 use image::RgbaImage;
 use image::imageops::{self, FilterType};
-use js_sys::{Float32Array, Uint8Array};
+use js_sys::Uint8Array;
 use tracing::{debug, trace, warn};
 use wasm_bindgen::prelude::wasm_bindgen;
 use wasm_bindgen::{JsCast, JsValue};
@@ -852,9 +852,8 @@ impl Speaker {
 
                 for channel in 0..channels {
                     let lane: Vec<f32> = samples.iter().skip(channel as usize).step_by(channels as usize).copied().collect();
-                    let array = Float32Array::from(lane.as_slice());
 
-                    if let Err(err) = buffer.copy_to_channel(&array.to_vec(), channel as i32) {
+                    if let Err(err) = buffer.copy_to_channel(&lane, channel as i32) {
                         warn!("A sound channel could not be filled for {clip}: {}", describe(err));
                     }
                 }

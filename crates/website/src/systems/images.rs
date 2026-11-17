@@ -19,6 +19,7 @@ use crate::platform::{Picture, Platform};
 
 const PACE_MS: u32 = 40;
 const PER_PACE: usize = 6;
+const SCREENFUL: usize = 24;
 const PAYLOAD_PREFIX: usize = 16;
 
 struct Wanted {
@@ -222,12 +223,12 @@ impl Pictures {
         let pictures = self.clone();
 
         spawn_forever(async move {
-            loop {
-                pictures.platform.host().sleep(PACE_MS).await;
+            let mut pace = SCREENFUL;
 
+            loop {
                 let batch: Vec<Wanted> = {
                     let mut wanted = pictures.wanted.borrow_mut();
-                    let take = wanted.len().min(PER_PACE);
+                    let take = wanted.len().min(pace);
 
                     wanted.drain(..take).collect()
                 };
@@ -245,6 +246,9 @@ impl Pictures {
 
                     return;
                 }
+
+                pace = PER_PACE;
+                pictures.platform.host().sleep(PACE_MS).await;
             }
         });
     }

@@ -72,7 +72,7 @@ impl Backend for FilmLink {
             }
             Clip::Track { name, bytes } => {
                 if audio.loaded.borrow_mut().insert(Box::from(name.as_str())) {
-                    audio.push(AudioCommand::Track { clip: Box::from(name.as_str()), bytes: bytes.to_vec() });
+                    audio.push(AudioCommand::Track { clip: Box::from(name.as_str()), bytes: Arc::clone(bytes) });
                 }
 
                 (name.as_str(), None)
@@ -161,7 +161,7 @@ pub(super) fn roll(count: u32) {
             let fresh = held
                 .iter()
                 .filter(|(_, sheet)| !reeling.sent.contains(&sheet.stamp))
-                .map(|(name, sheet)| SheetWire { name: name.clone(), width: sheet.width, height: sheet.height, pixels: sheet.pixels.to_vec() })
+                .map(|(name, sheet)| SheetWire { name: name.clone(), width: sheet.width, height: sheet.height, pixels: Arc::clone(&sheet.pixels) })
                 .collect();
 
             reeling.sent.extend(held.values().map(|sheet| sheet.stamp));

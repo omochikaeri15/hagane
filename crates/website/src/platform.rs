@@ -1,4 +1,5 @@
 pub mod battle;
+pub mod bulk;
 pub mod mods;
 
 use std::fmt;

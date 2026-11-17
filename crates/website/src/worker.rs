@@ -58,7 +58,7 @@ const ENEMY_SCAN: &str = "scan-enemies.bin";
 const STAGE_SCAN: &str = "scan-stages.bin";
 const SCANS: [&str; 3] = [CAT_SCAN, ENEMY_SCAN, STAGE_SCAN];
 const ENEMIES: &str = "enemies";
-const INDEX_FILE: &str = "index.bin";
+pub(crate) const INDEX_FILE: &str = "index.bin";
 const UNENCODABLE: &str = "the reply could not be encoded";
 pub(crate) const NAME: &str = "data";
 pub(crate) const LOGGED_NAME: &str = "data-logged";
@@ -72,6 +72,15 @@ const RECHECK_FLOOR: u32 = 10;
 const SUSPECT_MS: i32 = 5_000;
 const DONE: &str = "done";
 const VALUE: &str = "value";
+const ARRAY: &str = "Array";
+const FROM_ASYNC: &str = "fromAsync";
+pub(crate) const EARLY: &str = "haganeEarly";
+const EARLY_HEAD: &str = "head";
+const EARLY_ROOT: &str = "root";
+const EARLY_INDEX: &str = "index";
+const EARLY_MANIFEST: &str = "manifest";
+const FORESEE_MS: i32 = 2_000;
+const FORESEEN: [(&str, &str, Option<&str>); 2] = [(CATS, CAT_SCAN, Some(STATS_POOL)), (ENEMIES, ENEMY_SCAN, None)];
 
 type Listener = Closure<dyn FnMut(MessageEvent)>;
 type Kept = (&'static str, u64);
@@ -164,6 +173,30 @@ pub(crate) struct ChunkLoader {
     layer: RwLock<Arc<Layer>>,
 }
 
+#[derive(Default)]
+struct Early {
+    head: Option<JsFuture>,
+    root: Option<JsFuture>,
+    index: Option<JsFuture>,
+    manifest: Option<JsFuture>,
+}
+
+impl Early {
+    fn take(scope: &DedicatedWorkerGlobalScope) -> Self {
+        let key = JsValue::from_str(EARLY);
+        let Some(held) = Reflect::get(scope, &key).ok().filter(JsValue::is_object) else {
+            return Self::default();
+        };
+        let pending = |name: &str| Reflect::get(&held, &JsValue::from_str(name)).ok().and_then(|value| value.dyn_into::<Promise>().ok()).map(JsFuture::from);
+
+        if let Err(err) = Reflect::delete_property(scope, &key) {
+            debug!("The early requests stay on the worker: {}", describe(err));
+        }
+
+        Self { head: pending(EARLY_HEAD), root: pending(EARLY_ROOT), index: pending(EARLY_INDEX), manifest: pending(EARLY_MANIFEST) }
+    }
+}
+
 fn cache_key(chunk: &str, offset: u64) -> String {
     format!("{chunk}.{offset}")
 }
@@ -203,6 +236,7 @@ pub(crate) fn run(scope: DedicatedWorkerGlobalScope) {
     ONMESSAGE.with(|slot| *slot.borrow_mut() = Some(listener));
     SCOPE.with(|slot| *slot.borrow_mut() = Some(scope.clone()));
     post(Answer { id: HELLO, reply: Reply::Ready });
+    info!(ms = now() as u32, "The data worker is running");
 
     spawn_local(boot(scope));
 }
@@ -280,10 +314,17 @@ fn snapshot_of(manifest: &Manifest, etag: Box<str>) -> Result<Snapshot, String> 
     })
 }
 
-async fn download_index(scope: &DedicatedWorkerGlobalScope, url: &str, known: Option<Box<str>>) -> Result<Snapshot, String> {
+async fn download_index(scope: &DedicatedWorkerGlobalScope, url: &str, known: Option<Box<str>>, early: Option<JsFuture>) -> Result<Snapshot, String> {
     phase("Downloading the file index...", 0, 0);
 
-    let response = fetch_response(scope, "GET", url, None, Some(RequestCache::NoCache)).await?;
+    let started = match early {
+        Some(pending) => pending.await.ok().and_then(|value| value.dyn_into::<Response>().ok()).filter(|response| response.status() == 200),
+        None => None,
+    };
+    let response = match started {
+        Some(response) => response,
+        None => fetch_response(scope, "GET", url, None, Some(RequestCache::NoCache)).await?,
+    };
 
     if response.status() != 200 {
         return Err(format!("[{}] {url}", response.status()));
@@ -307,12 +348,16 @@ async fn boot(scope: DedicatedWorkerGlobalScope) {
 
     phase("Checking the file index...", 0, 0);
 
-    let probe = begin_head(&scope, &url);
-    let root: Option<FileSystemDirectoryHandle> = JsFuture::from(scope.navigator().storage().get_directory()).await.ok().and_then(|value| value.dyn_into().ok());
-    let kept = match &root {
-        Some(root) => read_root(root, INDEX_FILE).await.and_then(|bytes| protocol::decode::<Snapshot>(&bytes)),
-        None => None,
+    let early = Early::take(&scope);
+    let probe = early.head.or_else(|| begin_head(&scope, &url));
+    let opening = early.root.unwrap_or_else(|| JsFuture::from(scope.navigator().storage().get_directory()));
+    let root: Option<FileSystemDirectoryHandle> = opening.await.ok().and_then(|value| value.dyn_into().ok());
+    let saved = match (early.index, &root) {
+        (Some(pending), _) => pending.await.ok().filter(|held| !held.is_null() && !held.is_undefined()).map(|held| Uint8Array::new(&held).to_vec()),
+        (None, Some(root)) => read_root(root, INDEX_FILE).await,
+        (None, None) => None,
     };
+    let kept = saved.and_then(|bytes| protocol::decode::<Snapshot>(&bytes));
     let outcome = match kept {
         Some(snapshot) => {
             let etag = finish_head(probe).await;
@@ -321,10 +366,10 @@ async fn boot(scope: DedicatedWorkerGlobalScope) {
                 info!(ms = (now() - started) as u32, "File index reused from browser storage");
                 Ok((snapshot, false))
             } else {
-                download_index(&scope, &url, etag).await.map(|snapshot| (snapshot, true))
+                download_index(&scope, &url, etag, early.manifest).await.map(|snapshot| (snapshot, true))
             }
         }
-        None => download_index(&scope, &url, None).await.map(|snapshot| (snapshot, true)),
+        None => download_index(&scope, &url, None, early.manifest).await.map(|snapshot| (snapshot, true)),
     };
     let (snapshot, fresh) = match outcome {
         Ok(held) => held,
@@ -382,6 +427,7 @@ async fn boot(scope: DedicatedWorkerGlobalScope) {
     info!(storage_ms = (now() - indexed) as u32, total_ms = (now() - started) as u32, "Data engine ready");
     drain();
     spawn_local(warm_tables(Rc::clone(&engine)));
+    spawn_local(foresee(scope.clone(), Rc::clone(&engine)));
     spawn_local(watch_index(scope.clone(), url, held));
 
     if let (Some(root), Some(bytes)) = (&root, stored)
@@ -402,6 +448,46 @@ async fn warm_tables(engine: Rc<Engine>) {
     phase(TABLES, 0, total);
     warm_frames(&engine, tables, false, |_, done, _| phase(TABLES, done.min(total), total)).await;
     phase(TABLES, total, total);
+}
+
+async fn foresee(scope: DedicatedWorkerGlobalScope, engine: Rc<Engine>) {
+    pause(&scope, FORESEE_MS).await;
+
+    let (Some(root), Some(dir)) = (engine.root.clone(), CACHE_DIR.with(|slot| slot.borrow().clone())) else {
+        return;
+    };
+
+    for (kind, scan, pool) in FORESEEN {
+        let Some(side) = engine.loader.catalog.sidecars.iter().find(|side| *side.kind == *kind) else {
+            continue;
+        };
+        let wanted = engine.loader.sides.lock().unwrap_or_else(PoisonError::into_inner).contains_key(kind) || SIDE_PENDING.with(|pending| pending.borrow().contains_key(kind));
+
+        if wanted || engine.loader.layered_now() || present(&dir, scan).await {
+            continue;
+        }
+
+        if !present(&root, &side.address).await {
+            yield_to_foreground().await;
+
+            match fetch_streamed(&scope, &format!("{HOST}/{}", side.address), side.size, &|_| {}).await {
+                Ok(bytes) if bytes.len() as u64 == side.size => match write_root(&root, &side.address, &bytes).await {
+                    Ok(()) => info!(kind, kb = bytes.len() / 1024, "A sidecar was fetched ahead of its scan"),
+                    Err(err) => warn!("The {kind} sidecar could not be stored ahead of its scan: {:?}", err),
+                },
+                Ok(bytes) => warn!("The {kind} sidecar arrived as {} bytes instead of {}", bytes.len(), side.size),
+                Err(reason) => debug!("The {kind} sidecar could not be fetched ahead of its scan: {}", reason),
+            }
+        }
+
+        if let Some(pool) = pool {
+            warm_frames(&engine, engine.loader.pooled(|held| held == pool), true, |_, _, _| {}).await;
+        }
+    }
+}
+
+async fn present(dir: &FileSystemDirectoryHandle, name: &str) -> bool {
+    JsFuture::from(dir.get_file_handle(name)).await.is_ok()
 }
 
 fn drain() {
@@ -880,7 +966,7 @@ fn answer(engine: &Engine, id: u32, request: Request) -> (Reply, Option<Kept>) {
     match request {
         Request::Battle(_) | Request::Mods(_) | Request::Recheck(_) | Request::Names => (Reply::Names { id: engine.loader.catalog.id.clone(), names: engine.loader.sorted.clone() }, None),
         Request::Fetch(names) => {
-            (Reply::Files(names.into_iter().filter_map(|name| engine.loader.load(&name).map(|bytes| (name, bytes.to_vec()))).collect()), None)
+            (Reply::Files(names.into_iter().filter_map(|name| engine.loader.load(&name).map(|bytes| (name, bytes))).collect()), None)
         }
         Request::Picture { kind, name } => {
             let started = now();
@@ -1012,20 +1098,20 @@ fn rig(engine: &Engine, png: &str, cut: &str, model: &str) -> Option<RigWire> {
     let started = now();
     let (png_bytes, cut_bytes, model_bytes) = (engine.loader.load(png)?, engine.loader.load(cut)?, engine.loader.load(model)?);
     let sheet = SheetRig::parse(&png_bytes, &cut_bytes).inspect_err(|err| warn!("The sprite sheet {png} could not be parsed: {err}")).ok()?;
-    let image = sheet.image_data.as_ref()?;
+    let image = Arc::unwrap_or_clone(sheet.image_data?);
 
     debug!(sheet = png, ms = (now() - started) as u32, "A rig was assembled");
 
     Some(RigWire {
         width: image.width(),
         height: image.height(),
-        rgba: image.as_raw().clone(),
+        rgba: image.into_raw(),
         version: sheet.version,
         image_name: sheet.image_name,
         cuts: sheet.cuts.into_iter().map(|cut| (cut.x, cut.y, cut.width, cut.height, cut.name)).collect(),
         opaque: sheet.opaque.into_iter().map(|held| held.map(|opaque| (opaque.x, opaque.y, opaque.width, opaque.height))).collect(),
         hull: sheet.hull,
-        model: model_bytes.to_vec(),
+        model: model_bytes,
     })
 }
 
@@ -1659,7 +1745,20 @@ async fn open(dir: &FileSystemDirectoryHandle, key: String, id: usize, size: u64
     Ok(None)
 }
 
+async fn gathered(dir: &FileSystemDirectoryHandle) -> Option<Vec<String>> {
+    let lists = Reflect::get(&js_sys::global(), &JsValue::from_str(ARRAY)).ok()?;
+    let gather: Function = Reflect::get(&lists, &JsValue::from_str(FROM_ASYNC)).ok()?.dyn_into().ok()?;
+    let pending: Promise = gather.call1(&lists, &dir.keys()).ok()?.dyn_into().ok()?;
+    let listed: Array = JsFuture::from(pending).await.ok()?.dyn_into().ok()?;
+
+    Some(listed.iter().filter_map(|key| key.as_string()).collect())
+}
+
 async fn keys(dir: &FileSystemDirectoryHandle) -> Result<Vec<String>, JsValue> {
+    if let Some(found) = gathered(dir).await {
+        return Ok(found);
+    }
+
     let iterator: AsyncIterator = dir.keys();
     let mut found = Vec::new();
 

@@ -7,7 +7,7 @@ use dioxus::prelude::{Asset, AssetOptions, asset, manganis};
 use futures_channel::oneshot;
 use image::RgbaImage;
 use js_sys::{Array, ArrayBuffer, Function, Object, Promise, Reflect, Uint8Array};
-use tracing::{error, info, warn};
+use tracing::{debug, error, info, warn};
 use wasm_bindgen::closure::Closure;
 use wasm_bindgen::{JsCast, JsValue};
 use wasm_bindgen_futures::JsFuture;
@@ -174,8 +174,8 @@ impl WebHost {
             host.listeners.push(done);
         }
 
-        match start() {
-            Ok(worker) => {
+        match engine() {
+            Ok((worker, backlog)) => {
                 let link = Rc::new(Link {
                     worker,
                     ready: Cell::new(false),
@@ -196,7 +196,7 @@ impl WebHost {
 
                     Closure::<dyn FnMut(JsValue)>::new(move |event: JsValue| {
                         if let Ok(event) = event.dyn_into::<MessageEvent>() {
-                            received(&calls, &link, event);
+                            received(&calls, &link, &event.data());
                         }
                     })
                 };
@@ -220,6 +220,10 @@ impl WebHost {
 
                 link.worker.set_onmessage(Some(on_message.as_ref().unchecked_ref()));
                 link.worker.set_onerror(Some(on_error.as_ref().unchecked_ref()));
+
+                for data in &backlog {
+                    received(&calls, &link, data);
+                }
 
                 if let Some(window) = web_sys::window()
                     && let Err(err) = window.add_event_listener_with_callback(PAGE_HIDE, on_leave.as_ref().unchecked_ref())
@@ -277,8 +281,8 @@ fn failed(calls: &Calls, link: &Link, event: JsValue) {
     }
 }
 
-fn received(calls: &Calls, link: &Link, event: MessageEvent) {
-    let bytes = Uint8Array::new(&event.data()).to_vec();
+fn received(calls: &Calls, link: &Link, data: &JsValue) {
+    let bytes = Uint8Array::new(data).to_vec();
     let Some(answer) = protocol::decode::<Answer>(&bytes) else {
         warn!("A message from the data worker could not be decoded");
         return;
@@ -286,7 +290,10 @@ fn received(calls: &Calls, link: &Link, event: MessageEvent) {
 
     if answer.id == HELLO {
         match answer.reply {
-            Reply::Ready => link.flush(),
+            Reply::Ready => {
+                info!(ms = since_load() as u32, "The data worker is listening");
+                link.flush();
+            }
             Reply::Outdated => {
                 link.outdated.set(true);
 
@@ -339,8 +346,38 @@ fn received(calls: &Calls, link: &Link, event: MessageEvent) {
     }
 }
 
+pub(crate) fn since_load() -> f64 {
+    web_sys::window().and_then(|window| window.performance()).map_or(0.0, |performance| performance.now())
+}
+
 pub(crate) fn logging() -> bool {
     storage().and_then(|storage| storage.get_item(LOGGING_KEY).ok().flatten()).as_deref() == Some(LOGGING_ON)
+}
+
+fn early() -> Option<(Worker, Vec<JsValue>)> {
+    let window: JsValue = web_sys::window()?.into();
+    let held = field(&window, EARLY_ENGINE)?;
+
+    if let Err(err) = Reflect::delete_property(window.unchecked_ref::<Object>(), &JsValue::from_str(EARLY_ENGINE)) {
+        debug!("The early data worker stays on the window: {:?}", err);
+    }
+
+    let worker: Worker = field(&held, EARLY_WORKER)?.dyn_into().ok()?;
+
+    if field(&held, EARLY_FAILED).is_some_and(|failed| failed.is_truthy()) {
+        warn!("The data worker started by the page failed, starting another");
+        worker.terminate();
+
+        return None;
+    }
+
+    let events = field(&held, EARLY_EVENTS).and_then(|events| events.dyn_into::<Array>().ok()).map_or_else(Vec::new, |events| events.to_vec());
+
+    Some((worker, events))
+}
+
+fn engine() -> Result<(Worker, Vec<JsValue>), JsValue> {
+    early().map_or_else(|| start().map(|worker| (worker, Vec::new())), Ok)
 }
 
 fn start() -> Result<Worker, JsValue> {
@@ -358,6 +395,10 @@ fn start() -> Result<Worker, JsValue> {
     Worker::new_with_options(&glue, &worker_options)
 }
 
+pub(crate) const EARLY_ENGINE: &str = "haganeEngine";
+const EARLY_WORKER: &str = "worker";
+const EARLY_EVENTS: &str = "events";
+const EARLY_FAILED: &str = "failed";
 const PAGE_HIDE: &str = "pagehide";
 const FULLSCREEN_CHANGE: &str = "fullscreenchange";
 const ORIENTATION_CHANGE: &str = "change";
@@ -470,10 +511,21 @@ fn controlled() -> bool {
     web_sys::window().is_some_and(|window| window.navigator().service_worker().controller().is_some())
 }
 
-async fn image_cache() -> Result<Cache, JsValue> {
-    let window = web_sys::window().ok_or_else(|| JsValue::from_str("no window"))?;
+thread_local! {
+    static IMAGES: RefCell<Option<Cache>> = const { RefCell::new(None) };
+}
 
-    JsFuture::from(window.caches()?.open(IMAGE_CACHE)).await?.dyn_into()
+async fn image_cache() -> Result<Cache, JsValue> {
+    if let Some(held) = IMAGES.with(|slot| slot.borrow().clone()) {
+        return Ok(held);
+    }
+
+    let window = web_sys::window().ok_or_else(|| JsValue::from_str("no window"))?;
+    let opened: Cache = JsFuture::from(window.caches()?.open(IMAGE_CACHE)).await?.dyn_into()?;
+
+    IMAGES.with(|slot| *slot.borrow_mut() = Some(opened.clone()));
+
+    Ok(opened)
 }
 
 async fn kept_image(path: String) -> Result<Option<Kept>, JsValue> {
@@ -553,7 +605,7 @@ fn assemble(wire: RigWire) -> Option<RigParts> {
         hull: wire.hull,
     };
 
-    Some(RigParts { sheet, model: Arc::from(wire.model) })
+    Some(RigParts { sheet, model: wire.model })
 }
 
 fn unexpected(reply: Reply) -> Fault {
@@ -591,7 +643,7 @@ impl Host for WebHost {
     }
 
     fn now(&self) -> f64 {
-        web_sys::window().and_then(|window| window.performance()).map_or(0.0, |performance| performance.now())
+        since_load()
     }
 
     fn font(&self, script: Script) -> Pending<Result<Bytes, Fault>> {
@@ -757,7 +809,11 @@ impl Host for WebHost {
 
         Box::pin(async move {
             match pending.await? {
-                Reply::Names { id, names } => Ok(Listing { id, names }),
+                Reply::Names { id, names } => {
+                    info!(ms = since_load() as u32, files = names.len(), "The file names arrived");
+
+                    Ok(Listing { id, names })
+                }
                 other => Err(unexpected(other)),
             }
         })
@@ -768,7 +824,7 @@ impl Host for WebHost {
 
         Box::pin(async move {
             match pending.await? {
-                Reply::Files(files) => Ok(files.into_iter().map(|(name, bytes)| (name, Arc::from(bytes))).collect()),
+                Reply::Files(files) => Ok(files),
                 other => Err(unexpected(other)),
             }
         })
@@ -863,6 +919,12 @@ impl Host for WebHost {
         match command {
             BattleCommand::ExportVideo(filming) => film::start(*filming, wiring(link)),
             BattleCommand::AbortVideo => film::abort(),
+            BattleCommand::Prepare { fonts } => {
+                let origin = web_sys::window().and_then(|window| window.location().origin().ok()).unwrap_or_default();
+                let fonts = fonts.into_iter().map(|font| if font.starts_with('/') { format!("{origin}{font}").into_boxed_str() } else { font }).collect();
+
+                post_battle(link, BattleCommand::Prepare { fonts });
+            }
             command => post_battle(link, command),
         }
     }

@@ -1,9 +1,15 @@
 use serde::{Deserialize, Serialize};
 
+use super::bulk;
+
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub enum ModCommand {
     Held,
-    Upload { name: String, bytes: Vec<u8> },
+    Upload {
+        name: String,
+        #[serde(with = "bulk::bytes")]
+        bytes: Vec<u8>,
+    },
     Enable,
     Disable,
     Delete,

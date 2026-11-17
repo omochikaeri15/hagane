@@ -247,7 +247,7 @@ impl Backend for AudioLink {
             }
             Clip::Track { name, bytes } => {
                 if self.0.loaded.borrow_mut().insert(Box::from(name.as_str())) {
-                    self.0.commands.borrow_mut().push(AudioCommand::Track { clip: Box::from(name.as_str()), bytes: bytes.to_vec() });
+                    self.0.commands.borrow_mut().push(AudioCommand::Track { clip: Box::from(name.as_str()), bytes: Arc::clone(bytes) });
                 }
 
                 (name.as_str(), None)
@@ -809,7 +809,7 @@ fn tick(engine: &Rc<Engine>) {
                 .borrow()
                 .iter()
                 .filter(|(_, sheet)| !arena.sent.contains(&sheet.stamp))
-                .map(|(name, sheet)| SheetWire { name: name.clone(), width: sheet.width, height: sheet.height, pixels: sheet.pixels.to_vec() })
+                .map(|(name, sheet)| SheetWire { name: name.clone(), width: sheet.width, height: sheet.height, pixels: Arc::clone(&sheet.pixels) })
                 .collect();
 
             if !sheets.is_empty() {

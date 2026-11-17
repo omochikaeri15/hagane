@@ -46,6 +46,7 @@ fn next_viewer() -> u32 {
         next
     })
 }
+const RIG_BUDGET: usize = 128 * 1024 * 1024;
 const ZOOM_MIN: f32 = 0.1;
 const ZOOM_MAX: f32 = 10.0;
 const ZOOM_RATE_PER_PIXEL: f32 = 0.0016;
@@ -300,18 +301,46 @@ fn offset_choices(set: &MotionSet, rig: Option<&Rig>) -> Vec<(String, Placement)
     std::iter::once((bare, Placement::Bare)).chain((0..rows).map(|row| (name(row), Placement::Row(row)))).collect()
 }
 
+struct Kept {
+    rig: Option<Arc<Rig>>,
+    used: u64,
+}
+
+impl Kept {
+    fn weight(&self) -> usize {
+        self.rig.as_ref().and_then(|rig| rig.sheet.image_data.as_ref()).map_or(0, |image| image.as_raw().len())
+    }
+
+    fn idle(&self) -> bool {
+        self.rig.as_ref().is_some_and(|rig| Arc::strong_count(rig) == 1)
+    }
+}
+
+fn trim(held: &mut HashMap<String, Kept>, budget: usize) {
+    let mut total: usize = held.values().map(Kept::weight).sum();
+
+    while total > budget {
+        let Some(oldest) = held.iter().filter(|(_, kept)| kept.idle()).min_by_key(|(_, kept)| kept.used).map(|(id, _)| id.clone()) else {
+            return;
+        };
+
+        total -= held.remove(&oldest).map_or(0, |dropped| dropped.weight());
+    }
+}
+
 #[derive(Clone)]
 pub(crate) struct Rigs {
     platform: Platform,
-    held: Rc<RefCell<HashMap<String, Option<Arc<Rig>>>>>,
+    held: Rc<RefCell<HashMap<String, Kept>>>,
     inflight: Rc<RefCell<HashSet<String>>>,
     tick: Signal<u32>,
+    clock: Rc<Cell<u64>>,
 }
 
 pub(crate) fn provide_rigs(platform: &Platform) -> Rigs {
     let platform = platform.clone();
 
-    use_context_provider(move || Rigs { platform, held: Rc::default(), inflight: Rc::default(), tick: Signal::new(0) })
+    use_context_provider(move || Rigs { platform, held: Rc::default(), inflight: Rc::default(), tick: Signal::new(0), clock: Rc::default() })
 }
 
 pub(crate) fn rigs() -> Rigs {
@@ -335,6 +364,13 @@ impl Rigs {
         self.inflight.borrow().is_empty()
     }
 
+    fn stamp(&self) -> u64 {
+        let next = self.clock.get() + 1;
+
+        self.clock.set(next);
+        next
+    }
+
     pub(crate) fn watch(&self) {
         let _ = (self.tick)();
     }
@@ -342,8 +378,10 @@ impl Rigs {
     fn lookup(&self, rigging: &Rigging) -> Sheet {
         let _ = (self.tick)();
 
-        if let Some(known) = self.held.borrow().get(&rigging.id) {
-            return Sheet { rig: known.clone(), deferred: false };
+        if let Some(known) = self.held.borrow_mut().get_mut(&rigging.id) {
+            known.used = self.stamp();
+
+            return Sheet { rig: known.rig.clone(), deferred: false };
         }
 
         if !self.inflight.borrow_mut().insert(rigging.id.clone()) {
@@ -351,7 +389,7 @@ impl Rigs {
         }
 
         let (Some(png), Some(cut), Some(model)) = (file_name(&rigging.png), file_name(&rigging.cut), file_name(&rigging.model)) else {
-            self.held.borrow_mut().insert(rigging.id.clone(), None);
+            self.held.borrow_mut().insert(rigging.id.clone(), Kept { rig: None, used: self.stamp() });
             return Sheet { rig: None, deferred: false };
         };
         let pending = self.platform.host().rig(png, cut, model);
@@ -369,7 +407,13 @@ impl Rigs {
                 }
             };
 
-            rigs.held.borrow_mut().insert(id.clone(), rig);
+            {
+                let mut held = rigs.held.borrow_mut();
+
+                held.insert(id.clone(), Kept { rig, used: rigs.stamp() });
+                trim(&mut held, RIG_BUDGET);
+            }
+
             rigs.inflight.borrow_mut().remove(&id);
             tick += 1;
         });
@@ -1006,5 +1050,39 @@ async fn run(
         let atlas = rig.sheet.image_data.as_ref().map(|image| Atlas { key: Arc::as_ptr(image) as usize, width: image.width(), height: image.height(), pixels: image.as_raw() });
 
         surface.draw(&Scene { atlas, parts: &parts, shapes: &shapes, pan, zoom, clear });
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use codex::graphics::rig::SpriteSheet;
+    use image::RgbaImage;
+
+    use super::*;
+
+    fn kept(side: u32, used: u64) -> Kept {
+        let sheet = SpriteSheet { image_data: Some(Arc::new(RgbaImage::new(side, side))), ..SpriteSheet::default() };
+
+        Kept { rig: Some(Arc::new(Rig { model: Model::default(), sheet })), used }
+    }
+
+    // a long browse must not keep every sheet it opened, but a sheet a viewer still draws has to stay
+    #[test]
+    fn the_oldest_idle_rig_goes_first_and_a_drawn_one_stays() {
+        let mut held = HashMap::new();
+
+        held.insert("old".to_owned(), kept(8, 1));
+        held.insert("drawn".to_owned(), kept(8, 2));
+        held.insert("new".to_owned(), kept(8, 3));
+        held.insert("missing".to_owned(), Kept { rig: None, used: 0 });
+
+        let drawn = held["drawn"].rig.clone();
+
+        trim(&mut held, 600);
+        assert!(!held.contains_key("old") && held.contains_key("drawn") && held.contains_key("new") && held.contains_key("missing"));
+
+        trim(&mut held, 100);
+        assert!(!held.contains_key("new") && held.contains_key("drawn"));
+        assert!(drawn.is_some());
     }
 }

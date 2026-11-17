@@ -1,4 +1,5 @@
 use std::collections::BTreeMap;
+use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
 
@@ -8,6 +9,8 @@ use foundry::domains::sandbox::replay::Save;
 use foundry::domains::settings::{CombatLook, ReplaySource};
 
 use crate::systems::host::{Action, Diagnostics, Frame, Lag, Phase, Touch};
+
+use super::bulk;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum VariantWire {
@@ -253,7 +256,11 @@ pub enum BattleCommand {
     Watch { reel: ReelWire, checked: bool, source: ReplaySource, phone: bool, width: f32, height: f32, priority: Vec<String>, collision: Option<CombatLook> },
     Latest,
     ExportLatest,
-    Upload { name: String, bytes: Vec<u8> },
+    Upload {
+        name: String,
+        #[serde(with = "bulk::bytes")]
+        bytes: Vec<u8>,
+    },
     DeleteLatest,
     ExportVideo(Box<Filming>),
     AbortVideo,
@@ -279,8 +286,18 @@ pub enum BattleCommand {
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub enum AudioCommand {
-    Effect { clip: Box<str>, channels: u16, rate: u32, samples: Vec<f32> },
-    Track { clip: Box<str>, bytes: Vec<u8> },
+    Effect {
+        clip: Box<str>,
+        channels: u16,
+        rate: u32,
+        #[serde(with = "bulk::floats")]
+        samples: Vec<f32>,
+    },
+    Track {
+        clip: Box<str>,
+        #[serde(with = "bulk::shared")]
+        bytes: Arc<[u8]>,
+    },
     Start { voice: u32, clip: Box<str>, looped: bool, level: f32 },
     Level { voice: u32, level: f32 },
     Stop { voice: u32 },
@@ -291,7 +308,8 @@ pub struct SheetWire {
     pub name: Box<str>,
     pub width: u32,
     pub height: u32,
-    pub pixels: Vec<u8>,
+    #[serde(with = "bulk::shared")]
+    pub pixels: Arc<[u8]>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -342,7 +360,7 @@ pub enum BattleEvent {
     Warming { done: usize, total: usize },
     Latest(Option<Box<Recorded>>),
     Exporting(f32),
-    Exported(Result<Vec<u8>, String>),
+    Exported(#[serde(with = "bulk::outcome")] Result<Vec<u8>, String>),
     Uploading(f32),
     Uploaded(Result<(), String>),
     Rolled(Box<Rolled>),

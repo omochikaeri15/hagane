@@ -20,6 +20,38 @@
         <link rel="preconnect" href="https://hagane.cloud" crossorigin>
         <style>html,body{margin:0;height:100%;background:#212121}html.starting-light,html.starting-light body{background:#f5f5f5}#main{visibility:hidden}</style>
         <script>try{if(localStorage.getItem("theme")==="light"){document.documentElement.classList.add("starting-light")}}catch(e){}setTimeout(function(){var main=document.getElementById("main");if(main){main.style.visibility="visible"}},8000)</script>
+        <script type="text/plain" id="engine">
+const glue = new URL("/{base_path}/{js_path}", origin).href;
+const wasm = new URL("/{base_path}/{wasm_path}", origin).href;
+const manifest = "https://hagane.cloud/manifest.json";
+const quiet = (pending) => {
+  pending.catch(() => {});
+  return pending;
+};
+const root = quiet(Promise.resolve().then(() => navigator.storage.getDirectory()));
+const index = root.then((folder) => folder.getFileHandle("index.bin")).then((handle) => handle.getFile()).then((file) => file.arrayBuffer()).catch(() => null);
+self.haganeEarly = {
+  head: quiet(Promise.resolve().then(() => fetch(manifest, { method: "HEAD", cache: "no-store" }))),
+  root,
+  index,
+  manifest: index.then((held) => (held ? null : fetch(manifest, { cache: "no-cache" }))).catch(() => null),
+};
+self.onmessage = (event) => {
+  const compiled = event.data;
+  const real = self.fetch;
+  let served = false;
+  self.onmessage = null;
+  self.fetch = (input, init) => {
+    if (typeof input !== "string") return real.call(self, input, init);
+    const url = new URL(input, origin).href;
+    if (served || url !== wasm || !compiled) return real.call(self, url, init);
+    served = true;
+    return Promise.resolve(compiled);
+  };
+  import(glue).catch((reason) => setTimeout(() => { throw reason; }));
+};
+        </script>
+        <script>(function(){var real=window.fetch,wasm=new URL("/{base_path}/{wasm_path}",location.href).href,compiled=null;try{compiled=WebAssembly.compileStreaming(real.call(window,wasm))}catch(e){}if(compiled){window.fetch=function(input,init){if(typeof input==="string"&&new URL(input,location.href).href===wasm){window.fetch=real;return compiled.catch(function(){return real.call(window,wasm,init)})}return real.apply(window,arguments)}}try{var named="data";try{if(localStorage.getItem("logging")==="on"){named="data-logged"}}catch(e){}var source="const origin="+JSON.stringify(location.origin)+";"+document.getElementById("engine").textContent;var worker=new Worker(URL.createObjectURL(new Blob([source],{type:"text/javascript"})),{type:"module",name:named});var early={worker:worker,events:[],failed:false};var hand=function(module){try{worker.postMessage(module)}catch(e){worker.postMessage(null)}};worker.onmessage=function(event){early.events.push(event.data)};worker.onerror=function(){early.failed=true};if(compiled){compiled.then(hand,function(){hand(null)})}else{hand(null)}window.haganeEngine=early}catch(e){}})()</script>
     </head>
     <body>
         <div id="main"></div>

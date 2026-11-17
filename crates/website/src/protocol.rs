@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 
@@ -6,6 +8,7 @@ use foundry::domains::enemy::scanner::EnemyEntry;
 use foundry::domains::settings::ScannerConfig;
 use foundry::domains::stage::scanner::StageBundle;
 use crate::platform::battle::{BattleCommand, BattleEvent};
+use crate::platform::bulk;
 use crate::platform::mods::{ModCommand, ModState};
 
 pub(crate) const HELLO: u32 = 0;
@@ -29,19 +32,22 @@ pub(crate) enum PictureKind {
 pub(crate) struct RigWire {
     pub(crate) width: u32,
     pub(crate) height: u32,
+    #[serde(with = "bulk::bytes")]
     pub(crate) rgba: Vec<u8>,
     pub(crate) version: i32,
     pub(crate) image_name: String,
     pub(crate) cuts: Vec<(i32, i32, i32, i32, String)>,
     pub(crate) opaque: Vec<Option<(i32, i32, i32, i32)>>,
     pub(crate) hull: Vec<Vec<(i32, i32)>>,
-    pub(crate) model: Vec<u8>,
+    #[serde(with = "bulk::shared")]
+    pub(crate) model: Arc<[u8]>,
 }
 
 #[derive(Serialize, Deserialize)]
 pub(crate) struct Prepared {
     pub(crate) width: u32,
     pub(crate) height: u32,
+    #[serde(with = "bulk::bytes")]
     pub(crate) png: Vec<u8>,
 }
 
@@ -70,7 +76,7 @@ pub(crate) struct Answer {
 pub(crate) enum Reply {
     Ready,
     Names { id: Box<str>, names: Vec<Box<str>> },
-    Files(Vec<(Box<str>, Vec<u8>)>),
+    Files(#[serde(with = "bulk::files")] Vec<(Box<str>, Arc<[u8]>)>),
     Picture(Option<Prepared>),
     Warmed,
     Rig(Option<RigWire>),

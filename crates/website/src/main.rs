@@ -18,6 +18,7 @@ use std::rc::Rc;
 
 use dioxus::LaunchBuilder;
 use dioxus::logger::tracing::Level;
+use tracing::info;
 use wasm_bindgen::JsCast;
 use web_sys::DedicatedWorkerGlobalScope;
 
@@ -38,6 +39,8 @@ fn main() {
     if bridge::logging() {
         let _ = dioxus::logger::init(Level::INFO);
     }
+
+    info!(ms = bridge::since_load() as u32, "The app is starting");
 
     LaunchBuilder::new()
         .with_cfg(dioxus::web::Config::new().history(Rc::new(OneEntry::default())))

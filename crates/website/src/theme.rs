@@ -360,4 +360,31 @@ mod tests {
         assert!(page.contains(&format!("getItem(\"{}\")===\"{}\"", crate::app::THEME_KEY, AppTheme::Light.key())));
         assert!(page.contains(&format!("rel=\"preconnect\" href=\"{}\" crossorigin", crate::worker::HOST)));
     }
+
+    // the template boots the data worker before any Rust runs, so both sides have to use the same names
+    #[test]
+    fn the_page_template_starts_the_worker_the_code_expects() {
+        use crate::platform::{LOGGING_KEY, LOGGING_ON};
+        use crate::worker::{EARLY, HOST, INDEX_FILE, LOGGED_NAME, NAME};
+        use foundry::common::payload::MANIFEST;
+
+        let page = include_str!("../index.html");
+
+        assert!(page.contains(&format!("const manifest = \"{HOST}/{MANIFEST}\";")));
+        assert!(page.contains(&format!("getFileHandle(\"{INDEX_FILE}\")")));
+        assert!(page.contains(&format!("self.{EARLY} = {{")));
+        assert!(page.contains(&format!("window.{}=early", crate::bridge::EARLY_ENGINE)));
+        assert!(page.contains(&format!("var named=\"{NAME}\";")));
+        assert!(page.contains(&format!("getItem(\"{LOGGING_KEY}\")===\"{LOGGING_ON}\"){{named=\"{LOGGED_NAME}\"}}")));
+
+        for field in ["head", "root", "index", "manifest"] {
+            assert!(page.contains(&format!("\n  {field}")), "{field} is not among the early requests");
+        }
+
+        assert!(page.contains("\"const origin=\"+JSON.stringify(location.origin)"), "the worker has to be told the site's origin");
+
+        for field in ["worker:worker", "events:[]", "failed:false"] {
+            assert!(page.contains(field), "{field} is not on the early worker");
+        }
+    }
 }

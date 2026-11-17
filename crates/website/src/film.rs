@@ -508,7 +508,7 @@ async fn mix(sounds: &[(u32, AudioCommand)], frames: usize) -> Result<[Vec<f32>;
                 buffers.insert(clip.clone(), buffer);
             }
             AudioCommand::Track { clip, bytes } => {
-                let copied = Uint8Array::from(bytes.as_slice()).buffer();
+                let copied = Uint8Array::from(&bytes[..]).buffer();
 
                 match context.decode_audio_data(&copied) {
                     Ok(decoding) => match JsFuture::from(decoding).await {
