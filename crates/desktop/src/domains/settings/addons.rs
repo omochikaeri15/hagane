@@ -10,7 +10,6 @@ use iced::{Element, Task, Theme};
 use tracing::error;
 
 use foundry::systems::addons::adb::AdbManager;
-use foundry::systems::addons::apkeditor::ApkeditorManager;
 use foundry::systems::addons::avifenc::AvifManager;
 use foundry::systems::addons::cjxl::CjxlManager;
 use foundry::systems::addons::ffmpeg::FfmpegManager;
@@ -24,7 +23,6 @@ use crate::common::feedback::{Slot as Confirm, CONFIRM_LABEL};
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Addon {
     Adb,
-    Apkeditor,
     Ffmpeg,
     Avif,
     Cjxl,
@@ -34,7 +32,6 @@ impl Addon {
     fn label(self) -> &'static str {
         match self {
             Self::Adb => "Android Bridge",
-            Self::Apkeditor => "APKEditor",
             Self::Ffmpeg => "FFMPEG",
             Self::Avif => "AVIFENC",
             Self::Cjxl => "CJXL",
@@ -57,7 +54,6 @@ pub enum Message {
 #[derive(Default)]
 pub struct State {
     adb: AdbManager,
-    apkeditor: ApkeditorManager,
     avif: AvifManager,
     cjxl: CjxlManager,
     ffmpeg: FfmpegManager,
@@ -72,7 +68,6 @@ impl State {
             Message::Install(addon) => {
                 let config = match addon {
                     Addon::Adb => self.adb.install(),
-                    Addon::Apkeditor => self.apkeditor.install(),
                     Addon::Ffmpeg => self.ffmpeg.install(),
                     Addon::Avif => self.avif.install(),
                     Addon::Cjxl => self.cjxl.install(),
@@ -100,7 +95,6 @@ impl State {
             Message::Download(addon, status) => {
                 let slot = match addon {
                     Addon::Adb => &mut self.adb.status,
-                    Addon::Apkeditor => &mut self.apkeditor.status,
                     Addon::Ffmpeg => &mut self.ffmpeg.status,
                     Addon::Avif => &mut self.avif.status,
                     Addon::Cjxl => &mut self.cjxl.status,
@@ -119,7 +113,6 @@ impl State {
 
                 match addon {
                     Addon::Adb => self.adb.uninstall(),
-                    Addon::Apkeditor => self.apkeditor.uninstall(),
                     Addon::Ffmpeg => self.ffmpeg.uninstall(),
                     Addon::Avif => self.avif.uninstall(),
                     Addon::Cjxl => self.cjxl.uninstall(),
@@ -213,10 +206,6 @@ impl State {
             );
         }
 
-        content = content.push(self.addon_section(
-            Addon::Apkeditor, &self.apkeditor.status,
-            "Allows mod export to convert XAPK/APKM/APKS files into an APK.\nDownloads a portable JRE for you, falling back to system JRE upon failure."
-        ));
         content = content.push(self.addon_section(
             Addon::Ffmpeg, &self.ffmpeg.status,
             "Optimizes encoding speed for most file formats.\nEnables most export formats."

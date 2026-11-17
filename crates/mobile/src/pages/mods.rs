@@ -440,7 +440,7 @@ pub fn wire(window: &AppWindow, context: &Rc<Context>) -> Shared {
             &ui,
             &ctx,
             "Select an APK",
-            &["apk"],
+            &["apk", "xapk", "apkm", "apks"],
             Box::new(move |ui, ctx, path| {
                 landing.borrow_mut().data.export.selected_apk = Some(path);
                 refresh(ui, &landing, ctx);

@@ -8,7 +8,6 @@ use iced::{task, Alignment, Element, Length, Task, Theme};
 use tracing::{error, info};
 
 use foundry::common::job::{JobEvent, JobOutcome};
-use foundry::systems::addons::apkeditor;
 use foundry::systems::apk::clone::{self, CloneConfig};
 
 use crate::app::theme;
@@ -20,8 +19,8 @@ use crate::widget::picker;
 const PANEL_PADDING: f32 = 12.0;
 const ROW_GAP: f32 = 8.0;
 
-const APK_ONLY: &str = "Add APK";
-const APK_SPLIT: &str = "Add APK/XAPK";
+const APK_LABEL: &str = "Add APK/XAPK";
+const APK_FILTERS: [&str; 4] = ["apk", "xapk", "apkm", "apks"];
 const CLONE_IDLE: &str = "Clone App";
 const CLONE_BUSY: &str = "Cloning...";
 
@@ -54,7 +53,7 @@ pub struct State {
 impl State {
     pub fn update(&mut self, message: Message) -> Task<Message> {
         match message {
-            Message::PickApk => Task::perform(dialog::file("Android App", apk_filters()), Message::ApkPicked),
+            Message::PickApk => Task::perform(dialog::file("Android App", &APK_FILTERS), Message::ApkPicked),
             Message::PickIcon => Task::perform(dialog::file("PNG Image", &["png"]), Message::IconPicked),
             Message::ApkPicked(picked) => {
                 if picked.is_some() {
@@ -176,7 +175,7 @@ impl State {
 
     fn view_controls(&self) -> Element<'_, Message> {
         let files = row![
-            picker::slot(apk_label(), self.apk.as_deref(), Message::PickApk),
+            picker::slot(APK_LABEL, self.apk.as_deref(), Message::PickApk),
             picker::slot("Add PNG", self.icon.as_deref(), Message::PickIcon),
             self.view_clear_icon(),
         ]
@@ -224,18 +223,6 @@ impl State {
             .height(Length::Fill)
             .into()
     }
-}
-
-fn apk_filters() -> &'static [&'static str] {
-    if apkeditor::is_installed() {
-        &["apk", "xapk", "apkm", "apks"]
-    } else {
-        &["apk"]
-    }
-}
-
-fn apk_label() -> &'static str {
-    if apkeditor::is_installed() { APK_SPLIT } else { APK_ONLY }
 }
 
 fn named_input<'a>(

@@ -58,7 +58,7 @@ There are two ways the popup can name its entries: `Resolved` and `Raw`. The mod
 
 ## Export
 You can export a mod under the `Mods` page by selecting your mod and tapping "Export", in which you are given 3 options:
-- **APK**: Patch a `.apk` file you select and export it with the mod applied. Requires Keys & IV. Split `.xapk` files are only supported in the desktop app.
+- **APK**: Patch a `.apk` file you select and export it with the mod applied. Split `.xapk`, `.apkm` and `.apks` files work as well, and are merged into one APK first. Requires Keys & IV.
 - **BCM**: Export into a `.bcm` archive, which is an archive format optimized for low file sizes.
 - **Pack**: Export into the game's proprietary `.pack` and `.list` format for pack-specific injection. Requires Keys & IV.
 

@@ -10,13 +10,12 @@ use zip::ZipArchive;
 use crate::common::{architecture, io};
 use crate::common::job::JobEvent;
 use crate::common::region::Region;
-use crate::systems::addons::apkeditor::xapk;
 use crate::domains::import::engine::keys;
 use crate::domains::mods::METADATA;
 use crate::domains::settings::ExportBehavior;
 use crate::Vfs;
 
-use crate::systems::apk::{modify, native, sign};
+use crate::systems::apk::{merge, modify, native, sign};
 use crate::systems::apk::native::Abi;
 
 use super::pack;
@@ -116,16 +115,15 @@ pub fn run(
     let _ = fs::create_dir_all(&assets_dir);
 
     let mut working_apk = input_apk_path.clone();
-    let extension = input_apk_path.extension().and_then(|ext| ext.to_str()).unwrap_or("");
 
-    if extension == "xapk" || extension == "apkm" || extension == "apks" {
+    if merge::is_split(&input_apk_path) {
         log_callback("Merging split APKs...".to_string());
         let _ = fs::create_dir_all(&xapk_dir);
         let merged_temp_path = xapk_dir.join("merged_xapk.apk");
 
-        if let Err(error) = xapk::merge_xapk(&working_apk, &merged_temp_path, &log_callback) {
+        if let Err(error) = merge::run(&working_apk, &merged_temp_path, &log_callback) {
             error!("XAPK Merge failed: {}", error);
-            return Err(error.to_string());
+            return Err(error);
         }
         working_apk = merged_temp_path;
     }

@@ -1,4 +1,3 @@
-use std::ffi::OsStr;
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -7,13 +6,11 @@ use zip::ZipArchive;
 
 use crate::common::architecture;
 use crate::common::job::JobEvent;
-use crate::systems::addons::apkeditor::xapk;
 
 use super::modify::{self, Identity, ModIcons};
-use super::sign;
+use super::{merge, sign};
 
 const EXPORT_DIR: &str = "exports";
-const SPLIT_EXTENSIONS: [&str; 3] = ["xapk", "apkm", "apks"];
 
 pub struct CloneConfig {
     pub input: PathBuf,
@@ -49,13 +46,12 @@ pub fn run(config: CloneConfig, emit: impl Fn(JobEvent) + Sync) -> Result<PathBu
     fs::create_dir_all(&assets_dir).map_err(|error| format!("Could not create workspace: {}", error))?;
 
     let mut working_apk = config.input.clone();
-    let extension = config.input.extension().and_then(OsStr::to_str).unwrap_or_default();
 
-    if SPLIT_EXTENSIONS.contains(&extension) {
+    if merge::is_split(&config.input) {
         log("Merging split APKs...".to_string());
         let merged = app_dir.join("merged.apk");
 
-        xapk::merge_xapk(&working_apk, &merged, &log).map_err(|error| error.to_string())?;
+        merge::run(&working_apk, &merged, &log)?;
         working_apk = merged;
     }
 

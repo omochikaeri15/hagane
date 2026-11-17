@@ -1,5 +1,4 @@
 pub mod adb;
-pub mod apkeditor;
 pub mod avifenc;
 pub mod cjxl;
 pub mod ffmpeg;

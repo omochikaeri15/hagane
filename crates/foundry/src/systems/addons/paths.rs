@@ -27,13 +27,6 @@ pub(crate) const FFMPEG_BIN: &str = "ffmpeg.exe";
 #[cfg(not(target_os = "windows"))]
 pub(crate) const FFMPEG_BIN: &str = "ffmpeg";
 
-#[cfg(target_os = "windows")]
-pub(crate) const JAVA_BIN: &str = "bin/java.exe";
-#[cfg(not(target_os = "windows"))]
-pub(crate) const JAVA_BIN: &str = "bin/java";
-
-pub(crate) const APKEDITOR_JAR: &str = "APKEditor.jar";
-
 pub(crate) fn get_tools_dir() -> PathBuf {
     let base_dir = dirs::data().map_or_else(|| PathBuf::from("tools"), |data_dir| data_dir.join("tools"));
 
