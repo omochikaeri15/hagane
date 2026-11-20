@@ -1654,6 +1654,7 @@ fn refresh_filter(ui: &AppWindow, state: &Shared, context: &Rc<Context>) {
                     min: range.map_or(SharedString::default(), |range| range.min.as_str().into()),
                     max: range.map_or(SharedString::default(), |range| range.max.as_str().into()),
                     owner: icon_code(icon),
+                    decimal: false,
                 }
             })
             .collect();
@@ -1712,6 +1713,7 @@ fn refresh_filter(ui: &AppWindow, state: &Shared, context: &Rc<Context>) {
                     min: range.map_or(SharedString::default(), |range| range.min.as_str().into()),
                     max: range.map_or(SharedString::default(), |range| range.max.as_str().into()),
                     owner: -1,
+                    decimal: false,
                 }
             })
             .collect::<Vec<_>>(),

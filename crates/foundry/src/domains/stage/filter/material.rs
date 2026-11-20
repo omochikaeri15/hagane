@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 use crate::{ItemStore, Vfs};
 
 use super::super::materials::MAT_IDS;
-use super::range::{CompiledStatRange, StatRange};
+use super::range::{CompiledFractionRange, StatRange};
 
 #[derive(Default, Debug, Clone, Serialize, Deserialize, Hash)]
 pub struct MaterialFilter {
@@ -27,7 +27,7 @@ impl MaterialFilter {
             is_exclude: self.is_exclude,
             name_or_id,
             parsed_id,
-            amount: self.amount.compile(0),
+            amount: self.amount.compile_fraction(),
         }
     }
 }
@@ -36,18 +36,18 @@ pub(crate) struct CompiledMaterialFilter {
     pub is_exclude: bool,
     pub name_or_id: String,
     pub parsed_id: Option<u32>,
-    pub amount: CompiledStatRange,
+    pub amount: CompiledFractionRange,
 }
 
 impl CompiledMaterialFilter {
     pub(crate) fn matches_material(
         &self,
         index: usize,
-        drop_amount: u32,
+        odds: f64,
         items: &ItemStore,
         vfs: &Vfs,
     ) -> bool {
-        if !self.amount.matches(drop_amount as i64) { return false; }
+        if !self.amount.matches(odds) { return false; }
         if self.name_or_id.is_empty() { return true; }
 
         let Some(&item_id) = MAT_IDS.get(index) else { return false; };

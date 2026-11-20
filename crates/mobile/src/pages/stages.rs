@@ -1535,7 +1535,14 @@ fn refresh_materials(ui: &AppWindow, images: &Images, vault: &Arc<Vault>, stage:
                     let drop = materials::resolve(&vault.vfs, chunk_offset + index, chance, &vault.vds.items);
                     let icon = drop.image_path.as_ref().and_then(|path| images.boxed(vault, path, MAX_ICON_SIZE));
 
-                    MaterialCell { name: drop.name.as_str().into(), has_icon: icon.is_some(), icon: icon.unwrap_or_default(), chance: format!("{chance}%").into(), faint: chance == 0 }
+                    MaterialCell {
+                        name: drop.name.as_str().into(),
+                        has_icon: icon.is_some(),
+                        icon: icon.unwrap_or_default(),
+                        chance: materials::odds(drops, chunk_offset + index).into(),
+                        weight: materials::weight(drops, chunk_offset + index).into(),
+                        faint: chance == 0,
+                    }
                 })
                 .collect();
 
@@ -1762,7 +1769,7 @@ fn range_fields(filter: &mut StageFilterState, ranges: &[Range]) -> ModelRc<Rang
         .map(|(index, range)| {
             let value = range_mut(filter, *range).clone();
 
-            RangeField { label: range_label(*range).into(), min: value.min.into(), max: value.max.into(), owner: index as i32 }
+            RangeField { label: range_label(*range).into(), min: value.min.into(), max: value.max.into(), owner: index as i32, decimal: false }
         })
         .collect();
 
@@ -1787,7 +1794,7 @@ fn card(kind: i32, index: usize, exclude: bool, name: &str, fields: Vec<RangeFie
 }
 
 fn field(label: &str, range: &StatRange, owner: usize) -> RangeField {
-    RangeField { label: label.into(), min: range.min.as_str().into(), max: range.max.as_str().into(), owner: owner as i32 }
+    RangeField { label: label.into(), min: range.min.as_str().into(), max: range.max.as_str().into(), owner: owner as i32, decimal: false }
 }
 
 fn refresh_filter(ui: &AppWindow, state: &Shared, context: &Rc<Context>) {
@@ -1848,7 +1855,7 @@ fn refresh_filter(ui: &AppWindow, state: &Shared, context: &Rc<Context>) {
         .enumerate()
         .map(|(index, treasure)| card(2, index, treasure.is_exclude, &treasure.name_or_id, vec![field("Amount", &treasure.amount, 0), field("Chance (%)", &treasure.chance, 1)], (0, 0, false)))
         .collect();
-    let material_cards: Vec<FilterCard> = filter.materials.iter().enumerate().map(|(index, material)| card(3, index, material.is_exclude, &material.name_or_id, vec![field("Amount", &material.amount, 0)], (0, 0, false))).collect();
+    let material_cards: Vec<FilterCard> = filter.materials.iter().enumerate().map(|(index, material)| card(3, index, material.is_exclude, &material.name_or_id, vec![RangeField { decimal: true, ..field("Chance", &material.amount, 0) }], (0, 0, false))).collect();
 
     stages.set_enemy_cards(ModelRc::new(VecModel::from(enemy_cards)));
     stages.set_lineup_cards(ModelRc::new(VecModel::from(lineup_cards)));

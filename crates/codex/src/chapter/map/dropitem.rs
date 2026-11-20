@@ -55,6 +55,23 @@ impl DropItemEntry {
 
         Some(DropRoll { rate, multiplier, rolls })
     }
+
+    pub fn odds(&self, index: usize) -> f64 {
+        let weight = self.material_drops.get(index).copied().unwrap_or(0);
+        let total = self.weight_total();
+
+        if weight == 0 || total == 0 {
+            return 0.0;
+        }
+
+        let landed = f64::from(100 - self.dud_chance.min(100));
+
+        landed * f64::from(weight) / total as f64
+    }
+
+    pub fn weight_total(&self) -> u64 {
+        self.material_drops.iter().map(|&each| u64::from(each)).sum()
+    }
 }
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
@@ -189,6 +206,21 @@ mod tests {
 
         assert_eq!(drops.roll(0, 0).map(|roll| roll.rolls), Some(2));
         assert!(drops.has_materials());
+    }
+
+    // A roll first has to beat the dud chance, then picks a material by its share of the weights.
+    #[test]
+    fn the_odds_follow_the_engine_not_the_raw_weight() {
+        let drops = entry("0,1,1,1,1,3,3,3,3,3,3,3,3,60,13,0,13,13,0,0,0,0");
+
+        assert!((drops.odds(0) - 40.0 * 13.0 / 39.0).abs() < 1e-9);
+        assert_eq!(drops.odds(1), 0.0);
+        assert_eq!(drops.odds(15), 0.0);
+        assert_eq!(drops.odds(99), 0.0);
+        assert_eq!(drops.weight_total(), 39);
+
+        let never = entry("0,1,1,1,1,3,3,3,3,3,3,3,3,100,13,0,13,13,0,0,0,0");
+        assert_eq!(never.odds(0), 0.0);
     }
 
     #[test]

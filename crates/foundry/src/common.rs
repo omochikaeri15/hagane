@@ -3,6 +3,7 @@ pub mod assets;
 #[cfg(feature = "source")]
 pub mod changelog;
 pub mod context;
+pub(crate) mod decimal;
 #[cfg(any(feature = "sandbox", feature = "bcm"))]
 pub(crate) mod counted;
 #[cfg(feature = "disk")]

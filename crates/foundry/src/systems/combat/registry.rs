@@ -7,7 +7,7 @@ use codex::chapter::treasure::TraitBonus;
 use codex::files::{img015, Param};
 use serde::{Deserialize, Serialize};
 
-use crate::common::frames;
+use crate::common::{decimal::trimmed, frames};
 use crate::systems::combat::{CustomIcon, NameBook};
 use crate::systems::treasure::Bonus;
 
@@ -113,12 +113,6 @@ fn fruit_time(ctx: &FormatContext<'_>, identity: Identity) -> String {
     let (shortest, longest) = ctx.treasure.fruit_frames(ctx.stats, ctx.duration, ctx.stats.effect_up(identity));
 
     frames::span(shortest, longest)
-}
-
-fn trimmed(value: f64) -> String {
-    let text = format!("{:.2}", value);
-
-    text.trim_end_matches('0').trim_end_matches('.').to_owned()
 }
 
 fn finite(value: AttrValue) -> i32 {

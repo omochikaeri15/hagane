@@ -10,7 +10,7 @@ import { Shell } from "../shell.slint";
 export struct PickRow { label: string, selected: bool }
 export struct Crown { label: string, enabled: bool }
 export struct DropRow { left: string, icon: image, has-icon: bool, name: string, amount: string }
-export struct MaterialCell { name: string, icon: image, has-icon: bool, chance: string, faint: bool }
+export struct MaterialCell { name: string, icon: image, has-icon: bool, chance: string, weight: string, faint: bool }
 export struct LineupSlot { icon: image, has-icon: bool, tip: string, cat-id: int, form: int, level: string, jumpable: bool }
 export struct Pair { left: string, right: string }
 export struct GroundRow { icon: image, has-icon: bool, id: string, name: string, enemy-id: int, magnification: string, cells: [string] }
@@ -263,7 +263,11 @@ component MaterialChunk inherits VerticalLayout {
         background: Theme.bg;
         HorizontalLayout {
             padding-left: 4px; padding-right: 4px; spacing: 4px;
-            for cell in root.cells: Cell { text: cell.chance; fade: cell.faint ? 0.4 : 1.0; }
+            for cell in root.cells: Cell {
+                text: cell.chance;
+                fade: cell.faint ? 0.4 : 1.0;
+                TapTip { text: cell.weight; width: 100%; height: 100%; }
+            }
         }
     }
 }

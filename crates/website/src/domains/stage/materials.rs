@@ -30,17 +30,17 @@ pub(crate) fn view(stage: &Stage, map: &Map, crown: u8, globals: &Shared) -> Ele
             div { class: "rule" }
             div { class: "material-chunks",
                 if base.iter().any(|&count| count > 0) {
-                    {chunks(base, 0, globals)}
+                    {chunks(drops, base, 0, globals)}
                 }
                 if zombie.iter().any(|&count| count > 0) {
-                    {chunks(zombie, 8, globals)}
+                    {chunks(drops, zombie, 8, globals)}
                 }
             }
         }
     }
 }
 
-fn chunks(chances: &[u32], offset: usize, globals: &Shared) -> Element {
+fn chunks(drops: &DropItemEntry, chances: &[u32], offset: usize, globals: &Shared) -> Element {
     let pictures = images::pictures();
     let vault = globals.0.vault();
     let vfs = &vault.vfs;
@@ -74,8 +74,10 @@ fn chunks(chances: &[u32], offset: usize, globals: &Shared) -> Element {
                             }
                         }
                         div { class: "zebra-row-odd zebra-cells",
-                            for (_, chance) in resolved.iter() {
-                                div { class: if *chance == 0 { "zebra-cell faint" } else { "zebra-cell" }, "{chance}%" }
+                            for (index, (_, chance)) in resolved.iter().enumerate() {
+                                div { class: if *chance == 0 { "zebra-cell faint" } else { "zebra-cell" },
+                                    Tip { text: materials::weight(drops, chunk_offset + index), "{materials::odds(drops, chunk_offset + index)}" }
+                                }
                             }
                         }
                     }

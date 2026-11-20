@@ -3,7 +3,7 @@ import { Theme } from "../theme.slint";
 import { Btn, Tone, Input, Label } from "basics.slint";
 import { AbilityIcon, IconBox } from "detail.slint";
 
-export struct RangeField { label: string, min: string, max: string, owner: int }
+export struct RangeField { label: string, min: string, max: string, owner: int, decimal: bool }
 export struct FilterIcon { icon: AbilityIcon, active: bool, name: string, id: int }
 export struct FilterLabeled { icon: AbilityIcon, active: bool, name: string, id: int, expanded: bool, ranges: [RangeField] }
 
@@ -38,9 +38,9 @@ export component RangeRows inherits VerticalLayout {
         spacing: 4px;
         alignment: start;
         Label { text: field.label; width: 110px; vertical-alignment: center; }
-        Input { width: 55px; text: field.min; placeholder: "Min"; text-size: 13px; input-type: InputType.number; edited(value) => { root.min-edited(index, value); } }
+        Input { width: 55px; text: field.min; placeholder: "Min"; text-size: 13px; input-type: field.decimal ? InputType.decimal : InputType.number; edited(value) => { root.min-edited(index, value); } }
         Label { text: "~"; vertical-alignment: center; }
-        Input { width: 55px; text: field.max; placeholder: "Max"; text-size: 13px; input-type: InputType.number; edited(value) => { root.max-edited(index, value); } }
+        Input { width: 55px; text: field.max; placeholder: "Max"; text-size: 13px; input-type: field.decimal ? InputType.decimal : InputType.number; edited(value) => { root.max-edited(index, value); } }
     }
 }
 

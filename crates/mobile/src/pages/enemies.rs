@@ -641,6 +641,7 @@ pub fn filter_view(filter: &EnemyFilterState, available: &HashSet<Identity>, glo
                     min: range.map_or(SharedString::default(), |range| range.min.as_str().into()),
                     max: range.map_or(SharedString::default(), |range| range.max.as_str().into()),
                     owner: identity_code(identity),
+                    decimal: false,
                 }
             })
             .collect();
@@ -660,6 +661,7 @@ pub fn filter_view(filter: &EnemyFilterState, available: &HashSet<Identity>, glo
                 min: range.map_or(SharedString::default(), |range| range.min.as_str().into()),
                 max: range.map_or(SharedString::default(), |range| range.max.as_str().into()),
                 owner: -1,
+                decimal: false,
             }
         })
         .collect();

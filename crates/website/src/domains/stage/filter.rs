@@ -561,7 +561,7 @@ fn material_card(index: usize, material: &MaterialFilter, state: StageState) -> 
                     oninput: move |event| edit(state, |next| { if let Some(material) = next.materials.get_mut(index) { material.name_or_id = event.value(); } }) }
             }
             RangeRow {
-                label: "Amount",
+                label: "Chance",
                 min: material.amount.min.clone(),
                 max: material.amount.max.clone(),
                 on_min: move |text| edit(state, |next| { if let Some(material) = next.materials.get_mut(index) { material.amount.min = text; } }),

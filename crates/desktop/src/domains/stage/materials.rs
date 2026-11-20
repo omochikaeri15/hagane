@@ -79,10 +79,10 @@ impl State {
         let mut grid_col = column![].spacing(CHUNK_SPACING);
 
         if base_mats.iter().any(|&count| count > 0) {
-            grid_col = self.push_chunks(grid_col, base_mats, 0, items, vfs);
+            grid_col = self.push_chunks(grid_col, drops, base_mats, 0, items, vfs);
         }
         if z_mats.iter().any(|&count| count > 0) {
-            grid_col = self.push_chunks(grid_col, z_mats, 8, items, vfs);
+            grid_col = self.push_chunks(grid_col, drops, z_mats, 8, items, vfs);
         }
 
         let panel = container(section(materials::heading(drops, stage, selected_crown), Length::Fill, grid_col))
@@ -94,6 +94,7 @@ impl State {
     fn push_chunks<'a>(
         &'a self,
         mut col: Column<'a, super::Message>,
+        drops: &DropItemEntry,
         chances: &'a [u32],
         offset: usize,
         items: &ItemStore,
@@ -133,11 +134,17 @@ impl State {
                 icon_row = icon_row.push(cell(icon_element, column_width));
 
                 let is_empty = *chance == 0;
-                let chance_text = theme::centered_text(format!("{}%", chance)).style(move |theme: &Theme| text::Style {
+                let index = chunk_offset + idx;
+                let chance_text = theme::centered_text(materials::odds(drops, index)).style(move |theme: &Theme| text::Style {
                     color: Some(chance_color(theme, is_empty)),
                 });
+                let chance_tip = tooltip(
+                    chance_text,
+                    container(text(materials::weight(drops, index))).padding(6).style(container::bordered_box),
+                    tooltip::Position::Top,
+                );
 
-                pct_row = pct_row.push(cell(chance_text, column_width));
+                pct_row = pct_row.push(cell(chance_tip, column_width));
             }
 
             col = col.push(column![

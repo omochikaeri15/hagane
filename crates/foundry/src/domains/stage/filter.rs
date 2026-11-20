@@ -18,7 +18,7 @@ use crate::domains::enemy::scanner::EnemyEntry;
 use crate::systems::treasure::Bonus;
 use crate::{ItemStore, Vault, Vfs};
 
-use super::StageDataState;
+use super::{materials, StageDataState};
 
 use self::cost::{CompiledCostFilter, CostFilter};
 use self::enemy::{CompiledEnemyFilter, EnemyFilter};
@@ -488,8 +488,10 @@ impl CompiledStageFilter {
             let drop_items_opt = map.drop_items.as_ref();
             for material_filter in &self.materials {
                 let found = drop_items_opt.is_some_and(|drop_items| {
-                    drop_items.material_drops.iter().enumerate().any(|(index, &amount)| {
-                        amount > 0 && material_filter.matches_material(index, amount, ctx.items, ctx.vfs)
+                    (0..drop_items.material_drops.len()).any(|index| {
+                        let odds = materials::shown_odds(drop_items, index);
+
+                        odds > 0.0 && material_filter.matches_material(index, odds, ctx.items, ctx.vfs)
                     })
                 });
                 if material_filter.is_exclude { if found { return false; } } else if !found { return false; }

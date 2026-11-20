@@ -932,7 +932,7 @@ fn material_card<'a>(idx: usize, material: &'a MaterialFilter) -> Element<'a, Me
         close_row(mode, Message::RemoveMaterial(idx)),
         name_or_id_row(&material.name_or_id, move |v| Message::MaterialNameChanged(idx, v)),
         range_row(
-            "Amount",
+            "Chance",
             &material.amount.min,
             &material.amount.max,
             move |v| Message::MaterialAmountMinChanged(idx, v),
