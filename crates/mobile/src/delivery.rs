@@ -20,10 +20,12 @@ const SENT: &str = "Saved where you chose";
 #[cfg(any(target_os = "android", target_os = "ios"))]
 const PARTLY: &str = "The remaining files stayed in the exports folder";
 #[cfg(any(target_os = "android", target_os = "ios"))]
-const MIMES: [(&str, &str); 10] = [
+const MIMES: [(&str, &str); 12] = [
     ("png", "image/png"),
     ("gif", "image/gif"),
     ("webp", "image/webp"),
+    ("avif", "image/avif"),
+    ("jxl", "image/jxl"),
     ("jpg", "image/jpeg"),
     ("zip", "application/zip"),
     ("json", "application/json"),

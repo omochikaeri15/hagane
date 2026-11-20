@@ -37,45 +37,6 @@ pub(crate) fn encode(
     ];
 
     match config.format {
-        ExportFormat::Gif => {
-            info!("Configuring FFmpeg for GIF export");
-            let dither = if config.quality_percent >= 80 {
-                "sierra2_4a"
-            } else if config.quality_percent >= 40 {
-                "floyd_steinberg"
-            } else {
-                "bayer:bayer_scale=5"
-            };
-
-            let stats_mode = if config.compression_percent < 50 { "full" } else { "diff" };
-            let filter = format!("split[s0][s1];[s0]palettegen=stats_mode={}[p];[s1][p]paletteuse=dither={}", stats_mode, dither);
-
-            arguments.extend_from_slice(&[
-                "-vf".to_string(), filter,
-                "-f".to_string(), "gif".to_string(),
-            ]);
-        },
-        ExportFormat::WebP => {
-            info!("Configuring FFmpeg for WebP export");
-            let compression_level = (config.compression_percent as f32 / 100.0 * 6.0).round() as u8;
-            arguments.extend_from_slice(&[
-                "-c:v".to_string(), "libwebp_anim".to_string(),
-                "-loop".to_string(), "0".to_string(),
-                "-q:v".to_string(), config.quality_percent.to_string(),
-                "-compression_level".to_string(), compression_level.to_string(),
-                "-preset".to_string(), "drawing".to_string(),
-                "-threads".to_string(), "0".to_string(),
-                "-f".to_string(), "webp".to_string(),
-            ]);
-        },
-        ExportFormat::Png => {
-            info!("Configuring FFmpeg for APNG export");
-            arguments.extend_from_slice(&[
-                "-plays".to_string(), "0".to_string(),
-                "-c:v".to_string(), "apng".to_string(),
-                "-f".to_string(), "apng".to_string(),
-            ]);
-        },
         ExportFormat::Mp4 | ExportFormat::Mkv | ExportFormat::Webm => {
             info!("Configuring FFmpeg for Video export");
             let use_av1 = config.quality_percent > 90 && config.compression_percent > 90;

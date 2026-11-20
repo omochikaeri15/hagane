@@ -41,7 +41,7 @@ const FEEDBACK_MS: u64 = 2000;
 const NO_BACKGROUNDS_HINT: &str = "No backgrounds within mount";
 const VANILLA_HINT: &str = "Vanilla background loaded, clear the ID field to use your own files";
 const RANGES_PER_LINE: usize = 6;
-const FORMATS: [ExportFormat; 3] = [ExportFormat::Gif, ExportFormat::WebP, ExportFormat::Zip];
+const FORMATS: [ExportFormat; 6] = [ExportFormat::Gif, ExportFormat::WebP, ExportFormat::Zip, ExportFormat::Png, ExportFormat::Jxl, ExportFormat::Avif];
 const EXPORT_IDLE: &str = "Export";
 const EXPORT_BUSY: &str = "Exporting...";
 const EXPORT_DONE: &str = "Exported!";
@@ -522,7 +522,7 @@ pub fn wire(window: &AppWindow, state: &Shared, context: &Rc<Context>) {
         let format = FORMATS.get(index.max(0) as usize).cloned().unwrap_or(ExportFormat::Gif);
 
         held.borrow_mut().backdrop.format = format;
-        ctx.memory.update(|memory| memory.background_format = index.clamp(0, 2) as u8);
+        ctx.memory.update(|memory| memory.background_format = index.clamp(0, FORMATS.len() as i32 - 1) as u8);
     });
 
     let (held, ctx, weak) = on(state, context, window);

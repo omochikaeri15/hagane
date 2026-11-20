@@ -7,6 +7,55 @@ Copyright (c) 2023-2024 rust-mobile contributors
 Licensed under Apache-2.0 OR MIT.
 
 ========================================================================
+IMAGE FORMAT ENCODERS (WEBP, JPEG XL, AVIF)
+========================================================================
+The animated WebP, JPEG XL and AVIF encoders are original
+implementations written against the formats' public definitions.
+Constant tables and bitstream rules come from:
+
+RFC 6386, "VP8 Data Format and Decoding Guide" (quantizer and
+probability tables, coefficient and mode trees, inverse transforms,
+intra predictors, boolean coder).
+Copyright (c) 2010, 2011, Google Inc. All rights reserved.
+Licensed under the BSD 3-Clause License.
+
+The WebP Lossless Bitstream Specification and the WebP Container
+Specification, with libwebp consulted as a reference.
+Copyright (c) 2010, Google Inc. All rights reserved.
+Licensed under the BSD 3-Clause License.
+
+libjxl and libjxl-tiny, consulted as the reference for the JPEG XL
+codestream (header layouts, context tables, the quality-to-distance
+mapping, the ANS and histogram formats, the weighted predictor and its
+divide table, blending semantics).
+Copyright (c) the JPEG XL Project Authors. All rights reserved.
+Licensed under the BSD 3-Clause License.
+
+Brotli, for the prefix-code storage scheme JPEG XL shares with it.
+Copyright (c) 2009, 2010, 2013-2016 by the Brotli Authors.
+Licensed under the MIT License.
+
+The AV1 Bitstream & Decoding Process Specification (syntax, default
+probability tables, scan orders, quantizer lookups, prediction weights,
+motion vector prediction, sub-pixel filters, the loop filter and CDEF
+processes, and the inverse transforms the kernels are generated from).
+Copyright (c) 2018-2019, The Alliance for Open Media. All rights reserved.
+
+rav1e, for the scheme its range encoder uses to store, renormalize and
+finish a stream.
+Copyright (c) 2017-2023, The rav1e contributors. All rights reserved.
+Licensed under the BSD 2-Clause License.
+
+libavif, consulted for the box layout of an image sequence with an
+alpha track.
+Copyright 2019 Joe Drago. All rights reserved.
+Licensed under the BSD 2-Clause License.
+
+The BSD 2-Clause License is the BSD 3-Clause License without its third
+condition. The BSD 3-Clause License and the MIT License are reproduced
+below.
+
+========================================================================
 SIL OPEN FONT LICENSE (ADOBE SOURCE)
 ========================================================================
 Copyright 2014-2021 Adobe (http://www.adobe.com/), with Reserved Font Name 'Source'
@@ -166,13 +215,13 @@ permissive licenses (MIT, Apache-2.0, BSD-3-Clause, Zlib, Unlicense,
 CC0-1.0):
 
 ab_glyph, aes, android-activity, arboard, base64, block-padding, block2, byteorder, bytemuck, cbc,
-cipher, console_error_panic_hook, dioxus, directories, ecb, flate2, futures-channel,
-futures-util, gif, glow, hex, iced, iced_renderer, image, image-webp, imageproc, indexmap, jni, js-sys,
+cipher, console_error_panic_hook, dioxus, directories, ecb, fdeflate, flate2, futures-channel,
+futures-util, glow, hex, iced, iced_renderer, image, image-webp, imageproc, indexmap, jni, js-sys,
 md-5, muxide, notify, objc2, objc2-core-haptics, objc2-foundation, objc2-ui-kit,
 objc2-uniform-type-identifiers, open, pollster, postcard, pulseaudio, rasn, rasn-pkix, rayon, regex, reqwest,
 resand, rfd, rodio, rsa, rustc-hash, rustls, self_update, serde, serde_ignored,
 serde_json, sha2, smol, structured-zstd, tar, thiserror, tracing, tracing-subscriber, tracing-wasm,
-wasm-bindgen, wasm-bindgen-futures, web-sys, web-time, webp-animation, wgpu,
+wasm-bindgen, wasm-bindgen-futures, web-sys, web-time, wgpu,
 windows-sys, winres, zip, zstd.
 
 ========================================================================
@@ -190,6 +239,36 @@ The mobile app is built with Slint (slint, slint-build) by SixtyFPS GmbH,
 used under the Slint Royalty-free Desktop, Mobile, and Web Applications
 License. Slint is a trademark of SixtyFPS GmbH.
 https://slint.dev/terms-and-conditions.html#royalty-free-license
+
+------------------------------------------------------------------------
+The BSD 3-Clause License
+------------------------------------------------------------------------
+Redistribution and use in source and binary forms, with or without
+modification, are permitted provided that the following conditions are
+met:
+
+1. Redistributions of source code must retain the above copyright
+   notice, this list of conditions and the following disclaimer.
+
+2. Redistributions in binary form must reproduce the above copyright
+   notice, this list of conditions and the following disclaimer in the
+   documentation and/or other materials provided with the distribution.
+
+3. Neither the name of the copyright holder nor the names of its
+   contributors may be used to endorse or promote products derived from
+   this software without specific prior written permission.
+
+THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS
+IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO,
+THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR
+PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR
+CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL,
+EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO,
+PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR
+PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF
+LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING
+NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
+SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 ------------------------------------------------------------------------
 The MIT License (MIT)

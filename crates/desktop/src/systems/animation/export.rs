@@ -1090,8 +1090,6 @@ impl State {
     }
 
     fn content_view(&self) -> Element<'_, Message> {
-        let is_avif_missing = paths::avifenc_status() != Presence::Installed;
-        let is_cjxl_missing = paths::cjxl_status() != Presence::Installed;
         let is_ffmpeg_missing = paths::ffmpeg_status() != Presence::Installed;
         let current_job = self.synced_key.as_ref().and_then(|key| self.jobs.get(key));
         let job_active = matches!(
@@ -1152,9 +1150,7 @@ impl State {
 
         let format_options: Vec<&str> = FORMAT_OPTIONS.iter().copied().filter(|format| {
             match *format {
-                "AVIF" => !is_avif_missing,
-                "JXL" => !is_cjxl_missing,
-                "MP4" | "MKV" | "WebM" | "PNG" => !is_ffmpeg_missing,
+                "MP4" | "MKV" | "WebM" => !is_ffmpeg_missing,
                 _ => true,
             }
         }).collect();
@@ -1335,8 +1331,6 @@ impl State {
             column![
                 text("Tools that enhance the Exporter\nManage through Settings > Add-Ons").size(CONTROL_TEXT_SIZE),
                 addon_badge("FFMPEG", !is_ffmpeg_missing),
-                addon_badge("AVIFENC", !is_avif_missing),
-                addon_badge("CJXL", !is_cjxl_missing),
             ].spacing(FIELD_SPACING),
         );
 

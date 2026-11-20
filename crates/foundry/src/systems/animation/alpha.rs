@@ -1,5 +1,9 @@
 pub fn straighten(rgba: &mut [u8]) {
     for texel in rgba.as_chunks_mut::<4>().0 {
+        if texel[3] == u8::MAX || *texel == [0; 4] {
+            continue;
+        }
+
         let alpha = texel[3].max(texel[0]).max(texel[1]).max(texel[2]);
 
         texel[3] = alpha;

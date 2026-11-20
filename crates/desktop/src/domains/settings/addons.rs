@@ -10,8 +10,6 @@ use iced::{Element, Task, Theme};
 use tracing::error;
 
 use foundry::systems::addons::adb::AdbManager;
-use foundry::systems::addons::avifenc::AvifManager;
-use foundry::systems::addons::cjxl::CjxlManager;
 use foundry::systems::addons::ffmpeg::FfmpegManager;
 #[cfg(target_os = "windows")]
 use foundry::systems::addons::oem::{OemDriver, OemManager};
@@ -24,8 +22,6 @@ use crate::common::feedback::{Slot as Confirm, CONFIRM_LABEL};
 pub enum Addon {
     Adb,
     Ffmpeg,
-    Avif,
-    Cjxl,
 }
 
 impl Addon {
@@ -33,8 +29,6 @@ impl Addon {
         match self {
             Self::Adb => "Android Bridge",
             Self::Ffmpeg => "FFMPEG",
-            Self::Avif => "AVIFENC",
-            Self::Cjxl => "CJXL",
         }
     }
 }
@@ -54,8 +48,6 @@ pub enum Message {
 #[derive(Default)]
 pub struct State {
     adb: AdbManager,
-    avif: AvifManager,
-    cjxl: CjxlManager,
     ffmpeg: FfmpegManager,
     #[cfg(target_os = "windows")]
     oem: OemManager,
@@ -69,8 +61,6 @@ impl State {
                 let config = match addon {
                     Addon::Adb => self.adb.install(),
                     Addon::Ffmpeg => self.ffmpeg.install(),
-                    Addon::Avif => self.avif.install(),
-                    Addon::Cjxl => self.cjxl.install(),
                 };
 
                 let (tx, rx) = mpsc::unbounded();
@@ -96,8 +86,6 @@ impl State {
                 let slot = match addon {
                     Addon::Adb => &mut self.adb.status,
                     Addon::Ffmpeg => &mut self.ffmpeg.status,
-                    Addon::Avif => &mut self.avif.status,
-                    Addon::Cjxl => &mut self.cjxl.status,
                 };
                 *slot = status;
                 Task::none()
@@ -114,8 +102,6 @@ impl State {
                 match addon {
                     Addon::Adb => self.adb.uninstall(),
                     Addon::Ffmpeg => self.ffmpeg.uninstall(),
-                    Addon::Avif => self.avif.uninstall(),
-                    Addon::Cjxl => self.cjxl.uninstall(),
                 }
 
                 Task::none()
@@ -208,15 +194,7 @@ impl State {
 
         content = content.push(self.addon_section(
             Addon::Ffmpeg, &self.ffmpeg.status,
-            "Optimizes encoding speed for most file formats.\nEnables most export formats."
-        ));
-        content = content.push(self.addon_section(
-            Addon::Avif, &self.avif.status,
-            "Optimizes encoding for the AVIF format specifically.\nEnables AVIF export format."
-        ));
-        content = content.push(self.addon_section(
-            Addon::Cjxl, &self.cjxl.status,
-            "Encodes the JPEG XL format, lossless at 100% quality.\nEnables JXL export format."
+            "Encodes video, with sound for replays.\nEnables MP4, MKV and WebM export formats."
         ));
 
         content.into()

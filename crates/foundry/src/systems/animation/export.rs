@@ -1,8 +1,14 @@
+mod apng;
+mod avif;
 pub mod encoding;
 pub mod find_bounds;
 pub mod find_loop;
+mod frames;
+mod gif;
+mod jxl;
 pub mod leader;
 pub mod process;
+mod webp;
 
 use std::path::PathBuf;
 

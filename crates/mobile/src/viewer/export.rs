@@ -28,7 +28,7 @@ const PERCENT_MIN: i32 = 0;
 const PERCENT_MAX: i32 = 100;
 const SHOWN_SECS: f32 = 3.0;
 const POLL_MS: u64 = 100;
-const FORMATS: [ExportFormat; 3] = [ExportFormat::Gif, ExportFormat::WebP, ExportFormat::Zip];
+const FORMATS: [ExportFormat; 6] = [ExportFormat::Gif, ExportFormat::WebP, ExportFormat::Zip, ExportFormat::Png, ExportFormat::Jxl, ExportFormat::Avif];
 const GRAY: [u8; 4] = [80, 80, 80, 255];
 const CLEAR: [u8; 4] = [0, 0, 0, 0];
 

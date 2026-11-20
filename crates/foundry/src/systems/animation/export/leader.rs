@@ -17,24 +17,11 @@ fn delegate(
     temporary_path: &std::path::PathBuf,
     abort_signal: &AtomicBool,
 ) -> bool {
-    use crate::systems::addons::avifenc::encoding as avifenc;
-    use crate::systems::addons::cjxl::encoding as cjxl;
     use crate::systems::addons::ffmpeg::encoding as ffmpeg;
     use crate::systems::addons::paths::{self, Presence};
 
     match config.format {
-        ExportFormat::Avif if paths::avifenc_status() == Presence::Installed => {
-            info!("Delegating to external AVIF encoder");
-            avifenc::encode(config.clone(), receiver, emit, temporary_path, abort_signal)
-        },
-
-        ExportFormat::Jxl if paths::cjxl_status() == Presence::Installed => {
-            info!("Delegating to external JXL encoder");
-            cjxl::encode(config.clone(), receiver, emit, temporary_path, abort_signal)
-        },
-
-        ExportFormat::Gif | ExportFormat::WebP | ExportFormat::Png | ExportFormat::Mp4 | ExportFormat::Mkv | ExportFormat::Webm | ExportFormat::Avif
-        if paths::ffmpeg_status() == Presence::Installed => {
+        ExportFormat::Mp4 | ExportFormat::Mkv | ExportFormat::Webm if paths::ffmpeg_status() == Presence::Installed => {
             info!("Delegating to external FFmpeg encoder");
             ffmpeg::encode(config.clone(), receiver, emit, temporary_path, abort_signal)
         },
