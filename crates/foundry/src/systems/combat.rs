@@ -7,7 +7,7 @@ pub use names::NameBook;
 use std::collections::{HashMap, HashSet};
 
 use codex::cat::unit::{LevelCurve, Talent};
-use codex::combat::{AttrValue, Entity, Identity, REGISTRY};
+use codex::combat::{range_of, AttrUnit, AttrValue, Entity, Identity, REGISTRY};
 
 use crate::common::context::GlobalContext;
 use crate::systems::combat::registry::Magnification;
@@ -118,5 +118,14 @@ pub(crate) fn comparable(value: AttrValue) -> i32 {
     match value {
         AttrValue::Finite(amount) => amount,
         AttrValue::Infinite => i32::MAX,
+    }
+}
+
+pub(crate) fn displayed(value: AttrValue, unit: AttrUnit) -> f64 {
+    let amount = comparable(value);
+
+    match unit {
+        AttrUnit::Position => f64::from(range_of(amount)),
+        AttrUnit::None | AttrUnit::Percent | AttrUnit::Frames | AttrUnit::Range => f64::from(amount),
     }
 }

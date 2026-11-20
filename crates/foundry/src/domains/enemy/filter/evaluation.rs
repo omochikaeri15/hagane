@@ -1,6 +1,6 @@
 use codex::combat::{Entity, Faction, Identity, REGISTRY};
 
-use crate::systems::combat::comparable;
+use crate::systems::combat::displayed;
 use crate::systems::combat::registry::{Magnification, StatContext, ENEMY_STATS_REGISTRY};
 use crate::domains::enemy::filter::{EnemyFilterState, MatchMode};
 use crate::domains::enemy::scanner::EnemyEntry;
@@ -85,16 +85,16 @@ pub(crate) fn passes_at(enemy: &EnemyEntry, filter: &EnemyFilterState, magnifica
                     for (attr, range) in adv_map {
                         let val = attrs.iter()
                             .find(|(k, _, _)| k == attr)
-                            .map_or(0, |(_, v, _)| comparable(*v));
+                            .map_or(0.0, |(_, v, unit)| displayed(*v, *unit));
 
                         if let Ok(min) = range.min.parse::<i32>()
-                            && val < min {
+                            && val < f64::from(min) {
                             build_passed_all_attrs = false;
                             break;
                         }
 
                         if let Ok(max) = range.max.parse::<i32>()
-                            && val > max {
+                            && val > f64::from(max) {
                             build_passed_all_attrs = false;
                             break;
                         }

@@ -4,7 +4,7 @@ mod config;
 use codex::chapter::stage::CertificationPreset;
 use codex::chapter::treasure::{enemy_money, unit_recharge, TraitBonus, TreasureEffect, TreasureLevels, TreasureProgress, ARC_SLOTS, SLOTS, STAGES};
 use codex::chapter::Category;
-use codex::combat::{Entity, Faction};
+use codex::combat::{magnified, Entity, Faction};
 
 pub use catalog::Catalog;
 pub use config::{Config, ARCS, FULL_PERCENT};
@@ -123,10 +123,11 @@ impl Bonus {
         (low.scale_duration(frames, raise), high.scale_duration(frames, raise))
     }
 
-    pub fn strength(&self, stats: &Entity, percent: i32) -> f32 {
-        let gap = if stats.faction == Faction::Enemy { self.weakening(stats, None) } else { 0 };
-
-        percent as f32 / 100.0 * (100 + gap) as f32 / 100.0
+    pub(crate) fn scaled(&self, stats: &Entity, stat: i32, percent: i32) -> i32 {
+        match stats.faction {
+            Faction::Enemy => magnified(stat, percent, self.weakening(stats, None)),
+            Faction::Cat => stat,
+        }
     }
 
     pub fn money(&self, drop: i32) -> i32 {

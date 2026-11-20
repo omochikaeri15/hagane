@@ -2,7 +2,7 @@ use std::cmp::Reverse;
 use std::collections::HashMap;
 
 use codex::cat::unit::UnitBuy;
-use codex::combat::{AttrValue, Entity, Faction, Identity, REGISTRY};
+use codex::combat::{deploy_cost, magnified, AttrValue, Entity, Faction, Identity, REGISTRY};
 use codex::chapter::treasure::TraitBonus;
 use codex::files::{img015, Param};
 use serde::{Deserialize, Serialize};
@@ -173,11 +173,6 @@ fn fmt_attack_timing(stats: &Entity) -> String {
     format!("Attack cooldown {}\nTime before hit {}", attack_cooldown, fmt_time(stats.time_until_attack_1))
 }
 
-fn wave_reach(stats: &Entity) -> f32 {
-    let base_reach = pick(stats.faction, 332.5, 467.5);
-    base_reach + ((stats.wave_level - 1) as f32 * 200.0)
-}
-
 fn fmt_effective_range(stats: &Entity) -> String {
     let primary_anchor = if stats.long_distance_1_anchor != 0 {
         stats.long_distance_1_anchor
@@ -231,8 +226,7 @@ fn fmt_effective_range(stats: &Entity) -> String {
 }
 
 fn fmt_multihit(stats: &Entity, magnification: Magnification, treasure: &Bonus) -> String {
-    let magnification_factor = treasure.strength(stats, magnification.attack);
-    let scale = |damage: i32| (damage as f32 * magnification_factor).round() as i32;
+    let scale = |damage: i32| treasure.scaled(stats, damage, magnification.attack);
 
     let ability_flag_1 = if stats.attack_1_abilities > 0 { "True" } else { "False" };
     let ability_flag_2 = if stats.attack_2_abilities > 0 { "True" } else { "False" };
@@ -823,14 +817,14 @@ pub fn get_display_def(identity: Identity) -> AbilityDisplayDef {
             fallback: "Wave",
             icon: AbilityIcon::Standard(img015::ICON_WAVE),
             group: DisplayGroup::Body1,
-            formatter: |ctx| format!("{}% Chance to create a Level {} {}\nReaches {} Range", finite(ctx.value), ctx.stats.wave_level, named(ctx, Identity::WaveAttack), wave_reach(ctx.stats)),
+            formatter: |ctx| format!("{}% Chance to create a Level {} {}\nReaches {} Range", finite(ctx.value), ctx.stats.wave_level, named(ctx, Identity::WaveAttack), ctx.stats.wave_reach()),
         },
         Identity::MiniWave => AbilityDisplayDef {
             name: "Mini-Wave",
             fallback: "MiniW",
             icon: AbilityIcon::Standard(img015::ICON_MINI_WAVE),
             group: DisplayGroup::Body1,
-            formatter: |ctx| format!("{}% Chance to create a Level {} {}\nReaches {} Range", finite(ctx.value), ctx.stats.wave_level, named(ctx, Identity::MiniWave), wave_reach(ctx.stats)),
+            formatter: |ctx| format!("{}% Chance to create a Level {} {}\nReaches {} Range", finite(ctx.value), ctx.stats.wave_level, named(ctx, Identity::MiniWave), ctx.stats.wave_reach()),
         },
         Identity::SurgeAttack => AbilityDisplayDef {
             name: "Surge Attack",
@@ -939,7 +933,7 @@ pub fn get_display_def(identity: Identity) -> AbilityDisplayDef {
             icon: AbilityIcon::Standard(img015::ICON_SHIELD),
             group: DisplayGroup::Body2,
             formatter: |ctx| {
-                let scaled_hp = (finite(ctx.value) as f32 * (ctx.magnification.hitpoints as f32 / 100.0)).round() as i32;
+                let scaled_hp = magnified(finite(ctx.value), ctx.magnification.hitpoints, 0);
                 let shield = named(ctx, Identity::AkuShield);
 
                 if ctx.stats.shield_regen > 0 {
@@ -1386,13 +1380,12 @@ impl<'a> StatContext<'a> {
         Self { stats, animation_frames, magnification, unitbuy: None, treasure }
     }
 
-    fn weakened(&self, percent: i32) -> f32 {
-        self.treasure.strength(self.stats, percent)
+    fn scaled(&self, stat: i32, percent: i32) -> i32 {
+        self.treasure.scaled(self.stats, stat, percent)
     }
 
     fn scaled_attack(&self) -> i32 {
-        let magnification_factor = self.weakened(self.magnification.attack);
-        let scale = |damage: i32| (damage as f32 * magnification_factor).round() as i32;
+        let scale = |damage: i32| self.scaled(damage, self.magnification.attack);
 
         scale(self.stats.attack_1_damage) + scale(self.stats.attack_2_damage) + scale(self.stats.attack_3_damage)
     }
@@ -1417,7 +1410,7 @@ impl StatsDef {
 pub const STAT_HITPOINTS: StatsDef = StatsDef {
     name: "Hitpoints",
     display_name: "Hitpoints",
-    get_value: |ctx| (ctx.stats.hitpoints as f32 * ctx.weakened(ctx.magnification.hitpoints)).round() as i32,
+    get_value: |ctx| ctx.scaled(ctx.stats.hitpoints, ctx.magnification.hitpoints),
     formatter: |hitpoints| format!("{}", hitpoints),
     talent_fmt: None,
     linked_talents: &[32, 71],
@@ -1511,11 +1504,11 @@ pub const STAT_RARITY: StatsDef = StatsDef {
 pub const STAT_COST: StatsDef = StatsDef {
     name: "Cost",
     display_name: "Cost",
-    get_value: |ctx| (ctx.stats.eoc1_cost as f32 * 1.5).round() as i32,
+    get_value: |ctx| deploy_cost(ctx.stats.eoc1_cost),
     formatter: |cost| format!("{}¢", cost),
     talent_fmt: None,
     linked_talents: &[25],
-    talent_modifier_fmt: Some(|reduction, _| format!("(-{}¢)", (reduction as f32 * 1.5).round() as i32)),
+    talent_modifier_fmt: Some(|reduction, _| format!("(-{}¢)", deploy_cost(reduction))),
 };
 
 pub const STAT_COOLDOWN: StatsDef = StatsDef {

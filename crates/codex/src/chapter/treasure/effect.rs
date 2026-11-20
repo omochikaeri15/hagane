@@ -152,6 +152,10 @@ pub fn enemy_money(drop: i32, accounting: i32, treasure: i32) -> i32 {
     scaled.max(0) as i32
 }
 
+pub(crate) fn weaken(stat: i64, gap: i32) -> i64 {
+    stat.wrapping_add(i64::from(gap).wrapping_mul(stat) / 100)
+}
+
 pub fn unit_recharge(cooldown: i32, research: i32, treasure: i32) -> i32 {
     let reduced = cooldown - (treasure + research * 6);
 

@@ -5,6 +5,8 @@ use serde::{Deserialize, Serialize};
 
 use crate::common::file::{self, Separator};
 
+const MAX_ROLLS: f64 = 2_147_483_648.0;
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum DropItemError {
@@ -28,9 +30,31 @@ impl std::error::Error for DropItemError {}
 pub struct DropItemEntry {
     pub map_id: u32,
     pub crown_multipliers: [f32; 4],
-    pub stage_drops: [u32; 8],
+    pub stage_drops: [f32; 8],
     pub dud_chance: u32,
     pub material_drops: [u32; 16],
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct DropRoll {
+    pub rate: f32,
+    pub multiplier: f32,
+    pub rolls: u32,
+}
+
+impl DropItemEntry {
+    pub fn has_materials(&self) -> bool {
+        self.material_drops.iter().any(|&weight| weight > 0)
+    }
+
+    pub fn roll(&self, stage: usize, crown: usize) -> Option<DropRoll> {
+        let rate = *self.stage_drops.get(stage)?;
+        let multiplier = *self.crown_multipliers.get(crown)?;
+        let rounded = f64::from(multiplier * rate) + 0.5;
+        let rolls = if (1.0..MAX_ROLLS).contains(&rounded) { rounded as u32 } else { 0 };
+
+        Some(DropRoll { rate, multiplier, rolls })
+    }
 }
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
@@ -103,7 +127,7 @@ fn parse_inner(bytes: &[u8], separator: Option<Separator>) -> Result<DropItem, D
         let Ok(map_id) = map_id_string.trim().parse::<u32>() else { continue; };
 
         let Some(crown_multipliers) = extract_f32_array::<4>(&parts, 1) else { continue; };
-        let Some(stage_drops) = extract_u32_array::<8>(&parts, 5) else { continue; };
+        let Some(stage_drops) = extract_f32_array::<8>(&parts, 5) else { continue; };
 
         let Some(dud_chance_string) = parts.get(13) else { continue; };
         let Ok(dud_chance) = dud_chance_string.trim().parse::<u32>() else { continue; };
@@ -132,4 +156,47 @@ fn parse_inner(bytes: &[u8], separator: Option<Separator>) -> Result<DropItem, D
     }
 
     Ok(DropItem { map_drops })
+}
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const HEADER: &str = "mapid,star1,star2,star3,star4,stage1,stage2,stage3,stage4,stage5,stage6,stage7,stage8,miss,m1,m2,m3,m4,m5,m6,m7,m8\n";
+
+    fn entry(row: &str) -> DropItemEntry {
+        let parsed = DropItem::parse(format!("{HEADER}{row}\n"), None).unwrap();
+        parsed.map_drops.into_values().next().unwrap()
+    }
+
+    // The engine multiplies in f32, widens to f64, adds a half and truncates.
+    #[test]
+    fn the_roll_count_rounds_half_up_like_the_engine() {
+        let drops = entry("0,0.75,1,1.25,1.5,3,3,3,3,3,3,3,1,60,13,0,13,13,0,0,0,0");
+
+        assert_eq!(drops.roll(0, 0).map(|roll| roll.rolls), Some(2));
+        assert_eq!(drops.roll(0, 1).map(|roll| roll.rolls), Some(3));
+        assert_eq!(drops.roll(0, 2).map(|roll| roll.rolls), Some(4));
+        assert_eq!(drops.roll(0, 3).map(|roll| roll.rolls), Some(5));
+        assert_eq!(drops.roll(7, 0).map(|roll| roll.rolls), Some(1));
+        assert_eq!(drops.roll(8, 0), None);
+        assert_eq!(drops.roll(0, 4), None);
+    }
+
+    // The game reads stage rates as floats, so a modded half rate still rolls instead of vanishing.
+    #[test]
+    fn a_fractional_stage_rate_keeps_its_row() {
+        let drops = entry("0,1,1,1,1,1.5,3,3,3,3,3,3,3,60,13,0,13,13,0,0,0,0");
+
+        assert_eq!(drops.roll(0, 0).map(|roll| roll.rolls), Some(2));
+        assert!(drops.has_materials());
+    }
+
+    #[test]
+    fn a_negative_or_empty_rate_never_rolls() {
+        let drops = entry("0,-1,0,1,1,3,0,3,3,3,3,3,3,60,0,0,0,0,0,0,0,0");
+
+        assert_eq!(drops.roll(0, 0).map(|roll| roll.rolls), Some(0));
+        assert_eq!(drops.roll(1, 2).map(|roll| roll.rolls), Some(0));
+        assert!(!drops.has_materials());
+    }
 }

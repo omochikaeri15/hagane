@@ -1,12 +1,22 @@
+use codex::chapter::map::DropItemEntry;
+
 use crate::{ItemStore, Vfs};
 
 use super::files;
 use super::treasure::ResolvedDrop;
+use super::Stage;
 
 pub const MAT_IDS: [u32; 16] = [
     85, 86, 87, 88, 89, 90, 91, 140,
     187, 188, 189, 190, 191, 192, 193, 194,
 ];
+
+pub fn heading(drops: &DropItemEntry, stage: &Stage, crown: u8) -> String {
+    drops.roll(stage.stage_id as usize, usize::from(crown)).map_or_else(
+        || "Materials".to_owned(),
+        |roll| format!("Materials | Amount: {} ({}\u{d7}{:.2})", roll.rolls, roll.rate, roll.multiplier),
+    )
+}
 
 pub fn resolve(vfs: &Vfs, idx: usize, amt: u32, items: &ItemStore) -> ResolvedDrop {
     let Some(&item_id) = MAT_IDS.get(idx) else {

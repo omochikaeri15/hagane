@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use codex::cat::unit::{LevelCurve, Talent, TalentCost, TalentGroup};
-use codex::combat::{get_talent, targets_traits, Ability, Attribute, AttrUnit, Entity, Identity};
+use codex::combat::{get_talent, range_of, targets_traits, Ability, Attribute, AttrUnit, Entity, Identity};
 
 use crate::common::frames;
 use crate::common::glyphs::ARROW;
@@ -361,6 +361,7 @@ fn process_single_attribute(
             frames::span(low, high)
         }
         AttrUnit::Range | AttrUnit::None => format!("{}", value),
+        AttrUnit::Position => format!("{}", range_of(value)),
     };
 
     handled_attribute_keys.insert(attribute_key);
@@ -382,6 +383,7 @@ fn process_single_attribute(
             frames_delta(new_low - old_low, new_high - old_high)
         }
         AttrUnit::Range | AttrUnit::None => format!("({}{})", prefix_sign, delta_value),
+        AttrUnit::Position => format!("({}{})", prefix_sign, range_of(delta_value)),
     };
 
     strings_changed.push(format!("{}: {} {} {ARROW} {}", attribute_key, format_value(old_value), difference_string, format_value(new_value)));

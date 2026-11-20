@@ -2,7 +2,7 @@ use crate::cat::unit::TalentGroup;
 use crate::files::img015;
 use crate::common::columns::Scale;
 
-use super::{Entity, Faction};
+use super::Entity;
 
 #[derive(PartialEq, Eq, Clone, Copy, Debug, Hash)]
 pub enum AttrUnit {
@@ -10,6 +10,7 @@ pub enum AttrUnit {
     Percent,
     Frames,
     Range,
+    Position,
 }
 
 #[derive(PartialEq, Eq, Clone, Copy, Debug, Hash)]
@@ -238,6 +239,10 @@ fn boosted(value: i32, percent: i32) -> i32 {
     (i64::from(value) * i64::from(percent + 100) / 100) as i32
 }
 
+fn shortened(value: i32, percent: i32) -> i32 {
+    (i64::from(value) * i64::from(100 - percent) / 100) as i32
+}
+
 fn active() -> Vec<Attribute> {
     vec![("Active", AttrValue::Finite(1), AttrUnit::None)]
 }
@@ -250,13 +255,6 @@ fn flag(raw: i32) -> Vec<Attribute> {
     if raw > 0 { active() } else { Vec::new() }
 }
 
-fn wave_reach(stats: &Entity) -> i32 {
-    let base = match stats.faction {
-        Faction::Cat => 332.5,
-        Faction::Enemy => 467.5,
-    };
-    (base + ((stats.wave_level - 1) as f32 * 200.0)).round() as i32
-}
 
 fn has_omni(stats: &Entity) -> bool {
     (stats.long_distance_1_span < 0 || (stats.long_distance_1_span == 0 && stats.long_distance_1_anchor != 0)) ||
@@ -968,7 +966,7 @@ pub static REGISTRY: &[Ability] = &[
         schema: &[
             ("Chance", AttrUnit::Percent),
             ("Level", AttrUnit::None),
-            ("Max Reach", AttrUnit::Range),
+            ("Max Reach", AttrUnit::Position),
         ],
         talent_values: &[TalentValue::new("Chance", AttrUnit::Percent), TalentValue::new("Level", AttrUnit::None)],
         attributes: |stats| {
@@ -976,7 +974,7 @@ pub static REGISTRY: &[Ability] = &[
                 vec![
                     ("Chance", AttrValue::Finite(stats.wave_chance), AttrUnit::Percent),
                     ("Level", AttrValue::Finite(stats.wave_level), AttrUnit::None),
-                    ("Max Reach", AttrValue::Finite(wave_reach(stats)), AttrUnit::Range),
+                    ("Max Reach", AttrValue::Finite(stats.wave_front()), AttrUnit::Position),
                 ]
             } else { Vec::new() }
         },
@@ -993,7 +991,7 @@ pub static REGISTRY: &[Ability] = &[
         schema: &[
             ("Chance", AttrUnit::Percent),
             ("Level", AttrUnit::None),
-            ("Max Reach", AttrUnit::Range),
+            ("Max Reach", AttrUnit::Position),
         ],
         talent_values: &[TalentValue::new("Chance", AttrUnit::Percent), TalentValue::new("Level", AttrUnit::None)],
         attributes: |stats| {
@@ -1001,7 +999,7 @@ pub static REGISTRY: &[Ability] = &[
                 vec![
                     ("Chance", AttrValue::Finite(stats.wave_chance), AttrUnit::Percent),
                     ("Level", AttrValue::Finite(stats.wave_level), AttrUnit::None),
-                    ("Max Reach", AttrValue::Finite(wave_reach(stats)), AttrUnit::Range),
+                    ("Max Reach", AttrValue::Finite(stats.wave_front()), AttrUnit::Position),
                 ]
             } else { Vec::new() }
         },
@@ -1966,7 +1964,7 @@ pub static REGISTRY: &[Ability] = &[
         schema: &[],
         talent_values: &[TalentValue::new("Reduction", AttrUnit::None)],
         attributes: |_| Vec::new(),
-        apply_talent: Some(|stats, reduction, _, _| stats.eoc1_cost = stats.eoc1_cost.saturating_sub(reduction)),
+        apply_talent: Some(|stats, reduction, _, _| stats.eoc1_cost = stats.eoc1_cost.saturating_sub(reduction).max(0)),
     },
     Ability {
         identity: Identity::RecoverSpeedUp,
@@ -1979,7 +1977,7 @@ pub static REGISTRY: &[Ability] = &[
         schema: &[],
         talent_values: &[TalentValue::new("Reduction", AttrUnit::Frames)],
         attributes: |_| Vec::new(),
-        apply_talent: Some(|stats, frames, _, _| stats.cooldown = stats.cooldown.saturating_sub(frames)),
+        apply_talent: Some(|stats, frames, _, _| stats.cooldown = stats.cooldown.saturating_sub(frames).max(0)),
     },
     Ability {
         identity: Identity::MoveSpeedUp,
@@ -2069,10 +2067,7 @@ pub static REGISTRY: &[Ability] = &[
         schema: &[],
         talent_values: &[TalentValue::new("Reduction", AttrUnit::Percent)],
         attributes: |_| Vec::new(),
-        apply_talent: Some(|stats, percent, _, _| {
-            let time_reduction = (stats.attack_cooldown as f32 * percent as f32 / 100.0).round() as i32;
-            stats.attack_cooldown = stats.attack_cooldown.saturating_sub(time_reduction);
-        }),
+        apply_talent: Some(|stats, percent, _, _| stats.attack_cooldown = shortened(stats.attack_cooldown, percent)),
     },
     Ability {
         identity: Identity::ImproveKnockbacks,
@@ -2137,6 +2132,19 @@ mod tests {
         assert_eq!(Stored::Direct.apply(30), 30);
         assert_eq!(Stored::Inverted(100).apply(30), 70);
         assert_eq!(Stored::Inverted(100).apply(Stored::Inverted(100).apply(30)), 30);
+    }
+
+    // The engine floors (100 - cut) * cooldown / 100, so a 6.3 frame cut takes 7, not 6.
+    #[test]
+    fn a_shorter_attack_cooldown_floors_like_the_engine() {
+        let Some(apply) = get_talent(61).and_then(|tba| tba.apply_talent) else {
+            panic!("talent 61 shortens nothing");
+        };
+
+        let mut stats = Entity { attack_cooldown: 42, ..Entity::default() };
+        apply(&mut stats, 15, 0, &TalentGroup::default());
+
+        assert_eq!(stats.attack_cooldown, 35);
     }
 
     #[test]

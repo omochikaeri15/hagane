@@ -7,6 +7,7 @@ use iced::widget::image::Handle;
 use iced::widget::{column, container, image as iced_image, row, space, text, tooltip, Column};
 use iced::{Color, Element, Length, Theme};
 
+use codex::chapter::map::DropItemEntry;
 use foundry::domains::stage::materials;
 use foundry::domains::stage::{Map, Stage};
 use foundry::{ItemStore, Vfs};
@@ -29,7 +30,7 @@ const FALLBACK_TEXT_SIZE: f32 = 11.0;
 const EMPTY_CHANCE_ALPHA: f32 = 0.35;
 
 pub fn has_drops(_stage: &Stage, map: &Map) -> bool {
-    map.drop_items.as_ref().is_some_and(|drops| drops.material_drops.iter().any(|&count| count > 0))
+    map.drop_items.as_ref().is_some_and(DropItemEntry::has_materials)
 }
 
 #[derive(Default)]
@@ -72,11 +73,6 @@ impl State {
             return space().into();
         };
 
-        let stage_idx = stage.stage_id as usize;
-        let base_amount = drops.stage_drops.get(stage_idx).copied().unwrap_or(0);
-        let multiplier = drops.crown_multipliers.get(selected_crown as usize).copied().unwrap_or(1.0);
-        let final_amount = (base_amount as f32 * multiplier).round() as u32;
-
         let base_mats = &drops.material_drops[0..8];
         let z_mats = &drops.material_drops[8..16];
 
@@ -89,7 +85,7 @@ impl State {
             grid_col = self.push_chunks(grid_col, z_mats, 8, items, vfs);
         }
 
-        let panel = container(section(format!("Materials | Amount: {} ({}×{:.2})", final_amount, base_amount, multiplier), Length::Fill, grid_col))
+        let panel = container(section(materials::heading(drops, stage, selected_crown), Length::Fill, grid_col))
             .width(Length::Fixed(MAT_TABLE_WIDTH));
 
         editor::target(panel, editor::Target::MapDrops)

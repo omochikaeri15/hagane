@@ -6,7 +6,7 @@ use tracing::trace;
 use crate::domains::cat::filter::{CatFilterState, FilterCounts, RangeInput, TalentFilterMode};
 use crate::domains::cat::scanner::CatEntry;
 use crate::systems::combat::abilities::talent_grants;
-use crate::systems::combat::comparable;
+use crate::systems::combat::displayed;
 use crate::systems::combat::registry::{get_display_def, AbilityIcon};
 use crate::systems::combat::NameBook;
 
@@ -120,13 +120,13 @@ fn test_single_build_ranges(
     for (attribute_key, target_range) in advanced_ranges_map {
         let attribute_value = active_attributes.iter()
             .find(|(key, _, _)| key == attribute_key)
-            .map_or(0, |(_, value, _)| comparable(*value));
+            .map_or(0.0, |(_, value, unit)| displayed(*value, *unit));
 
-        if target_range.min.parse::<i32>().is_ok_and(|minimum| attribute_value < minimum) {
+        if target_range.min.parse::<i32>().is_ok_and(|minimum| attribute_value < f64::from(minimum)) {
             return false;
         }
 
-        if target_range.max.parse::<i32>().is_ok_and(|maximum| attribute_value > maximum) {
+        if target_range.max.parse::<i32>().is_ok_and(|maximum| attribute_value > f64::from(maximum)) {
             return false;
         }
     }

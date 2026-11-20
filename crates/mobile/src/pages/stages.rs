@@ -1514,14 +1514,11 @@ fn headers_of(labels: &[&str]) -> ModelRc<crate::StatCell> {
 
 fn refresh_materials(ui: &AppWindow, images: &Images, vault: &Arc<Vault>, stage: &Stage, map: &Map, crown: u8) {
     let stages = ui.global::<Stages>();
-    let drops = map.drop_items.as_ref().filter(|drops| drops.material_drops.iter().any(|&count| count > 0));
+    let drops = map.drop_items.as_ref().filter(|drops| drops.has_materials());
     let Some(drops) = drops else {
         stages.set_has_materials(false);
         return;
     };
-    let base_amount = drops.stage_drops.get(stage.stage_id as usize).copied().unwrap_or(0);
-    let multiplier = drops.crown_multipliers.get(usize::from(crown)).copied().unwrap_or(1.0);
-    let final_amount = (base_amount as f32 * multiplier).round() as u32;
     let mut chunks: Vec<ModelRc<MaterialCell>> = Vec::new();
 
     for (offset, slice) in [(0usize, &drops.material_drops[0..8]), (8, &drops.material_drops[8..16])] {
@@ -1547,7 +1544,7 @@ fn refresh_materials(ui: &AppWindow, images: &Images, vault: &Arc<Vault>, stage:
     }
 
     stages.set_has_materials(true);
-    stages.set_materials_title(format!("Materials | Amount: {final_amount} ({base_amount}\u{d7}{multiplier:.2})").into());
+    stages.set_materials_title(materials::heading(drops, stage, crown).into());
     stages.set_material_chunks(ModelRc::new(VecModel::from(chunks)));
 }
 

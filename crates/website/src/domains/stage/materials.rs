@@ -1,5 +1,6 @@
 use dioxus::prelude::*;
 
+use codex::chapter::map::DropItemEntry;
 use foundry::domains::stage::materials;
 use foundry::domains::stage::{Map, Stage};
 
@@ -12,19 +13,16 @@ const MAX_ICON_SIZE: u32 = 32;
 const MATERIAL_BASE_ID: u32 = 10000;
 
 pub(crate) fn has_drops(map: &Map) -> bool {
-    map.drop_items.as_ref().is_some_and(|drops| drops.material_drops.iter().any(|&count| count > 0))
+    map.drop_items.as_ref().is_some_and(DropItemEntry::has_materials)
 }
 
 pub(crate) fn view(stage: &Stage, map: &Map, crown: u8, globals: &Shared) -> Element {
     let Some(drops) = map.drop_items.as_ref().filter(|_| has_drops(map)) else {
         return rsx! {};
     };
-    let base_amount = drops.stage_drops.get(stage.stage_id as usize).copied().unwrap_or(0);
-    let multiplier = drops.crown_multipliers.get(usize::from(crown)).copied().unwrap_or(1.0);
-    let final_amount = (base_amount as f32 * multiplier).round() as u32;
     let base = &drops.material_drops[0..8];
     let zombie = &drops.material_drops[8..16];
-    let title = format!("Materials | Amount: {final_amount} ({base_amount}\u{d7}{multiplier:.2})");
+    let title = materials::heading(drops, stage, crown);
 
     rsx! {
         div { class: "section drop-table materials-table",

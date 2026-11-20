@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use codex::cat::unit::{LevelCurve, UnitBuy};
-use codex::combat::{AttrUnit, Attribute, Entity, Faction, Identity, REGISTRY};
+use codex::combat::{range_of, AttrUnit, Attribute, Entity, Faction, Identity, REGISTRY};
 
 use crate::common::context::GlobalContext;
 use crate::domains::cat::game::stats;
@@ -83,6 +83,7 @@ fn measured(unit: AttrUnit, amount: i32) -> String {
         AttrUnit::Percent => format!("{}%", amount),
         AttrUnit::Frames => format!("{}f", amount),
         AttrUnit::Range | AttrUnit::None => amount.to_string(),
+        AttrUnit::Position => range_of(amount).to_string(),
     }
 }
 

@@ -1,7 +1,9 @@
-use super::Entity;
+use super::{Entity, Faction};
 
 const RANGE_STEPS: f32 = 4.0;
 const STEPS_PER_PIXEL: f32 = 10.0;
+const WAVE_STRIDE: i32 = 800;
+const WAVE_LEAD: i32 = 270;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Span {
@@ -48,6 +50,23 @@ impl Entity {
     pub fn hurtbox(&self) -> Span {
         Span::ordered(self.hitbox_position as f32 / STEPS_PER_PIXEL, pixels(self.hitbox_width))
     }
+
+    pub(crate) fn wave_front(&self) -> i32 {
+        let span = WAVE_STRIDE.saturating_mul(self.wave_level.saturating_add(1));
+
+        match self.faction {
+            Faction::Cat => span.saturating_sub(WAVE_LEAD),
+            Faction::Enemy => span.saturating_add(WAVE_LEAD),
+        }
+    }
+
+    pub fn wave_reach(&self) -> f32 {
+        range_of(self.wave_front())
+    }
+}
+
+pub fn range_of(position: i32) -> f32 {
+    position as f32 / RANGE_STEPS
 }
 
 fn pixels(range: i32) -> f32 {
@@ -95,6 +114,20 @@ mod tests {
         };
 
         assert_eq!(stats.strike_reach(2), Span { near: 0.0, far: 20.0 });
+    }
+
+    // The engine steps a wave 800 positions at a time, and a range unit is four positions,
+    // which is where the community's .5 comes from.
+    #[test]
+    fn a_wave_reaches_the_community_distances() {
+        let cat = |wave_level| Entity { wave_level, ..Entity::default() };
+        let enemy = |wave_level| Entity { faction: Faction::Enemy, wave_level, ..Entity::default() };
+
+        assert_eq!(cat(1).wave_front(), 1330);
+        assert_eq!(cat(1).wave_reach(), 332.5);
+        assert_eq!(cat(3).wave_reach(), 732.5);
+        assert_eq!(enemy(1).wave_reach(), 467.5);
+        assert_eq!(enemy(2).wave_reach(), 667.5);
     }
 
     #[test]

@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-use super::{TreasureData, TreasureEffect, GROUPS, GROUP_STAGES};
+use super::{weaken, TreasureData, TreasureEffect, GROUPS, GROUP_STAGES};
 
 pub const SLOTS: usize = 10;
 
@@ -108,9 +108,7 @@ impl Treasures {
     }
 
     pub fn weakened(&self, stat: i64, levels: &TreasureLevels, effect: TreasureEffect, chapter: Option<usize>) -> i64 {
-        let gap = i64::from(self.uncapped(effect, chapter).wrapping_sub(self.value(levels, effect, chapter)));
-
-        stat.wrapping_add(gap.wrapping_mul(stat) / 100)
+        weaken(stat, self.uncapped(effect, chapter).wrapping_sub(self.value(levels, effect, chapter)))
     }
 
     fn sum(&self, effect: TreasureEffect, chapter: Option<usize>, each: impl Fn(usize, usize, i32) -> i32) -> i32 {
