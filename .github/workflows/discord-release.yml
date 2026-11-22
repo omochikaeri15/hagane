@@ -47,8 +47,8 @@ jobs:
 
           PLATFORMS=()
           if shipped desktop; then PLATFORMS+=("Windows" "Linux" "macOS"); fi
-          if shipped website; then PLATFORMS+=("Web"); fi
           if shipped mobile; then PLATFORMS+=("Android" "iOS"); fi
+          if shipped website; then PLATFORMS+=("Web"); fi
           if shipped bot; then PLATFORMS+=("Bot"); fi
 
           if [ ${#MESSAGE_BODY} -gt 2000 ]; then
