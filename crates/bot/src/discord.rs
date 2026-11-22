@@ -341,7 +341,7 @@ fn percent(share: f32) -> String {
     format!("{}%", (share.clamp(0.0, 1.0) * 100.0) as u32)
 }
 
-fn progress_bar(title: &str, searching: bool, progress: &Progress, elapsed: Duration, prose: Prose) -> String {
+fn progress_bar(title: &str, searching: bool, progress: &Progress, elapsed: Duration) -> String {
     let total = progress.total.load(Ordering::Relaxed);
 
     if searching && total == 0 {
@@ -350,15 +350,15 @@ fn progress_bar(title: &str, searching: bool, progress: &Progress, elapsed: Dura
         let window = progress.window.load(Ordering::Relaxed);
         let count = if window > 0 { format!("{}/{window}", searched.min(window)) } else { searched.to_string() };
 
-        return format!("{title}\n{} • {} • {count}\n{}\nElapsed Time: {} • Estimated Time: under {}", prose::SEARCHING.said(prose), percent(share), bar(share), clock(elapsed), clock(render::LOOP_LIMIT.saturating_sub(elapsed)));
+        return format!("{title}\nSearching • {} • {count}\n{}\nElapsed Time: {} • Estimated Time: under {}", percent(share), bar(share), clock(elapsed), clock(render::LOOP_LIMIT.saturating_sub(elapsed)));
     }
 
     let drawn = progress.drawn.load(Ordering::Relaxed).min(total);
     let done = progress.done.load(Ordering::Relaxed).min(total);
     let share = if total == 0 { 0.0 } else { (drawn + done) as f32 / (2 * total) as f32 };
-    let estimate = if share > 0.0 { clock(Duration::from_secs_f32(elapsed.as_secs_f32() / share * (1.0 - share))) } else { prose::ESTIMATING.said(prose).to_owned() };
+    let estimate = if share > 0.0 { clock(Duration::from_secs_f32(elapsed.as_secs_f32() / share * (1.0 - share))) } else { "working it out".to_owned() };
 
-    format!("{title}\n{} • {} • {done}/{total}\n{}\nElapsed Time: {} • Estimated Time: {estimate}", prose::ENCODING.said(prose), percent(share), bar(share), clock(elapsed))
+    format!("{title}\nEncoding • {} • {done}/{total}\n{}\nElapsed Time: {} • Estimated Time: {estimate}", percent(share), bar(share), clock(elapsed))
 }
 
 async fn animate(ctx: Context<'_>, library: Arc<Library>, set: MotionSet, options: Options, title: String) -> Result<(), Error> {
@@ -401,7 +401,7 @@ async fn animate(ctx: Context<'_>, library: Arc<Library>, set: MotionSet, option
     let searching = options_looping;
     let started = Instant::now();
     let progress = Arc::new(Progress::default());
-    let handle = ctx.send(CreateReply::default().content(progress_bar(&label, searching, &progress, Duration::ZERO, prose))).await?;
+    let handle = ctx.send(CreateReply::default().content(progress_bar(&label, searching, &progress, Duration::ZERO))).await?;
     let mut work = {
         let progress = Arc::clone(&progress);
 
@@ -411,7 +411,7 @@ async fn animate(ctx: Context<'_>, library: Arc<Library>, set: MotionSet, option
         tokio::select! {
             done = &mut work => break done?,
             () = tokio::time::sleep(TICK) => {
-                if let Err(err) = handle.edit(ctx, CreateReply::default().content(progress_bar(&label, searching, &progress, started.elapsed(), prose))).await {
+                if let Err(err) = handle.edit(ctx, CreateReply::default().content(progress_bar(&label, searching, &progress, started.elapsed()))).await {
                     warn!("The progress bar could not be updated: {}", err);
                 }
             }

@@ -147,9 +147,6 @@ pub(crate) const TALENTLESS: Line = Line::new("No talents", "No talents. None. S
 pub(crate) const NOT_A_LEVEL: Line = Line::new("A level looks like `50`, `50+70` or `lv30`", "That's not a level! It looks like `50`, `50+70` or `lv30`, got it?!");
 pub(crate) const PREFIX_SPACED: Line = Line::new("A prefix can't have spaces in it", "A prefix can't have spaces in it, dummy!");
 pub(crate) const PREFIX_LONG: Line = Line::new("A prefix can be {limit} characters at most", "{limit} characters at most! I'm not memorizing a whole speech just for you!");
-pub(crate) const ENCODING: Line = Line::new("Encoding", "Encoding, so be patient!");
-pub(crate) const SEARCHING: Line = Line::new("Searching", "Searching, don't rush me!");
-pub(crate) const ESTIMATING: Line = Line::new("working it out", "how should I know yet?!");
 pub(crate) const HELP_HOME: Line = Line::new("Use `hg!`, mention me, reply to me, or use `/`.\nThe buttons below open each command, or use `hg!help <command>`.", "Use `hg!`, mention me, reply to me, or use `/`. I-It's not like I'm happy when you do!\nThe buttons below open each command, or use `hg!help <command>`. Don't make me explain it twice!");
 pub(crate) const HOME_CAT: Line = Line::new("A cat's statblock or animation, by ID or name", "A cat's statblock or animation, by ID or name. Fine, I'll fetch it");
 pub(crate) const HOME_ENEMY: Line = Line::new("An enemy's statblock or animation, by ID or name", "An enemy's statblock or animation, by ID or name. Don't blame me if it's scary");
@@ -166,7 +163,7 @@ pub(crate) const PAGE_HELP: Line = Line::new("`hg!help` lists every command. `hg
 pub(crate) const DO_NOTHING: Line = Line::new("Okay! I will do nothing", "Fine! I'll do nothing! I-It's not like I wanted to do something for you anyway!");
 
 #[cfg(test)]
-pub(crate) const LINES: [&Line; 48] = [
+pub(crate) const LINES: [&Line; 45] = [
     &NO_CAT,
     &NO_ENEMY,
     &BUSY,
@@ -198,9 +195,6 @@ pub(crate) const LINES: [&Line; 48] = [
     &NOT_A_LEVEL,
     &PREFIX_SPACED,
     &PREFIX_LONG,
-    &ENCODING,
-    &SEARCHING,
-    &ESTIMATING,
     &HELP_HOME,
     &HOME_CAT,
     &HOME_ENEMY,
