@@ -82,7 +82,7 @@ pub(crate) async fn run(config: Config, cache: Cache) -> Result<(), Error> {
         },
         command_check: Some(|ctx| {
             Box::pin(async move {
-                let Some(notice) = refusal(ctx.guild_id(), ctx.author().id) else {
+                let Some(notice) = refusal(ctx.guild_id()) else {
                     return Ok(true);
                 };
 
@@ -112,11 +112,12 @@ pub(crate) async fn run(config: Config, cache: Cache) -> Result<(), Error> {
     Ok(())
 }
 
-fn refusal(guild: Option<serenity::GuildId>, user: serenity::UserId) -> Option<&'static Line> {
-    match guild {
-        Some(guild) => (!allowlist::admits(guild.get())).then_some(&prose::UNLISTED),
-        None => (!allowlist::trusts(user.get())).then_some(&prose::PRIVATE),
-    }
+fn refusal(guild: Option<serenity::GuildId>) -> Option<&'static Line> {
+    guild.filter(|guild| !allowlist::admits(guild.get())).map(|_| &prose::UNLISTED)
+}
+
+fn encodes_for(guild: Option<serenity::GuildId>, user: serenity::UserId) -> bool {
+    guild.is_some() || allowlist::trusts(user.get())
 }
 
 fn prose_of(ctx: Context<'_>) -> Prose {
@@ -160,7 +161,7 @@ async fn on_error(failure: FrameworkError<'_, Data, Error>) {
             }
         }
         FrameworkError::UnknownCommand { msg, framework, .. } => {
-            if let Some(notice) = refusal(msg.guild_id, msg.author.id)
+            if let Some(notice) = refusal(msg.guild_id)
                 && let Err(err) = msg.channel_id.say(framework.serenity_context, notice.said(framework.user_data.book.prose(msg.author.id.get()))).await
             {
                 warn!(guild = msg.guild_id.map(|guild| guild.get()), "The allowlist notice could not be sent: {}", err);
@@ -393,6 +394,11 @@ async fn animate(ctx: Context<'_>, library: Arc<Library>, set: MotionSet, option
             return Ok(());
         }
     };
+    if !encodes_for(ctx.guild_id(), ctx.author().id) {
+        ctx.say(prose::DM_ENCODE.said(prose)).await?;
+        return Ok(());
+    }
+
     let Ok(_encoding) = Arc::clone(&ctx.data().encoder).try_acquire_owned() else {
         ctx.say(prose::BUSY.said(prose)).await?;
         return Ok(());
@@ -1159,16 +1165,18 @@ mod tests {
 
     const ME: serenity::UserId = serenity::UserId::new(42);
 
-    // DMs are for listed users only, and each refusal names the list it's about.
+    // DMs are open to everyone, but only listed users get something new encoded there.
     #[test]
-    fn refusals_name_the_right_list() {
+    fn dms_answer_but_only_encode_for_listed_users() {
         let owner = serenity::UserId::new(1360862647578394704);
         let listed = Some(serenity::GuildId::new(1456204440951455786));
 
-        assert_eq!(refusal(None, owner), None);
-        assert_eq!(refusal(None, ME), Some(&prose::PRIVATE));
-        assert_eq!(refusal(listed, ME), None);
-        assert_eq!(refusal(Some(serenity::GuildId::new(7)), owner), Some(&prose::UNLISTED));
+        assert_eq!(refusal(None), None);
+        assert_eq!(refusal(listed), None);
+        assert_eq!(refusal(Some(serenity::GuildId::new(7))), Some(&prose::UNLISTED));
+        assert!(encodes_for(listed, ME));
+        assert!(encodes_for(None, owner));
+        assert!(!encodes_for(None, ME));
     }
     const SOMEONE: serenity::UserId = serenity::UserId::new(7);
 
@@ -1227,7 +1235,7 @@ mod tests {
             }
         }
 
-        assert!(voiced(HOME, "hagane", Prose::Tsundere).contains("Use `hagane`, mention me, reply to me, or use `/`. I-It's not like I'm happy when you do!"));
+        assert!(voiced(HOME, "hagane", Prose::Tsundere).contains("Use `hagane`, mention me, reply to me, DM me, or use `/`. I-It's not like I'm happy when you do!"));
 
         assert!(shown("cat", "hagane").contains("`haganecat <unit>"));
         assert!(shown("cat", "hg!").contains("`hg!cat <unit>"));

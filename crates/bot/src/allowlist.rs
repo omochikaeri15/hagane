@@ -1,6 +1,7 @@
-const SERVERS: [u64; 2] = [
+const SERVERS: [u64; 3] = [
     1456204440951455786, // Hagane
     348741070990868481, // The Battle Cats Wiki Official Discord
+    1555615248185036820, // Akane Tounji Fanclub
 ];
 
 const USERS: [u64; 1] = [

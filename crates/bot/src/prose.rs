@@ -122,7 +122,7 @@ pub(crate) const BUSY: Line = Line::new("Sorry! But I am busy encoding at the mo
 pub(crate) const WARMING: Line = Line::new("Still loading the game data, try again in a few minutes", "I'm still loading the game data, okay?! Give me a few minutes, geez!");
 pub(crate) const INVITE: Line = Line::new("If you want to invite me to a server, ask my creator to both whitelist your server ID and to provide to you an invite link!", "You want me in your server? Hmph... ask my creator to both whitelist your server ID and to give you an invite link. I-It's not like I want to go or anything!");
 pub(crate) const UNLISTED: Line = Line::new("If you want to enable me in a server, ask my creator to whitelist your server ID!", "I'm not lifting a finger in this server! If you want me that badly, ask my creator to whitelist your server ID!");
-pub(crate) const PRIVATE: Line = Line::new("If you want to use me in DMs, ask my creator to whitelist your user ID!", "W-Why are you messaging me in private?! Ask my creator to whitelist your user ID first, dummy!");
+pub(crate) const DM_ENCODE: Line = Line::new("I only encode new animations in servers! If you want that in DMs, ask my creator to whitelist your user ID!", "I'm not encoding something new for you in private! Do it in a server, or ask my creator to whitelist your user ID, dummy!");
 pub(crate) const NOT_YOURS: Line = Line::new("Only the person who asked can change this one", "Hands off! That one isn't yours, only the person who asked gets to change it!");
 pub(crate) const FAILED: Line = Line::new("Something went wrong on my side", "S-Something went wrong on my side... it's not my fault, okay?!");
 pub(crate) const NO_LOOP: Line = Line::new("Couldn't find loop!", "I looked everywhere and there's no loop! D-Don't look at me like that!");
@@ -147,7 +147,7 @@ pub(crate) const TALENTLESS: Line = Line::new("No talents", "No talents. None. S
 pub(crate) const NOT_A_LEVEL: Line = Line::new("A level looks like `50`, `50+70` or `lv30`", "That's not a level! It looks like `50`, `50+70` or `lv30`, got it?!");
 pub(crate) const PREFIX_SPACED: Line = Line::new("A prefix can't have spaces in it", "A prefix can't have spaces in it, dummy!");
 pub(crate) const PREFIX_LONG: Line = Line::new("A prefix can be {limit} characters at most", "{limit} characters at most! I'm not memorizing a whole speech just for you!");
-pub(crate) const HELP_HOME: Line = Line::new("Use `hg!`, mention me, reply to me, or use `/`.\nThe buttons below open each command, or use `hg!help <command>`.", "Use `hg!`, mention me, reply to me, or use `/`. I-It's not like I'm happy when you do!\nThe buttons below open each command, or use `hg!help <command>`. Don't make me explain it twice!");
+pub(crate) const HELP_HOME: Line = Line::new("Use `hg!`, mention me, reply to me, DM me, or use `/`.\nThe buttons below open each command, or use `hg!help <command>`.", "Use `hg!`, mention me, reply to me, DM me, or use `/`. I-It's not like I'm happy when you do!\nThe buttons below open each command, or use `hg!help <command>`. Don't make me explain it twice!");
 pub(crate) const HOME_CAT: Line = Line::new("A cat's statblock or animation, by ID or name", "A cat's statblock or animation, by ID or name. Fine, I'll fetch it");
 pub(crate) const HOME_ENEMY: Line = Line::new("An enemy's statblock or animation, by ID or name", "An enemy's statblock or animation, by ID or name. Don't blame me if it's scary");
 pub(crate) const HOME_SETTINGS: Line = Line::new("Your language, image format, default form and prefix", "Your language, image format, default form and prefix. Have it your way, see if I care");
@@ -170,7 +170,7 @@ pub(crate) const LINES: [&Line; 45] = [
     &WARMING,
     &INVITE,
     &UNLISTED,
-    &PRIVATE,
+    &DM_ENCODE,
     &NOT_YOURS,
     &FAILED,
     &NO_LOOP,
