@@ -7,12 +7,13 @@ use foundry::domains::cat::scanner::CatEntry;
 use super::fuzzy::Query;
 use super::grammar::Talent;
 use super::library::Library;
+use super::prose::{self, Prose, Trouble};
 
 const ULTRA: u8 = 1;
 
-pub(crate) fn levels(library: &Library, cat: &CatEntry, words: &[Talent]) -> Result<HashMap<u8, u8>, String> {
+pub(crate) fn levels(library: &Library, cat: &CatEntry, words: &[Talent]) -> Result<HashMap<u8, u8>, Trouble> {
     let Some(data) = cat.talent_data.as_ref() else {
-        return Err(format!("{} has no talents", cat.display_name(0)));
+        return Err(Trouble::NoTalents(cat.display_name(0)));
     };
     let ceiling = |index: usize| data.groups.get(index).map_or(0, |group| group.max_level.max(1));
     let clamp = |index: usize, level: u32| u8::try_from(level).unwrap_or(u8::MAX).min(ceiling(index));
@@ -31,7 +32,7 @@ pub(crate) fn levels(library: &Library, cat: &CatEntry, words: &[Talent]) -> Res
             Talent::Show => {}
             Talent::Level(level) => {
                 if cursor >= data.groups.len() {
-                    return Err(format!("{} only has {} talents", cat.display_name(0), data.groups.len()));
+                    return Err(Trouble::FewTalents(cat.display_name(0), data.groups.len()));
                 }
 
                 levels.insert(cursor as u8, clamp(cursor, *level));
@@ -46,7 +47,7 @@ pub(crate) fn levels(library: &Library, cat: &CatEntry, words: &[Talent]) -> Res
                     .filter_map(|(index, group)| Some((index, query.score(&library.talent_name(group.ability_id))?)))
                     .max_by_key(|(_, score)| *score)
                     .map(|(index, _)| index)
-                    .ok_or_else(|| format!("{} has no talent like `{name}`", cat.display_name(0)))?;
+                    .ok_or_else(|| Trouble::NoTalentLike(cat.display_name(0), name.clone()))?;
 
                 levels.insert(index as u8, level.map_or_else(|| ceiling(index), |level| clamp(index, level)));
             }
@@ -60,10 +61,10 @@ pub(crate) fn shows(words: &[Talent]) -> bool {
     words.contains(&Talent::Show)
 }
 
-pub(crate) fn overview(library: &Library, cat: &CatEntry, form: usize) -> String {
+pub(crate) fn overview(library: &Library, cat: &CatEntry, form: usize, prose: Prose) -> String {
     let title = format!("**{}**", cat.display_name(form));
     let Some(data) = cat.talent_data.as_ref() else {
-        return format!("{title}\nNo talents");
+        return format!("{title}\n{}", prose::TALENTLESS.said(prose));
     };
     let rows: Vec<(String, u8)> = data.groups.iter().map(|group| (format!("{}{}", library.talent_name(group.ability_id), if group.limit == ULTRA { " (Ultra)" } else { "" }), group.max_level.max(1))).collect();
     let width = rows.iter().map(|(name, _)| name.width()).max().unwrap_or(0);

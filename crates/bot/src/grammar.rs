@@ -208,7 +208,7 @@ fn unit_of(token: &str, kind: Kind) -> Option<Unit> {
     Some(Unit::Id(id.parse::<u32>().ok()?, Some(form_value(form)?)))
 }
 
-fn level_of(token: &str) -> Option<String> {
+pub(crate) fn level_of(token: &str) -> Option<String> {
     let lowered = lower(token);
     let digits = ["level", "lvl", "lv", "l"].iter().find_map(|prefix| lowered.strip_prefix(prefix)).unwrap_or(&lowered);
     let valid = digits.split('+').all(|term| !term.is_empty() && term.chars().all(|glyph| glyph.is_ascii_digit()));

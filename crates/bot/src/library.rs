@@ -15,6 +15,8 @@ use foundry::common::architecture;
 use foundry::common::context::GlobalContext;
 use foundry::common::formats::{self, SpriteSheet};
 use foundry::common::game;
+use foundry::domains::cat::game::stats::seeded_level;
+use foundry::domains::cat::level;
 use foundry::domains::cat::scanner::{self as cat_scanner, CatEntry};
 use foundry::domains::enemy::scanner::{self as enemy_scanner, EnemyEntry};
 use foundry::domains::settings::{Settings, lang, source};
@@ -61,6 +63,13 @@ pub(crate) struct Library {
 impl Library {
     pub(crate) fn context(&self) -> GlobalContext<'_> {
         GlobalContext { param: &self.param, localizable: &self.localizable, vault: &self.vault, treasure: &self.treasure, names: &self.names }
+    }
+
+    pub(crate) fn level_for(&self, cat: &CatEntry, form: usize) -> String {
+        let (total, input) = seeded_level(cat, &self.settings);
+        let needed = cat.unitbuy.form_level(form);
+
+        if i64::from(needed) > i64::from(total) { level::capped(&needed.to_string(), cat.unitbuy.level_caps()) } else { input }
     }
 
     pub(crate) fn cat(&self, id: u32) -> Option<&CatEntry> {

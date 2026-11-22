@@ -13,11 +13,12 @@ use foundry::systems::statblock::{Fonts, StatblockData, build_statblock_image};
 
 use super::cache::Cache;
 use super::library::Library;
+use super::prose::Trouble;
 
 const STAMP: &str = env!("HAGANE_STATBLOCK_STAMP");
 const EXTENSION: &str = "png";
 
-pub(crate) fn cat(library: &Library, cache: &Cache, cat: &CatEntry, form: usize, level: i32, level_input: &str, talents: Option<&HashMap<u8, u8>>) -> Result<Vec<u8>, String> {
+pub(crate) fn cat(library: &Library, cache: &Cache, cat: &CatEntry, form: usize, level: i32, level_input: &str, talents: Option<&HashMap<u8, u8>>) -> Result<Vec<u8>, Trouble> {
     let subject = CatSubject {
         cat,
         form,
@@ -28,18 +29,18 @@ pub(crate) fn cat(library: &Library, cache: &Cache, cat: &CatEntry, form: usize,
         global: library.context(),
         grants: None,
     };
-    let data = cat_statblock::build(subject).ok_or_else(|| format!("{} has no stats for that form", cat.display_name(form)))?;
+    let data = cat_statblock::build(subject).ok_or_else(|| Trouble::NoStats(cat.display_name(form)))?;
 
     drawn(library, cache, data)
 }
 
-pub(crate) fn enemy(library: &Library, cache: &Cache, enemy: &EnemyEntry, magnification: Magnification) -> Result<Vec<u8>, String> {
+pub(crate) fn enemy(library: &Library, cache: &Cache, enemy: &EnemyEntry, magnification: Magnification) -> Result<Vec<u8>, Trouble> {
     let subject = EnemySubject { enemy, magnification, show_invalid: library.settings.show_invalid_enemies(), global: library.context(), vault: &library.vault };
 
     drawn(library, cache, enemy_statblock::build(subject))
 }
 
-fn drawn(library: &Library, cache: &Cache, data: StatblockData) -> Result<Vec<u8>, String> {
+fn drawn(library: &Library, cache: &Cache, data: StatblockData) -> Result<Vec<u8>, Trouble> {
     let icon = data.icon.as_ref().and_then(|icon| icon.read().ok());
     let shown = StatblockData { icon: None, ..data.clone() };
     let mut recipe = cache.recipe(STAMP);

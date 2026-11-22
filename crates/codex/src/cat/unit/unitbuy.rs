@@ -249,6 +249,15 @@ impl UnitBuy {
         Some((base, u32::try_from(self.level_cap_plus).unwrap_or(0)))
     }
 
+    pub fn form_level(&self, form: usize) -> u32 {
+        [(1, self.evolved_form_unlock_level), (2, self.true_form_obtain_level), (2, self.true_form_unlock_level), (3, self.ultra_form_unlock_level)]
+            .into_iter()
+            .filter(|(unlocked, _)| *unlocked <= form)
+            .filter_map(|(_, level)| u32::try_from(level).ok())
+            .max()
+            .unwrap_or(0)
+    }
+
     pub fn egg_ids(&self) -> (Option<u16>, Option<u16>) {
         (
             u16::try_from(self.egg_id_normal).ok(),
@@ -475,6 +484,16 @@ mod tests {
             .filter(|(key, value)| baseline.get(*key) != Some(*value))
             .map(|(key, _)| key.clone())
             .collect()
+    }
+
+    // A form needs the highest level of every step up to it, and a column of -1 asks for nothing.
+    #[test]
+    fn a_form_needs_every_level_on_the_way_to_it() {
+        let buy = UnitBuy { evolved_form_unlock_level: 10, true_form_unlock_level: 30, ultra_form_unlock_level: 60, ..UnitBuy::default() };
+
+        assert_eq!([buy.form_level(0), buy.form_level(1), buy.form_level(2), buy.form_level(3)], [0, 10, 30, 60]);
+        assert_eq!(UnitBuy { evolved_form_unlock_level: 10, true_form_obtain_level: 30, ..UnitBuy::default() }.form_level(2), 30);
+        assert_eq!(UnitBuy { evolved_form_unlock_level: 10, ..UnitBuy::default() }.form_level(3), 10);
     }
 
     #[test]

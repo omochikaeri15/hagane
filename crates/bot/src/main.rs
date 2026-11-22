@@ -6,6 +6,7 @@ mod fuzzy;
 mod grammar;
 mod library;
 mod prefs;
+mod prose;
 mod render;
 mod statblock;
 mod talents;

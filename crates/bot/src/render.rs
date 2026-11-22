@@ -20,6 +20,7 @@ use foundry::systems::animation::{Loop, Motion, MotionSet, Placement, Role, loop
 use super::cache::{Cache, Key};
 use super::grammar::{Looping, Overlays};
 use super::library::Library;
+use super::prose::Trouble;
 
 const STAMP: &str = env!("HAGANE_ANIMATION_STAMP");
 const QUALITY: u32 = 80;
@@ -35,8 +36,6 @@ const FILE_NAME: &str = "name";
 const OVERLAY_MARGIN: f32 = 2.0;
 pub(crate) const MAX_FRAMES: i32 = 8400;
 const NO_CULL: i32 = 0;
-pub(crate) const NO_LOOP: &str = "Couldn't find loop!";
-pub(crate) const TOO_LONG: &str = "That one took too long to encode!";
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub(crate) enum Clip {
@@ -197,15 +196,15 @@ fn read(source: &Source) -> Result<Arc<[u8]>, String> {
     source.read().map_err(|err| format!("{} could not be read: {err}", source.path.display()))
 }
 
-fn too_many(frames: i32) -> Result<(), String> {
+fn too_many(frames: i32) -> Result<(), Trouble> {
     if frames > MAX_FRAMES {
-        return Err(format!("That's {frames} frames, and the most I'll make is {MAX_FRAMES}"));
+        return Err(Trouble::TooMany { frames, limit: MAX_FRAMES });
     }
 
     Ok(())
 }
 
-pub(crate) fn plan(library: &Library, cache: &Cache, set: &MotionSet, options: &Options) -> Result<Option<Planned>, String> {
+pub(crate) fn plan(library: &Library, cache: &Cache, set: &MotionSet, options: &Options) -> Result<Option<Planned>, Trouble> {
     let motions = chosen(set, options.clip);
     let Some(first) = motions.first() else {
         return Ok(None);
@@ -325,7 +324,7 @@ impl Job {
         }
     }
 
-    fn span(&self, first: &Track, progress: &Progress) -> Result<Span, String> {
+    fn span(&self, first: &Track, progress: &Progress) -> Result<Span, Trouble> {
         if let Some(looping) = self.looping {
             let deadline = Instant::now() + LOOP_LIMIT;
             let (from, to) = self.range.unwrap_or((0, i32::MAX));
@@ -342,7 +341,7 @@ impl Job {
                 progress.searched.store(u32::try_from(searched.max(0)).unwrap_or(u32::MAX), Ordering::Relaxed);
                 Instant::now() < deadline
             };
-            let cycle = self.rig.calculate_cycle_between(&first.anim, looping.difference as f32, Some(looping.minimum), from, to, searching).ok_or(NO_LOOP)?;
+            let cycle = self.rig.calculate_cycle_between(&first.anim, looping.difference as f32, Some(looping.minimum), from, to, searching).ok_or(Trouble::NoLoop)?;
 
             return Ok(Span::Loop(cycle.start, cycle.end));
         }
@@ -372,11 +371,11 @@ impl Job {
         process::file_name(&self.prefix, matches!(span, Span::Showcase(_)), from, to, &self.format.export())
     }
 
-    pub(crate) fn run(self, cache: &Cache, progress: &Progress) -> Result<(Vec<u8>, String), String> {
+    pub(crate) fn run(self, cache: &Cache, progress: &Progress) -> Result<(Vec<u8>, String), Trouble> {
         let started = Instant::now();
         let offset = Placement::default().offset(self.rig.model.alignment.len());
         let Some(first) = self.tracks.first() else {
-            return Err("the animation has no frames".to_owned());
+            return Err(Trouble::Other("the animation has no frames".to_owned()));
         };
         let span = self.span(first, progress)?;
         let frames = span.frames();
@@ -384,7 +383,7 @@ impl Job {
         too_many(frames)?;
 
         if frames <= 0 {
-            return Err("the animation has no frames".to_owned());
+            return Err(Trouble::Other("the animation has no frames".to_owned()));
         }
 
         progress.total.store(u32::try_from(frames).unwrap_or(0), Ordering::Relaxed);
@@ -407,8 +406,8 @@ impl Job {
             .collect();
         let sprite = match find_bounds::search(&self.rig, &swept, self.tolerance, offset, &ProgressCounter::default(), &abort) {
             BoundsOutcome::Found(bounds) => bounds,
-            BoundsOutcome::Empty => return Err("nothing visible was found to export".to_owned()),
-            BoundsOutcome::Aborted => return Err("the bounds search stopped".to_owned()),
+            BoundsOutcome::Empty => return Err(Trouble::NoBounds),
+            BoundsOutcome::Aborted => return Err(Trouble::Other("the bounds search stopped".to_owned())),
         };
         let lengths = self.lengths();
         let (mode, frame_start, frame_end) = match span {
@@ -453,7 +452,7 @@ impl Job {
         let height = (bottom - sprite.min_y).round() as u32;
 
         if width == 0 || height == 0 {
-            return Err("the animation has no visible area".to_owned());
+            return Err(Trouble::Other("the animation has no visible area".to_owned()));
         }
 
         let scratch: PathBuf = cache.scratch(&self.key, self.format.extension());
@@ -558,11 +557,11 @@ impl Job {
 
         if encoder_abort.load(Ordering::Relaxed) {
             warn!(set = self.name, clip = self.clip.slug(), frames, seconds = started.elapsed().as_secs(), "An animation hit the time limit");
-            return Err(TOO_LONG.to_owned());
+            return Err(Trouble::TooLong);
         }
 
         if !scratch.exists() {
-            return Err("the encoder did not produce a file".to_owned());
+            return Err(Trouble::Other("the encoder did not produce a file".to_owned()));
         }
 
         info!(set = self.name, clip = self.clip.slug(), format = self.format.extension(), width, height, frames, ms = started.elapsed().as_millis(), "Animation exported");
