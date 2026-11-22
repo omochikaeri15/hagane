@@ -1,6 +1,5 @@
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
-use std::thread;
 use std::time::{Duration, Instant};
 
 use poise::serenity_prelude as serenity;
@@ -25,14 +24,20 @@ use super::grammar::{self, Kind, Motion, Request, Stats, Unit, Want};
 use super::library::{self, Catalog, Library, Remote};
 use super::prefs::{self, Book, FORMS, Prefs, Search};
 use super::render::{self, Format, Options, Planned, Progress};
+use super::statblock;
 use super::talents;
 
 const PREFIX: &str = "hg!";
 const REFRESH: Duration = Duration::from_secs(60 * 60);
-const TICK: Duration = Duration::from_secs(2);
+const TICK: Duration = Duration::from_secs(1);
 const BAR: usize = 24;
 const TRUE_FORM: usize = 2;
-const LICENSES: &[u8] = include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/../foundry/assets/licenses.txt"));
+const LICENSES: &str = concat!(
+    "========================================================================\nHAGANE\n========================================================================\n",
+    include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../LICENSE")),
+    "\n",
+    include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../foundry/assets/licenses.txt")),
+);
 const WARMING: &str = "Still loading the game data, try again in a few minutes";
 const INVITE: &str = "If you want to invite me to a server, ask my creator to both whitelist your server ID and to provide to you an invite link!";
 const LEGAL: &str = "Not affiliated with PONOS Corp.";
@@ -45,6 +50,7 @@ const TALENT_HINT: &str = "all, standard, ultra, none, show, 10 10 5 or Attack B
 const EMBED_COLOR: u32 = 0x2468A8;
 const WEBSITE: &str = "https://hagane.app/";
 const OPEN_SETTINGS: &str = "set|open";
+const BUSY: &str = "Sorry! But I am busy encoding at the moment; check back later maybe?";
 const UPLOAD_LIMIT: usize = 20 * 1024 * 1024;
 const MEGABYTE: f64 = 1024.0 * 1024.0;
 
@@ -56,14 +62,14 @@ type Guard = OwnedRwLockReadGuard<Option<Arc<Catalog>>>;
 pub(crate) struct Data {
     shelf: Shelf,
     cache: Arc<Cache>,
-    lanes: Arc<Semaphore>,
+    sheets: Arc<Semaphore>,
+    encoder: Arc<Semaphore>,
     book: Arc<Book>,
 }
 
 pub(crate) async fn run(config: Config, cache: Cache) -> Result<(), Error> {
     let shelf: Shelf = Arc::new(RwLock::new(None));
-    let lanes = Arc::new(Semaphore::new(thread::available_parallelism().map_or(1, usize::from)));
-    let data = Data { shelf: Arc::clone(&shelf), cache: Arc::new(cache), lanes, book: Arc::new(Book::open()) };
+    let data = Data { shelf: Arc::clone(&shelf), cache: Arc::new(cache), sheets: Arc::new(Semaphore::new(1)), encoder: Arc::new(Semaphore::new(1)), book: Arc::new(Book::open()) };
 
     tokio::spawn(keep_fresh(config.source, shelf));
 
@@ -214,7 +220,7 @@ async fn open(data: &Data, language: &str) -> Result<Option<(Guard, Arc<Library>
 }
 
 async fn blocking<T: Send + 'static>(data: &Data, job: impl FnOnce() -> T + Send + 'static) -> Result<T, Error> {
-    let _lane = Arc::clone(&data.lanes).acquire_owned().await?;
+    let _sheet = Arc::clone(&data.sheets).acquire_owned().await?;
 
     Ok(task::spawn_blocking(job).await?)
 }
@@ -255,8 +261,7 @@ fn sheet_png(library: &Library, cache: &Cache, sheet: &Sheet) -> Result<(Vec<u8>
     let caps = cat.unitbuy.level_caps();
     let shown = level::capped(&sheet.level, caps);
     let levels = sheet.talents.as_deref().and_then(talents::decoded);
-    let parts: [&[u8]; 5] = [b"cat", &sheet.id.to_le_bytes(), &sheet.form.to_le_bytes(), shown.as_bytes(), sheet.talents.as_deref().unwrap_or("-").as_bytes()];
-    let bytes = render::remembered(library, cache, &parts, || render::cat_statblock(library, cat, sheet.form, level::total(&shown, caps), &shown, levels.as_ref()))?;
+    let bytes = statblock::cat(library, cache, cat, sheet.form, level::total(&shown, caps), &shown, levels.as_ref())?;
 
     Ok((bytes, format!("{}.png", cat.id_str(sheet.form))))
 }
@@ -377,12 +382,15 @@ async fn animate(ctx: Context<'_>, library: Arc<Library>, set: MotionSet, option
             return Ok(());
         }
     };
+    let Ok(_encoding) = Arc::clone(&ctx.data().encoder).try_acquire_owned() else {
+        ctx.say(BUSY).await?;
+        return Ok(());
+    };
     let label = format!("{title} • {} • {}", clip.motion(), format.label());
     let searching = options_looping;
     let started = Instant::now();
     let progress = Arc::new(Progress::default());
     let handle = ctx.send(CreateReply::default().content(progress_bar(&label, searching, &progress, Duration::ZERO))).await?;
-    let _lane = Arc::clone(&ctx.data().lanes).acquire_owned().await?;
     let mut work = {
         let progress = Arc::clone(&progress);
 
@@ -553,9 +561,7 @@ async fn enemy(ctx: Context<'_>, #[description = "ID or name, then stats or anim
 
                 blocking(ctx.data(), move || {
                     let enemy = library.enemy(id).ok_or(NO_ENEMY)?;
-                    let parts: [&[u8]; 4] = [b"enemy", &id.to_le_bytes(), &hitpoints.to_le_bytes(), &attack.to_le_bytes()];
-
-                    render::remembered(&library, &cache, &parts, || render::enemy_statblock(&library, enemy, Magnification { hitpoints, attack })).map(|bytes| (bytes, format!("{}.png", enemy.id_str())))
+                    statblock::enemy(&library, &cache, enemy, Magnification { hitpoints, attack }).map(|bytes| (bytes, format!("{}.png", enemy.id_str())))
                 })
                 .await?
             };
@@ -636,7 +642,7 @@ fn page(title: &str, description: &str) -> serenity::CreateEmbed {
 const CLIPS: &str = "`attack` (`atk`, `a`), `idle` (`i`), `walk` (`w`), `knockback` (`kb`, `k`), `showcase` (`sh`, `sc`), `burrow` (`bur`, `b`), `surface` (`su`, `sf`, `rise`, `r`), `dig` (`d`), `spirit` (`sp`, `c`, `conjure`). Attack if none is given.";
 const MOTION_FLAGS: &str = "`--range 0~30` or `--range 0 30` (`-r`): frames to export, wrapping around the loop; not for showcases
 `--loop` (`-l`), walk and idle only: finds a perfect loop; `min 15`, `max 200` and `diff 30` tune it, and with `--range` it only searches that window
-`--format webp` (`-f`): `avif`, `webp` or `gif`, this time only, over your default
+`--format webp` (`-f`): `avif` (`a`), `webp` (`w`) or `gif` (`g`), this time only, over your default
 `--background` (`-b`): a solid gray background instead of a transparent one
 `--quality 90` (`-q`): 0 to 100, 80 to start
 `--compress 30` (`-p`): 0 to 100, 0 to start; higher takes longer
@@ -694,7 +700,7 @@ async fn invite(ctx: Context<'_>) -> Result<(), Error> {
 
 #[poise::command(slash_command, prefix_command, aliases("license", "l"))]
 async fn legal(ctx: Context<'_>) -> Result<(), Error> {
-    ctx.send(file(LICENSES.to_vec(), "licenses.txt".to_owned()).content(LEGAL)).await?;
+    ctx.send(file(LICENSES.as_bytes().to_vec(), "licenses.txt".to_owned()).content(LEGAL)).await?;
     Ok(())
 }
 

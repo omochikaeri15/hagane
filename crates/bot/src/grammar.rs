@@ -382,10 +382,10 @@ fn motion_of(tokens: &[&str]) -> Result<Motion, String> {
             "--range" | "-r" => motion.range = Some(range_of(tokens, &mut at)?),
             "--format" | "-f" => {
                 motion.format = match tokens.get(at).map(|next| lower(next)).as_deref() {
-                    Some("avif") => Some(Format::Avif),
-                    Some("webp") => Some(Format::WebP),
-                    Some("gif") => Some(Format::Gif),
-                    _ => return Err("`--format` takes `avif`, `webp` or `gif`".to_owned()),
+                    Some("avif" | "a") => Some(Format::Avif),
+                    Some("webp" | "w") => Some(Format::WebP),
+                    Some("gif" | "g") => Some(Format::Gif),
+                    _ => return Err("`--format` takes `avif` (`a`), `webp` (`w`) or `gif` (`g`)".to_owned()),
                 };
                 at += 1;
             }
@@ -547,6 +547,8 @@ mod tests {
         assert!(parse("25 a -m 5", Kind::Cat).is_err(), "-m is not a flag");
         assert_eq!(motion("25 -q 50").quality, Some(50), "a quality flag means animation");
         assert_eq!(motion("25 a --background --format GIF").format, Some(Format::Gif));
+        assert_eq!([motion("25 -f a").format, motion("25 -f w").format, motion("25 -f G").format], [Some(Format::Avif), Some(Format::WebP), Some(Format::Gif)]);
+        assert_eq!(motion("bahamut cat -f a").format, Some(Format::Avif), "the a after -f is the format, not the animation keyword");
         assert_eq!(motion("25 a").clip, Clip::Attack);
         assert_eq!(motion("25 a r").clip, Clip::Surface);
     }

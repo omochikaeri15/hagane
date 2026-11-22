@@ -1,5 +1,4 @@
 use std::collections::HashMap;
-use std::env;
 use std::fmt::Write as _;
 use std::fs::{self, File};
 use std::io;
@@ -15,7 +14,6 @@ const PARTIAL: &str = "partial";
 pub(crate) struct Cache {
     dir: PathBuf,
     cap: u64,
-    build: [u8; 32],
     held: Mutex<Held>,
 }
 
@@ -80,19 +78,18 @@ impl Cache {
 
         info!(files = held.entries.len(), megabytes = held.total / (1024 * 1024), cap_megabytes = cap / (1024 * 1024), "Cache opened");
 
-        let cache = Self { dir, cap, build: build_hash(), held: Mutex::new(held) };
+        let cache = Self { dir, cap, held: Mutex::new(held) };
 
         cache.evict();
 
         Ok(cache)
     }
 
-    pub(crate) fn recipe(&self) -> Recipe {
-        let mut hasher = Sha256::new();
+    pub(crate) fn recipe(&self, stamp: &str) -> Recipe {
+        let mut recipe = Recipe(Sha256::new());
 
-        hasher.update(self.build);
-
-        Recipe(hasher)
+        recipe.add(stamp.as_bytes());
+        recipe
     }
 
     pub(crate) fn get(&self, key: &Key, extension: &str) -> Option<Vec<u8>> {
@@ -186,13 +183,4 @@ impl Cache {
 
 fn file_name(key: &Key, extension: &str) -> String {
     format!("{}.{}", key.0, extension)
-}
-
-fn build_hash() -> [u8; 32] {
-    let bytes = env::current_exe().and_then(fs::read).unwrap_or_else(|err| {
-        warn!("The running binary could not be read for the cache key, keys fall back to the version: {}", err);
-        env!("CARGO_PKG_VERSION").as_bytes().to_vec()
-    });
-
-    Sha256::digest(bytes).into()
 }

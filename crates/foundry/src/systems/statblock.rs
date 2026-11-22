@@ -11,7 +11,7 @@ pub use render::{Fonts, build_statblock_image};
 #[cfg(feature = "disk")]
 pub use render::save_to_disk;
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct SpiritData {
     pub dmg_text: String,
     pub traits: Vec<AbilityItem>,
@@ -22,13 +22,13 @@ pub struct SpiritData {
     pub footer: Vec<AbilityItem>,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub enum StatCell {
     Text(String),
     Frames(i32),
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct StatblockData {
     pub is_cat: bool,
     pub id_str: String,

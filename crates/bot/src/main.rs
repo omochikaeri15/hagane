@@ -7,6 +7,7 @@ mod grammar;
 mod library;
 mod prefs;
 mod render;
+mod statblock;
 mod talents;
 
 use std::io::{self, IsTerminal};

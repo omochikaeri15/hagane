@@ -7,6 +7,7 @@ use std::time::Instant;
 
 use codex::combat::{Faction, get_talent};
 use codex::files::{Localizable, Param};
+use sha2::{Digest, Sha256};
 use tracing::{error, info, warn};
 
 use foundry::Vault;
@@ -39,18 +40,18 @@ impl Catalog {
         let language = if lang::choices().any(|(code, _)| code == language) { language } else { ENGLISH };
         let mut books = self.books.lock().unwrap_or_else(PoisonError::into_inner);
 
-        Arc::clone(books.entry(language.to_owned()).or_insert_with(|| Arc::new(load(language, &self.payload))))
+        Arc::clone(books.entry(language.to_owned()).or_insert_with(|| Arc::new(load(language))))
     }
 }
 
 pub(crate) struct Library {
-    pub(crate) payload: String,
     pub(crate) language: String,
     pub(crate) vault: Arc<Vault>,
     pub(crate) settings: Settings,
     pub(crate) cats: Vec<CatEntry>,
     pub(crate) enemies: Vec<EnemyEntry>,
     pub(crate) sheets: Vec<SpriteSheet>,
+    pub(crate) icons: [u8; 32],
     param: Param,
     localizable: Localizable,
     names: NameBook,
@@ -157,7 +158,7 @@ pub(crate) fn download(link: &str) -> Result<String, String> {
     Ok(stamp.id)
 }
 
-fn load(language: &str, payload: &str) -> Library {
+fn load(language: &str) -> Library {
     let started = Instant::now();
     let mut settings = Settings::default();
 
@@ -184,8 +185,29 @@ fn load(language: &str, payload: &str) -> Library {
     let catalog = vault.vds.treasures.catalog(&vault.vfs);
     let treasure = Bonus::resolve(&catalog, &settings.general.treasures);
     let sheets = formats::sheets(&vault.vfs, ICONS);
+    let icons = drawn_from(&sheets);
 
     info!(language, cats = cats.len(), enemies = enemies.len(), ms = started.elapsed().as_millis(), "Game data loaded");
 
-    Library { payload: payload.to_owned(), language: language.to_owned(), vault, settings, cats, enemies, sheets, param, localizable, names, treasure }
+    Library { language: language.to_owned(), vault, settings, cats, enemies, sheets, icons, param, localizable, names, treasure }
+}
+
+fn drawn_from(sheets: &[SpriteSheet]) -> [u8; 32] {
+    let mut hasher = Sha256::new();
+
+    for sheet in sheets {
+        let mut cuts: Vec<_> = sheet.cuts_map.iter().collect();
+
+        cuts.sort_by_key(|(id, _)| **id);
+        hasher.update(sheet.sheet_name.as_bytes());
+        hasher.update(format!("{cuts:?}").as_bytes());
+
+        if let Some(image) = sheet.image_data.as_deref() {
+            hasher.update(image.width().to_le_bytes());
+            hasher.update(image.height().to_le_bytes());
+            hasher.update(image.as_raw());
+        }
+    }
+
+    hasher.finalize().into()
 }

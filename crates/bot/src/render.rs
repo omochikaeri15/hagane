@@ -1,5 +1,3 @@
-use std::collections::HashMap;
-use std::io::Cursor;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::{Arc, mpsc};
@@ -8,28 +6,22 @@ use std::time::{Duration, Instant};
 
 use codex::graphics::animate::resolve_frame;
 use codex::graphics::rig::{Animation, Rig};
-use image::ImageFormat;
 use serde::{Deserialize, Serialize};
 use tracing::{error, info, warn};
 
 use foundry::Source;
 use foundry::common::job::ProgressCounter;
 use foundry::domains::settings::{AnimSettings, CombatLook};
-use foundry::domains::cat::scanner::CatEntry;
-use foundry::domains::cat::statblock::{self as cat_statblock, Subject as CatSubject};
-use foundry::domains::enemy::scanner::EnemyEntry;
-use foundry::domains::enemy::statblock::{self as enemy_statblock, Subject as EnemySubject};
 use foundry::systems::animation::export::process::{self, calculate_export_time};
 use foundry::systems::animation::export::{BACKGROUND, BoundsOutcome, EncoderMessage, EncoderStatus, ExportConfig, ExportFormat, ExportMode, FrameTiming, ShowcaseLengths, find_bounds, leader};
 use foundry::systems::animation::collision::{self, Combatant, Mark};
 use foundry::systems::animation::{Loop, Motion, MotionSet, Placement, Role, loop_frame, name_prefix, overlay, paint, playback_frames};
-use foundry::systems::combat::registry::Magnification;
-use foundry::systems::statblock::{Fonts, StatblockData, build_statblock_image};
 
 use super::cache::{Cache, Key};
 use super::grammar::{Looping, Overlays};
 use super::library::Library;
 
+const STAMP: &str = env!("HAGANE_ANIMATION_STAMP");
 const QUALITY: u32 = 80;
 const COMPRESSION: u32 = 0;
 pub(crate) const LOOP_LIMIT: Duration = Duration::from_secs(5);
@@ -42,7 +34,6 @@ const JOB_LIMIT: Duration = Duration::from_secs(180);
 const FILE_NAME: &str = "name";
 const OVERLAY_MARGIN: f32 = 2.0;
 pub(crate) const MAX_FRAMES: i32 = 8400;
-const STATBLOCK: &str = "png";
 const NO_CULL: i32 = 0;
 pub(crate) const NO_LOOP: &str = "Couldn't find loop!";
 pub(crate) const TOO_LONG: &str = "That one took too long to encode!";
@@ -145,63 +136,6 @@ pub(crate) struct Progress {
     pub(crate) total: AtomicU32,
 }
 
-pub(crate) fn cat_statblock(library: &Library, cat: &CatEntry, form: usize, level: i32, level_input: &str, talents: Option<&HashMap<u8, u8>>) -> Result<Vec<u8>, String> {
-    let subject = CatSubject {
-        cat,
-        form,
-        current_level: level,
-        level_input,
-        talent_levels: talents,
-        is_conjure_expanded: true,
-        global: library.context(),
-        grants: None,
-    };
-    let data = cat_statblock::build(subject).ok_or_else(|| format!("{} has no stats for that form", cat.display_name(form)))?;
-
-    png(library, data)
-}
-
-pub(crate) fn enemy_statblock(library: &Library, enemy: &EnemyEntry, magnification: Magnification) -> Result<Vec<u8>, String> {
-    let subject = EnemySubject { enemy, magnification, show_invalid: library.settings.show_invalid_enemies(), global: library.context(), vault: &library.vault };
-
-    png(library, enemy_statblock::build(subject))
-}
-
-pub(crate) fn remembered(library: &Library, cache: &Cache, parts: &[&[u8]], make: impl FnOnce() -> Result<Vec<u8>, String>) -> Result<Vec<u8>, String> {
-    if library.payload.is_empty() {
-        return make();
-    }
-
-    let mut recipe = cache.recipe();
-
-    for part in [b"statblock".as_slice(), library.payload.as_bytes(), library.language.as_bytes()].into_iter().chain(parts.iter().copied()) {
-        recipe.add(part);
-    }
-
-    let key = recipe.finish();
-
-    if let Some(bytes) = cache.get(&key, STATBLOCK) {
-        return Ok(bytes);
-    }
-
-    let bytes = make()?;
-
-    if let Err(err) = cache.keep(&key, STATBLOCK, &bytes) {
-        warn!("A statblock could not be cached: {}", err);
-    }
-
-    Ok(bytes)
-}
-
-fn png(library: &Library, data: StatblockData) -> Result<Vec<u8>, String> {
-    let image = build_statblock_image(&library.settings.general.language_priority, &library.sheets, data, &Fonts::embedded())?;
-    let mut bytes = Vec::new();
-
-    image.write_to(&mut Cursor::new(&mut bytes), ImageFormat::Png).map_err(|err| format!("the statblock could not be encoded: {err}"))?;
-
-    Ok(bytes)
-}
-
 struct Track {
     role: Option<Role>,
     anim: Animation,
@@ -277,8 +211,12 @@ pub(crate) fn plan(library: &Library, cache: &Cache, set: &MotionSet, options: &
         return Ok(None);
     };
     let defaults = &library.settings.animation;
-    let mut recipe = cache.recipe();
+    let mut recipe = cache.recipe(STAMP);
     let mut tracks = Vec::with_capacity(motions.len());
+
+    recipe.add(set.name.as_bytes());
+    recipe.add(&serde_json::to_vec(defaults).map_err(|err| format!("the animation settings could not be read: {err}"))?);
+    recipe.add(format!("{:?}", defaults.combat_look()).as_bytes());
 
     for motion in &motions {
         let Some(file) = motion.file.as_ref() else { continue };
@@ -294,6 +232,7 @@ pub(crate) fn plan(library: &Library, cache: &Cache, set: &MotionSet, options: &
         };
 
         recipe.add(&bytes);
+        recipe.add(format!("{:?}", (motion.role, motion.looping, &motion.combat, motion.slug())).as_bytes());
         tracks.push(Track { role: motion.role, anim, looping: motion.looping, length, combat: motion.combat.clone() });
     }
 
