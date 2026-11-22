@@ -1,4 +1,3 @@
-mod allowlist;
 mod cache;
 mod config;
 mod discord;
@@ -10,6 +9,7 @@ mod prose;
 mod render;
 mod statblock;
 mod talents;
+mod whitelist;
 
 use std::io::{self, IsTerminal};
 use std::process::ExitCode;

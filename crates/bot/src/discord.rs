@@ -16,7 +16,7 @@ use foundry::domains::settings::lang;
 use foundry::systems::animation::MotionSet;
 use foundry::systems::combat::registry::Magnification;
 
-use super::allowlist;
+use super::whitelist;
 use super::cache::Cache;
 use super::config::Config;
 use super::grammar::{self, Kind, Motion, Request, Stats, Unit, Want};
@@ -113,11 +113,11 @@ pub(crate) async fn run(config: Config, cache: Cache) -> Result<(), Error> {
 }
 
 fn refusal(guild: Option<serenity::GuildId>) -> Option<&'static Line> {
-    guild.filter(|guild| !allowlist::admits(guild.get())).map(|_| &prose::UNLISTED)
+    guild.filter(|guild| !whitelist::admits(guild.get())).map(|_| &prose::UNLISTED)
 }
 
 fn encodes_for(guild: Option<serenity::GuildId>, user: serenity::UserId) -> bool {
-    guild.is_some() || allowlist::trusts(user.get())
+    guild.is_some() || whitelist::trusts(user.get())
 }
 
 fn prose_of(ctx: Context<'_>) -> Prose {
@@ -164,7 +164,7 @@ async fn on_error(failure: FrameworkError<'_, Data, Error>) {
             if let Some(notice) = refusal(msg.guild_id)
                 && let Err(err) = msg.channel_id.say(framework.serenity_context, notice.said(framework.user_data.book.prose(msg.author.id.get()))).await
             {
-                warn!(guild = msg.guild_id.map(|guild| guild.get()), "The allowlist notice could not be sent: {}", err);
+                warn!(guild = msg.guild_id.map(|guild| guild.get()), "The whitelist notice could not be sent: {}", err);
             }
         }
         FrameworkError::CommandCheckFailed { .. } => {}
@@ -846,12 +846,12 @@ async fn settings(ctx: Context<'_>) -> Result<(), Error> {
 
 async fn on_event(ctx: &serenity::Context, event: &serenity::FullEvent, data: &Data) -> Result<(), Error> {
     match event {
-        serenity::FullEvent::GuildCreate { guild, .. } if !allowlist::admits(guild.id.get()) => {
-            warn!(guild = guild.id.get(), name = guild.name, "Leaving a server that is not on the allowlist");
+        serenity::FullEvent::GuildCreate { guild, .. } if !whitelist::admits(guild.id.get()) => {
+            warn!(guild = guild.id.get(), name = guild.name, "Leaving a server that is not on the whitelist");
             tell_unlisted(ctx, guild).await;
 
             if let Err(err) = guild.id.leave(ctx).await {
-                error!(guild = guild.id.get(), "Could not leave a server that is not on the allowlist: {}", err);
+                error!(guild = guild.id.get(), "Could not leave a server that is not on the whitelist: {}", err);
             }
         }
         serenity::FullEvent::InteractionCreate { interaction: serenity::Interaction::Component(press) } => on_press(ctx, press, data).await?,
@@ -885,7 +885,7 @@ async fn tell_unlisted(ctx: &serenity::Context, guild: &serenity::Guild) {
         }
     }
 
-    warn!(guild = guild.id.get(), "No channel would take the allowlist notice");
+    warn!(guild = guild.id.get(), "No channel would take the whitelist notice");
 }
 
 async fn refuse(ctx: &serenity::Context, press: &serenity::ComponentInteraction, data: &Data) -> Result<(), Error> {
