@@ -66,9 +66,9 @@ jobs:
             echo "$NAME=$BUILD" >> $GITHUB_OUTPUT
             echo "$NAME builds in v$VERSION: $BUILD"
             if [ "$BUILD" = true ] && [ "$NAME" = website ]; then
-              ONLINE+=('{"flavor":"website","title":"Website","arch":"wasm"}')
+              ONLINE+=('{"flavor":"website","title":"Website","arch":"wasm","runner":"ubuntu-latest"}')
             elif [ "$BUILD" = true ] && [ "$NAME" = bot ]; then
-              ONLINE+=('{"flavor":"bot","title":"Bot","arch":"x64"}')
+              ONLINE+=('{"flavor":"bot","title":"Bot","arch":"x64","runner":"ubuntu-24.04"}')
             fi
           done
           echo "online=[$(IFS=,; echo "${ONLINE[*]}")]" >> $GITHUB_OUTPUT
@@ -209,7 +209,7 @@ jobs:
     name: Build ${{ matrix.title }} (${{ matrix.arch }})
     needs: check-version
     if: needs.check-version.outputs.should_release == 'true' && needs.check-version.outputs.online != '[]'
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.runner }}
     strategy:
       matrix:
         include: ${{ fromJSON(needs.check-version.outputs.online) }}

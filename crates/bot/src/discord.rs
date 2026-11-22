@@ -42,6 +42,7 @@ const WARMING: &str = "Still loading the game data, try again in a few minutes";
 const INVITE: &str = "If you want to invite me to a server, ask my creator to both whitelist your server ID and to provide to you an invite link!";
 const LEGAL: &str = "Not affiliated with PONOS Corp.";
 const UNLISTED: &str = "If you want to enable me in a server, ask my creator to whitelist your server ID!";
+const PRIVATE: &str = "If you want to use me in DMs, ask my creator to whitelist your user ID!";
 const NOTICE_TRIES: usize = 5;
 const NOT_YOURS: &str = "Only the person who asked can change this one";
 const NO_CAT: &str = "Unable to find Cat!";
@@ -84,11 +85,11 @@ pub(crate) async fn run(config: Config, cache: Cache) -> Result<(), Error> {
         },
         command_check: Some(|ctx| {
             Box::pin(async move {
-                if allowed(ctx.guild_id()) {
+                let Some(notice) = refusal(ctx.guild_id(), ctx.author().id) else {
                     return Ok(true);
-                }
+                };
 
-                ctx.say(UNLISTED).await?;
+                ctx.say(notice).await?;
                 Ok(false)
             })
         }),
@@ -114,8 +115,11 @@ pub(crate) async fn run(config: Config, cache: Cache) -> Result<(), Error> {
     Ok(())
 }
 
-fn allowed(guild: Option<serenity::GuildId>) -> bool {
-    guild.is_none_or(|guild| allowlist::admits(guild.get()))
+fn refusal(guild: Option<serenity::GuildId>, user: serenity::UserId) -> Option<&'static str> {
+    match guild {
+        Some(guild) => (!allowlist::admits(guild.get())).then_some(UNLISTED),
+        None => (!allowlist::trusts(user.get())).then_some(PRIVATE),
+    }
 }
 
 fn invocation<'a>(ctx: &'a serenity::Context, msg: &'a serenity::Message, _data: &'a Data) -> BoxFuture<'a, Result<Option<&'a str>, Error>> {
@@ -152,12 +156,14 @@ async fn on_error(failure: FrameworkError<'_, Data, Error>) {
                 error!("The failure notice could not be sent: {}", err);
             }
         }
-        FrameworkError::UnknownCommand { msg, framework, .. } if !allowed(msg.guild_id) => {
-            if let Err(err) = msg.channel_id.say(framework.serenity_context, UNLISTED).await {
+        FrameworkError::UnknownCommand { msg, framework, .. } => {
+            if let Some(notice) = refusal(msg.guild_id, msg.author.id)
+                && let Err(err) = msg.channel_id.say(framework.serenity_context, notice).await
+            {
                 warn!(guild = msg.guild_id.map(|guild| guild.get()), "The allowlist notice could not be sent: {}", err);
             }
         }
-        FrameworkError::CommandCheckFailed { .. } | FrameworkError::UnknownCommand { .. } => {}
+        FrameworkError::CommandCheckFailed { .. } => {}
         other => {
             if let Err(err) = poise::builtins::on_error(other).await {
                 error!("An error could not be handled: {}", err);
@@ -675,7 +681,7 @@ fn help_page(page_name: &str) -> serenity::CreateEmbed {
         "invite" => page("hg!invite (inv, i)", "How to get me into another server."),
         "legal" => page("hg!legal (license, l)", "The licenses for everything I'm built from, and who I'm not affiliated with."),
         "help" => page("hg!help (h)", "`hg!help` lists every command. `hg!help <command>` opens one, aliases included, like `hg!help c`. The buttons below switch between them."),
-        _ => page("Hagane", "Use `hg!`, mention me, reply to me, DM me, or use `/`.\nThe buttons below open each command, or use `hg!help <command>`.")
+        _ => page("Hagane", "Use `hg!`, mention me, reply to me, or use `/`.\nThe buttons below open each command, or use `hg!help <command>`.")
             .field("`hg!cat` (`c`)", "A cat's statblock or animation, by ID or name", false)
             .field("`hg!enemy` (`e`)", "An enemy's statblock or animation, by ID or name", false)
             .field("`hg!settings` (`s`, `set`)", "Your language, image format and default form", false)
@@ -759,7 +765,7 @@ async fn settings(ctx: Context<'_>) -> Result<(), Error> {
 
 async fn on_event(ctx: &serenity::Context, event: &serenity::FullEvent, data: &Data) -> Result<(), Error> {
     match event {
-        serenity::FullEvent::GuildCreate { guild, .. } if !allowed(Some(guild.id)) => {
+        serenity::FullEvent::GuildCreate { guild, .. } if !allowlist::admits(guild.id.get()) => {
             warn!(guild = guild.id.get(), name = guild.name, "Leaving a server that is not on the allowlist");
             tell_unlisted(ctx, guild).await;
 
@@ -973,6 +979,18 @@ mod tests {
     use super::*;
 
     const ME: serenity::UserId = serenity::UserId::new(42);
+
+    // DMs are for listed users only, and each refusal names the list it's about.
+    #[test]
+    fn refusals_name_the_right_list() {
+        let owner = serenity::UserId::new(1360862647578394704);
+        let listed = Some(serenity::GuildId::new(1456204440951455786));
+
+        assert_eq!(refusal(None, owner), None);
+        assert_eq!(refusal(None, ME), Some(PRIVATE));
+        assert_eq!(refusal(listed, ME), None);
+        assert_eq!(refusal(Some(serenity::GuildId::new(7)), owner), Some(UNLISTED));
+    }
     const SOMEONE: serenity::UserId = serenity::UserId::new(7);
 
     // Poise wants the prefix itself back and strips it on its own, so check what it is left with.
