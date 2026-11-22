@@ -9,8 +9,6 @@ use super::grammar::Talent;
 use super::library::Library;
 use super::prose::{self, Prose, Trouble};
 
-const ULTRA: u8 = 1;
-
 pub(crate) fn levels(library: &Library, cat: &CatEntry, words: &[Talent]) -> Result<HashMap<u8, u8>, Trouble> {
     let Some(data) = cat.talent_data.as_ref() else {
         return Err(Trouble::NoTalents(cat.display_name(0)));
@@ -23,8 +21,8 @@ pub(crate) fn levels(library: &Library, cat: &CatEntry, words: &[Talent]) -> Res
     for word in words {
         match word {
             Talent::All => levels.extend((0..data.groups.len()).map(|index| (index as u8, ceiling(index)))),
-            Talent::Standard => levels.extend(data.groups.iter().enumerate().filter(|(_, group)| group.limit != ULTRA).map(|(index, _)| (index as u8, ceiling(index)))),
-            Talent::Ultra => levels.extend(data.groups.iter().enumerate().filter(|(_, group)| group.limit == ULTRA).map(|(index, _)| (index as u8, ceiling(index)))),
+            Talent::Standard => levels.extend(data.groups.iter().enumerate().filter(|(_, group)| !group.is_ultra()).map(|(index, _)| (index as u8, ceiling(index)))),
+            Talent::Ultra => levels.extend(data.groups.iter().enumerate().filter(|(_, group)| group.is_ultra()).map(|(index, _)| (index as u8, ceiling(index)))),
             Talent::None => {
                 levels.clear();
                 cursor = 0;
@@ -66,7 +64,7 @@ pub(crate) fn overview(library: &Library, cat: &CatEntry, form: usize, prose: Pr
     let Some(data) = cat.talent_data.as_ref() else {
         return format!("{title}\n{}", prose::TALENTLESS.said(prose));
     };
-    let rows: Vec<(String, u8)> = data.groups.iter().map(|group| (format!("{}{}", library.talent_name(group.ability_id), if group.limit == ULTRA { " (Ultra)" } else { "" }), group.max_level.max(1))).collect();
+    let rows: Vec<(String, u8)> = data.groups.iter().map(|group| (format!("{}{}", library.talent_name(group.ability_id), if group.is_ultra() { " (Ultra)" } else { "" }), group.max_level.max(1))).collect();
     let width = rows.iter().map(|(name, _)| name.width()).max().unwrap_or(0);
     let lines: Vec<String> = rows.iter().map(|(name, max)| format!("{name}{} : Max Lv{max}", " ".repeat(width - name.width()))).collect();
 
@@ -91,7 +89,7 @@ pub(crate) fn listed(library: &Library, cat: &CatEntry, levels: Option<&HashMap<
         .enumerate()
         .map(|(index, group)| {
             let level = levels.and_then(|levels| levels.get(&(index as u8))).copied().unwrap_or(0);
-            let ultra = if group.limit == ULTRA { " (Ultra)" } else { "" };
+            let ultra = if group.is_ultra() { " (Ultra)" } else { "" };
 
             format!("{}{}: {}/{}", library.talent_name(group.ability_id), ultra, level, group.max_level.max(1))
         })

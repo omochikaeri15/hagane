@@ -65,9 +65,11 @@ impl Library {
         GlobalContext { param: &self.param, localizable: &self.localizable, vault: &self.vault, treasure: &self.treasure, names: &self.names }
     }
 
-    pub(crate) fn level_for(&self, cat: &CatEntry, form: usize) -> String {
+    pub(crate) fn level_for(&self, cat: &CatEntry, form: usize, talents: Option<&HashMap<u8, u8>>) -> String {
         let (total, input) = seeded_level(cat, &self.settings);
-        let needed = cat.unitbuy.form_level(form);
+        let groups = cat.talent_data.iter().flat_map(|data| data.groups.iter().enumerate());
+        let learned = groups.filter(|(index, _)| talents.is_some_and(|levels| u8::try_from(*index).ok().and_then(|index| levels.get(&index)).is_some_and(|level| *level > 0)));
+        let needed = learned.map(|(_, group)| group.unlock_level()).fold(cat.unitbuy.form_level(form), u32::max);
 
         if i64::from(needed) > i64::from(total) { level::capped(&needed.to_string(), cat.unitbuy.level_caps()) } else { input }
     }

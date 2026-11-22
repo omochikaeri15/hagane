@@ -268,8 +268,8 @@ impl Sheet {
 fn sheet_png(library: &Library, cache: &Cache, sheet: &Sheet) -> Result<(Vec<u8>, String), Trouble> {
     let cat = library.cat(sheet.id).ok_or(Trouble::NoCat)?;
     let caps = cat.unitbuy.level_caps();
-    let shown = sheet.level.as_deref().map_or_else(|| library.level_for(cat, sheet.form), |level| level::capped(level, caps));
     let levels = sheet.talents.as_deref().and_then(talents::decoded);
+    let shown = sheet.level.as_deref().map_or_else(|| library.level_for(cat, sheet.form, levels.as_ref()), |level| level::capped(level, caps));
     let bytes = statblock::cat(library, cache, cat, sheet.form, level::total(&shown, caps), &shown, levels.as_ref())?;
 
     Ok((bytes, format!("{}.png", cat.id_str(sheet.form))))
@@ -694,7 +694,7 @@ fn help_page(page_name: &str, prefix: &str, prose: Prose) -> serenity::CreateEmb
         "cat" => Voiced::new(prefix, "hg!cat (c)", "`hg!cat <unit> [stats | animation] ...`")
             .field("Unit", "`25-3`, `25_t` or `25_s`: an ID and a form (1-4, n e t u, or f c s u)\n`25` or `025`: your default form, or the next one down if it has none\nA name: spaces are fine, close spellings still match\n`form` (`f`) after either picks a form: 1-4, n e t u, f c s u, or Normal, Evolved, True, Ultra", false)
             .field("Stats or animation", "Worked out from what you type: an animation name or flag means animation, a level or `--talents` means stats. `s` or `a` still decides outright, and stats is the default.", false)
-            .field("Stats (`s`, `stat`)", "A level: `lv50+70`, `lvl50`, `l50`, `level50` or just `50`. Without one, a typical level for its rarity, raised to the level its form unlocks at if that's higher.\n`--talents` (`-t`): `all` (`a`), `standard` (`s`), `ultra` (`u`), `none` (`n`), `show` (`sh`) to list them with their max levels, levels in order like `10 10 5`, or names like `Attack Buff 5`. Talents lift a Normal or Evolved form to True.", false)
+            .field("Stats (`s`, `stat`)", "A level: `lv50+70`, `lvl50`, `l50`, `level50` or just `50`. Without one, a typical level for its rarity, raised to the level its form or its ultra talents unlock at if that's higher.\n`--talents` (`-t`): `all` (`a`), `standard` (`s`), `ultra` (`u`), `none` (`n`), `show` (`sh`) to list them with their max levels, levels in order like `10 10 5`, or names like `Attack Buff 5`. Talents lift a Normal or Evolved form to True.", false)
             .field("Animation (`a`, `anim`)", CLIPS, false)
             .field("Animation flags", MOTION_FLAGS, false)
             .field("Buttons", "Statblocks get a button per form, Level, and Talents on True and Ultra forms. Level and Talents turn green when you've set them. Only the person who asked can press them.", false)
@@ -945,7 +945,7 @@ async fn on_press(ctx: &serenity::Context, press: &serenity::ComponentInteractio
             let prefs = data.book.get(sheet.owner);
             let Some((_guard, library)) = open(data, &prefs.language).await? else { return Ok(()) };
             let Some(cat) = library.cat(sheet.id) else { return Ok(()) };
-            let mut input = serenity::CreateInputText::new(serenity::InputTextStyle::Short, "Level (empty goes back to automatic)", "level").placeholder(library.level_for(cat, sheet.form)).max_length(LEVEL_LIMIT).required(false);
+            let mut input = serenity::CreateInputText::new(serenity::InputTextStyle::Short, "Level (empty goes back to automatic)", "level").placeholder(library.level_for(cat, sheet.form, sheet.talents.as_deref().and_then(talents::decoded).as_ref())).max_length(LEVEL_LIMIT).required(false);
 
             if let Some(level) = sheet.level.as_deref() {
                 input = input.value(level);

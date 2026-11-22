@@ -46,6 +46,16 @@ pub struct TalentGroup {
 
 impl TalentGroup {
     pub const COMBO_TALENT: u8 = 73;
+    pub const ULTRA_LIMIT: u8 = 1;
+    pub const ULTRA_LEVEL: u32 = 60;
+
+    pub fn is_ultra(&self) -> bool {
+        self.limit == Self::ULTRA_LIMIT
+    }
+
+    pub fn unlock_level(&self) -> u32 {
+        if self.is_ultra() { Self::ULTRA_LEVEL } else { 0 }
+    }
 
     pub fn combo_line(&self) -> Option<usize> {
         (self.ability_id == Self::COMBO_TALENT).then_some(usize::from(self.min_1))
