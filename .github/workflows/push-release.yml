@@ -379,8 +379,6 @@ jobs:
             cp target/release/apk/hagane.apk "apk-bundle/${{ env.BIN_NAME }}.apk"
             (cd apk-bundle && zip "../$1" "${{ env.BIN_NAME }}.apk")
           }
-          cargo apk build --release -p mobile --lib
-          bundle hagane-android-apk.zip "arm64-v8a x86_64"
           cargo apk build --release -p mobile --lib --target aarch64-linux-android
           bundle hagane-android-arm.zip "arm64-v8a"
           cargo apk build --release -p mobile --lib --target x86_64-linux-android
@@ -407,7 +405,6 @@ jobs:
           codesign --force --sign - "$APP" || echo "ad-hoc signing skipped"
           zip -r "${{ env.BIN_NAME }}.ipa" Payload
           zip hagane-ios-arm.zip "${{ env.BIN_NAME }}.ipa"
-          cp hagane-ios-arm.zip hagane-ios-ipa.zip
 
       - name: Upload Mobile Artifact
         uses: actions/upload-artifact@v4
@@ -456,9 +453,7 @@ jobs:
             ASSETS+=(
               mobile-apk-build/hagane-android-arm.zip
               mobile-apk-build/hagane-android-x64.zip
-              mobile-apk-build/hagane-android-apk.zip
               mobile-ipa-build/hagane-ios-arm.zip
-              mobile-ipa-build/hagane-ios-ipa.zip
             )
           fi
           gh release create "v${{ needs.check-version.outputs.app_version }}" \
