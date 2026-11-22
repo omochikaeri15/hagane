@@ -91,28 +91,39 @@ impl Rig {
         tolerance: f32,
         minimum_frame: Option<i32>,
         maximum_frame: Option<i32>,
+        progress_callback: impl FnMut(usize) -> bool,
+    ) -> Option<Cycle> {
+        self.calculate_cycle_between(animation, tolerance, minimum_frame, 0, maximum_frame.unwrap_or(i32::MAX), progress_callback)
+    }
+
+    pub fn calculate_cycle_between(
+        &self,
+        animation: &Animation,
+        tolerance: f32,
+        minimum_frame: Option<i32>,
+        first_frame: i32,
+        last_frame: i32,
         mut progress_callback: impl FnMut(usize) -> bool,
     ) -> Option<Cycle> {
         let minimum_loop_length = minimum_frame.unwrap_or(1);
-        let frame_ceiling = maximum_frame.unwrap_or(i32::MAX);
 
-        let mut history: Vec<Vec<FrameData>> = Vec::new();
-        let mut frame = 0;
+        let mut history: Vec<(i32, Vec<FrameData>)> = Vec::new();
+        let mut frame = first_frame.max(0);
 
-        while frame <= frame_ceiling {
+        while frame <= last_frame {
             if !progress_callback(frame as usize) { return None; }
 
             let current = resolve_frame(self, Some(animation), frame, None);
 
-            for (past_frame, past) in history.iter().enumerate() {
-                if frame - (past_frame as i32) < minimum_loop_length { continue; }
+            for (past_frame, past) in &history {
+                if frame - past_frame < minimum_loop_length { continue; }
 
                 if periodicity::calculate_difference(&current, past) <= tolerance {
-                    return Some(Cycle { start: past_frame as i32, end: frame });
+                    return Some(Cycle { start: *past_frame, end: frame });
                 }
             }
 
-            history.push(current);
+            history.push((frame, current));
             frame = frame.checked_add(1)?;
         }
 

@@ -2,20 +2,22 @@ pub mod cache;
 #[cfg(feature = "disk")]
 pub mod json;
 
+#[cfg(feature = "mods")]
+use std::ffi::OsStr;
 #[cfg(feature = "disk")]
-use std::ffi::{OsStr, OsString};
-#[cfg(feature = "disk")]
+use std::ffi::OsString;
+#[cfg(feature = "mods")]
 use std::fs;
 #[cfg(feature = "disk")]
 use std::path::Path;
 use std::path::PathBuf;
 
-#[cfg(feature = "disk")]
+#[cfg(feature = "mods")]
 use tracing::{info, warn};
 
 use crate::Vfs;
 
-#[cfg(feature = "disk")]
+#[cfg(feature = "mods")]
 pub(crate) fn recase(destination: &Path) {
     let Some(dir) = destination.parent() else {
         return;
@@ -141,7 +143,7 @@ pub fn gatya_item_icon(vfs: &Vfs, id: i32) -> Option<PathBuf> {
     vfs.find(&names)
 }
 
-#[cfg(all(test, feature = "disk"))]
+#[cfg(all(test, feature = "mods"))]
 mod tests {
     use std::env;
 

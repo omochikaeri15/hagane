@@ -1,0 +1,125 @@
+use std::collections::HashMap;
+use std::fs;
+use std::path::PathBuf;
+use std::sync::{Mutex, PoisonError};
+
+use serde::{Deserialize, Serialize};
+use tracing::{error, warn};
+
+use foundry::domains::settings::lang;
+
+use super::render::Format;
+
+const FILE: &str = "users.json";
+const PARTIAL: &str = "users.json.partial";
+pub(crate) const ENGLISH: &str = "en";
+pub(crate) const FORMS: [&str; 4] = ["Normal", "Evolved", "True", "Ultra"];
+const TRUE_FORM: usize = 2;
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub(crate) enum Search {
+    #[default]
+    Exact,
+    Preferred,
+}
+
+impl Search {
+    pub(crate) fn label(self) -> &'static str {
+        match self {
+            Search::Exact => "Exact",
+            Search::Preferred => "Preferred",
+        }
+    }
+
+    pub(crate) fn slug(self) -> &'static str {
+        match self {
+            Search::Exact => "exact",
+            Search::Preferred => "preferred",
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub(crate) struct Prefs {
+    pub(crate) language: String,
+    pub(crate) format: Format,
+    pub(crate) form: usize,
+    pub(crate) search: Search,
+}
+
+impl Default for Prefs {
+    fn default() -> Self {
+        Self { language: ENGLISH.to_owned(), format: Format::Avif, form: TRUE_FORM, search: Search::Exact }
+    }
+}
+
+impl Prefs {
+    pub(crate) fn form_from(&self, forms: &[bool; 4]) -> usize {
+        (0..=self.form.min(FORMS.len() - 1)).rev().find(|form| forms[*form]).or_else(|| forms.iter().position(|held| *held)).unwrap_or(0)
+    }
+}
+
+pub(crate) fn language_name(code: &str) -> &'static str {
+    lang::choices().find(|(held, _)| *held == code).map_or("English", |(_, name)| name)
+}
+
+pub(crate) struct Book {
+    path: PathBuf,
+    users: Mutex<HashMap<u64, Prefs>>,
+}
+
+impl Book {
+    pub(crate) fn open() -> Self {
+        let path = PathBuf::from(FILE);
+        let users = match fs::read(&path) {
+            Ok(bytes) => serde_json::from_slice(&bytes).unwrap_or_else(|err| {
+                error!("The user settings could not be read, starting with none: {}", err);
+                HashMap::new()
+            }),
+            Err(_) => HashMap::new(),
+        };
+
+        Self { path, users: Mutex::new(users) }
+    }
+
+    pub(crate) fn get(&self, user: u64) -> Prefs {
+        self.users.lock().unwrap_or_else(PoisonError::into_inner).get(&user).cloned().unwrap_or_default()
+    }
+
+    pub(crate) fn update(&self, user: u64, change: impl FnOnce(&mut Prefs)) -> Prefs {
+        let mut users = self.users.lock().unwrap_or_else(PoisonError::into_inner);
+        let prefs = users.entry(user).or_default();
+
+        change(prefs);
+
+        let changed = prefs.clone();
+
+        match serde_json::to_vec(&*users) {
+            Ok(bytes) => {
+                if let Err(err) = fs::write(PARTIAL, &bytes).and_then(|()| fs::rename(PARTIAL, &self.path)) {
+                    error!("The user settings could not be saved: {}", err);
+                }
+            }
+            Err(err) => warn!("The user settings could not be encoded: {}", err),
+        }
+
+        changed
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // A missing form falls back to the next one down, never up.
+    #[test]
+    fn a_missing_form_degrades_downward() {
+        let prefs = Prefs { form: 3, ..Prefs::default() };
+
+        assert_eq!(prefs.form_from(&[true, true, true, true]), 3);
+        assert_eq!(prefs.form_from(&[true, true, true, false]), 2);
+        assert_eq!(prefs.form_from(&[true, true, false, false]), 1);
+        assert_eq!(Prefs { form: 0, ..Prefs::default() }.form_from(&[false, true, true, false]), 1);
+    }
+}

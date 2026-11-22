@@ -1,4 +1,5 @@
 mod android;
+mod bot;
 mod deploy;
 mod ship;
 
@@ -40,9 +41,11 @@ fn main() {
         ["debug", "android" | "apk"] => android::build(),
         ["deploy", "website" | "web"] => deploy::website(),
         ["deploy", "stop"] => deploy::stop(),
+        ["deploy", "bot"] => bot::deploy(None),
+        ["deploy", "bot", host] => bot::deploy(Some(host)),
         [deploy::SERVE_COMMAND, root] => deploy::serve(Path::new(root)),
         unknown => {
-            eprintln!("Unknown xtask arguments '{}'. Use 'cargo ship', 'cargo ship all', 'cargo ship recover', 'cargo debug android', 'cargo deploy website' or 'cargo deploy stop'.", unknown.join(" "));
+            eprintln!("Unknown xtask arguments '{}'. Use 'cargo ship', 'cargo ship all', 'cargo ship recover', 'cargo debug android', 'cargo deploy website', 'cargo deploy stop' or 'cargo deploy bot [user@host]'.", unknown.join(" "));
             exit(2);
         }
     }

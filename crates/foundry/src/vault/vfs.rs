@@ -1616,6 +1616,7 @@ mod tests {
         assert_eq!(folders, ["alpha", "zeta"]);
     }
 
+    #[cfg(feature = "mods")]
     #[test]
     fn a_mod_conflict_hides_the_game_copy_but_leaves_every_other_name_alone() {
         // Two copies of one name inside a mod are both excluded, so without this

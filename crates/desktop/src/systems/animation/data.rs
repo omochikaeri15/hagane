@@ -111,13 +111,7 @@ impl State {
     }
 
     pub fn offset(&self) -> Option<usize> {
-        let rows = self.available_rows();
-
-        match self.placement {
-            Placement::Bare => None,
-            Placement::Row(row) if row < rows => Some(row),
-            Placement::Row(_) => (rows > 0).then_some(0),
-        }
+        self.placement.offset(self.available_rows())
     }
 
     pub fn offset_label(&self) -> String {
@@ -225,11 +219,7 @@ impl State {
     }
 
     pub fn loop_supported(&self) -> bool {
-        match self.looping() {
-            Loop::Exact => true,
-            Loop::Auto => self.current_anim.as_ref().is_some_and(|anim| cycle(anim).is_some()),
-            Loop::Frames | Loop::Continuous => false,
-        }
+        self.looping().native(self.current_anim.as_deref())
     }
 
     pub fn showcasable(&self) -> bool {

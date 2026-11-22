@@ -8,6 +8,43 @@ use crate::systems::animation::loop_frame;
 
 use super::{ExportConfig, ExportFormat, ExportMode, ExportRequest, FrameTiming};
 
+fn extension(format: &ExportFormat) -> &'static str {
+    match format {
+        ExportFormat::Gif => "gif",
+        ExportFormat::WebP => "webp",
+        ExportFormat::Avif => "avif",
+        ExportFormat::Jxl => "jxl",
+        ExportFormat::Png => "png",
+        ExportFormat::Mp4 => "mp4",
+        ExportFormat::Mkv => "mkv",
+        ExportFormat::Webm => "webm",
+        ExportFormat::Zip => "zip",
+    }
+}
+
+fn stem(name_prefix: &str, is_showcase: bool, start_frame: i32, end_frame: i32) -> (String, String) {
+    let range_part = if start_frame == end_frame {
+        format!("{}f", start_frame)
+    } else {
+        format!("{}f~{}f", start_frame, end_frame)
+    };
+
+    let prefix_display = if is_showcase {
+        name_prefix.split('.').next().map_or_else(|| "unit.showcase".to_string(), |first| format!("{}.showcase", first))
+    } else {
+        name_prefix.to_owned()
+    };
+
+    let base = if prefix_display.is_empty() { "animation".to_string() } else { prefix_display };
+    let full = format!("{}.{}", base, range_part);
+
+    (base, full)
+}
+
+pub fn file_name(name_prefix: &str, is_showcase: bool, start_frame: i32, end_frame: i32, format: &ExportFormat) -> String {
+    format!("{}.{}", stem(name_prefix, is_showcase, start_frame, end_frame).1, extension(format))
+}
+
 pub fn build_config(request: &ExportRequest) -> ExportConfig {
     let is_showcase = request.timing.mode == ExportMode::Showcase;
 
@@ -19,23 +56,7 @@ pub fn build_config(request: &ExportRequest) -> ExportConfig {
     };
 
     let (base_name, file_name) = match &request.file_name {
-        None => {
-            let range_part = if start_frame == end_frame {
-                format!("{}f", start_frame)
-            } else {
-                format!("{}f~{}f", start_frame, end_frame)
-            };
-
-            let prefix_display = if is_showcase {
-                request.name_prefix.split('.').next().map_or_else(|| "unit.showcase".to_string(), |first| format!("{}.showcase", first))
-            } else {
-                request.name_prefix.clone()
-            };
-
-            let base = if prefix_display.is_empty() { "animation".to_string() } else { prefix_display };
-            let full = format!("{}.{}", base, range_part);
-            (base, full)
-        }
+        None => stem(&request.name_prefix, is_showcase, start_frame, end_frame),
         Some(name) => {
             let path_object = Path::new(name);
             let base = path_object.file_stem().unwrap_or(path_object.as_os_str()).to_string_lossy().to_string();
@@ -48,23 +69,10 @@ pub fn build_config(request: &ExportRequest) -> ExportConfig {
 
     let mut final_file_name = file_name;
 
-    let target_extension = match request.format {
-        ExportFormat::Gif => Some("gif"),
-        ExportFormat::WebP => Some("webp"),
-        ExportFormat::Avif => Some("avif"),
-        ExportFormat::Jxl => Some("jxl"),
-        ExportFormat::Png => Some("png"),
-        ExportFormat::Mp4 => Some("mp4"),
-        ExportFormat::Mkv => Some("mkv"),
-        ExportFormat::Webm => Some("webm"),
-        ExportFormat::Zip => Some("zip"),
-    };
+    let suffix = format!(".{}", extension(&request.format));
 
-    if let Some(extension) = target_extension {
-        let suffix = format!(".{}", extension);
-        if !final_file_name.to_lowercase().ends_with(&suffix) {
-            final_file_name = format!("{}{}", final_file_name, suffix);
-        }
+    if !final_file_name.to_lowercase().ends_with(&suffix) {
+        final_file_name = format!("{}{}", final_file_name, suffix);
     }
 
     output_path.push(&final_file_name);

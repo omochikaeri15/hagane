@@ -55,10 +55,12 @@ pub struct Target {
     pub(super) former: &'static [&'static str],
 }
 
-pub const TARGET: Target = if cfg!(target_os = "android") {
-    Target { asset: "hagane-android-apk.zip", former: &[] }
+pub const TARGET: Target = if cfg!(all(target_os = "android", target_arch = "aarch64")) {
+    Target { asset: "hagane-android-arm.zip", former: &["hagane-android-apk.zip"] }
+} else if cfg!(all(target_os = "android", target_arch = "x86_64")) {
+    Target { asset: "hagane-android-x64.zip", former: &["hagane-android-apk.zip"] }
 } else if cfg!(target_os = "ios") {
-    Target { asset: "hagane-ios-ipa.zip", former: &[] }
+    Target { asset: "hagane-ios-arm.zip", former: &["hagane-ios-ipa.zip"] }
 } else if cfg!(target_os = "windows") {
     Target { asset: "hagane-windows-x64.zip", former: &["bcc_windows_x64.zip", "bcc_windows.zip"] }
 } else if cfg!(all(target_os = "macos", target_arch = "aarch64")) {

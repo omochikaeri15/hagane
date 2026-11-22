@@ -284,13 +284,7 @@ fn selected_index(set: &MotionSet, slots: &[Option<usize>], label: Option<&str>)
 }
 
 fn offset_of(rig: Option<&Rig>, placement: Placement) -> Option<usize> {
-    let rows = rig.map_or(0, |rig| rig.model.alignment.len());
-
-    match placement {
-        Placement::Bare => None,
-        Placement::Row(row) if row < rows => Some(row),
-        Placement::Row(_) => (rows > 0).then_some(0),
-    }
+    placement.offset(rig.map_or(0, |rig| rig.model.alignment.len()))
 }
 
 fn offset_choices(set: &MotionSet, rig: Option<&Rig>) -> Vec<(String, Placement)> {

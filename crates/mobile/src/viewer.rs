@@ -190,13 +190,7 @@ fn selected_index(set: &MotionSet, slots: &[Option<usize>], label: Option<&str>)
 }
 
 fn offset_of(rig: Option<&Rig>, placement: Placement) -> Option<usize> {
-    let rows = rig.map_or(0, |rig| rig.model.alignment.len());
-
-    match placement {
-        Placement::Bare => None,
-        Placement::Row(row) if row < rows => Some(row),
-        Placement::Row(_) => (rows > 0).then_some(0),
-    }
+    placement.offset(rig.map_or(0, |rig| rig.model.alignment.len()))
 }
 
 fn offset_choices(set: &MotionSet, rig: Option<&Rig>) -> Vec<(String, Placement)> {
@@ -328,11 +322,7 @@ impl State {
     }
 
     pub fn loop_supported(&self) -> bool {
-        match self.looping() {
-            Loop::Exact => true,
-            Loop::Auto => self.anim().is_some_and(|anim| cycle(&anim).is_some()),
-            Loop::Frames | Loop::Continuous => false,
-        }
+        self.looping().native(self.anim().as_deref())
     }
 
     pub fn offset(&self) -> Option<usize> {

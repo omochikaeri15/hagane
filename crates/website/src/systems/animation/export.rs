@@ -7,9 +7,9 @@ use image::codecs::webp::WebPEncoder;
 use image::{ExtendedColorType, ImageEncoder, RgbaImage};
 use tracing::error;
 
-use codex::graphics::animate::{FrameData, resolve_frame};
+use codex::graphics::animate::resolve_frame;
 use codex::graphics::rig::Animation;
-use foundry::systems::animation::{Loop, alpha, cycle, loop_frame};
+use foundry::systems::animation::{alpha, loop_frame, name_prefix, paint};
 
 use crate::platform::{Atlas, Bytes, Captured, Fault, Painted, Platform, Scene, Surface};
 use crate::systems::export::{Phase, png, settle};
@@ -44,30 +44,6 @@ impl Camera {
     fn snapshot(state: ViewerState, scale: f32) -> Self {
         Self { size: *state.size.peek(), pan: *state.pan.peek(), zoom: *state.zoom.peek(), scale, region: *state.region.peek() }
     }
-}
-
-fn prefix(set_name: &str, slug: &str) -> String {
-    let mut parts = set_name.split('_');
-    let mut clean = parts.next().unwrap_or("").to_owned();
-
-    if let Some(form) = parts.next()
-        && !clean.is_empty()
-        && clean.chars().all(|c| c.is_ascii_digit())
-    {
-        let number = match form.chars().next() {
-            Some('f') => 1,
-            Some('c') => 2,
-            Some('s') => 3,
-            Some('u') => 4,
-            _ => 0,
-        };
-
-        if number > 0 {
-            clean = format!("{clean}-{number}");
-        }
-    }
-
-    format!("{clean}.{slug}")
 }
 
 fn cropped(captured: Captured, camera: &Camera) -> Captured {
@@ -110,11 +86,11 @@ async fn export(platform: &Platform, state: ViewerState, surface: Signal<Option<
     let atlas_image = rig.sheet.image_data.as_ref().ok_or_else(|| Fault("the rig has no sprite sheet".to_owned()))?;
     let camera = Camera::snapshot(state, platform.host().pixel_ratio());
     let (pan, zoom) = (camera.pan, camera.zoom);
-    let base = prefix(&motions.set.name, &slug);
+    let base = name_prefix(&motions.set.name, &slug);
     let shoot = |frame: i32| {
         let mut frames = resolve_frame(rig, anim, frame, offset);
 
-        flatten_glow(&mut frames);
+        paint::flatten_glow(&mut frames);
 
         let parts: Vec<Painted> = frames.into_iter().map(|frame| Painted { frame, tint: NO_TINT }).collect();
         let atlas = Atlas { key: Arc::as_ptr(atlas_image) as usize, width: atlas_image.width(), height: atlas_image.height(), pixels: atlas_image.as_raw() };
@@ -166,23 +142,7 @@ fn exported_frame(active: Option<&Active>, anim: Option<&Animation>, raw: f32) -
     let (Some(active), Some(anim)) = (active, anim) else {
         return raw;
     };
-    let natively_loops = match active.looping {
-        Loop::Exact => true,
-        Loop::Auto => cycle(anim).is_some(),
-        Loop::Frames | Loop::Continuous => false,
-    };
-
-    if natively_loops { raw } else { loop_frame(anim, raw) }
-}
-
-fn flatten_glow(frames: &mut [FrameData]) {
-    for frame in frames {
-        frame.glow = match frame.glow {
-            1 | 3 => 1,
-            2 => 0,
-            other => other,
-        };
-    }
+    if active.looping.native(Some(anim)) { raw } else { loop_frame(anim, raw) }
 }
 
 fn straight(captured: Captured) -> Result<RgbaImage, Fault> {

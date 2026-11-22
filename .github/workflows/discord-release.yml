@@ -40,21 +40,16 @@ jobs:
             MESSAGE_BODY="$RELEASE_BODY_EVENT"
           fi
 
-          ASSETS=""
-          for ATTEMPT in 1 2 3 4 5 6; do
-            ASSETS=$(curl -s -H "Authorization: Bearer $GH_API_TOKEN" \
-              "https://api.github.com/repos/${{ github.repository }}/releases/tags/$REL_TAG" | jq -r '.assets[]?.name')
-            [ -n "$ASSETS" ] && break
-            sleep 10
-          done
+          BUILDS=$(curl -s -f -H "Authorization: Bearer $GH_API_TOKEN" \
+            -H "Accept: application/vnd.github.raw" \
+            "https://api.github.com/repos/${{ github.repository }}/contents/.github/release-builds?ref=$REL_TAG" || true)
+          shipped() { echo "$BUILDS" | grep -q "^$1 ${REL_TAG#v} "; }
 
           PLATFORMS=()
-          if echo "$ASSETS" | grep -q '^hagane-windows-'; then PLATFORMS+=("Windows"); fi
-          if echo "$ASSETS" | grep -q '^hagane-linux-'; then PLATFORMS+=("Linux"); fi
-          if echo "$ASSETS" | grep -q '^hagane-mac-'; then PLATFORMS+=("macOS"); fi
-          if echo "$ASSETS" | grep -q '^hagane-website-'; then PLATFORMS+=("Web"); fi
-          if echo "$ASSETS" | grep -q '^hagane-android-apk'; then PLATFORMS+=("Android"); fi
-          if echo "$ASSETS" | grep -q '^hagane-ios-ipa'; then PLATFORMS+=("iOS"); fi
+          if shipped desktop; then PLATFORMS+=("Windows" "Linux" "macOS"); fi
+          if shipped website; then PLATFORMS+=("Web"); fi
+          if shipped mobile; then PLATFORMS+=("Android" "iOS"); fi
+          if shipped bot; then PLATFORMS+=("Bot"); fi
 
           if [ ${#MESSAGE_BODY} -gt 2000 ]; then
             MESSAGE_BODY=$(printf "%s ...\n\n**[Read full release notes](%s)**" "${MESSAGE_BODY:0:2000}" "$REL_URL")

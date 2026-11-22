@@ -3,6 +3,8 @@ pub mod authoring;
 pub mod collision;
 #[cfg(feature = "export")]
 pub mod export;
+pub mod overlay;
+pub mod paint;
 pub mod posing;
 
 use std::ffi::OsStr;
@@ -46,6 +48,16 @@ pub enum Loop {
     Frames,
     Auto,
     Continuous,
+}
+
+impl Loop {
+    pub fn native(self, anim: Option<&Animation>) -> bool {
+        match self {
+            Loop::Exact => true,
+            Loop::Auto => anim.is_some_and(|anim| cycle(anim).is_some()),
+            Loop::Frames | Loop::Continuous => false,
+        }
+    }
 }
 
 pub struct Rigging {
@@ -99,6 +111,16 @@ pub enum Placement {
 impl Default for Placement {
     fn default() -> Self {
         Placement::Row(0)
+    }
+}
+
+impl Placement {
+    pub fn offset(self, rows: usize) -> Option<usize> {
+        match self {
+            Placement::Bare => None,
+            Placement::Row(row) if row < rows => Some(row),
+            Placement::Row(_) => (rows > 0).then_some(0),
+        }
     }
 }
 
@@ -292,6 +314,30 @@ pub fn multiply_mat3(matrix_a: &[f32; 9], matrix_b: &[f32; 9]) -> [f32; 9] {
         matrix_a[1]*matrix_b[6] + matrix_a[4]*matrix_b[7] + matrix_a[7]*matrix_b[8],
         matrix_a[2]*matrix_b[6] + matrix_a[5]*matrix_b[7] + matrix_a[8]*matrix_b[8],
     ]
+}
+
+pub fn name_prefix(set_name: &str, slug: &str) -> String {
+    let mut parts = set_name.split('_');
+    let mut clean = parts.next().unwrap_or("").to_owned();
+
+    if let Some(form) = parts.next()
+        && !clean.is_empty()
+        && clean.chars().all(char::is_numeric)
+    {
+        let number = match form.chars().next() {
+            Some('f') => 1,
+            Some('c') => 2,
+            Some('s') => 3,
+            Some('u') => 4,
+            _ => 0,
+        };
+
+        if number > 0 {
+            clean = format!("{clean}-{number}");
+        }
+    }
+
+    format!("{clean}.{slug}")
 }
 
 

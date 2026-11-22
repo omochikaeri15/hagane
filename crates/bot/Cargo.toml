@@ -1,0 +1,22 @@
+[package]
+name = "bot"
+version.workspace = true
+edition.workspace = true
+license-file.workspace = true
+authors.workspace = true
+repository.workspace = true
+publish = false
+
+[dependencies]
+codex = { workspace = true, features = ["graphics"] }
+foundry = { path = "../foundry", default-features = false, features = ["disk", "source", "export", "statblock"] }
+image = { version = "0.25.10", default-features = false, features = ["png"] }
+poise = "0.7.1"
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.154"
+sha2 = "0.11.1"
+strsim = "0.11.1"
+tokio = { version = "1.54.1", features = ["macros", "rt-multi-thread", "sync", "time"] }
+tracing = "0.1.44"
+tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
+unicode-width = "0.2.3"

@@ -12,13 +12,13 @@ use codex::graphics::rig::{Animation, Rig};
 use foundry::Source;
 use foundry::common::job::ProgressCounter;
 use foundry::systems::animation::export::process::calculate_export_time;
-use foundry::systems::animation::export::{BoundsOutcome, EncoderMessage, EncoderStatus, ExportFormat, ExportMode, ExportRequest, FrameTiming, LoopStatus, ShowcaseLengths, find_bounds, find_loop, leader, process};
-use foundry::systems::animation::{Role, playback_frames};
+use foundry::systems::animation::export::{BACKGROUND, BoundsOutcome, EncoderMessage, EncoderStatus, ExportFormat, ExportMode, ExportRequest, FrameTiming, LoopStatus, ShowcaseLengths, find_bounds, find_loop, leader, process};
+use foundry::systems::animation::{Role, name_prefix, paint, playback_frames};
 
 use crate::pages::Context;
 use crate::{AppWindow, Export, Tone, bridge, delivery};
 
-use super::{Region, scene};
+use super::Region;
 
 const NOTHING_LOADED: &str = "Load an animation first";
 const NO_CAMERA: &str = "Set a camera first";
@@ -29,7 +29,6 @@ const PERCENT_MAX: i32 = 100;
 const SHOWN_SECS: f32 = 3.0;
 const POLL_MS: u64 = 100;
 const FORMATS: [ExportFormat; 6] = [ExportFormat::Gif, ExportFormat::WebP, ExportFormat::Zip, ExportFormat::Png, ExportFormat::Jxl, ExportFormat::Avif];
-const GRAY: [u8; 4] = [80, 80, 80, 255];
 const CLEAR: [u8; 4] = [0, 0, 0, 0];
 
 enum Outcome {
@@ -182,10 +181,6 @@ impl Default for Form {
     }
 }
 
-fn is_forced_opaque(format: &ExportFormat) -> bool {
-    *format == ExportFormat::Gif
-}
-
 fn percentage(input: &str, empty: i32) -> Option<(i32, String)> {
     let trimmed = input.trim();
 
@@ -212,30 +207,6 @@ fn is_typable_number(value: &str, allow_negative: bool, allow_decimal: bool) -> 
     })
 }
 
-fn prefix(set_name: &str, slug: &str) -> String {
-    let mut parts = set_name.split('_');
-    let mut clean = parts.next().unwrap_or("").to_owned();
-
-    if let Some(form) = parts.next()
-        && !clean.is_empty()
-        && clean.chars().all(|c| c.is_ascii_digit())
-    {
-        let number = match form.chars().next() {
-            Some('f') => 1,
-            Some('c') => 2,
-            Some('s') => 3,
-            Some('u') => 4,
-            _ => 0,
-        };
-
-        if number > 0 {
-            clean = format!("{clean}-{number}");
-        }
-    }
-
-    format!("{clean}.{slug}")
-}
-
 fn format_index(format: &ExportFormat) -> usize {
     FORMATS.iter().position(|held| held == format).unwrap_or(0)
 }
@@ -252,7 +223,7 @@ impl Form {
             detected_walk_len: settings.animation.default_showcase_walk,
             detected_idle_len: settings.animation.default_showcase_idle,
             mode: previous.mode.clone(),
-            background: is_forced_opaque(&format) || memory.export_background,
+            background: memory.export_background,
             user_bg_preference: memory.export_background,
             quality_percent: memory.export_quality.unwrap_or(80),
             quality_percent_str: memory.export_quality.map_or_else(String::new, |value| value.to_string()),
@@ -431,7 +402,7 @@ pub fn wire(window: &AppWindow, context: &Rc<Context>) {
             let mut state = form(&ctx);
 
             state.export.format = format.clone();
-            state.export.background = is_forced_opaque(&format) || state.export.user_bg_preference;
+            state.export.background = state.export.user_bg_preference;
         }
 
         ctx.memory.update(|memory| memory.export_format = format_index(&format) as u8);
@@ -770,7 +741,7 @@ pub fn synced(ui: &AppWindow, context: &Rc<Context>) {
             let slug = state.motion().map_or_else(|| "anim".to_owned(), |motion| motion.slug());
             let set_name = state.set.as_ref().map(|set| set.name.clone()).unwrap_or_default();
 
-            state.export.name_prefix = prefix(&set_name, &slug);
+            state.export.name_prefix = name_prefix(&set_name, &slug);
         }
     }
 
@@ -979,7 +950,6 @@ pub fn refresh(ui: &AppWindow, context: &Rc<Context>) {
     export.set_quality(f.quality_percent_str.as_str().into());
     export.set_compression(f.compression_percent_str.as_str().into());
     export.set_background(f.background);
-    export.set_background_enabled(!is_forced_opaque(&f.format));
     export.set_status(status.into());
     export.set_ratio(ratio);
     export.set_export_label(export_label.into());
@@ -1053,40 +1023,16 @@ impl ShowcaseMotions {
     }
 }
 
-fn showcase_segment(lengths: ShowcaseLengths, progress: i32) -> (Role, f32) {
-    let (walk, idle, attack) = (lengths.walk, lengths.idle, lengths.attack);
-
-    if progress < walk {
-        (Role::Walk, (progress % walk.max(1)) as f32)
-    } else if progress < walk + idle {
-        (Role::Idle, ((progress - walk) % idle.max(1)) as f32)
-    } else if progress < walk + idle + attack {
-        (Role::Attack, (progress - (walk + idle)) as f32)
-    } else {
-        (Role::Knockback, ((progress - (walk + idle + attack)) % lengths.kb.max(1)) as f32)
-    }
-}
-
-fn remap_glow(parts: &mut [codex::graphics::animate::FrameData]) {
-    for part in parts {
-        match part.glow {
-            1 | 3 => part.glow = 1,
-            2 => part.glow = 0,
-            _ => {}
-        }
-    }
-}
-
 fn render(job: RenderJob) {
     let motions = (job.timing.mode == ExportMode::Showcase).then(|| ShowcaseMotions::load(&job.roles));
     let frame_count = (job.timing.frame_end - job.timing.frame_start).abs() + 1;
     let delay_ms = (1000.0 / job.fps.max(1) as f32) as u32;
-    let background = if job.background { GRAY } else { CLEAR };
-    let view_proj = scene::export_view_proj(job.width as f32, job.height as f32, job.region.0, job.region.1, job.zoom);
+    let background = if job.background { BACKGROUND } else { CLEAR };
+    let view_proj = paint::export_view_proj(job.width as f32, job.height as f32, job.region.0, job.region.1, job.zoom);
     let seat = |progress: i32| {
         let (animation, local_time) = match &motions {
             Some(motions) => {
-                let (role, time) = showcase_segment(job.lengths, progress);
+                let (role, time) = job.lengths.segment(progress);
                 let animation = motions.get(role);
                 let time = match animation {
                     Some(anim) if anim.declared_frames() > 1 => time,
@@ -1110,9 +1056,9 @@ fn render(job: RenderJob) {
         let (animation, frame_time) = seat(progress);
         let mut parts = resolve_frame(&job.rig, animation, frame_time.floor() as i32, job.offset);
 
-        remap_glow(&mut parts);
+        paint::flatten_glow(&mut parts);
 
-        let pixels = scene::render_parts(job.rig.sheet.image_data.as_deref(), &parts, &view_proj, background, job.width, job.height);
+        let pixels = paint::render_parts(job.rig.sheet.image_data.as_deref(), &parts, &view_proj, background, job.width, job.height);
 
         if job.tx.send(EncoderMessage::Frame(pixels, job.width, job.height, delay_ms)).is_err() {
             warn!("The encoder closed mid-export, the render loop stops");

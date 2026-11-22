@@ -23,6 +23,8 @@ jobs:
       desktop: ${{ steps.builds.outputs.desktop }}
       website: ${{ steps.builds.outputs.website }}
       mobile: ${{ steps.builds.outputs.mobile }}
+      bot: ${{ steps.builds.outputs.bot }}
+      online: ${{ steps.builds.outputs.online }}
     steps:
       - uses: actions/checkout@v5
 
@@ -52,7 +54,8 @@ jobs:
         id: builds
         run: |
           VERSION=${{ steps.get_version.outputs.version }}
-          for NAME in desktop website mobile; do
+          ONLINE=()
+          for NAME in desktop website mobile bot; do
             if [ ! -f .github/release-builds ] && [ "$NAME" = desktop ]; then
               BUILD=true
             elif grep -q "^$NAME $VERSION " .github/release-builds 2>/dev/null; then
@@ -62,7 +65,13 @@ jobs:
             fi
             echo "$NAME=$BUILD" >> $GITHUB_OUTPUT
             echo "$NAME builds in v$VERSION: $BUILD"
+            if [ "$BUILD" = true ] && [ "$NAME" = website ]; then
+              ONLINE+=('{"flavor":"website","title":"Website","arch":"wasm"}')
+            elif [ "$BUILD" = true ] && [ "$NAME" = bot ]; then
+              ONLINE+=('{"flavor":"bot","title":"Bot","arch":"x64"}')
+            fi
           done
+          echo "online=[$(IFS=,; echo "${ONLINE[*]}")]" >> $GITHUB_OUTPUT
 
   build-windows:
     name: Build Windows (${{ matrix.flavor }})
@@ -196,19 +205,19 @@ jobs:
           path: hagane-mac-${{ matrix.flavor }}.zip
           retention-days: 1
 
-  build-website:
-    name: Build Website (${{ matrix.flavor }})
+  build-online:
+    name: Build ${{ matrix.title }} (${{ matrix.arch }})
     needs: check-version
-    if: needs.check-version.outputs.should_release == 'true' && needs.check-version.outputs.website == 'true'
+    if: needs.check-version.outputs.should_release == 'true' && needs.check-version.outputs.online != '[]'
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        include:
-          - flavor: wasm
+        include: ${{ fromJSON(needs.check-version.outputs.online) }}
     steps:
       - uses: actions/checkout@v5
 
       - name: Add WASM target
+        if: matrix.flavor == 'website'
         run: rustup target add wasm32-unknown-unknown
 
       - name: Cache Cargo Dependencies
@@ -219,48 +228,59 @@ jobs:
             ~/.cargo/registry/cache/
             ~/.cargo/git/db/
             target/
-          key: ${{ runner.os }}-cargo-website-${{ hashFiles('**/Cargo.lock') }}
+          key: ${{ runner.os }}-cargo-${{ matrix.flavor }}-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Build the bot (release)
+        if: matrix.flavor == 'bot'
+        run: |
+          cargo build -p bot --release --verbose
+          mkdir -p bot-bundle
+          cp target/release/bot bot-bundle/hagane-bot
+
+      - name: Upload Bot Artifact
+        if: matrix.flavor == 'bot'
+        uses: actions/upload-artifact@v4
+        with:
+          name: bot-build
+          path: bot-bundle/hagane-bot
+          retention-days: 1
 
       - name: Install cargo-binstall
+        if: matrix.flavor == 'website'
         uses: cargo-bins/cargo-binstall@main
 
       - name: Install the Dioxus CLI
+        if: matrix.flavor == 'website'
         run: cargo binstall dioxus-cli@0.7.10 --locked --no-confirm
 
       - name: Clear the previous website bundle
+        if: matrix.flavor == 'website'
         run: rm -rf target/dx/website/release/web/public
 
       - name: Build Website (release)
+        if: matrix.flavor == 'website'
         working-directory: crates/website
         env:
           RUSTFLAGS: -C target-feature=+simd128
         run: dx build --release
 
-      - name: Zip the WASM
+      - name: Check the website build produced its WASM
+        if: matrix.flavor == 'website'
         run: |
-          WASM=$(find target/dx/website/release/web/public -name '*.wasm' -printf '%T@ %p\n' | sort -rn | head -1 | cut -d' ' -f2-)
-          if [ -z "$WASM" ]; then
+          if [ -z "$(find target/dx/website/release/web/public -name '*.wasm' -print -quit)" ]; then
             echo "The website build produced no .wasm file"
             exit 1
           fi
-          mkdir -p wasm-bundle
-          cp "$WASM" "wasm-bundle/${{ env.BIN_NAME }}.wasm"
-          (cd wasm-bundle && zip ../hagane-website-wasm.zip "${{ env.BIN_NAME }}.wasm")
-
-      - name: Upload Website Artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: website-wasm-build
-          path: hagane-website-wasm.zip
-          retention-days: 1
 
       - name: Add the Pages headers file and the site icons
+        if: matrix.flavor == 'website'
         run: |
           cp crates/website/_headers target/dx/website/release/web/public/_headers
           cp crates/website/assets/icon.ico target/dx/website/release/web/public/favicon.ico
           cp crates/mobile/ios/AppIcon.png target/dx/website/release/web/public/icon.png
 
       - name: Upload Website Bundle
+        if: matrix.flavor == 'website'
         uses: actions/upload-artifact@v4
         with:
           name: website-site
@@ -277,10 +297,10 @@ jobs:
         include:
           - flavor: apk
             runner: ubuntu-latest
-            asset: hagane-android-apk.zip
+            platform: android
           - flavor: ipa
             runner: macos-latest
-            asset: hagane-ios-ipa.zip
+            platform: ios
     steps:
       - uses: actions/checkout@v5
 
@@ -340,21 +360,31 @@ jobs:
           grep -q '^apk_name = "hagane"$' crates/mobile/Cargo.toml
           grep -q '^label = "Hagane"$' crates/mobile/Cargo.toml
 
-      - name: Build the APK
+      - name: Build the APKs
         if: matrix.flavor == 'apk'
         env:
           ANDROID_NDK_ROOT: ${{ env.ANDROID_HOME }}/ndk/27.2.12479018
           ANDROID_NDK_HOME: ${{ env.ANDROID_HOME }}/ndk/27.2.12479018
           CARGO_APK_RELEASE_KEYSTORE: ${{ runner.temp }}/release.keystore
           CARGO_APK_RELEASE_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
-        run: cargo apk build --release -p mobile --lib
-
-      - name: Zip the APK
-        if: matrix.flavor == 'apk'
         run: |
-          mkdir -p apk-bundle
-          cp target/release/apk/hagane.apk "apk-bundle/${{ env.BIN_NAME }}.apk"
-          (cd apk-bundle && zip ../hagane-android-apk.zip "${{ env.BIN_NAME }}.apk")
+          bundle() {
+            ABIS=$(unzip -Z1 target/release/apk/hagane.apk | grep '^lib/' | cut -d/ -f2 | sort -u | xargs)
+            if [ "$ABIS" != "$2" ]; then
+              echo "$1 would hold the libraries for '$ABIS' instead of '$2'"
+              exit 1
+            fi
+            rm -rf apk-bundle
+            mkdir -p apk-bundle
+            cp target/release/apk/hagane.apk "apk-bundle/${{ env.BIN_NAME }}.apk"
+            (cd apk-bundle && zip "../$1" "${{ env.BIN_NAME }}.apk")
+          }
+          cargo apk build --release -p mobile --lib
+          bundle hagane-android-apk.zip "arm64-v8a x86_64"
+          cargo apk build --release -p mobile --lib --target aarch64-linux-android
+          bundle hagane-android-arm.zip "arm64-v8a"
+          cargo apk build --release -p mobile --lib --target x86_64-linux-android
+          bundle hagane-android-x64.zip "x86_64"
 
       - name: Add the iOS target
         if: matrix.flavor == 'ipa'
@@ -376,25 +406,26 @@ jobs:
           cp crates/mobile/ios/AppIcon.png "$APP/AppIcon.png"
           codesign --force --sign - "$APP" || echo "ad-hoc signing skipped"
           zip -r "${{ env.BIN_NAME }}.ipa" Payload
-          zip hagane-ios-ipa.zip "${{ env.BIN_NAME }}.ipa"
+          zip hagane-ios-arm.zip "${{ env.BIN_NAME }}.ipa"
+          cp hagane-ios-arm.zip hagane-ios-ipa.zip
 
       - name: Upload Mobile Artifact
         uses: actions/upload-artifact@v4
         with:
           name: mobile-${{ matrix.flavor }}-build
-          path: ${{ matrix.asset }}
+          path: hagane-${{ matrix.platform }}-*.zip
           retention-days: 1
 
   create-release:
     name: Publish Release
-    needs: [check-version, build-windows, build-linux, build-macos, build-website, build-mobile]
+    needs: [check-version, build-windows, build-linux, build-macos, build-online, build-mobile]
     if: ${{ !cancelled() && needs.check-version.outputs.should_release == 'true' && !contains(needs.*.result, 'failure') }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
 
       - uses: actions/download-artifact@v4
-        if: needs.check-version.outputs.desktop == 'true' || needs.check-version.outputs.website == 'true' || needs.check-version.outputs.mobile == 'true'
+        if: needs.check-version.outputs.desktop == 'true' || needs.check-version.outputs.online != '[]' || needs.check-version.outputs.mobile == 'true'
 
       - name: List artifacts (Verification)
         run: ls -R
@@ -421,12 +452,12 @@ jobs:
               mac-x64-build/hagane-mac-x64.zip
             )
           fi
-          if [ "${{ needs.check-version.outputs.website }}" = true ]; then
-            ASSETS+=(website-wasm-build/hagane-website-wasm.zip)
-          fi
           if [ "${{ needs.check-version.outputs.mobile }}" = true ]; then
             ASSETS+=(
+              mobile-apk-build/hagane-android-arm.zip
+              mobile-apk-build/hagane-android-x64.zip
               mobile-apk-build/hagane-android-apk.zip
+              mobile-ipa-build/hagane-ios-arm.zip
               mobile-ipa-build/hagane-ios-ipa.zip
             )
           fi
@@ -435,3 +466,20 @@ jobs:
             --title "v${{ needs.check-version.outputs.app_version }}" \
             --notes-file CHANGELOG.md \
             "${ASSETS[@]}"
+
+      - name: Deploy the bot to its server
+        if: needs.check-version.outputs.bot == 'true'
+        env:
+          BOT_DEPLOY_KEY: ${{ secrets.BOT_DEPLOY_KEY }}
+          BOT_DEPLOY_HOST: ${{ secrets.BOT_DEPLOY_HOST }}
+          BOT_HOST_KEY: ${{ secrets.BOT_HOST_KEY }}
+        run: |
+          if [ -z "$BOT_DEPLOY_KEY" ] || [ -z "$BOT_DEPLOY_HOST" ] || [ -z "$BOT_HOST_KEY" ]; then
+            echo "BOT_DEPLOY_KEY, BOT_DEPLOY_HOST and BOT_HOST_KEY must be set to deploy the bot."
+            exit 1
+          fi
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$BOT_DEPLOY_KEY" > ~/.ssh/bot_deploy
+          chmod 600 ~/.ssh/bot_deploy
+          printf '%s\n' "$BOT_HOST_KEY" > ~/.ssh/known_hosts
+          ssh -T -i ~/.ssh/bot_deploy -o IdentitiesOnly=yes "$BOT_DEPLOY_HOST" < bot-build/hagane-bot

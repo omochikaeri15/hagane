@@ -15,6 +15,10 @@ use std::path::PathBuf;
 use codex::graphics::rig::BoundingBox;
 use serde::{Deserialize, Serialize};
 
+use super::Role;
+
+pub const BACKGROUND: [u8; 4] = [80, 80, 80, 255];
+
 #[derive(Clone, PartialEq, Debug)]
 pub enum ExportMode {
     Manual,
@@ -42,6 +46,22 @@ pub struct ShowcaseLengths {
     pub idle: i32,
     pub attack: i32,
     pub kb: i32,
+}
+
+impl ShowcaseLengths {
+    pub fn segment(self, progress: i32) -> (Role, f32) {
+        let (walk, idle, attack) = (self.walk, self.idle, self.attack);
+
+        if progress < walk {
+            (Role::Walk, (progress % walk.max(1)) as f32)
+        } else if progress < walk + idle {
+            (Role::Idle, ((progress - walk) % idle.max(1)) as f32)
+        } else if progress < walk + idle + attack {
+            (Role::Attack, (progress - (walk + idle)) as f32)
+        } else {
+            (Role::Knockback, ((progress - (walk + idle + attack)) % self.kb.max(1)) as f32)
+        }
+    }
 }
 
 #[derive(Clone, Debug)]

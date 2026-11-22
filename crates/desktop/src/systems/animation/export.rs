@@ -14,7 +14,7 @@ use codex::graphics::rig::Animation;
 use foundry::common::job::ProgressCounter;
 use foundry::systems::addons::paths::{self, Presence};
 use foundry::systems::animation::export::{find_bounds, find_loop, leader, process, BoundsOutcome, EncoderStatus, ExportFormat, ExportMode, ExportRequest, FrameTiming, LoopStatus, ShowcaseLengths};
-use foundry::systems::animation::{playback_frames, Role};
+use foundry::systems::animation::{name_prefix, playback_frames, Role};
 use foundry::domains::settings::Settings;
 
 use crate::app::state::AnimState;
@@ -370,7 +370,7 @@ impl State {
             }
 
             let slug = data.current_motion().map_or_else(|| "anim".to_string(), |motion| motion.slug());
-            self.exporter.name_prefix = derive_name_prefix(data.export_name(), &slug);
+            self.exporter.name_prefix = name_prefix(data.export_name(), &slug);
         }
 
         self.maybe_scan_showcase(data, settings);
@@ -1602,26 +1602,6 @@ fn addon_badge(label: &str, installed: bool) -> Element<'_, Message> {
 
 fn scoped(scope: &str, name: &str) -> String {
     if scope.is_empty() { name.to_owned() } else { format!("{scope}/{name}") }
-}
-
-fn derive_name_prefix(raw_id: &str, type_string: &str) -> String {
-    let id_parts: Vec<&str> = raw_id.split('_').collect();
-    let mut clean_id = id_parts.first().copied().unwrap_or("").to_string();
-
-    if id_parts.len() >= 2 && !clean_id.is_empty() && clean_id.chars().all(char::is_numeric) {
-        let form_number = match id_parts[1].chars().next() {
-            Some('f') => 1,
-            Some('c') => 2,
-            Some('s') => 3,
-            Some('u') => 4,
-            _ => 0,
-        };
-        if form_number > 0 {
-            clean_id = format!("{}-{}", clean_id, form_number);
-        }
-    }
-
-    format!("{}.{}", clean_id, type_string)
 }
 
 #[cfg(test)]

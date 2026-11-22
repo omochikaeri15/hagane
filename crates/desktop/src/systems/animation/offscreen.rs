@@ -14,9 +14,9 @@ use codex::graphics::tools::joint;
 use codex::graphics::tools::part;
 
 use foundry::systems::animation::export::process::calculate_export_time;
-use foundry::systems::animation::export::{EncoderMessage, ExportMode, FrameTiming, ShowcaseLengths};
+use foundry::systems::animation::export::{BACKGROUND, EncoderMessage, ExportMode, FrameTiming, ShowcaseLengths};
 use foundry::domains::settings::Scope;
-use foundry::systems::animation::{multiply_mat3, playback_frames, Role};
+use foundry::systems::animation::{multiply_mat3, paint, playback_frames, Role};
 use foundry::Source;
 
 use crate::systems::animation;
@@ -91,7 +91,7 @@ impl Renderer {
             None => whole(),
         };
 
-        remap_glow(&mut parts);
+        paint::flatten_glow(&mut parts);
 
         let mut layered: Vec<Painted> = Vec::new();
 
@@ -156,7 +156,7 @@ impl Renderer {
             None => whole(),
         };
 
-        remap_glow(&mut parts);
+        paint::flatten_glow(&mut parts);
 
         parts
             .into_iter()
@@ -427,14 +427,14 @@ fn run(job: Job) {
 
     let frame_count = (job.timing.frame_end - job.timing.frame_start).abs() + 1;
     let delay_ms = (1000.0 / job.fps as f32) as u32;
-    let background = if job.background { [80, 80, 80, 255] } else { [0, 0, 0, 0] };
+    let background = if job.background { BACKGROUND } else { [0, 0, 0, 0] };
 
     let trails = job.debug.as_ref().map_or_else(Vec::new, diagnostics::Shot::trails);
 
     let seat = |progress: i32| {
         let (animation, local_time, attacking) = match &motions {
             Some(motions) => {
-                let (role, time) = showcase_segment(job.lengths, progress);
+                let (role, time) = job.lengths.segment(progress);
                 let animation = motions.get(role);
                 let time = match animation {
                     Some(anim) if anim.declared_frames() > 1 => time,
@@ -540,23 +540,6 @@ impl ShowcaseMotions {
     }
 }
 
-fn showcase_segment(lengths: ShowcaseLengths, progress: i32) -> (Role, f32) {
-    let walk = lengths.walk;
-    let idle = lengths.idle;
-    let attack = lengths.attack;
-
-    if progress < walk {
-        (Role::Walk, (progress % walk.max(1)) as f32)
-    } else if progress < walk + idle {
-        (Role::Idle, ((progress - walk) % idle.max(1)) as f32)
-    } else if progress < walk + idle + attack {
-        (Role::Attack, (progress - (walk + idle)) as f32)
-    } else {
-        let relative = progress - (walk + idle + attack);
-        (Role::Knockback, (relative % lengths.kb.max(1)) as f32)
-    }
-}
-
 fn ghost_seat(progress: i32, step: i32, frame_count: i32) -> i32 {
     (progress + step).rem_euclid(frame_count.max(1))
 }
@@ -564,16 +547,6 @@ fn ghost_seat(progress: i32, step: i32, frame_count: i32) -> i32 {
 fn align_bytes_per_row(width: u32) -> u32 {
     let align = wgpu::COPY_BYTES_PER_ROW_ALIGNMENT;
     (width * 4).div_ceil(align) * align
-}
-
-fn remap_glow(parts: &mut [FrameData]) {
-    for part in parts {
-        match part.glow {
-            1 | 3 => part.glow = 1,
-            2 => part.glow = 0,
-            _ => {}
-        }
-    }
 }
 
 fn unpad_rows_bottom_up(data: &[u8], width: u32, height: u32, padded_bytes_per_row: u32) -> Vec<u8> {

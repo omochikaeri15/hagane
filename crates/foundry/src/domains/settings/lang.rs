@@ -23,6 +23,22 @@ pub fn get_label_for_code(target_code: &str) -> String {
     format!("Unknown ({})", target_code)
 }
 
+pub fn choices() -> impl Iterator<Item = (&'static str, &'static str)> {
+    LANGUAGE_LIST.iter().copied().filter(|(code, _)| !code.is_empty() && *code != "--")
+}
+
+pub fn led_by(code: &str) -> Vec<String> {
+    let mut priority = default_priority();
+
+    if let Some(at) = priority.iter().position(|held| held == code) {
+        let lead = priority.remove(at);
+
+        priority.insert(0, lead);
+    }
+
+    priority
+}
+
 pub fn default_priority() -> Vec<String> {
     vec![
         "".to_string(), "en".to_string(), "ja".to_string(), "tw".to_string(),

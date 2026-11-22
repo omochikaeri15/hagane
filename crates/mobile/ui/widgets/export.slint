@@ -40,7 +40,6 @@ export global Export {
     in-out property <string> quality;
     in-out property <string> compression;
     in-out property <bool> background;
-    in property <bool> background-enabled: true;
     in property <string> status: "Ready";
     in property <float> ratio: 1.0;
     in property <string> export-label: "No Camera Set";
@@ -160,7 +159,7 @@ export component ExportDialog inherits Dialog {
                     Field { label: "Format"; Combo { width: 130px; height: 28px; text-size: 13px; options: Export.formats; current <=> Export.format; selected(index) => { Export.set-format(index); } } }
                     Field { label: "Quality %"; Small { placeholder: "80"; text <=> Export.quality; edited(value) => { Export.set-quality(value); } } }
                     Field { label: "Compress %"; Small { placeholder: "30"; text <=> Export.compression; edited(value) => { Export.set-compression(value); } } }
-                    Toggle { value: Export.background; label: "Background"; enabled: Export.background-enabled; text-size: 13px; track-width: 40px; track-height: 20px; changed(value) => { Export.toggle-background(value); } }
+                    Toggle { value: Export.background; label: "Background"; text-size: 13px; track-width: 40px; track-height: 20px; changed(value) => { Export.toggle-background(value); } }
                 }
             }
         }
