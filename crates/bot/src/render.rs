@@ -314,14 +314,14 @@ pub(crate) fn plan(library: &Library, cache: &Cache, set: &MotionSet, options: &
     Ok(Some(Planned::Encode(Box::new(job))))
 }
 
-fn reach(marks: &[Mark]) -> f32 {
+fn reach(marks: &[Mark]) -> Option<(f32, f32, f32)> {
     marks
         .iter()
         .map(|mark| match mark {
-            Mark::Line { from, to, .. } => from.1.max(to.1),
-            Mark::Box { corner, size, .. } => corner.1.max(corner.1 + size.1),
+            Mark::Line { from, to, .. } => (from.0.min(to.0), from.0.max(to.0), from.1.max(to.1)),
+            Mark::Box { corner, size, .. } => (corner.0.min(corner.0 + size.0), corner.0.max(corner.0 + size.0), corner.1.max(corner.1 + size.1)),
         })
-        .fold(f32::MIN, f32::max)
+        .reduce(|held, next| (held.0.min(next.0), held.1.max(next.1), held.2.max(next.2)))
 }
 
 impl Job {
@@ -458,20 +458,21 @@ impl Job {
                 Span::Loop(..) | Span::Whole(_) => (Some(first), calculate_export_time(&timing, first.anim.as_ref(), 0.0, at)),
             }
         };
-        let bottom = if self.overlays.combat {
+        let drawn = (sprite.min_x, sprite.max_x, sprite.max_y);
+        let (left, right, bottom) = if self.overlays.combat {
             (0..frames)
                 .filter_map(|at| {
                     let (track, time) = seat(at);
                     let combatant = self.fighter(track)?;
                     let stance = collision::Pose { rig: &self.rig, anim: track.and_then(|track| track.anim.as_ref()), frame: time.floor() as i32, offset, zoom: 1.0, crest: Some(sprite.min_y) };
 
-                    Some(reach(&collision::posed(&combatant.profile, self.look, &stance, |x, y| (x, y), |_, _| 0.0)))
+                    reach(&collision::posed(&combatant.profile, self.look, &stance, |x, y| (x, y), |_, _| 0.0))
                 })
-                .fold(sprite.max_y, |held, low| held.max(low + OVERLAY_MARGIN))
+                .fold(drawn, |held, (left, right, low)| (held.0.min(left - OVERLAY_MARGIN), held.1.max(right + OVERLAY_MARGIN), held.2.max(low + OVERLAY_MARGIN)))
         } else {
-            sprite.max_y
+            drawn
         };
-        let width = sprite.width().round() as u32;
+        let width = (right - left).round() as u32;
         let height = (bottom - sprite.min_y).round() as u32;
 
         if width == 0 || height == 0 {
@@ -492,8 +493,8 @@ impl Job {
             base_name: self.name.clone(),
             background: self.background,
         };
-        let view_proj = paint::export_view_proj(width as f32, height as f32, sprite.min_x, sprite.min_y, 1.0);
-        let view = overlay::View { size: (width as f32, height as f32), pan: (-sprite.min_x - width as f32 / 2.0, -sprite.min_y - height as f32 / 2.0), zoom: 1.0 };
+        let view_proj = paint::export_view_proj(width as f32, height as f32, left, sprite.min_y, 1.0);
+        let view = overlay::View { size: (width as f32, height as f32), pan: (-left - width as f32 / 2.0, -sprite.min_y - height as f32 / 2.0), zoom: 1.0 };
         let period = (!matches!(span, Span::Showcase(_))).then_some(frames);
         let backdrop = if self.background { BACKGROUND } else { CLEAR };
         let (sender, receiver) = mpsc::sync_channel(IN_FLIGHT);
