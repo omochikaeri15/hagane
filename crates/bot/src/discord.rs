@@ -91,7 +91,7 @@ pub(crate) async fn run(config: Config, cache: Cache) -> Result<(), Error> {
                     return Ok(true);
                 };
 
-                ctx.say(notice.said(prose_of(ctx))).await?;
+                say(ctx, notice.said(prose_of(ctx))).await?;
                 Ok(false)
             })
         }),
@@ -168,7 +168,7 @@ async fn on_error(failure: FrameworkError<'_, Data, Error>) {
         FrameworkError::Command { error, ctx, .. } => {
             error!(command = %ctx.command().name, "A command failed: {}", error);
 
-            if let Err(err) = ctx.say(prose::FAILED.said(prose_of(ctx))).await {
+            if let Err(err) = say(ctx, prose::FAILED.said(prose_of(ctx))).await {
                 error!("The failure notice could not be sent: {}", err);
             }
         }
@@ -274,7 +274,7 @@ impl Post {
     }
 
     fn reply(self, clearing: bool) -> CreateReply {
-        let reply = CreateReply::default().components(self.rows);
+        let reply = CreateReply::default().components(self.rows).allowed_mentions(quiet());
         let reply = if clearing || !self.text.is_empty() { reply.content(self.text) } else { reply };
 
         self.file.into_iter().fold(reply, |reply, (bytes, name)| reply.attachment(serenity::CreateAttachment::bytes(bytes, name)))
@@ -335,7 +335,7 @@ impl<'a> Voice<'a> {
 
     async fn post(self, post: Post) -> Result<Posted<'a>, Error> {
         match self {
-            Voice::Command(ctx) => Ok(Posted::Command(ctx.send(post.reply(false)).await?)),
+            Voice::Command(ctx) => Ok(Posted::Command(send(ctx, post.reply(false)).await?)),
             Voice::Press(ctx, press, _) => {
                 press.edit_response(ctx, post.edit()).await?;
                 Ok(Posted::Press)
@@ -425,6 +425,27 @@ async fn on_found(ctx: &serenity::Context, press: &serenity::ComponentInteractio
     }
 
     Ok(())
+}
+
+fn quiet() -> serenity::CreateAllowedMentions {
+    serenity::CreateAllowedMentions::new().replied_user(false)
+}
+
+async fn send<'a>(ctx: Context<'a>, reply: CreateReply) -> Result<poise::ReplyHandle<'a>, Error> {
+    let reply = reply.allowed_mentions(quiet());
+
+    if let poise::Context::Prefix(_) = ctx {
+        match ctx.send(reply.clone().reply(true)).await {
+            Ok(handle) => return Ok(handle),
+            Err(err) => warn!("An answer could not be sent as a reply, sending it on its own: {}", err),
+        }
+    }
+
+    Ok(ctx.send(reply).await?)
+}
+
+async fn say<'a>(ctx: Context<'a>, text: impl Into<String>) -> Result<poise::ReplyHandle<'a>, Error> {
+    send(ctx, CreateReply::default().content(text)).await
 }
 
 fn file(bytes: Vec<u8>, name: String) -> CreateReply {
@@ -664,7 +685,7 @@ async fn understood(ctx: Context<'_>, request: Option<String>, kind: Kind) -> Re
     match grammar::parse(request.as_deref().unwrap_or_default(), kind) {
         Ok(request) => Ok(Some(request)),
         Err(reason) => {
-            ctx.say(prose::SEE_HELP.filled(prose_of(ctx), &[("reason", &reason), ("prefix", &prefix_of(ctx.data(), ctx.author().id.get()))])).await?;
+            say(ctx, prose::SEE_HELP.filled(prose_of(ctx), &[("reason", &reason), ("prefix", &prefix_of(ctx.data(), ctx.author().id.get()))])).await?;
             Ok(None)
         }
     }
@@ -822,8 +843,8 @@ async fn help(ctx: Context<'_>, #[description = "A command to explain, like cat 
     };
 
     match page {
-        Some(page) => ctx.send(CreateReply::default().embed(help_page(page, &prefix, prose_of(ctx))).components(help_rows(owner, page))).await?,
-        None => ctx.say(prose::NO_PAGE.filled(prose_of(ctx), &[("name", asked.unwrap_or_default()), ("prefix", &prefix)])).await?,
+        Some(page) => send(ctx, CreateReply::default().embed(help_page(page, &prefix, prose_of(ctx))).components(help_rows(owner, page))).await?,
+        None => say(ctx, prose::NO_PAGE.filled(prose_of(ctx), &[("name", asked.unwrap_or_default()), ("prefix", &prefix)])).await?,
     };
 
     Ok(())
@@ -943,25 +964,25 @@ fn help_page(page_name: &str, prefix: &str, prose: Prose) -> serenity::CreateEmb
 
 #[poise::command(slash_command, prefix_command, install_context = "Guild|User", interaction_context = "Guild|BotDm|PrivateChannel", aliases("web", "w"))]
 async fn website(ctx: Context<'_>) -> Result<(), Error> {
-    ctx.say(prose::WEBSITE.said(prose_of(ctx))).await?;
+    say(ctx, prose::WEBSITE.said(prose_of(ctx))).await?;
     Ok(())
 }
 
 #[poise::command(prefix_command)]
 async fn donothing(ctx: Context<'_>) -> Result<(), Error> {
-    ctx.say(prose::DO_NOTHING.said(prose_of(ctx))).await?;
+    say(ctx, prose::DO_NOTHING.said(prose_of(ctx))).await?;
     Ok(())
 }
 
 #[poise::command(slash_command, prefix_command, install_context = "Guild|User", interaction_context = "Guild|BotDm|PrivateChannel", aliases("inv", "i"))]
 async fn invite(ctx: Context<'_>) -> Result<(), Error> {
-    ctx.say(prose::INVITE.said(prose_of(ctx))).await?;
+    say(ctx, prose::INVITE.said(prose_of(ctx))).await?;
     Ok(())
 }
 
 #[poise::command(slash_command, prefix_command, install_context = "Guild|User", interaction_context = "Guild|BotDm|PrivateChannel", aliases("license", "l"))]
 async fn legal(ctx: Context<'_>) -> Result<(), Error> {
-    ctx.send(file(LICENSES.as_bytes().to_vec(), "licenses.txt".to_owned()).content(LEGAL)).await?;
+    send(ctx, file(LICENSES.as_bytes().to_vec(), "licenses.txt".to_owned()).content(LEGAL)).await?;
     Ok(())
 }
 
@@ -1038,14 +1059,14 @@ async fn settings(ctx: Context<'_>) -> Result<(), Error> {
     if let poise::Context::Prefix(_) = ctx {
         let open = serenity::CreateButton::new(OPEN_SETTINGS).label("Open Settings").style(serenity::ButtonStyle::Primary);
 
-        ctx.send(CreateReply::default().content(prose::SETTINGS_PROMPT.said(prose_of(ctx))).components(vec![serenity::CreateActionRow::Buttons(vec![open])])).await?;
+        send(ctx, CreateReply::default().content(prose::SETTINGS_PROMPT.said(prose_of(ctx))).components(vec![serenity::CreateActionRow::Buttons(vec![open])])).await?;
         return Ok(());
     }
 
     let owner = ctx.author().id.get();
     let (embed, rows) = settings_view(owner, &ctx.data().book.get(owner), 0);
 
-    ctx.send(CreateReply::default().embed(embed).components(rows).ephemeral(true)).await?;
+    send(ctx, CreateReply::default().embed(embed).components(rows).ephemeral(true)).await?;
     Ok(())
 }
 
