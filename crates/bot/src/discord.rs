@@ -517,7 +517,6 @@ fn list_rows(owner: u64, token: Option<u64>, choices: &[Choice], shown: usize) -
 }
 
 async fn offer_as(voice: Voice<'_>, prompt: String, labeled: bool, route: Option<&str>, tails: &[(Kind, String)], found: Vec<Hit>) -> Result<(), Error> {
-    let owner = voice.user().get();
     let mut choices = Vec::with_capacity(found.len().min(SEARCH_SHOWN * LIST_PAGES));
 
     for hit in found.into_iter().take(SEARCH_SHOWN * LIST_PAGES) {
@@ -528,13 +527,19 @@ async fn offer_as(voice: Voice<'_>, prompt: String, labeled: bool, route: Option
             (None, kind) => format!("{}|{}|{tail}", kind.tag(), hit.value),
         };
 
-        if value.len() > VALUE_LIMIT {
-            return voice.say(prose::SEARCH_LONG.said(voice.prose())).await;
-        }
-
         let note = if labeled { format!("{} • {}", hit.kind.label(), hit.note) } else { hit.note };
 
         choices.push((hit.label.chars().take(OPTION_LIMIT).collect::<String>(), value, note.chars().take(OPTION_LIMIT).collect::<String>()));
+    }
+
+    offer_choices(voice, prompt, choices).await
+}
+
+async fn offer_choices(voice: Voice<'_>, prompt: String, choices: Vec<Choice>) -> Result<(), Error> {
+    let owner = voice.user().get();
+
+    if choices.iter().any(|(_, value, _)| value.len() > VALUE_LIMIT) {
+        return voice.say(prose::SEARCH_LONG.said(voice.prose())).await;
     }
 
     let choices: Arc<[Choice]> = choices.into();
