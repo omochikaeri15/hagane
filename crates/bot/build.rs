@@ -79,6 +79,15 @@ const BACKDROP: [&str; 29] = [
 
 const AUDIO: [&str; 2] = ["src/audio.rs", "../codex/src/files/sound.rs"];
 
+const STAGE: [&str; 6] = [
+    "src/stage.rs",
+    "../foundry/src/domains/stage/sheet.rs",
+    "../foundry/src/systems/statblock.rs",
+    "../foundry/src/systems/statblock",
+    "../foundry/src/common/assets.rs",
+    "../foundry/src/common/gfx.rs",
+];
+
 const NOT_DRAWING: [&str; 7] = [
     "../codex/src/graphics/backdrop.rs",
     "../foundry/src/systems/animation/authoring.rs",
@@ -98,6 +107,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     stamp("HAGANE_ANIMATION_STAMP", &ANIMATION)?;
     stamp("HAGANE_AUDIO_STAMP", &AUDIO)?;
     stamp("HAGANE_BACKDROP_STAMP", &BACKDROP)?;
+    stamp("HAGANE_STAGE_STAMP", &STAGE)?;
     stamp("HAGANE_STATBLOCK_STAMP", &STATBLOCK)
 }
 

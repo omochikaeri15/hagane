@@ -40,6 +40,8 @@ export global Stages {
     in property <string> stage-name;
     in property <[Crown]> crowns;
     in property <int> crown;
+    in property <string> export-label: "Export Image";
+    in property <Tone> export-tone: Tone.primary;
     in property <[StatCell]> info-headers-1;
     in property <[StatCell]> info-values-1;
     in property <[StatCell]> info-headers-2;
@@ -105,6 +107,7 @@ export global Stages {
     callback pick-map(int);
     callback pick-stage(int);
     callback pick-crown(int);
+    callback export-image();
     callback open-filter();
     callback jump-enemy(int, string);
     callback jump-cat(int, int, string);
@@ -312,10 +315,17 @@ component Info inherits VerticalLayout {
         Banner { x: map.width + 10px; y: 50px - self.height; source: Stages.stage-banner; present: Stages.has-stage-banner; fallback: Stages.stage-name; size: 35px * root.fit; }
     }
     Rule { }
-    if Stages.crowns.length > 1: HorizontalLayout {
+    HorizontalLayout {
         spacing: 4px;
         alignment: start;
-        for crown[index] in Stages.crowns: HeaderToggle { label: crown.label; symbol: "\u{1f732}"; available: crown.enabled; selected: Stages.crown == index; square: true; width: 56px; clicked => { Stages.pick-crown(index); } }
+        for crown[index] in Stages.crowns.length > 1 ? Stages.crowns : []: HeaderToggle { label: crown.label; symbol: "\u{1f732}"; available: crown.enabled; selected: Stages.crown == index; square: true; width: 56px; clicked => { Stages.pick-crown(index); } }
+        if Stages.crowns.length > 1: Rectangle { width: 4px; }
+        if Stages.crowns.length > 1: VRule { }
+        if Stages.crowns.length > 1: Rectangle { width: 4px; }
+        VerticalLayout {
+            alignment: center;
+            Btn { width: 100px; height: 24px; text-size: 12px; tone: Stages.export-tone; label: Stages.export-label; pad-y: 0px; clicked => { Stages.export-image(); } }
+        }
     }
     Section {
         title: "Information";

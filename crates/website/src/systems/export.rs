@@ -7,7 +7,7 @@ use image::{ImageFormat, RgbaImage};
 use tracing::error;
 
 use foundry::common::formats::SpriteSheet;
-use foundry::systems::statblock::{self, Fonts, StatblockData};
+use foundry::systems::statblock::{self, Fonts, StageFonts, StageSheet, StatblockData};
 
 use crate::platform::{Bytes, Fault, Platform, Script};
 use crate::systems::library::Library;
@@ -29,6 +29,11 @@ struct FontSet {
     th: Bytes,
 }
 
+struct StageSet {
+    bold: Bytes,
+    symbols: Bytes,
+}
+
 impl FontSet {
     fn fonts(&self) -> Fonts<'_> {
         Fonts { jp: &self.jp, kr: &self.kr, tc: &self.tc, th: &self.th }
@@ -36,7 +41,7 @@ impl FontSet {
 }
 
 #[derive(Clone, Default)]
-pub(crate) struct Typefaces(Rc<RefCell<Option<Rc<FontSet>>>>);
+pub(crate) struct Typefaces(Rc<RefCell<Option<Rc<FontSet>>>>, Rc<RefCell<Option<Rc<StageSet>>>>);
 
 pub(crate) fn provide() -> Typefaces {
     use_context_provider(Typefaces::default)
@@ -51,6 +56,19 @@ async fn fonts(platform: &Platform, typefaces: &Typefaces) -> Result<Rc<FontSet>
     let set = Rc::new(FontSet { jp: host.font(Script::Japanese).await?, kr: host.font(Script::Korean).await?, tc: host.font(Script::TraditionalChinese).await?, th: host.font(Script::Thai).await? });
 
     *typefaces.0.borrow_mut() = Some(Rc::clone(&set));
+
+    Ok(set)
+}
+
+async fn stage_fonts(platform: &Platform, typefaces: &Typefaces) -> Result<Rc<StageSet>, Fault> {
+    if let Some(held) = typefaces.1.borrow().as_ref() {
+        return Ok(Rc::clone(held));
+    }
+
+    let host = platform.host();
+    let set = Rc::new(StageSet { bold: host.font(Script::Bold).await?, symbols: host.font(Script::Symbols).await? });
+
+    *typefaces.1.borrow_mut() = Some(Rc::clone(&set));
 
     Ok(set)
 }
@@ -182,5 +200,74 @@ pub(crate) fn ExportButtons(request: Callback<(), Option<Statblock>>) -> Element
             }
             button { class: class(save_phase()), disabled: busy, onclick: move |_| run.call(Action::Save), {label(save_phase(), "Export Image", "Exporting...", "Exported!")} }
         }
+    }
+}
+
+fn stage_file(sheet: &StageSheet) -> String {
+    format!("{}.{}crown.stage.png", sheet.id, u32::from(sheet.crown) + 1)
+}
+
+#[component]
+pub(crate) fn StageExportButtons(request: Callback<(), Option<Rc<StageSheet>>>) -> Element {
+    let platform = use_context::<Platform>();
+    let typefaces = use_context::<Typefaces>();
+    let library = use_context::<Library>();
+    let copy_phase = use_signal(|| Phase::Idle);
+    let save_phase = use_signal(|| Phase::Idle);
+    let can_copy = platform.host().can_copy();
+    let busy = copy_phase() == Phase::Busy || save_phase() == Phase::Busy;
+    let run = use_callback(move |action: Action| {
+        let platform = platform.clone();
+        let typefaces = typefaces.clone();
+        let mut phase = if action == Action::Copy { copy_phase } else { save_phase };
+
+        if *copy_phase.peek() == Phase::Busy || *save_phase.peek() == Phase::Busy {
+            return;
+        }
+
+        let Some(first) = request.call(()) else {
+            spawn(settle(platform, phase, false));
+            return;
+        };
+
+        phase.set(Phase::Busy);
+
+        spawn(async move {
+            let sheet = match library.waiting() {
+                true => {
+                    arrived(&platform, library).await;
+                    request.call(()).unwrap_or(first)
+                }
+                false => first,
+            };
+            let outcome = async {
+                let text = fonts(&platform, &typefaces).await?;
+                let extra = stage_fonts(&platform, &typefaces).await?;
+                let faces = StageFonts { regular: &text.jp, bold: &extra.bold, symbols: &extra.symbols, fallbacks: vec![&text.kr, &text.tc, &text.th] };
+                let bytes = png(&statblock::build_stage_image(&sheet, &faces).map_err(Fault)?)?;
+
+                match action {
+                    Action::Copy => platform.host().copy_image(bytes).await,
+                    Action::Save => {
+                        platform.host().download(&stage_file(&sheet), "image/png", bytes);
+                        Ok(())
+                    }
+                }
+            }
+            .await;
+
+            if let Err(fault) = &outcome {
+                error!("The stage export failed: {fault}");
+            }
+
+            settle(platform, phase, outcome.is_ok()).await;
+        });
+    });
+
+    rsx! {
+        if can_copy {
+            button { class: class(copy_phase()), disabled: busy, onclick: move |_| run.call(Action::Copy), {label(copy_phase(), "Copy Image", "Copying...", "Copied!")} }
+        }
+        button { class: class(save_phase()), disabled: busy, onclick: move |_| run.call(Action::Save), {label(save_phase(), "Export Image", "Exporting...", "Exported!")} }
     }
 }

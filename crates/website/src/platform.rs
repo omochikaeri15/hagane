@@ -61,6 +61,8 @@ pub enum Script {
     Korean,
     TraditionalChinese,
     Thai,
+    Bold,
+    Symbols,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]

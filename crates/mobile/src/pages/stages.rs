@@ -27,16 +27,18 @@ use foundry::domains::stage::filter::treasure::TreasureFilter;
 use foundry::domains::stage::filter::{StageFilterState, StageLookupContext};
 use foundry::domains::stage::fixedlineup::{self as core_fixedlineup, ResolvedSlot};
 use foundry::domains::stage::scanner::StageBundle;
-use foundry::domains::stage::{GlobalMapId, GlobalStageId, Map, Stage, StageDataState, cost, files as stage_files, materials, navigate, restrictions, treasure as stage_treasure};
+use foundry::domains::stage::sheet::{self, Subject};
+use foundry::domains::stage::{GlobalMapId, GlobalStageId, Map, Stage, StageDataState, cost, files as stage_files, materials, names, navigate, restrictions, treasure as stage_treasure};
 use foundry::systems::combat::{NameBook, present_identities};
+use foundry::systems::statblock::{StageFonts, build_stage_image, save_stage_to_disk};
 use foundry::systems::treasure;
 
 use crate::catalog::Load;
 use crate::context::Globals;
 use crate::images::{self, Images};
 use crate::pages::cats::text_cell;
-use crate::pages::{Context, enemies};
-use crate::{AppWindow, Crown, DropRow, FilterCard, FlagRow, GroundRow, LineupSlot, MaterialCell, Page, Pair, PickRow, RangeField, Shell, Stages};
+use crate::pages::{Context, detail, enemies};
+use crate::{AppWindow, Tone, Crown, DropRow, FilterCard, FlagRow, GroundRow, LineupSlot, MaterialCell, Page, Pair, PickRow, RangeField, Shell, Stages};
 
 const MAX_ICON_SIZE: u32 = 32;
 
@@ -179,40 +181,7 @@ const TREASURES: [(TreasureType, &str); 9] = [
 ];
 
 pub fn display_name(category: &Category) -> &str {
-    match category {
-        Category::StoriesOfLegend => "Stories of Legend",
-        Category::EventStages => "Event Stages",
-        Category::CollabStages => "Collab Stages",
-        Category::EmpireOfCats => "Empire of Cats",
-        Category::IntoTheFuture => "Into the Future",
-        Category::CatsOfTheCosmos => "Cats of the Cosmos",
-        Category::ExtraStages => "Extra Stages",
-        Category::DojoHallOfInitiates => "Dojo Hall of Initiates",
-        Category::TowersAndCitadels => "Towers & Citadels",
-        Category::DojoRankingEvents => "Dojo Ranking Events",
-        Category::ChallengeBattle => "Challenge Battle",
-        Category::UncannyLegends => "Uncanny Legends",
-        Category::CataminStages => "Catamin Stages",
-        Category::LegendQuest => "Legend Quest",
-        Category::ZombieOutbreaks => "Zombie Outbreaks",
-        Category::GauntletStages => "Gauntlet Stages",
-        Category::EnigmaStages => "Enigma Stages",
-        Category::CollabGauntletStages => "Collab Gauntlet Stages",
-        Category::AkuRealms => "Aku Realms",
-        Category::BehemothCulling => "Behemoth Culling",
-        Category::Labyrinth => "Labyrinth",
-        Category::ZeroLegends => "Zero Legends",
-        Category::OtherworldColosseum => "Otherworld Colosseum",
-        Category::CatclawChampionships => "Catclaw Championships",
-        Category::FeverRush => "Point Events",
-        Category::Unknown(prefix) => {
-            if prefix == "PT" {
-                "Legacy Princess Punt"
-            } else {
-                prefix.as_str()
-            }
-        }
-    }
+    names::category_name(category)
 }
 
 pub fn sort_order(category: &Category) -> u32 {
@@ -688,6 +657,7 @@ pub struct State {
     stage: Option<GlobalStageId>,
     arriving: Option<GlobalStageId>,
     crown: u8,
+    exporting: bool,
     filter: StageFilterState,
     matching: Option<Matching>,
     attributes_for: Option<usize>,
@@ -710,6 +680,7 @@ impl State {
             stage: None,
             arriving: None,
             crown: 0,
+            exporting: false,
             filter: StageFilterState::default(),
             matching: None,
             attributes_for: None,
@@ -786,6 +757,53 @@ impl State {
     }
 }
 
+fn set_export_face(ui: &AppWindow, label: &str, tone: Tone) {
+    let stages = ui.global::<Stages>();
+
+    stages.set_export_label(label.into());
+    stages.set_export_tone(tone);
+}
+
+fn export(ui: &AppWindow, state: &Shared, context: &Rc<Context>) {
+    if state.borrow().exporting {
+        return;
+    }
+
+    let Some(globals) = context.globals() else {
+        return;
+    };
+    let vault = context.engine.vault();
+    let drawn = {
+        let held = state.borrow();
+        let (Some((stage, map)), Some(data)) = (held.stage(), held.data.as_ref()) else {
+            return;
+        };
+
+        sheet::build(Subject {
+            stage,
+            map,
+            crown: held.crown,
+            enemies: &data.enemy_registry,
+            drop_charas: &data.drop_chara_registry,
+            unit_buys: &data.unit_buy_registry,
+            lock_skips: &data.lock_skip_registry,
+            cpu: &data.scat_cpu_setting,
+            ctx: globals.context(&vault),
+        })
+    };
+    let landing = Rc::clone(state);
+
+    state.borrow_mut().exporting = true;
+    detail::export_image(
+        ui,
+        context,
+        "stage",
+        Rc::new(set_export_face),
+        move || save_stage_to_disk(&build_stage_image(&drawn, &StageFonts::embedded())?, &drawn),
+        move |_| landing.borrow_mut().exporting = false,
+    );
+}
+
 pub fn wire(window: &AppWindow, context: &Rc<Context>) -> Shared {
     let state: Shared = Rc::new(RefCell::new(State::new()));
     let stages = window.global::<Stages>();
@@ -851,6 +869,15 @@ pub fn wire(window: &AppWindow, context: &Rc<Context>) -> Shared {
 
         if let (Some(ui), Some(id)) = (weak.upgrade(), picked) {
             select(&ui, &held, &ctx, id);
+        }
+    });
+
+    stages.set_export_label(detail::EXPORT_IDLE.into());
+
+    let (held, ctx, weak) = on(&state, context, window);
+    stages.on_export_image(move || {
+        if let Some(ui) = weak.upgrade() {
+            export(&ui, &held, &ctx);
         }
     });
 

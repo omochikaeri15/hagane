@@ -7,7 +7,7 @@ use std::sync::{Arc, Mutex, OnceLock, RwLock};
 use codex::cat::unit::UnitBuy;
 use codex::chapter::Category;
 use codex::chapter::map::{DropItemEntry, LockSkipDataEntry, MapOptionEntry, RuleType, ScoreBonusMapEntry, SpecialRulesMapEntry, SpecialRulesMapOptionEntry};
-use codex::chapter::stage::{CharaGroupEntry, CostType, FixedFormationEntry, MapStageData, ScatCpuSetting, StageNameEntry, StageOptionEntry, get_hardcoded_xp};
+use codex::chapter::stage::{CharaGroupEntry, CostType, FixedFormationEntry, MapStageData, ScatCpuSetting, StageNameEntry, StageOptionEntry, story_xp};
 use rayon::prelude::*;
 use rustc_hash::FxHashMap;
 use serde::{Deserialize, Serialize};
@@ -34,6 +34,7 @@ const PREFIX_EC: &str = "EC";
 const STORY_PREFIXES: [&str; 4] = [PREFIX_EC, "W", "Space", "Z"];
 const EC_CHAPTERS: [u32; 3] = [0, 1, 2];
 const INVASION: &str = "Invasion";
+const INVASION_XP: u32 = 0;
 const ZOMBIE_INVASION: &str = "_Z_";
 
 type Names = Arc<[Box<str>]>;
@@ -796,7 +797,7 @@ fn load_story_stages(
 
         if let Some(entry) = story_data.entries.get(stage_id as usize) {
             stage_struct.cost = entry.cost;
-            stage_struct.xp = global_map_id.map(|id| get_hardcoded_xp(id, stage_id as usize)).unwrap_or(0);
+            stage_struct.xp = global_map_id.map_or(0, |id| story_xp(id, stage_id as usize));
             stage_struct.init_track = entry.init_track;
             stage_struct.bgm_change_percent = entry.bgm_change_percent;
             stage_struct.boss_track = entry.boss_track;
@@ -821,7 +822,7 @@ fn load_story_stages(
 
             if let Some(entry) = inv_story_data.entries.first() {
                 stage_struct.cost = entry.cost;
-                stage_struct.xp = global_map_id.map(|id| get_hardcoded_xp(id, inv_stage_id as usize)).unwrap_or(0);
+                stage_struct.xp = INVASION_XP;
                 stage_struct.init_track = entry.init_track;
                 stage_struct.bgm_change_percent = entry.bgm_change_percent;
                 stage_struct.boss_track = entry.boss_track;

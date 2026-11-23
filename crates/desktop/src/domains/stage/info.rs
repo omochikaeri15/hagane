@@ -10,7 +10,7 @@ use codex::chapter::stage::ScatCpuSetting;
 use codex::chapter::Category;
 
 use foundry::domains::stage::{cost, files as stage_files, Map, Stage, StageDataState};
-use foundry::{ItemStore, Vfs};
+use foundry::Vault;
 use foundry::Source;
 
 use crate::app::theme;
@@ -24,6 +24,8 @@ const BANNER_GAP: f32 = 12.0;
 const RULE_HEIGHT: f32 = 1.0;
 const GRID_SPACING: f32 = 4.0;
 const FALLBACK_NAME_SIZE: f32 = 32.0;
+const ACTIONS_GAP: f32 = 8.0;
+const ACTIONS_HEIGHT: f32 = 30.0;
 
 fn format_diff(difficulty_level: u16) -> String {
     if difficulty_level == 0 {
@@ -109,11 +111,12 @@ impl State {
         &'a self,
         stage: &'a Stage,
         map: &'a Map,
-        vfs: &Vfs,
+        vault: &Vault,
         data: &StageDataState,
-        items: &ItemStore,
         selected_crown: u8,
+        actions: Element<'a, super::Message>,
     ) -> Element<'a, super::Message> {
+        let (vfs, items) = (&vault.vfs, &vault.vds.items);
         let image_prefix = stage.category.image_prefix();
 
         let map_key = format!("map_img_{:?}_{}", stage.category, stage.map_id);
@@ -134,7 +137,11 @@ impl State {
             .spacing(BANNER_GAP)
             .align_y(Alignment::End);
 
-        let crown_row = super::crowns::view(stage, selected_crown);
+        let crown_row = if stage.max_crowns > 1 {
+            row![super::crowns::view(stage, selected_crown), rule::vertical(RULE_HEIGHT), actions].spacing(ACTIONS_GAP).height(Length::Fixed(ACTIONS_HEIGHT)).align_y(Alignment::Center)
+        } else {
+            row![actions]
+        };
 
         let crown_magnification = stage.crown_magnification(selected_crown.saturating_add(1)).unwrap_or(100);
 

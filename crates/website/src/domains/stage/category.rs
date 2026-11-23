@@ -1,40 +1,8 @@
 use codex::chapter::Category;
+use foundry::domains::stage::names;
 
 pub(crate) fn display_name(category: &Category) -> &str {
-    match category {
-        Category::StoriesOfLegend => "Stories of Legend",
-        Category::EventStages => "Event Stages",
-        Category::CollabStages => "Collab Stages",
-        Category::EmpireOfCats => "Empire of Cats",
-        Category::IntoTheFuture => "Into the Future",
-        Category::CatsOfTheCosmos => "Cats of the Cosmos",
-        Category::ExtraStages => "Extra Stages",
-        Category::DojoHallOfInitiates => "Dojo Hall of Initiates",
-        Category::TowersAndCitadels => "Towers & Citadels",
-        Category::DojoRankingEvents => "Dojo Ranking Events",
-        Category::ChallengeBattle => "Challenge Battle",
-        Category::UncannyLegends => "Uncanny Legends",
-        Category::CataminStages => "Catamin Stages",
-        Category::LegendQuest => "Legend Quest",
-        Category::ZombieOutbreaks => "Zombie Outbreaks",
-        Category::GauntletStages => "Gauntlet Stages",
-        Category::EnigmaStages => "Enigma Stages",
-        Category::CollabGauntletStages => "Collab Gauntlet Stages",
-        Category::AkuRealms => "Aku Realms",
-        Category::BehemothCulling => "Behemoth Culling",
-        Category::Labyrinth => "Labyrinth",
-        Category::ZeroLegends => "Zero Legends",
-        Category::OtherworldColosseum => "Otherworld Colosseum",
-        Category::CatclawChampionships => "Catclaw Championships",
-        Category::FeverRush => "Point Events",
-        Category::Unknown(prefix) => {
-            if prefix == "PT" {
-                "Legacy Princess Punt"
-            } else {
-                prefix.as_str()
-            }
-        }
-    }
+    names::category_name(category)
 }
 
 pub(crate) fn sort_order(category: &Category) -> u32 {

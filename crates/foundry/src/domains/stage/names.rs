@@ -1,10 +1,45 @@
 use std::collections::HashMap;
 
+use codex::chapter::Category;
+
 const COMMENT: &str = "//";
+const LEGACY_PUNT: &str = "PT";
 const STORY_TAIL: usize = 2;
 const NAME_COLUMN: usize = 1;
 const STORY_LAST_NAMED: u32 = 47;
 const STORY_PREFIXES: [&str; 4] = ["EC", "W", "Space", "Z"];
+
+pub fn category_name(category: &Category) -> &str {
+    match category {
+        Category::StoriesOfLegend => "Stories of Legend",
+        Category::EventStages => "Event Stages",
+        Category::CollabStages => "Collab Stages",
+        Category::EmpireOfCats => "Empire of Cats",
+        Category::IntoTheFuture => "Into the Future",
+        Category::CatsOfTheCosmos => "Cats of the Cosmos",
+        Category::ExtraStages => "Extra Stages",
+        Category::DojoHallOfInitiates => "Dojo Hall of Initiates",
+        Category::TowersAndCitadels => "Towers & Citadels",
+        Category::DojoRankingEvents => "Dojo Ranking Events",
+        Category::ChallengeBattle => "Challenge Battle",
+        Category::UncannyLegends => "Uncanny Legends",
+        Category::CataminStages => "Catamin Stages",
+        Category::LegendQuest => "Legend Quest",
+        Category::ZombieOutbreaks => "Zombie Outbreaks",
+        Category::GauntletStages => "Gauntlet Stages",
+        Category::EnigmaStages => "Enigma Stages",
+        Category::CollabGauntletStages => "Collab Gauntlet Stages",
+        Category::AkuRealms => "Aku Realms",
+        Category::BehemothCulling => "Behemoth Culling",
+        Category::Labyrinth => "Labyrinth",
+        Category::ZeroLegends => "Zero Legends",
+        Category::OtherworldColosseum => "Otherworld Colosseum",
+        Category::CatclawChampionships => "Catclaw Championships",
+        Category::FeverRush => "Point Events",
+        Category::Unknown(prefix) if prefix == LEGACY_PUNT => "Legacy Princess Punt",
+        Category::Unknown(prefix) => prefix.as_str(),
+    }
+}
 
 pub fn named_by_stage(prefix: &str) -> bool {
     STORY_PREFIXES.contains(&prefix)

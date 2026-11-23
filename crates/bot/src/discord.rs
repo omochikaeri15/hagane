@@ -1,6 +1,7 @@
-use std::sync::Arc;
+use std::collections::VecDeque;
 use std::sync::atomic::Ordering;
-use std::time::{Duration, Instant};
+use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use poise::serenity_prelude as serenity;
 use poise::{BoxFuture, CreateReply, FrameworkError};
@@ -13,6 +14,7 @@ use foundry::domains::cat::animation as cat_animation;
 use foundry::domains::cat::level;
 use foundry::domains::enemy::animation as enemy_animation;
 use foundry::domains::settings::lang;
+use foundry::domains::stage::{Stage, sheet};
 use foundry::systems::animation::MotionSet;
 use foundry::systems::combat::registry::Magnification;
 
@@ -21,12 +23,14 @@ use super::audio;
 use super::backdrop;
 use super::cache::Cache;
 use super::config::Config;
-use super::grammar::{self, Kind, Motion, Request, Scenery, Unit, Want};
+use super::fuzzy;
+use super::grammar::{self, Backing, Kind, Motion, Request, Scenery, Tune, Unit, Want};
 use super::library::{self, Catalog, Library, Remote};
-use super::lookup::{self, Found, Hit};
+use super::lookup::{self, CROWN_GLYPH, Found, Hit};
 use super::prefs::{self, Book, FORMS, Prefs, Search};
 use super::prose::{self, Line, Prose, Trouble};
 use super::render::{self, Format, Options, Planned, Progress};
+use super::stage;
 use super::statblock;
 use super::talents;
 
@@ -47,6 +51,20 @@ const EMBED_COLOR: u32 = 0x2468A8;
 const OPEN_SETTINGS: &str = "set|open";
 const SET_PREFIX: &str = "set|prefix";
 const FIND: &str = "find|";
+const CROWN: &str = "crown|";
+const THEME: &str = "t";
+const BACKDROP: &str = "g";
+const THEME_PRESS: &str = "theme|";
+const SEEK: &str = "seek|";
+const SEEK_JUMP: &str = "seekjump|";
+const LIST_PAGES: usize = 99;
+const LISTS_HELD: usize = 20_000;
+const TOKEN_ROOM: u32 = 12;
+const CHART: &str = "chart|";
+const CHART_JUMP: &str = "chartjump|";
+const JUMP: &str = "jump";
+const BOSS: &str = "boss";
+const STANDARD: &str = "standard";
 const VALUE_LIMIT: usize = 100;
 const OPTION_LIMIT: usize = 100;
 const SEARCH_SHOWN: usize = 24;
@@ -72,16 +90,51 @@ pub(crate) struct Data {
     sheets: Arc<Semaphore>,
     encoder: Arc<Semaphore>,
     book: Arc<Book>,
+    lists: Mutex<Lists>,
+}
+
+type Choice = (String, String, String);
+
+struct Lists {
+    next: u64,
+    held: VecDeque<(u64, u64, Arc<[Choice]>)>,
+}
+
+impl Lists {
+    fn new(born: u64) -> Self {
+        Self { next: born << TOKEN_ROOM, held: VecDeque::new() }
+    }
+
+    fn keep(&mut self, owner: u64, choices: Arc<[Choice]>) -> u64 {
+        let token = self.next;
+
+        self.next += 1;
+        self.held.push_back((token, owner, choices));
+
+        while self.held.len() > 1 && self.held.iter().map(|(_, _, choices)| choices.len()).sum::<usize>() > LISTS_HELD {
+            self.held.pop_front();
+        }
+
+        token
+    }
+
+    fn find(&self, token: u64, owner: u64) -> Option<Arc<[Choice]>> {
+        self.held.iter().find(|(held, asker, _)| *held == token && *asker == owner).map(|(_, _, choices)| Arc::clone(choices))
+    }
+}
+
+fn lists(data: &Data) -> MutexGuard<'_, Lists> {
+    data.lists.lock().unwrap_or_else(PoisonError::into_inner)
 }
 
 pub(crate) async fn run(config: Config, cache: Cache) -> Result<(), Error> {
     let shelf: Shelf = Arc::new(RwLock::new(None));
-    let data = Data { shelf: Arc::clone(&shelf), cache: Arc::new(cache), sheets: Arc::new(Semaphore::new(1)), encoder: Arc::new(Semaphore::new(1)), book: Arc::new(Book::open()) };
+    let data = Data { shelf: Arc::clone(&shelf), cache: Arc::new(cache), sheets: Arc::new(Semaphore::new(1)), encoder: Arc::new(Semaphore::new(1)), book: Arc::new(Book::open()), lists: Mutex::new(Lists::new(SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |since| since.as_secs()))) };
 
     tokio::spawn(keep_fresh(config.source, shelf));
 
     let options = poise::FrameworkOptions {
-        commands: vec![cat(), enemy(), background(), audio(), settings(), website(), help(), invite(), legal(), donothing()],
+        commands: vec![cat(), enemy(), stage(), map(), background(), audio(), settings(), website(), help(), invite(), legal(), donothing()],
         prefix_options: poise::PrefixFrameworkOptions {
             prefix: None,
             mention_as_prefix: false,
@@ -290,7 +343,11 @@ impl Post {
     }
 
     fn file(bytes: Vec<u8>, name: String) -> Self {
-        Self { files: vec![(bytes, name)], ..Self::default() }
+        Self::files(vec![(bytes, name)])
+    }
+
+    fn files(files: Vec<(Vec<u8>, String)>) -> Self {
+        Self { files, ..Self::default() }
     }
 
     fn rows(self, rows: Vec<serenity::CreateActionRow>) -> Self {
@@ -421,11 +478,55 @@ impl<'a> Voice<'a> {
 }
 
 async fn offer(voice: Voice<'_>, prompt: String, labeled: bool, tails: &[(Kind, String)], found: Vec<Hit>) -> Result<(), Error> {
-    let mut options = Vec::with_capacity(found.len().min(SEARCH_SHOWN) + 1);
+    offer_as(voice, prompt, labeled, None, tails, found).await
+}
 
-    for hit in found.into_iter().take(SEARCH_SHOWN) {
+fn pager(shown: usize, pages: usize, turn: impl Fn(String) -> String) -> serenity::CreateActionRow {
+    let button = |to: Option<usize>, side: &str, label: &str| serenity::CreateButton::new(turn(to.map_or_else(|| side.to_owned(), |to| to.to_string()))).label(label).style(serenity::ButtonStyle::Secondary).disabled(to.is_none());
+
+    serenity::CreateActionRow::Buttons(vec![
+        button(shown.checked_sub(1), "first", "◀"),
+        serenity::CreateButton::new(turn(format!("{JUMP}{shown}"))).label(format!("{} / {pages}", shown + 1)).style(serenity::ButtonStyle::Secondary).disabled(pages <= 1),
+        button(Some(shown + 1).filter(|next| *next < pages), "last", "▶"),
+    ])
+}
+
+fn page_box(id: String, shown: usize, pages: usize) -> serenity::CreateInteractionResponse {
+    let input = serenity::CreateInputText::new(serenity::InputTextStyle::Short, format!("Page (1 to {pages})"), "page").placeholder((shown + 1).to_string()).max_length(PAGE_DIGITS).required(false);
+
+    serenity::CreateInteractionResponse::Modal(serenity::CreateModal::new(id, "Go to page").components(vec![serenity::CreateActionRow::InputText(input)]))
+}
+
+fn list_pages(choices: &[Choice]) -> usize {
+    choices.len().div_ceil(SEARCH_SHOWN).max(1)
+}
+
+fn list_rows(owner: u64, token: Option<u64>, choices: &[Choice], shown: usize) -> Vec<serenity::CreateActionRow> {
+    let pages = list_pages(choices);
+    let shown = shown.min(pages - 1);
+    let options = choices
+        .iter()
+        .skip(shown * SEARCH_SHOWN)
+        .take(SEARCH_SHOWN)
+        .map(|(label, value, note)| serenity::CreateSelectMenuOption::new(label, value).description(note))
+        .chain([serenity::CreateSelectMenuOption::new("Abort", ABORT).description("Stops the request")])
+        .collect();
+    let menu = serenity::CreateSelectMenu::new(format!("{FIND}{owner}"), serenity::CreateSelectMenuKind::String { options }).placeholder("Pick one");
+
+    vec![serenity::CreateActionRow::SelectMenu(menu), pager(shown, pages, |slot| format!("{SEEK}{owner}|{:x}|{slot}", token.unwrap_or_default()))]
+}
+
+async fn offer_as(voice: Voice<'_>, prompt: String, labeled: bool, route: Option<&str>, tails: &[(Kind, String)], found: Vec<Hit>) -> Result<(), Error> {
+    let owner = voice.user().get();
+    let mut choices = Vec::with_capacity(found.len().min(SEARCH_SHOWN * LIST_PAGES));
+
+    for hit in found.into_iter().take(SEARCH_SHOWN * LIST_PAGES) {
         let tail = tails.iter().find(|(kind, _)| *kind == hit.kind).map_or("", |(_, tail)| tail.as_str());
-        let value = format!("{}|{}|{tail}", hit.kind.tag(), hit.value);
+        let value = match (route, hit.kind) {
+            (Some(route), Kind::Map) => format!("{}{route}|{}|{tail}", Kind::Map.tag(), hit.value),
+            (Some(route), _) => format!("{route}|{}|{tail}", hit.value),
+            (None, kind) => format!("{}|{}|{tail}", kind.tag(), hit.value),
+        };
 
         if value.len() > VALUE_LIMIT {
             return voice.say(prose::SEARCH_LONG.said(voice.prose())).await;
@@ -433,21 +534,255 @@ async fn offer(voice: Voice<'_>, prompt: String, labeled: bool, tails: &[(Kind, 
 
         let note = if labeled { format!("{} • {}", hit.kind.label(), hit.note) } else { hit.note };
 
-        options.push(serenity::CreateSelectMenuOption::new(hit.label.chars().take(OPTION_LIMIT).collect::<String>(), value).description(note));
+        choices.push((hit.label.chars().take(OPTION_LIMIT).collect::<String>(), value, note.chars().take(OPTION_LIMIT).collect::<String>()));
     }
 
-    options.push(serenity::CreateSelectMenuOption::new("Abort", ABORT).description("Stops the request"));
+    let choices: Arc<[Choice]> = choices.into();
+    let token = (choices.len() > SEARCH_SHOWN).then(|| lists(voice.data()).keep(owner, Arc::clone(&choices)));
 
-    let menu = serenity::CreateSelectMenu::new(format!("{FIND}{}", voice.user().get()), serenity::CreateSelectMenuKind::String { options }).placeholder("Pick one");
+    voice.post(Post::text(prompt).rows(list_rows(owner, token, &choices, 0))).await.map(|_| ())
+}
 
-    voice.post(Post::text(prompt).rows(vec![serenity::CreateActionRow::SelectMenu(menu)])).await.map(|_| ())
+async fn on_seek(ctx: &serenity::Context, press: &serenity::ComponentInteraction, data: &Data, rest: &str) -> Result<(), Error> {
+    let mut parts = rest.splitn(3, '|');
+    let owner = parts.next().and_then(|owner| owner.parse::<u64>().ok());
+    let token = parts.next().and_then(|token| u64::from_str_radix(token, 16).ok());
+    let (Some(owner), Some(token), Some(slot)) = (owner, token, parts.next()) else { return Ok(()) };
+
+    if press.user.id.get() != owner {
+        return refuse(ctx, press, data).await;
+    }
+
+    let held = lists(data).find(token, owner);
+    let Some(choices) = held else {
+        let gone = serenity::CreateInteractionResponseMessage::new().content(prose::LIST_GONE.said(data.book.prose(owner))).ephemeral(true);
+
+        press.create_response(ctx, serenity::CreateInteractionResponse::Message(gone)).await?;
+        return Ok(());
+    };
+
+    if let Some(shown) = slot.strip_prefix(JUMP).and_then(|shown| shown.parse::<usize>().ok()) {
+        press.create_response(ctx, page_box(format!("{SEEK_JUMP}{token:x}|{shown}"), shown, list_pages(&choices))).await?;
+        return Ok(());
+    }
+
+    let Some(shown) = slot.parse::<usize>().ok() else { return Ok(()) };
+    let turned = serenity::CreateInteractionResponseMessage::new().components(list_rows(owner, Some(token), &choices, shown));
+
+    press.create_response(ctx, serenity::CreateInteractionResponse::UpdateMessage(turned)).await?;
+    Ok(())
 }
 
 async fn serve(voice: Voice<'_>, kind: Kind, request: Request) -> Result<(), Error> {
     match kind {
         Kind::Cat => serve_cat(voice, request).await,
         Kind::Enemy => serve_enemy(voice, request).await,
+        Kind::Stage => serve_stage(voice, request).await,
+        Kind::Map => serve_map(voice, request).await,
     }
+}
+
+fn chart_pages(library: &Library, code: &str) -> Option<usize> {
+    library.map(code).map(|area| library.map_stages(&area).len().div_ceil(SEARCH_SHOWN).max(1))
+}
+
+fn chart(owner: u64, library: &Library, code: &str, shown: usize, route: &str, tail: &str, prose: Prose) -> Result<Post, &'static Line> {
+    let area = library.map(code).ok_or(&prose::NO_MAP)?;
+    let stages = library.map_stages(&area);
+    let pages = stages.len().div_ceil(SEARCH_SHOWN).max(1);
+    let shown = shown.min(pages - 1);
+    let named = area.kind().map_or_else(|| area.name().to_owned(), |kind| format!("{} • {kind}", area.name()));
+    let turn = |slot: String| format!("{CHART}{owner}|{route}|{code}|{slot}|{tail}");
+    let values: Vec<String> = stages.iter().map(|found| format!("{route}|{}|{tail}", found.code())).collect();
+
+    if stages.is_empty() {
+        return Ok(Post::text(prose::EMPTY_MAP.filled(prose, &[("map", &named)])));
+    }
+
+    if turn(format!("{JUMP}{pages}")).len() > VALUE_LIMIT || values.iter().any(|value| value.len() > VALUE_LIMIT) {
+        return Err(&prose::SEARCH_LONG);
+    }
+
+    let options: Vec<serenity::CreateSelectMenuOption> = stages
+        .iter()
+        .zip(values)
+        .skip(shown * SEARCH_SHOWN)
+        .take(SEARCH_SHOWN)
+        .map(|(found, value)| {
+            let stage = found.code();
+            let label = if found.name().trim().is_empty() { stage.as_str() } else { found.name() };
+            let option = serenity::CreateSelectMenuOption::new(label.chars().take(OPTION_LIMIT).collect::<String>(), value);
+
+            match lookup::stage_line(library, found).1 {
+                Some(variant) => option.description(variant),
+                None => option,
+            }
+        })
+        .chain([serenity::CreateSelectMenuOption::new("Abort", ABORT).description("Stops the request")])
+        .collect();
+    let menu = serenity::CreateSelectMenu::new(format!("{FIND}{owner}"), serenity::CreateSelectMenuKind::String { options }).placeholder("Pick a stage");
+    let rows = vec![serenity::CreateActionRow::SelectMenu(menu), pager(shown, pages, turn)];
+
+    Ok(Post::text(prose::MAP_CHOOSE.filled(prose, &[("map", &named)])).rows(rows))
+}
+
+async fn listed(voice: Voice<'_>, library: &Library, code: &str, route: &str, tail: &str) -> Result<(), Error> {
+    match chart(voice.user().get(), library, code, 0, route, tail, voice.prose()) {
+        Ok(post) => voice.post(post).await.map(|_| ()),
+        Err(line) => voice.say(line.said(voice.prose())).await,
+    }
+}
+
+async fn charted(voice: Voice<'_>, data: &Data, owner: u64, code: &str, route: &str, tail: &str) -> Result<(), Error> {
+    let Some((_guard, library)) = open(data, &data.book.get(owner).language).await? else {
+        return voice.say(prose::WARMING.said(voice.prose())).await;
+    };
+
+    listed(voice, &library, code, route, tail).await
+}
+
+async fn serve_map(voice: Voice<'_>, request: Request) -> Result<(), Error> {
+    let prefs = voice.data().book.get(voice.user().get());
+
+    voice.working().await?;
+
+    let Some((_guard, library)) = open(voice.data(), &prefs.language).await? else {
+        return voice.say(prose::WARMING.said(prefs.prose)).await;
+    };
+    let Some((_, code)) = sought(voice, &library, &prefs, &[Kind::Map], &request, None, &prose::NO_MAP).await? else { return Ok(()) };
+    let tail = request.crowns.map_or_else(String::new, |crowns| format!("-c {crowns}"));
+
+    listed(voice, &library, &code, Kind::Stage.tag(), &tail).await
+}
+
+async fn on_chart(ctx: &serenity::Context, press: &serenity::ComponentInteraction, data: &Data, rest: &str) -> Result<(), Error> {
+    let mut parts = rest.splitn(5, '|');
+    let owner = parts.next().and_then(|owner| owner.parse::<u64>().ok());
+    let (Some(owner), Some(route), Some(code), Some(slot), Some(tail)) = (owner, parts.next(), parts.next(), parts.next(), parts.next()) else { return Ok(()) };
+
+    if press.user.id.get() != owner {
+        return refuse(ctx, press, data).await;
+    }
+
+    let prefs = data.book.get(owner);
+    let Some((_guard, library)) = open(data, &prefs.language).await? else { return Ok(()) };
+
+    if let Some(shown) = slot.strip_prefix(JUMP).and_then(|shown| shown.parse::<usize>().ok()) {
+        press.create_response(ctx, page_box(format!("{CHART_JUMP}{route}|{code}|{shown}|{tail}"), shown, chart_pages(&library, code).unwrap_or(1))).await?;
+        return Ok(());
+    }
+
+    let Some(shown) = slot.parse::<usize>().ok() else { return Ok(()) };
+    let Ok(post) = chart(owner, &library, code, shown, route, tail, prefs.prose) else { return Ok(()) };
+    let turned = serenity::CreateInteractionResponseMessage::new().content(post.text).components(post.rows);
+
+    press.create_response(ctx, serenity::CreateInteractionResponse::UpdateMessage(turned)).await?;
+    Ok(())
+}
+
+fn crown_rows(owner: u64, code: &str, stage: &Stage, shown: u8) -> Vec<serenity::CreateActionRow> {
+    if stage.max_crowns <= 1 {
+        return Vec::new();
+    }
+
+    let buttons = (0..stage.max_crowns)
+        .map(|crown| {
+            let open = stage::open(stage, crown);
+
+            serenity::CreateButton::new(format!("{CROWN}{owner}|{code}|{crown}"))
+                .label(format!("{}{CROWN_GLYPH}", crown + 1))
+                .style(if crown == shown { serenity::ButtonStyle::Success } else { serenity::ButtonStyle::Secondary })
+                .disabled(!open)
+        })
+        .collect();
+
+    vec![serenity::CreateActionRow::Buttons(buttons)]
+}
+
+async fn send_stage(voice: Voice<'_>, library: Arc<Library>, code: String, asked: Option<u8>) -> Result<(), Error> {
+    let prose = voice.prose();
+    let Some(found) = library.stage(&code) else {
+        return voice.say(prose::NO_STAGE.said(prose)).await;
+    };
+    let crown = match stage::crown(found.stage, asked) {
+        Ok(crown) => crown,
+        Err(trouble) => return voice.say(trouble.told(prose)).await,
+    };
+    let rows = crown_rows(voice.user().get(), &code, found.stage, crown);
+    let drawn = {
+        let (library, cache, code) = (Arc::clone(&library), Arc::clone(&voice.data().cache), code.clone());
+
+        blocking(voice.data(), move || stage::pages(&library, &cache, &code, crown)).await?
+    };
+
+    match drawn {
+        Ok(pages) if pages.iter().map(|(bytes, _)| bytes.len()).sum::<usize>() > UPLOAD_LIMIT => voice.say(prose::STAGE_TOO_BIG.said(prose)).await,
+        Ok(pages) => voice.post(Post::files(pages).rows(rows)).await.map(|_| ()),
+        Err(trouble) => {
+            if let Some(reason) = trouble.unexpected() {
+                error!(code, "A stage could not be drawn: {}", reason);
+            }
+
+            voice.say(trouble.told(prose)).await
+        }
+    }
+}
+
+async fn sought(voice: Voice<'_>, library: &Library, prefs: &Prefs, kinds: &[Kind], request: &Request, route: Option<&str>, missing: &Line) -> Result<Option<(Kind, String)>, Error> {
+    let asked = match &request.unit {
+        Unit::Name(name) | Unit::Code(name) => name.clone(),
+        Unit::Id(id, _) => id.to_string(),
+    };
+    let mut found = lookup::among(library, kinds, &request.unit, request.search.unwrap_or(fuzzy::CLOSENESS), prefs);
+    let best = found.first().map(|hit| hit.score);
+
+    if request.search.is_none() {
+        found.retain(|hit| Some(hit.score) == best);
+    }
+
+    match (request.search.is_some(), found.as_slice()) {
+        (_, []) => voice.say(missing.said(prefs.prose)).await.map(|()| None),
+        (false, [only]) => Ok(Some((only.kind, only.value.clone()))),
+        (searched, _) => {
+            let line = if searched { &prose::SEARCH_PICK } else { &prose::EITHER_PICK };
+            let tails: Vec<(Kind, String)> = kinds.iter().map(|kind| (*kind, request.tail.clone())).collect();
+
+            offer_as(voice, line.filled(prefs.prose, &[("name", &asked)]), kinds.len() > 1, route, &tails, found).await.map(|()| None)
+        }
+    }
+}
+
+async fn serve_stage(voice: Voice<'_>, request: Request) -> Result<(), Error> {
+    let prefs = voice.data().book.get(voice.user().get());
+
+    voice.working().await?;
+
+    let Some((_guard, library)) = open(voice.data(), &prefs.language).await? else {
+        return voice.say(prose::WARMING.said(prefs.prose)).await;
+    };
+    let Some((_, code)) = sought(voice, &library, &prefs, &[Kind::Stage], &request, None, &prose::NO_STAGE).await? else { return Ok(()) };
+
+    send_stage(voice, Arc::clone(&library), code, request.crowns.map(|crowns| crowns.saturating_sub(1))).await
+}
+
+async fn on_crown(ctx: &serenity::Context, press: &serenity::ComponentInteraction, data: &Data, rest: &str) -> Result<(), Error> {
+    let mut parts = rest.splitn(3, '|');
+    let owner = parts.next().and_then(|owner| owner.parse::<u64>().ok());
+    let (Some(owner), Some(code), Some(crown)) = (owner, parts.next(), parts.next().and_then(|crown| crown.parse::<u8>().ok())) else { return Ok(()) };
+
+    if press.user.id.get() != owner {
+        return refuse(ctx, press, data).await;
+    }
+
+    let voice = Voice::Press(ctx, press, data);
+
+    press.create_response(ctx, serenity::CreateInteractionResponse::Acknowledge).await?;
+
+    let Some((_guard, library)) = open(data, &data.book.get(owner).language).await? else {
+        return Ok(());
+    };
+
+    send_stage(voice, library, code.to_owned(), Some(crown)).await
 }
 
 async fn serve_any(voice: Voice<'_>, text: &str) -> Result<(), Error> {
@@ -491,11 +826,16 @@ async fn on_found(ctx: &serenity::Context, press: &serenity::ComponentInteractio
     }
 
     let mut parts = picked.splitn(3, '|');
-    let kind = parts.next().and_then(|tag| Kind::ALL.into_iter().find(|kind| kind.tag() == tag));
-    let (Some(kind), Some(unit), Some(tail)) = (kind, parts.next(), parts.next()) else { return Ok(()) };
-    let served = match grammar::parse(&format!("{unit} {tail}"), kind) {
-        Ok(request) => serve(voice, kind, request).await,
-        Err(reason) => voice.say(prose::SEE_HELP.filled(voice.prose(), &[("reason", &reason), ("prefix", &prefix_of(data, owner))])).await,
+    let (Some(tag), Some(unit), Some(tail)) = (parts.next(), parts.next(), parts.next()) else { return Ok(()) };
+    let kind = Kind::ALL.into_iter().find(|kind| kind.tag() == tag);
+    let mapped = tag.strip_prefix(Kind::Map.tag()).filter(|route| [THEME, BACKDROP].contains(route));
+    let served = match (tag, mapped, kind.map(|kind| (kind, grammar::parse(&format!("{unit} {tail}"), kind)))) {
+        (_, Some(route), _) => charted(voice, data, owner, unit, route, tail).await,
+        (THEME, ..) => themed(voice, data, owner, unit, tail == BOSS).await,
+        (BACKDROP, ..) => backed(voice, data, owner, unit, tail).await,
+        (_, _, Some((kind, Ok(request)))) => serve(voice, kind, request).await,
+        (_, _, Some((_, Err(reason)))) => voice.say(prose::SEE_HELP.filled(voice.prose(), &[("reason", &reason), ("prefix", &prefix_of(data, owner))])).await,
+        (_, _, None) => return Ok(()),
     };
 
     if let Err(err) = served {
@@ -738,17 +1078,9 @@ async fn encoded(voice: Voice<'_>, label: String, searching: bool, work: impl Fn
     Ok(())
 }
 
-async fn serve_background(voice: Voice<'_>, scenery: Scenery) -> Result<(), Error> {
-    let prefs = voice.data().book.get(voice.user().get());
-
-    voice.working().await?;
-
-    let Some((_guard, library)) = open(voice.data(), &prefs.language).await? else {
-        voice.say(prose::WARMING.said(prefs.prose)).await?;
-        return Ok(());
-    };
-    let options = backdrop::Options { id: scenery.id, seed: scenery.seed, range: scenery.range, offset: scenery.offset, size: scenery.size, format: scenery.format.unwrap_or(prefs.format), quality: scenery.quality, compression: scenery.compression };
-    let (id, format) = (options.id, options.format);
+async fn send_background(voice: Voice<'_>, library: Arc<Library>, id: u32, scenery: &Scenery, prefs: &Prefs) -> Result<(), Error> {
+    let options = backdrop::Options { id, seed: scenery.seed, range: scenery.range, offset: scenery.offset, size: scenery.size, format: scenery.format.unwrap_or(prefs.format), quality: scenery.quality, compression: scenery.compression };
+    let format = options.format;
     let planned = {
         let (library, cache) = (Arc::clone(&library), Arc::clone(&voice.data().cache));
 
@@ -772,32 +1104,159 @@ async fn serve_background(voice: Voice<'_>, scenery: Scenery) -> Result<(), Erro
     }
 }
 
-async fn serve_audio(voice: Voice<'_>, id: u32) -> Result<(), Error> {
+async fn serve_background(voice: Voice<'_>, scenery: Scenery) -> Result<(), Error> {
     let prefs = voice.data().book.get(voice.user().get());
 
     voice.working().await?;
 
     let Some((_guard, library)) = open(voice.data(), &prefs.language).await? else {
-        voice.say(prose::WARMING.said(prefs.prose)).await?;
-        return Ok(());
+        return voice.say(prose::WARMING.said(prefs.prose)).await;
     };
-    let found = {
+    let numbered = match &scenery.subject {
+        Backing::Id(id, typed) if !backdrop::ids(&library).ids.contains(id) => grammar::place(typed).ok().map(|request| (request, &prose::NO_BACKGROUND)),
+        _ => None,
+    };
+    let id = match (&scenery.subject, &numbered) {
+        (Backing::Id(id, _), None) => *id,
+        (Backing::Place(request), _) | (_, Some((request, _))) => {
+            let missing = numbered.as_ref().map_or(&prose::NO_PLACE, |(_, missing)| missing);
+            let Some((kind, code)) = sought(voice, &library, &prefs, &Kind::PLACES, request, Some(BACKDROP), missing).await? else { return Ok(()) };
+
+            if kind == Kind::Map {
+                return listed(voice, &library, &code, BACKDROP, &request.tail).await;
+            }
+
+            let Some(found) = library.stage(&code) else {
+                return voice.say(prose::NO_STAGE.said(prefs.prose)).await;
+            };
+
+            found.stage.background_id
+        }
+    };
+
+    send_background(voice, Arc::clone(&library), id, &scenery, &prefs).await
+}
+
+async fn backed(voice: Voice<'_>, data: &Data, owner: u64, code: &str, tail: &str) -> Result<(), Error> {
+    let prefs = data.book.get(owner);
+    let Some((_guard, library)) = open(data, &prefs.language).await? else {
+        return voice.say(prose::WARMING.said(prefs.prose)).await;
+    };
+    let Some(id) = library.stage(code).map(|found| found.stage.background_id) else {
+        return voice.say(prose::NO_STAGE.said(prefs.prose)).await;
+    };
+
+    match grammar::scenery(&format!("{id} {tail}")) {
+        Ok(scenery) => send_background(voice, Arc::clone(&library), id, &scenery, &prefs).await,
+        Err(reason) => voice.say(prose::SEE_HELP.filled(prefs.prose, &[("reason", &reason), ("prefix", &prefix_of(data, owner))])).await,
+    }
+}
+
+fn theme_rows(owner: u64, code: &str, boss: bool) -> Vec<serenity::CreateActionRow> {
+    let button = |label: &str, slug: &str, shown: bool| serenity::CreateButton::new(format!("{THEME_PRESS}{owner}|{code}|{slug}")).label(label).style(if shown { serenity::ButtonStyle::Success } else { serenity::ButtonStyle::Secondary });
+
+    vec![serenity::CreateActionRow::Buttons(vec![button("Standard", STANDARD, !boss), button("Boss", BOSS, boss)])]
+}
+
+async fn send_theme(voice: Voice<'_>, library: Arc<Library>, code: String, boss: bool) -> Result<(), Error> {
+    let prose = voice.prose();
+    let Some(found) = library.stage(&code) else {
+        return voice.say(prose::NO_STAGE.said(prose)).await;
+    };
+    let other = sheet::boss_track(found.stage);
+    let id = match (boss, other) {
+        (false, _) => found.stage.init_track,
+        (true, Some(track)) => track,
+        (true, None) => return voice.say(prose::NO_BOSS_THEME.filled(prose, &[("stage", found.name())])).await,
+    };
+    let (map, variant) = lookup::stage_line(&library, &found);
+    let line: Vec<&str> = [Some(map).filter(|map| !map.is_empty()), Some(found.name()), variant].into_iter().flatten().collect();
+    let text = format!("**{}**", line.join(" • "));
+    let rows = if other.is_some() { theme_rows(voice.user().get(), &code, boss) } else { Vec::new() };
+    let played = {
         let (library, cache) = (Arc::clone(&library), Arc::clone(&voice.data().cache));
 
         blocking(voice.data(), move || audio::track(&library, &cache, id)).await?
     };
 
-    match found {
-        Ok(None) => voice.say(prose::NO_AUDIO.said(prefs.prose)).await,
-        Ok(Some(track)) if track.bytes.len() > UPLOAD_LIMIT => voice.say(oversized(track.bytes.len(), prefs.prose)).await,
-        Ok(Some(track)) => {
+    match played {
+        Ok(None) => voice.say(prose::NO_AUDIO.said(prose)).await,
+        Ok(Some(track)) if track.bytes.len() > UPLOAD_LIMIT => voice.say(oversized(track.bytes.len(), prose)).await,
+        Ok(Some(track)) => voice.post(Post { text, files: vec![(track.bytes, track.name)], rows }).await.map(|_| ()),
+        Err(trouble) => {
+            if let Some(reason) = trouble.unexpected() {
+                error!(code, id, "A stage's theme could not be sent: {}", reason);
+            }
+
+            voice.say(trouble.told(prose)).await
+        }
+    }
+}
+
+async fn themed(voice: Voice<'_>, data: &Data, owner: u64, code: &str, boss: bool) -> Result<(), Error> {
+    let Some((_guard, library)) = open(data, &data.book.get(owner).language).await? else {
+        return voice.say(prose::WARMING.said(voice.prose())).await;
+    };
+
+    send_theme(voice, library, code.to_owned(), boss).await
+}
+
+async fn serve_theme(voice: Voice<'_>, request: Request, boss: bool, missing: &Line) -> Result<(), Error> {
+    let prefs = voice.data().book.get(voice.user().get());
+
+    voice.working().await?;
+
+    let Some((_guard, library)) = open(voice.data(), &prefs.language).await? else {
+        return voice.say(prose::WARMING.said(prefs.prose)).await;
+    };
+    let request = Request { tail: if boss { BOSS } else { STANDARD }.to_owned(), ..request };
+    let Some((kind, code)) = sought(voice, &library, &prefs, &Kind::PLACES, &request, Some(THEME), missing).await? else { return Ok(()) };
+
+    match kind {
+        Kind::Map => listed(voice, &library, &code, THEME, &request.tail).await,
+        _ => send_theme(voice, Arc::clone(&library), code, boss).await,
+    }
+}
+
+async fn on_theme(ctx: &serenity::Context, press: &serenity::ComponentInteraction, data: &Data, rest: &str) -> Result<(), Error> {
+    let mut parts = rest.splitn(3, '|');
+    let owner = parts.next().and_then(|owner| owner.parse::<u64>().ok());
+    let (Some(owner), Some(code), Some(slug)) = (owner, parts.next(), parts.next()) else { return Ok(()) };
+
+    if press.user.id.get() != owner {
+        return refuse(ctx, press, data).await;
+    }
+
+    press.create_response(ctx, serenity::CreateInteractionResponse::Acknowledge).await?;
+    themed(Voice::Press(ctx, press, data), data, owner, code, slug == BOSS).await
+}
+
+async fn serve_audio(voice: Voice<'_>, id: u32, typed: String) -> Result<(), Error> {
+    let prefs = voice.data().book.get(voice.user().get());
+
+    voice.working().await?;
+
+    let found = {
+        let Some((_guard, library)) = open(voice.data(), &prefs.language).await? else {
+            return voice.say(prose::WARMING.said(prefs.prose)).await;
+        };
+        let cache = Arc::clone(&voice.data().cache);
+
+        blocking(voice.data(), move || audio::track(&library, &cache, id)).await?
+    };
+
+    match (found, grammar::place(&typed)) {
+        (Ok(None), Ok(request)) => serve_theme(voice, request, false, &prose::NO_AUDIO).await,
+        (Ok(None), Err(_)) => voice.say(prose::NO_AUDIO.said(prefs.prose)).await,
+        (Ok(Some(track)), _) if track.bytes.len() > UPLOAD_LIMIT => voice.say(oversized(track.bytes.len(), prefs.prose)).await,
+        (Ok(Some(track)), _) => {
             if !track.cached {
                 info!(id, bytes = track.bytes.len(), "A sound effect was converted");
             }
 
             voice.post(Post::file(track.bytes, track.name)).await.map(|_| ())
         }
-        Err(trouble) => {
+        (Err(trouble), _) => {
             if let Some(reason) = trouble.unexpected() {
                 error!(id, "A track could not be sent: {}", reason);
             }
@@ -870,6 +1329,7 @@ async fn serve_cat(voice: Voice<'_>, request: Request) -> Result<(), Error> {
     let found = match &request.unit {
         Unit::Id(id, form) => library.cat(*id).map(|cat| (cat, form.unwrap_or_else(|| prefs.form_from(&cat.forms)))),
         Unit::Name(name) => library.find_cat(name, &prefs),
+        Unit::Code(_) => None,
     };
     let found = found.map(|(cat, form)| (cat, request.form.unwrap_or(form)));
     let Some((cat, form)) = found else {
@@ -944,6 +1404,7 @@ async fn serve_enemy(voice: Voice<'_>, request: Request) -> Result<(), Error> {
     let found = match &request.unit {
         Unit::Id(id, _) => library.enemy(*id),
         Unit::Name(name) => library.find_enemy(name),
+        Unit::Code(_) => None,
     };
     let Some(enemy) = found else {
         voice.say(prose::NO_ENEMY.said(prefs.prose)).await?;
@@ -989,8 +1450,22 @@ async fn refused(ctx: Context<'_>, reason: &str) -> Result<(), Error> {
     Ok(())
 }
 
+#[poise::command(slash_command, prefix_command, install_context = "Guild|User", interaction_context = "Guild|BotDm|PrivateChannel", aliases("s"))]
+async fn stage(ctx: Context<'_>, #[description = "A stage's name or ID like R 1 2, then --crowns 1 to 4"] #[rest] request: Option<String>) -> Result<(), Error> {
+    let Some(request) = understood(ctx, request, Kind::Stage).await? else { return Ok(()) };
+
+    serve_stage(Voice::Command(ctx), request).await
+}
+
+#[poise::command(slash_command, prefix_command, install_context = "Guild|User", interaction_context = "Guild|BotDm|PrivateChannel", aliases("m"))]
+async fn map(ctx: Context<'_>, #[description = "A map's name or ID like R 100, then --crowns 1 to 4"] #[rest] request: Option<String>) -> Result<(), Error> {
+    let Some(request) = understood(ctx, request, Kind::Map).await? else { return Ok(()) };
+
+    serve_map(Voice::Command(ctx), request).await
+}
+
 #[poise::command(slash_command, prefix_command, install_context = "Guild|User", interaction_context = "Guild|BotDm|PrivateChannel", aliases("bg", "b"))]
-async fn background(ctx: Context<'_>, #[description = "ID, then --seed, --range, --offset, --dimensions or --format"] #[rest] request: Option<String>) -> Result<(), Error> {
+async fn background(ctx: Context<'_>, #[description = "ID or stage name, then --seed, --range, --offset, --dimensions or --format"] #[rest] request: Option<String>) -> Result<(), Error> {
     match grammar::scenery(request.as_deref().unwrap_or_default()) {
         Ok(scenery) => serve_background(Voice::Command(ctx), scenery).await,
         Err(reason) => refused(ctx, &reason).await,
@@ -998,9 +1473,10 @@ async fn background(ctx: Context<'_>, #[description = "ID, then --seed, --range,
 }
 
 #[poise::command(slash_command, prefix_command, install_context = "Guild|User", interaction_context = "Guild|BotDm|PrivateChannel", aliases("a"))]
-async fn audio(ctx: Context<'_>, #[description = "A track or sound effect ID, like 5"] #[rest] id: Option<String>) -> Result<(), Error> {
-    match grammar::track(id.as_deref().unwrap_or_default()) {
-        Ok(id) => serve_audio(Voice::Command(ctx), id).await,
+async fn audio(ctx: Context<'_>, #[description = "A track's ID like 5, or a stage's name, then --boss"] #[rest] id: Option<String>) -> Result<(), Error> {
+    match grammar::tune(id.as_deref().unwrap_or_default()) {
+        Ok(Tune::Track(id, typed)) => serve_audio(Voice::Command(ctx), id, typed).await,
+        Ok(Tune::Place(request, boss)) => serve_theme(Voice::Command(ctx), request, boss, &prose::NO_PLACE).await,
         Err(reason) => refused(ctx, &reason).await,
     }
 }
@@ -1028,7 +1504,7 @@ async fn help(ctx: Context<'_>, #[description = "A command to explain, like cat 
 }
 
 const HOME: &str = "home";
-const PAGES: [(&str, &str); 10] = [(HOME, "Home"), ("cat", "Cat"), ("enemy", "Enemy"), ("background", "Background"), ("audio", "Audio"), ("settings", "Settings"), ("website", "Website"), ("invite", "Invite"), ("legal", "Legal"), ("help", "Help")];
+const PAGES: [(&str, &str); 12] = [(HOME, "Home"), ("cat", "Cat"), ("enemy", "Enemy"), ("stage", "Stage"), ("map", "Map"), ("background", "Background"), ("audio", "Audio"), ("settings", "Settings"), ("website", "Website"), ("invite", "Invite"), ("legal", "Legal"), ("help", "Help")];
 const PAGES_PER_ROW: usize = 5;
 const GENERAL: &str = "general";
 const UNIT_SECTIONS: [(&str, &str); 4] = [(GENERAL, "General"), ("unit", "Unit"), ("stats", "Stats"), ("animation", "Animation")];
@@ -1053,6 +1529,8 @@ fn canonical(asked: &str) -> Option<&'static str> {
         "home" | "general" => Some(HOME),
         "cat" | "c" => Some("cat"),
         "enemy" | "e" => Some("enemy"),
+        "stage" | "s" => Some("stage"),
+        "map" | "m" => Some("map"),
         "background" | "bg" | "b" => Some("background"),
         "audio" | "a" => Some("audio"),
         "settings" | "set" => Some("settings"),
@@ -1113,7 +1591,7 @@ impl<'a> Voiced<'a> {
 }
 
 const NAMES: &str = "Spaces are fine, and close spellings still match";
-const SEARCHING: &str = "After a name: lists the 24 closest matches for you to pick from. A number after it, 1 to 100, is how close a name has to be: 86 to start, lower finds more";
+const SEARCHING: &str = "After a name: lists the closest matches for you to pick from, 24 to a page. ◀ and ▶ under the list turn its pages, and the page number between them opens a box to jump to one. A number after it, 1 to 100, is how close a name has to be: 86 to start, lower finds more";
 
 fn help_page(page_name: &str, section: &str, prefix: &str, prose: Prose) -> serenity::CreateEmbed {
     let voiced = match (page_name, section) {
@@ -1139,13 +1617,30 @@ fn help_page(page_name: &str, section: &str, prefix: &str, prose: Prose) -> sere
         ("enemy", _) => Voiced::new(prefix, "hg!enemy (e)", "`hg!enemy <unit> [stats | animation] ...`")
             .field("Stats or animation", "Worked out from what you type: an animation name or flag means animation, a percentage means stats. `s` or `a` still decides outright, and stats is the default.", false)
             .field("Examples", "`hg!e akaza 400%`, `hg!e akaza s 400`\n`hg!e 763 a attack -c -w`", false),
-        ("background", _) => Voiced::new(prefix, "hg!background (bg, b)", "`hg!background <ID> ...`")
+        ("stage", _) => Voiced::new(prefix, "hg!stage (s)", "`hg!stage <name> ...`")
+            .field("What you get", prose::PAGE_STAGE.said(prose), false)
+            .field("Name", "Spaces are fine, and close spellings still match. A name several stages share gets a list to pick from.\n`--search` (`-s`) after it lists the closest matches, 24 to a page, and a number after that, 1 to 100, is how close a name has to be", false)
+            .field("ID", "A category's prefix, the map and the stage: `R 001 02`, `R-1-2`, `r001_02` and `R1 2` are all the same stage. A file's prefix works too, so `RN 0 7` is `N 0 7` and `EX 70 9` is `RE 70 9`.", false)
+            .field("`--crowns 2` (`-c`)", "1 to 4, and the lowest one the stage is open at without it. A stage that doesn't have the one you ask for says so. A stage with more than one also gets a button each under the picture; only the person who asked can press them.", false)
+            .field("Examples", "`hg!stage earthshaker`\n`hg!s sleeping lion -c 4`\n`hg!s moon -s`", false),
+        ("map", _) => Voiced::new(prefix, "hg!map (m)", "`hg!map <name | ID> ...`")
+            .field("What you get", prose::PAGE_MAP.said(prose), false)
+            .field("Name", "Spaces are fine, and close spellings still match. A name several maps share gets a list to pick from, each with its category and top crown.\n`--search` (`-s`) after it lists the closest matches, 24 to a page", false)
+            .field("ID", "A category's prefix and the map: `R 100`, `R-100`, `r100`. A file's prefix works too, so `RN 0` is `N 0`.", false)
+            .field("`--crowns 2` (`-c`)", "1 to 4. The stage you pick comes at that crown, and says so if it doesn't have it.", false)
+            .field("Stages", "The list holds 24 stages at a time. ◀ and ▶ under it turn its pages, and the page number between them opens a box to jump to one.", false)
+            .field("Invasions", "An invasion is a map of its own, named after the map it invades and marked Invasion. So `hg!map laboratory of relics` offers the map and its invasion, and the Filibuster's is Cats of the Cosmos Ch. 3 with every stage invaded.", false)
+            .field("Examples", "`hg!map the legend begins`\n`hg!m N 0 -c 4`\n`hg!m empire of cats ch. 1`", false),
+        ("background", _) => Voiced::new(prefix, "hg!background (bg, b)", "`hg!background <ID | stage | map> ...`")
             .field("What you get", prose::PAGE_BACKGROUND.said(prose), false)
             .field("Flags", "`--seed 100` (`-e`): which random run a moving background plays, 100 to start\n`--range 0~299` or `--range 0 299` (`-r`): frames of a moving background, 0~299 to start\n`--offset 100 50` (`-o`): moves the view right and up from the middle of the screen; negative numbers go left and down\n`--dimensions 800x600` (`-d`): the picture's size, growing outward from that middle; `800 600` and `800×600` work too. 960x640 to start, up to 4096 on a side and 4 megapixels in all\n`--format webp` (`-f`): `avif` (`a`), `webp` (`w`) or `gif` (`g`), this time only, over your default\n`--quality 90` (`-q`): 0 to 100, 80 to start\n`--compress 30` (`-p`): 0 to 100, 0 to start; higher takes longer", false)
-            .field("Examples", "`hg!bg 0`\n`hg!bg 12 -f gif -d 1920x640`\n`hg!bg 197 -e 7 -r 0~149`\n`hg!bg 2 -o 400 100 -d 800x600`", false),
-        ("audio", _) => Voiced::new(prefix, "hg!audio (a)", "`hg!audio <ID>`")
+            .field("Stage or map", "A stage's name, or its ID like `N 0 7`, finds it the way `hg!stage` does and sends the background that stage uses.\nA map's name, or its ID like `N 0`, lists its stages the way `hg!map` does, and the one you pick sends its background. Your flags carry over.\nStages and maps are looked through together, and `--search` (`-s`) works here too.", false)
+            .field("Examples", "`hg!bg 0`\n`hg!bg 12 -f gif -d 1920x640`\n`hg!bg 197 -e 7 -r 0~149`\n`hg!bg 2 -o 400 100 -d 800x600`\n`hg!bg earthshaker -f webp`\n`hg!bg the legend begins`", false),
+        ("audio", _) => Voiced::new(prefix, "hg!audio (a)", "`hg!audio <ID | stage | map> ...`")
             .field("What you get", prose::PAGE_AUDIO.said(prose), false)
-            .field("Examples", "`hg!audio 5`\n`hg!a 7`", false),
+            .field("Stage or map", "A stage's name, or its ID like `N 0 7`, finds it the way `hg!stage` does and sends the music it starts with.\nA map's name, or its ID like `N 0`, lists its stages the way `hg!map` does, and the one you pick sends its music.\nStages and maps are looked through together, `--search` (`-s`) included.", false)
+            .field("`--boss` (`-b`)", "Sends the stage's boss theme instead. A stage that has both gets Standard and Boss buttons under the track; only the person who asked can press them.", false)
+            .field("Examples", "`hg!audio 5`\n`hg!a 7`\n`hg!a earthshaker`\n`hg!a earthshaker -b`\n`hg!a the legend begins`", false),
         ("settings", _) => Voiced::new(prefix, "hg!settings (set)", prose::PAGE_SETTINGS.said(prose))
             .field("Language", "Every language the game data has. It also changes which names searches match. English to start.", false)
             .field("Format", "AVIF, WebP or GIF, for animations. AVIF to start, and the smallest by far. `--format` overrides it for one request.", false)
@@ -1160,6 +1655,8 @@ fn help_page(page_name: &str, section: &str, prefix: &str, prose: Prose) -> sere
         _ => Voiced::new(prefix, "Hagane", prose::HELP_HOME.said(prose))
             .field("`hg!cat` (`c`)", prose::HOME_CAT.said(prose), false)
             .field("`hg!enemy` (`e`)", prose::HOME_ENEMY.said(prose), false)
+            .field("`hg!stage` (`s`)", prose::HOME_STAGE.said(prose), false)
+            .field("`hg!map` (`m`)", prose::HOME_MAP.said(prose), false)
             .field("`hg!background` (`bg`, `b`)", prose::HOME_BACKGROUND.said(prose), false)
             .field("`hg!audio` (`a`)", prose::HOME_AUDIO.said(prose), false)
             .field("`hg!settings` (`set`)", prose::HOME_SETTINGS.said(prose), false)
@@ -1384,6 +1881,22 @@ async fn on_press(ctx: &serenity::Context, press: &serenity::ComponentInteractio
         return on_found(ctx, press, data, rest).await;
     }
 
+    if let Some(rest) = custom.strip_prefix(CROWN) {
+        return on_crown(ctx, press, data, rest).await;
+    }
+
+    if let Some(rest) = custom.strip_prefix(THEME_PRESS) {
+        return on_theme(ctx, press, data, rest).await;
+    }
+
+    if let Some(rest) = custom.strip_prefix(CHART) {
+        return on_chart(ctx, press, data, rest).await;
+    }
+
+    if let Some(rest) = custom.strip_prefix(SEEK) {
+        return on_seek(ctx, press, data, rest).await;
+    }
+
     if let Some((owner, page)) = custom.strip_prefix("help|").and_then(|rest| rest.split_once('|')) {
         if owner.parse::<u64>().ok() != Some(press.user.id.get()) {
             return refuse(ctx, press, data).await;
@@ -1497,6 +2010,38 @@ async fn on_level(ctx: &serenity::Context, form: &serenity::ModalInteraction, da
 async fn on_modal(ctx: &serenity::Context, form: &serenity::ModalInteraction, data: &Data) -> Result<(), Error> {
     if form.data.custom_id == SET_PREFIX {
         return on_prefix(ctx, form, data).await;
+    }
+
+    if let Some(rest) = form.data.custom_id.strip_prefix(SEEK_JUMP) {
+        let owner = form.user.id.get();
+        let (token, shown) = rest.split_once('|').map_or((None, None), |(token, shown)| (u64::from_str_radix(token, 16).ok(), shown.parse::<usize>().ok()));
+        let held = token.and_then(|token| lists(data).find(token, owner));
+        let (Some(token), Some(shown), Some(choices)) = (token, shown, held) else {
+            let gone = serenity::CreateInteractionResponseMessage::new().content(prose::LIST_GONE.said(data.book.prose(owner))).ephemeral(true);
+
+            form.create_response(ctx, serenity::CreateInteractionResponse::Message(gone)).await?;
+            return Ok(());
+        };
+        let asked = typed(form).trim().parse::<usize>().ok().map_or(shown, |page| page.clamp(1, list_pages(&choices)) - 1);
+        let turned = serenity::CreateInteractionResponseMessage::new().components(list_rows(owner, Some(token), &choices, asked));
+
+        form.create_response(ctx, serenity::CreateInteractionResponse::UpdateMessage(turned)).await?;
+        return Ok(());
+    }
+
+    if let Some(rest) = form.data.custom_id.strip_prefix(CHART_JUMP) {
+        let mut parts = rest.splitn(4, '|');
+        let (Some(route), Some(code), Some(shown), Some(tail)) = (parts.next(), parts.next(), parts.next().and_then(|shown| shown.parse::<usize>().ok()), parts.next()) else { return Ok(()) };
+        let owner = form.user.id.get();
+        let prefs = data.book.get(owner);
+        let Some((_guard, library)) = open(data, &prefs.language).await? else { return Ok(()) };
+        let pages = chart_pages(&library, code).unwrap_or(1);
+        let asked = typed(form).trim().parse::<usize>().ok().map_or(shown, |page| page.clamp(1, pages) - 1);
+        let Ok(post) = chart(owner, &library, code, asked, route, tail, prefs.prose) else { return Ok(()) };
+        let turned = serenity::CreateInteractionResponseMessage::new().content(post.text).components(post.rows);
+
+        form.create_response(ctx, serenity::CreateInteractionResponse::UpdateMessage(turned)).await?;
+        return Ok(());
     }
 
     if let Some(shown) = form.data.custom_id.strip_prefix(SET_JUMP) {
@@ -1764,7 +2309,7 @@ mod tests {
 
         assert_eq!(labels("cat", GENERAL), [["Home", "General", "Unit"], ["Stats", "Animation", "Buttons"]]);
         assert_eq!(labels("enemy", "stats"), [["Home", "General", "Unit", "Stats", "Animation"]]);
-        assert_eq!(labels(HOME, ""), [["Home", "Cat", "Enemy", "Background", "Audio"], ["Settings", "Website", "Invite", "Legal", "Help"]]);
+        assert_eq!(labels(HOME, ""), [["Home", "Cat", "Enemy", "Stage"], ["Map", "Background", "Audio", "Settings"], ["Website", "Invite", "Legal", "Help"]]);
         assert_eq!(labels("audio", ""), labels(HOME, ""));
         assert_eq!((section_of("cat", ""), section_of("cat", "stats"), section_of("cat", "anim"), section_of("cat", "nonsense"), section_of("enemy", "buttons"), section_of("audio", "unit")), (GENERAL, "stats", "animation", GENERAL, GENERAL, ""));
 
@@ -1800,6 +2345,50 @@ mod tests {
         assert_eq!(rest("cat 25", false, Some(SOMEONE)), None);
         assert_eq!(rest("!hg cat 25", false, None), None);
         assert_eq!(rest("<@7> cat 25", false, None), None);
+    }
+
+    // A stage with several crowns gets one button each, numbered with the crown symbol, and the one shown is marked.
+    #[test]
+    fn crown_buttons_follow_the_stage() {
+        let rows = |stage: &Stage, shown: u8| serde_json::to_value(crown_rows(7, "N000-00", stage, shown)).unwrap();
+        let open = Stage { max_crowns: 4, target_crowns: -1, ..Stage::default() };
+        let fixed = Stage { max_crowns: 3, target_crowns: 2, ..Stage::default() };
+        let buttons = rows(&open, 1);
+        let held = buttons[0]["components"].as_array().unwrap();
+
+        assert_eq!(held.iter().map(|button| button["label"].as_str().unwrap()).collect::<Vec<_>>(), ["1\u{1F732}", "2\u{1F732}", "3\u{1F732}", "4\u{1F732}"]);
+        assert_eq!(held[1]["custom_id"], "crown|7|N000-00|1");
+        assert_eq!(held.iter().map(|button| button["style"].as_u64().unwrap()).collect::<Vec<_>>(), [2, 3, 2, 2], "the crown shown is the green one");
+        assert_eq!(rows(&fixed, 2)[0]["components"].as_array().unwrap().iter().map(|button| button["disabled"].as_bool().unwrap_or(false)).collect::<Vec<_>>(), [true, true, false]);
+        assert!(rows(&Stage { max_crowns: 1, ..Stage::default() }, 0).as_array().unwrap().is_empty());
+    }
+
+    // A list that was kept can be turned by the person who asked and nobody else, and the oldest go first once too much is held.
+    #[test]
+    fn kept_lists_are_found_by_their_owner_until_they_age_out() {
+        let choices = |count: usize| -> Arc<[Choice]> { (0..count).map(|at| (at.to_string(), at.to_string(), String::new())).collect() };
+        let mut lists = Lists::new(1_795_000_000);
+        let first = lists.keep(7, choices(30));
+        let second = lists.keep(8, choices(60));
+
+        assert_ne!(first, second);
+        assert_eq!((lists.find(first, 7).map(|held| held.len()), lists.find(second, 8).map(|held| held.len())), (Some(30), Some(60)));
+        assert!(lists.find(first, 8).is_none() && lists.find(second + 1, 8).is_none());
+        assert_eq!((list_pages(&choices(24)), list_pages(&choices(25)), list_pages(&choices(0))), (1, 2, 1));
+
+        let third = lists.keep(9, choices(LISTS_HELD));
+
+        assert!(lists.find(first, 7).is_none() && lists.find(second, 8).is_none() && lists.find(third, 9).is_some());
+        assert!(Lists::new(1_795_000_001).keep(7, choices(1)) > third, "a restart never hands out a token an old list still carries");
+        assert!(format!("{SEEK}{}|{:x}|{JUMP}{LIST_PAGES}", u64::MAX, u64::MAX).len() <= VALUE_LIMIT);
+    }
+
+    // The pick list's own limits: twenty-four stages and Abort make Discord's twenty-five options.
+    #[test]
+    fn a_stage_list_page_fits_one_menu() {
+        assert_eq!(SEARCH_SHOWN + 1, 25);
+        assert!(format!("{}|Space009-47i|-c 4", Kind::Stage.tag()).len() <= VALUE_LIMIT);
+        assert!(format!("{CHART}{}|{BACKDROP}|Space009i|{JUMP}99|-f webp -d 1920x1080 -o -200 100 -e 12345", u64::MAX).len() <= VALUE_LIMIT, "a page button carries a full set of background flags");
     }
 
     #[test]

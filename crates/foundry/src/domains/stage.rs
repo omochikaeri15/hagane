@@ -11,6 +11,7 @@ pub mod files;
 pub(crate) mod patterns;
 pub mod restrictions;
 pub mod scanner;
+pub mod sheet;
 pub mod treasure;
 pub mod waiter;
 

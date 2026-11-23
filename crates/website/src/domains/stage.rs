@@ -19,13 +19,16 @@ use foundry::domains::stage::filter::StageFilterState;
 use foundry::domains::stage::filter::enemy::EnemyFilter;
 use foundry::domains::stage::fixedlineup as core_fixedlineup;
 use foundry::domains::stage::scanner::StageBundle;
+use foundry::domains::stage::sheet::{self, Subject};
 use foundry::domains::stage::{GlobalMapId, GlobalStageId, StageDataState, navigate};
+use foundry::systems::statblock::StageSheet;
 
 use crate::app::{self, Route};
 use crate::domains::enemy;
 use crate::platform::Platform;
 use crate::systems::catalog::{self, Load};
 use crate::systems::context::{self, Shared};
+use crate::systems::export;
 use crate::systems::library::Library;
 use crate::theme::SLIDE_MS;
 use crate::widget::{Drawer, Hold, Status, drawer};
@@ -529,7 +532,7 @@ fn StageView(data: Loaded, globals: Shared, stage_id: Option<GlobalStageId>, cro
 
     rsx! {
         div { class: "stage-content",
-            {info::view(stage, map, &data.0.state, &globals, crown)}
+            {info::view(stage, map, &data.0.state, &globals, crown, rsx! { export::StageExportButtons { request: sheet_request(data.clone(), globals.clone(), stage_id.clone(), crown) } })}
             if materials::has_drops(map) {
                 div { class: "drop-tables",
                     {materials::view(stage, map, crown, &globals)}
@@ -544,4 +547,24 @@ fn StageView(data: Loaded, globals: Shared, stage_id: Option<GlobalStageId>, cro
             {battleground::view(stage, map, crown, &data.0.state, &globals)}
         }
     }
+}
+
+fn sheet_request(data: Loaded, globals: Shared, stage_id: Option<GlobalStageId>, crown: u8) -> Callback<(), Option<Rc<StageSheet>>> {
+    Callback::new(move |()| {
+        let held = &data.0.state;
+        let stage = held.registry.stages.get(stage_id.as_ref()?)?;
+        let map = held.registry.maps.get(&GlobalMapId { category: stage.category.clone(), map: stage.map_id })?;
+
+        Some(Rc::new(sheet::build(Subject {
+            stage,
+            map,
+            crown,
+            enemies: &held.enemy_registry,
+            drop_charas: &held.drop_chara_registry,
+            unit_buys: &held.unit_buy_registry,
+            lock_skips: &held.lock_skip_registry,
+            cpu: &held.scat_cpu_setting,
+            ctx: globals.0.context(),
+        })))
+    })
 }

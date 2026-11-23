@@ -342,6 +342,8 @@ img { user-select: none; -webkit-user-select: none; }
 .banner-row { display: flex; align-items: flex-end; gap: 12px; flex-wrap: wrap; }
 .banner-fallback { display: flex; align-items: flex-end; white-space: nowrap; }
 .crown-row { display: flex; gap: 5px; }
+.crown-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.crown-divider { width: 1px; align-self: stretch; min-height: 24px; background: var(--bg-strong); }
 .crown-btn { width: 50px; height: 30px; min-height: 30px; font-size: 14px; display: inline-flex; align-items: center; justify-content: center; gap: 2px; }
 .drop-tables { display: flex; gap: 15px; flex-wrap: wrap; align-items: flex-start; }
 .drop-table { width: 345px; max-width: 100%; }

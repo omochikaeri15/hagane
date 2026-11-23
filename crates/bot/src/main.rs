@@ -11,6 +11,7 @@ mod lookup;
 mod prefs;
 mod prose;
 mod render;
+mod stage;
 mod statblock;
 mod talents;
 mod whitelist;

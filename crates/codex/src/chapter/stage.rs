@@ -30,7 +30,7 @@ pub use mapstagedata::{DropOdds, DropReward, MapStageData, MapStageDataEntry, Ma
 pub use scatcpusetting::{ScatCpuSetting, ScatCpuSettingError};
 pub use stage_option::{StageOption, StageOptionEntry, StageOptionError};
 pub use stagename::{StageName, StageNameEntry, StageNameError};
-pub use xp::get_hardcoded_xp;
+pub use xp::{story_xp, story_xp_after};
 
 #[derive(Default, Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct Stage {

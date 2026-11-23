@@ -1,4 +1,5 @@
 use codex::chapter::Category;
+use foundry::domains::stage::names;
 
 pub(crate) trait CategoryExt {
     fn display_name(&self) -> &str;
@@ -7,40 +8,7 @@ pub(crate) trait CategoryExt {
 
 impl CategoryExt for Category {
     fn display_name(&self) -> &str {
-        match self {
-            Self::StoriesOfLegend      => "Stories of Legend",
-            Self::EventStages          => "Event Stages",
-            Self::CollabStages         => "Collab Stages",
-            Self::EmpireOfCats         => "Empire of Cats",
-            Self::IntoTheFuture        => "Into the Future",
-            Self::CatsOfTheCosmos      => "Cats of the Cosmos",
-            Self::ExtraStages          => "Extra Stages",
-            Self::DojoHallOfInitiates  => "Dojo Hall of Initiates",
-            Self::TowersAndCitadels    => "Towers & Citadels",
-            Self::DojoRankingEvents    => "Dojo Ranking Events",
-            Self::ChallengeBattle      => "Challenge Battle",
-            Self::UncannyLegends       => "Uncanny Legends",
-            Self::CataminStages        => "Catamin Stages",
-            Self::LegendQuest          => "Legend Quest",
-            Self::ZombieOutbreaks      => "Zombie Outbreaks",
-            Self::GauntletStages       => "Gauntlet Stages",
-            Self::EnigmaStages         => "Enigma Stages",
-            Self::CollabGauntletStages => "Collab Gauntlet Stages",
-            Self::AkuRealms            => "Aku Realms",
-            Self::BehemothCulling      => "Behemoth Culling",
-            Self::Labyrinth            => "Labyrinth",
-            Self::ZeroLegends          => "Zero Legends",
-            Self::OtherworldColosseum  => "Otherworld Colosseum",
-            Self::CatclawChampionships => "Catclaw Championships",
-            Self::FeverRush            => "Point Events",
-            Self::Unknown(prefix)      => {
-                if prefix == "PT" {
-                    "Legacy Princess Punt"
-                } else {
-                    prefix.as_str()
-                }
-            }
-        }
+        names::category_name(self)
     }
 
     fn sort_order(&self) -> u32 {

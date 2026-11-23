@@ -64,6 +64,8 @@ pub static NOTO_JP: Asset = asset!("/assets/fonts/NotoSansJP-Regular.ttf");
 pub static NOTO_KR: Asset = asset!("/assets/fonts/NotoSansKR-Regular.ttf");
 pub static NOTO_TC: Asset = asset!("/assets/fonts/NotoSansTC-Regular.ttf");
 pub static NOTO_TH: Asset = asset!("/assets/fonts/NotoSansThai-Regular.ttf");
+pub const BOLD_FONT: usize = 1;
+pub const SYMBOL_FONT: usize = 5;
 pub static GAME_FONTS: [Asset; 6] = [
     asset!("/assets/fonts/Roboto-Bold.ttf"),
     asset!("/assets/fonts/NotoSansJP-Bold.otf"),

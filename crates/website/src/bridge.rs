@@ -652,6 +652,8 @@ impl Host for WebHost {
             Script::Korean => &crate::theme::NOTO_KR,
             Script::TraditionalChinese => &crate::theme::NOTO_TC,
             Script::Thai => &crate::theme::NOTO_TH,
+            Script::Bold => &crate::theme::GAME_FONTS[crate::theme::BOLD_FONT],
+            Script::Symbols => &crate::theme::GAME_FONTS[crate::theme::SYMBOL_FONT],
         }
         .to_string();
 

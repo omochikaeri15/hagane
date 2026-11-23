@@ -1,5 +1,7 @@
 use std::mem;
 
+use codex::chapter::Category;
+
 use super::fuzzy::CLOSENESS;
 use super::render::{Clip, Format};
 
@@ -7,15 +9,20 @@ use super::render::{Clip, Format};
 pub(crate) enum Kind {
     Cat,
     Enemy,
+    Stage,
+    Map,
 }
 
 impl Kind {
-    pub(crate) const ALL: [Kind; 2] = [Kind::Cat, Kind::Enemy];
+    pub(crate) const ALL: [Kind; 4] = [Kind::Cat, Kind::Enemy, Kind::Stage, Kind::Map];
+    pub(crate) const PLACES: [Kind; 2] = [Kind::Stage, Kind::Map];
 
     pub(crate) fn tag(self) -> &'static str {
         match self {
             Kind::Cat => "c",
             Kind::Enemy => "e",
+            Kind::Stage => "s",
+            Kind::Map => "m",
         }
     }
 
@@ -23,6 +30,8 @@ impl Kind {
         match self {
             Kind::Cat => "Cat",
             Kind::Enemy => "Enemy",
+            Kind::Stage => "Stage",
+            Kind::Map => "Map",
         }
     }
 }
@@ -31,6 +40,7 @@ impl Kind {
 pub(crate) enum Unit {
     Id(u32, Option<usize>),
     Name(String),
+    Code(String),
 }
 
 #[derive(Debug, PartialEq)]
@@ -92,8 +102,20 @@ pub(crate) struct Motion {
 }
 
 #[derive(Debug, PartialEq)]
+pub(crate) enum Tune {
+    Track(u32, String),
+    Place(Request, bool),
+}
+
+#[derive(Debug, PartialEq)]
+pub(crate) enum Backing {
+    Id(u32, String),
+    Place(Request),
+}
+
+#[derive(Debug, PartialEq)]
 pub(crate) struct Scenery {
-    pub(crate) id: u32,
+    pub(crate) subject: Backing,
     pub(crate) seed: Option<u32>,
     pub(crate) range: Option<(i32, i32)>,
     pub(crate) offset: Option<(i32, i32)>,
@@ -115,6 +137,7 @@ pub(crate) struct Request {
     pub(crate) want: Want,
     pub(crate) whole: Option<String>,
     pub(crate) form: Option<usize>,
+    pub(crate) crowns: Option<u8>,
     pub(crate) search: Option<u32>,
     pub(crate) tail: String,
 }
@@ -122,6 +145,9 @@ pub(crate) struct Request {
 const MAX_CULL: i32 = 100;
 const MAX_PERCENT: i64 = 100;
 const MAX_CLOSENESS: u32 = 100;
+const MAX_CROWNS: u8 = 4;
+const GRAFT: &str = "i";
+const CROWN_HINT: &str = "`--crowns` (`-c`) takes a number from 1 to 4";
 const LOOP_MINIMUM: i32 = 15;
 const LOOP_DIFFERENCE: i32 = 30;
 
@@ -133,8 +159,9 @@ fn is_flag(token: &str) -> bool {
     token.starts_with("--") || token.strip_prefix('-').is_some_and(|rest| rest.chars().next().is_some_and(char::is_alphabetic))
 }
 
-const TRACK_HINT: &str = "Give me a track's ID, like `5`";
-const SCENERY_HINT: &str = "Give me a background's ID first, like `12`";
+const TRACK_HINT: &str = "Give me a track's ID, like `5`, or the name of a stage or a map";
+const BOSS_HINT: &str = "`--boss` (`-b`) goes with a stage or a map, not a track's ID";
+const SCENERY_HINT: &str = "Give me a background's ID first, like `12`, or the name of a stage or a map";
 const OFFSET_HINT: &str = "`--offset` takes two whole numbers, like `100 50` or `-200,0`";
 const SIZE_HINT: &str = "`--dimensions` takes a width and a height, like `800x600`, `800×600` or `800 600`";
 const PAIR_MARKS: [char; 5] = ['x', 'X', '×', ',', '*'];
@@ -324,12 +351,23 @@ pub(crate) fn talents_of(tokens: &[&str]) -> Vec<Talent> {
     talents
 }
 
-pub(crate) fn parse(text: &str, kind: Kind) -> Result<Request, String> {
+fn sifted(text: &str) -> (Vec<&str>, Option<u32>) {
     let typed: Vec<&str> = text.split_whitespace().collect();
     let flagged = |at: usize| at > 0 && typed.get(at).is_some_and(|token| search_flag(token));
     let closeness = |at: usize| typed.get(at).and_then(|token| token.trim_end_matches('%').parse::<u32>().ok());
     let search = (1..typed.len()).find(|at| flagged(*at)).map(|at| closeness(at + 1).map_or(CLOSENESS, |typed| typed.clamp(1, MAX_CLOSENESS)));
-    let tokens: Vec<&str> = typed.iter().enumerate().filter(|(at, _)| !flagged(*at) && !(flagged(at.wrapping_sub(1)) && closeness(*at).is_some())).map(|(_, token)| *token).collect();
+    let tokens = typed.iter().enumerate().filter(|(at, _)| !flagged(*at) && !(flagged(at.wrapping_sub(1)) && closeness(*at).is_some())).map(|(_, token)| *token).collect();
+
+    (tokens, search)
+}
+
+pub(crate) fn parse(text: &str, kind: Kind) -> Result<Request, String> {
+    let (tokens, search) = sifted(text);
+
+    if matches!(kind, Kind::Stage | Kind::Map) {
+        return placed(&tokens, search, &[kind]);
+    }
+
     let mut at = 0;
     let unit = match tokens.first().and_then(|token| unit_of(token, kind)) {
         Some(unit) => {
@@ -383,7 +421,79 @@ pub(crate) fn parse(text: &str, kind: Kind) -> Result<Request, String> {
 
     let want = if animated { Want::Motion(motion_of(rest)?) } else { Want::Stats(stats_of(rest, kind)?) };
 
-    Ok(Request { unit, want, whole, form, search, tail })
+    Ok(Request { unit, want, whole, form, crowns: None, search, tail })
+}
+
+fn crown_flag(token: &str) -> bool {
+    matches!(lower(token).as_str(), "--crowns" | "--crown" | "-c")
+}
+
+pub(crate) fn code_of(named: &[&str], kind: Kind) -> Option<String> {
+    let joined = named.join(" ");
+    let mut parts = joined.split(|glyph: char| glyph.is_whitespace() || matches!(glyph, '-' | '_')).filter(|part| !part.is_empty());
+    let lead = parts.next()?;
+    let prefix: String = lead.chars().take_while(char::is_ascii_alphabetic).collect();
+    let glued = lead.get(prefix.len()..).filter(|rest| !rest.is_empty());
+    let numbers: Vec<&str> = glued.into_iter().chain(parts).collect();
+    let digits = |text: &str| !text.is_empty() && text.chars().all(|glyph| glyph.is_ascii_digit());
+    let category = Category::from_prefix(&prefix);
+
+    if prefix.is_empty() || matches!(category, Category::Unknown(_)) {
+        return None;
+    }
+
+    match (kind, numbers.as_slice()) {
+        (Kind::Map, [map]) => {
+            let (map, graft) = map.strip_suffix(['i', 'I']).map_or((*map, ""), |bare| (bare, GRAFT));
+
+            digits(map).then(|| Some(format!("{}{:03}{graft}", category.map_prefix(), map.parse::<u32>().ok()?))).flatten()
+        }
+        (Kind::Stage, [map, stage]) => {
+            let (stage, graft) = stage.strip_suffix(['i', 'I']).map_or((*stage, ""), |bare| (bare, GRAFT));
+
+            (digits(map) && digits(stage)).then(|| Some(format!("{}{:03}-{:02}{graft}", category.map_prefix(), map.parse::<u32>().ok()?, stage.parse::<u32>().ok()?))).flatten()
+        }
+        _ => None,
+    }
+}
+
+pub(crate) fn place(text: &str) -> Result<Request, String> {
+    let (tokens, search) = sifted(text);
+
+    placed(&tokens, search, &Kind::PLACES)
+}
+
+fn placed(tokens: &[&str], search: Option<u32>, kinds: &[Kind]) -> Result<Request, String> {
+    let flag = tokens.iter().position(|token| crown_flag(token));
+    let named = &tokens[..flag.unwrap_or(tokens.len())];
+    let crowns = match flag {
+        Some(at) => {
+            let crowns = tokens.get(at + 1).and_then(|next| next.parse::<u8>().ok()).filter(|crowns| (1..=MAX_CROWNS).contains(crowns)).ok_or(CROWN_HINT)?;
+
+            if let Some(extra) = tokens.get(at + 2) {
+                return Err(format!("I don't understand `{extra}`"));
+            }
+
+            Some(crowns)
+        }
+        None => None,
+    };
+    let unit = match (named, kinds.iter().find_map(|kind| code_of(named, *kind))) {
+        ([], _) => return Err(match kinds {
+            [Kind::Map] => "Name a map first",
+            [Kind::Stage] => "Name a stage first",
+            _ => "Name a stage or a map first",
+        }
+        .to_owned()),
+        (_, Some(code)) => Unit::Code(code),
+        (_, None) => Unit::Name(named.join(" ")),
+    };
+
+    if search.is_some() && matches!(unit, Unit::Code(_)) {
+        return Err(SEARCH_HINT.to_owned());
+    }
+
+    Ok(Request { unit, want: Want::Stats(Stats::default()), whole: None, form: None, crowns, search, tail: tokens[named.len()..].join(" ") })
 }
 
 fn stats_of(tokens: &[&str], kind: Kind) -> Result<Stats, String> {
@@ -453,21 +563,44 @@ fn pair_of<T: std::str::FromStr>(tokens: &[&str], at: &mut usize) -> Option<(T, 
     Some(pair)
 }
 
-pub(crate) fn track(text: &str) -> Result<u32, String> {
-    let mut tokens = text.split_whitespace();
-    let id = tokens.next().and_then(|token| numbered(token, "snd", ".ogg")).ok_or(TRACK_HINT)?;
+pub(crate) fn tune(text: &str) -> Result<Tune, String> {
+    let typed: Vec<&str> = text.split_whitespace().collect();
+    let boss = typed.iter().any(|token| boss_flag(token));
+    let tokens: Vec<&str> = typed.into_iter().filter(|token| !boss_flag(token)).collect();
 
-    match tokens.next() {
-        Some(extra) => Err(format!("I don't understand `{extra}`")),
-        None => Ok(id),
+    if let [only] = tokens.as_slice()
+        && let Some(id) = numbered(only, "snd", ".ogg")
+    {
+        return if boss { Err(BOSS_HINT.to_owned()) } else { Ok(Tune::Track(id, (*only).to_owned())) };
+    }
+
+    if tokens.is_empty() {
+        return Err(TRACK_HINT.to_owned());
+    }
+
+    let request = place(&tokens.join(" "))?;
+
+    match request.crowns {
+        Some(_) => Err("A stage plays the same music at every crown, so leave `--crowns` out".to_owned()),
+        None => Ok(Tune::Place(request, boss)),
     }
 }
 
+fn boss_flag(token: &str) -> bool {
+    matches!(lower(token).as_str(), "--boss" | "-b")
+}
+
 pub(crate) fn scenery(text: &str) -> Result<Scenery, String> {
-    let tokens: Vec<&str> = text.split_whitespace().collect();
-    let id = tokens.first().and_then(|token| numbered(token, "bg", ".png")).ok_or(SCENERY_HINT)?;
-    let mut scenery = Scenery { id, seed: None, range: None, offset: None, size: None, format: None, quality: None, compression: None };
-    let mut at = 1;
+    let (sifted, search) = sifted(text);
+    let (named, tokens) = sifted.split_at(sifted.iter().position(|token| is_flag(token)).unwrap_or(sifted.len()));
+    let subject = match (named, named.first().and_then(|token| numbered(token, "bg", ".png"))) {
+        ([], _) => return Err(SCENERY_HINT.to_owned()),
+        ([_], Some(_)) if search.is_some() => return Err(SEARCH_HINT.to_owned()),
+        ([only], Some(id)) => Backing::Id(id, (*only).to_owned()),
+        _ => Backing::Place(Request { tail: tokens.join(" "), ..placed(named, search, &Kind::PLACES)? }),
+    };
+    let mut scenery = Scenery { subject, seed: None, range: None, offset: None, size: None, format: None, quality: None, compression: None };
+    let mut at = 0;
 
     while let Some(token) = tokens.get(at) {
         at += 1;
@@ -477,9 +610,9 @@ pub(crate) fn scenery(text: &str) -> Result<Scenery, String> {
                 scenery.seed = Some(tokens.get(at).and_then(|next| next.parse::<u32>().ok()).ok_or("`--seed` takes a whole number, 0 or higher")?);
                 at += 1;
             }
-            "--range" | "-r" => scenery.range = Some(range_of(&tokens, &mut at)?),
-            "--offset" | "-o" => scenery.offset = Some(pair_of(&tokens, &mut at).ok_or(OFFSET_HINT)?),
-            "--dimensions" | "--dimension" | "-d" => scenery.size = Some(pair_of(&tokens, &mut at).ok_or(SIZE_HINT)?),
+            "--range" | "-r" => scenery.range = Some(range_of(tokens, &mut at)?),
+            "--offset" | "-o" => scenery.offset = Some(pair_of(tokens, &mut at).ok_or(OFFSET_HINT)?),
+            "--dimensions" | "--dimension" | "-d" => scenery.size = Some(pair_of(tokens, &mut at).ok_or(SIZE_HINT)?),
             "--format" | "-f" => {
                 scenery.format = Some(format_of(tokens.get(at))?);
                 at += 1;
@@ -644,14 +777,40 @@ mod tests {
     // Audio and backgrounds only go by ID, written bare or the way the game names the file.
     #[test]
     fn tracks_and_backgrounds_go_by_id() {
-        assert_eq!((track("5"), track("005"), track("snd005"), track("SND005.ogg"), track("009.ogg")), (Ok(5), Ok(5), Ok(5), Ok(5), Ok(9)));
-        assert!(track("").is_err() && track("walk").is_err() && track("5 6").is_err() && track("snd").is_err());
+        let track = |text: &str| match tune(text) {
+            Ok(Tune::Track(id, _)) => Some(id),
+            _ => None,
+        };
+        let themed = |text: &str| match tune(text) {
+            Ok(Tune::Place(request, boss)) => Some((request.unit, boss, request.search)),
+            _ => None,
+        };
+
+        assert_eq!((track("5"), track("005"), track("snd005"), track("SND005.ogg"), track("009.ogg")), (Some(5), Some(5), Some(5), Some(5), Some(9)));
+        assert!(tune("").is_err() && tune("5 -b").is_err() && tune("-b").is_err());
+        assert_eq!(themed("earthshaker"), Some((Unit::Name("earthshaker".to_owned()), false, None)));
+        assert_eq!(themed("sleeping lion --boss"), Some((Unit::Name("sleeping lion".to_owned()), true, None)));
+        assert_eq!(themed("-b moon -s 70"), Some((Unit::Name("moon".to_owned()), true, Some(70))));
+        assert_eq!(themed("5 6"), Some((Unit::Name("5 6".to_owned()), false, None)), "more than one word is a name");
+        assert_eq!(themed("N000-07 -b"), Some((Unit::Code("N000-07".to_owned()), true, None)));
+        assert!(tune("earthshaker -c 2").is_err(), "the music does not change with the crowns");
 
         let plain = scenery("12").unwrap();
         let full = scenery("bg012 -e 7 -r 30~90 -f gif -q 90 -p 20").unwrap();
 
-        assert_eq!(plain, Scenery { id: 12, seed: None, range: None, offset: None, size: None, format: None, quality: None, compression: None });
-        assert_eq!(full, Scenery { id: 12, seed: Some(7), range: Some((30, 90)), offset: None, size: None, format: Some(Format::Gif), quality: Some(90), compression: Some(20) });
+        assert_eq!(plain, Scenery { subject: Backing::Id(12, "12".to_owned()), seed: None, range: None, offset: None, size: None, format: None, quality: None, compression: None });
+        assert_eq!(full, Scenery { subject: Backing::Id(12, "bg012".to_owned()), seed: Some(7), range: Some((30, 90)), offset: None, size: None, format: Some(Format::Gif), quality: Some(90), compression: Some(20) });
+
+        let staged = |text: &str| match scenery(text).map(|scenery| (scenery.subject, scenery.format)) {
+            Ok((Backing::Place(request), format)) => Some((request.unit, request.search, request.tail, format)),
+            _ => None,
+        };
+
+        assert_eq!(staged("sleeping lion -f gif -d 800x600"), Some((Unit::Name("sleeping lion".to_owned()), None, "-f gif -d 800x600".to_owned(), Some(Format::Gif))));
+        assert_eq!(staged("moon -s 70 -e 7"), Some((Unit::Name("moon".to_owned()), Some(70), "-e 7".to_owned(), None)));
+        assert_eq!(staged("1 + 2 = Tor"), Some((Unit::Name("1 + 2 = Tor".to_owned()), None, String::new(), None)));
+        assert_eq!(staged("N 0 7 -f webp").map(|read| read.0), Some(Unit::Code("N000-07".to_owned())));
+        assert!(scenery("12 -s").is_err() && scenery("moon -c 2").is_err());
 
         let framed = |text: &str| scenery(text).map(|scenery| (scenery.offset, scenery.size));
 
@@ -660,7 +819,48 @@ mod tests {
         assert_eq!(framed("12 -d 800×600 -f gif"), Ok((None, Some((800, 600)))));
         assert!(framed("12 -d 800").is_err() && framed("12 -d -800 600").is_err() && framed("12 -o 100").is_err() && framed("12 -d wide").is_err());
         assert_eq!(scenery("12 --seed 7 --range 30 90").unwrap().range, Some((30, 90)));
-        assert!(scenery("").is_err() && scenery("-e 7").is_err() && scenery("12 -e").is_err() && scenery("12 -e -3").is_err() && scenery("12 walk").is_err());
+        assert!(scenery("").is_err() && scenery("-e 7").is_err() && scenery("12 -e").is_err() && scenery("12 -e -3").is_err());
+    }
+
+    // A stage goes by its name, with the crowns after it, or by the code a pick list hands back.
+    #[test]
+    fn a_stage_takes_a_name_and_crowns() {
+        let read = |text: &str| parse(text, Kind::Stage).map(|request| (request.unit, request.crowns, request.search, request.tail));
+
+        assert_eq!(read("earthshaker"), Ok((Unit::Name("earthshaker".to_owned()), None, None, String::new())));
+        assert_eq!(read("return of terror -c 3"), Ok((Unit::Name("return of terror".to_owned()), Some(3), None, "-c 3".to_owned())));
+        assert_eq!(read("sleeping lion --crowns 4 -s 70"), Ok((Unit::Name("sleeping lion".to_owned()), Some(4), Some(70), "--crowns 4".to_owned())));
+        assert_eq!(read("N000-07 -c 2"), Ok((Unit::Code("N000-07".to_owned()), Some(2), None, "-c 2".to_owned())));
+        assert_eq!(read("Space009-11").map(|read| read.0), Ok(Unit::Code("Space009-11".to_owned())));
+        assert!(read("").is_err() && read("-c 2").is_err() && read("lion -c").is_err() && read("lion -c 5").is_err() && read("lion -c 2 extra").is_err());
+        assert!(read("N000-07 -s").is_err());
+        // A stage's ID is its prefix, map and stage, spaced or joined any way, padded or not, and a file's prefix finds its category.
+        let code = |text: &str| read(text).ok().and_then(|read| match read.0 {
+            Unit::Code(code) => Some(code),
+            _ => None,
+        });
+
+        for typed in ["R 001 02", "R 1 2", "r-1-2", "R_001_02", "R001-02", "r1 2", "RR 1 2", "rr001_02"] {
+            assert_eq!(code(typed).as_deref(), Some("R001-02"), "{typed}");
+        }
+
+        assert_eq!((code("RN 0 7"), code("EX070_09"), code("space 9 47i"), code("ec 0 47"), code("RNA 35 5")), (Some("N000-07".to_owned()), Some("RE070-09".to_owned()), Some("Space009-47i".to_owned()), Some("EC000-47".to_owned()), Some("NA035-05".to_owned())));
+        assert_eq!(read("R 1 2 -c 3").map(|read| (read.0, read.1)), Ok((Unit::Code("R001-02".to_owned()), Some(3))));
+        // A map's ID is the same without the stage, and a stage's ID is never mistaken for one.
+        let map = |text: &str| match parse(text, Kind::Map).map(|request| (request.unit, request.crowns)) {
+            Ok((Unit::Code(code), crowns)) => Some((code, crowns)),
+            _ => None,
+        };
+
+        for typed in ["R 100", "R-100", "r_100", "R100", "RR 100"] {
+            assert_eq!(map(typed), Some(("R100".to_owned(), None)), "{typed}");
+        }
+
+        assert_eq!((map("RN 0 -c 3"), map("space 9"), map("EX 26")), (Some(("N000".to_owned(), Some(3))), Some(("Space009".to_owned(), None)), Some(("RE026".to_owned(), None))));
+        assert_eq!((map("space 9i"), map("Z009I"), map("space i")), (Some(("Space009i".to_owned(), None)), Some(("Z009i".to_owned(), None)), None), "a trailing i is the invaded map");
+        assert!(map("R 1 2").is_none() && code("R 100").is_none() && map("Tor 1").is_none() && map("100").is_none());
+        assert_eq!(parse("the legend begins -c 2", Kind::Map).map(|request| (request.unit, request.crowns, request.tail)), Ok((Unit::Name("the legend begins".to_owned()), Some(2), "-c 2".to_owned())));
+        assert!(code("25-3").is_none() && code("N000").is_none() && code("li'l-cat").is_none() && code("Tor 1 2").is_none() && code("1 + 2 = Tor").is_none() && code("N 1 2 3").is_none() && code("Space009-i").is_none());
     }
 
     fn stats(text: &str) -> Stats {

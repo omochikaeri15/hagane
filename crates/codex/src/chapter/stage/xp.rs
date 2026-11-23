@@ -1,45 +1,42 @@
-pub fn get_hardcoded_xp(global_map_id: u32, stage_id: usize) -> u32 {
-    if stage_id >= 48 {
+use std::ops::RangeInclusive;
+
+const STORY_MAPS: RangeInclusive<u32> = 3000..=3008;
+const STORY_ROWS: usize = 51;
+const ROW_STEP: u32 = 6000;
+const FLOOR: u32 = 20000;
+const SCALE: u32 = 10;
+const CLEARS_COUNTED: u32 = 13;
+const CLEAR_SHARE: u32 = 14;
+
+pub fn story_xp(global_map_id: u32, stage: usize) -> u32 {
+    if !STORY_MAPS.contains(&global_map_id) || stage >= STORY_ROWS {
         return 0;
     }
 
-    match global_map_id {
-        3000..=3002 => {
-            const EOC_XP: [u32; 48] = [
-                1000, 1300, 1600, 1900, 2200, 2500, 2800, 2800,
-                3400, 3700, 4000, 4300, 4600, 4900, 5200, 5500,
-                5800, 6100, 6400, 6400, 7000, 7300, 7600, 7900,
-                8200, 8500, 8800, 9100, 9400, 9700, 10000, 10300,
-                10600, 10600, 11200, 11500, 11800, 12100, 12400, 12700,
-                13000, 13300, 13600, 13900, 14200, 14500, 14800, 15100,
-            ];
-            EOC_XP[stage_id]
-        }
+    (stage as u32 * ROW_STEP + FLOOR) / SCALE
+}
 
-        3003..=3005 => {
-            const ITF_XP: [u32; 48] = [
-                1000, 1300, 1600, 1900, 2200, 2500, 2800, 3100,
-                3400, 3700, 4000, 4300, 4600, 4900, 5200, 5500,
-                5800, 5500, 6400, 6700, 7000, 7300, 7600, 7900,
-                8200, 7300, 8800, 9100, 9400, 9700, 10000, 10300,
-                10600, 10900, 11200, 11500, 11800, 11500, 12400, 12700,
-                13000, 13300, 13600, 13900, 13900, 13900, 14200, 14500,
-            ];
-            ITF_XP[stage_id]
-        }
+pub fn story_xp_after(base: u32, clears: u32) -> u32 {
+    base - clears.min(CLEARS_COUNTED) * base / CLEAR_SHARE
+}
 
-        3006..=3008 => {
-            const COTC_XP: [u32; 48] = [
-                1000, 1300, 1600, 1900, 2200, 2500, 2800, 3100,
-                3400, 3700, 4000, 4300, 4600, 4900, 5200, 5500,
-                5800, 6100, 6400, 6700, 7000, 7300, 7600, 7900,
-                8200, 8500, 8800, 9700, 9400, 9700, 10000, 10300,
-                10600, 10900, 11200, 11200, 11800, 12100, 12400, 12700,
-                13000, 13300, 13600, 13900, 13900, 13900, 14200, 14500,
-            ];
-            COTC_XP[stage_id]
-        }
+#[cfg(test)]
+mod tests {
+    use super::*;
 
-        _ => 0,
+    // A story stage pays by its place in the chapter and nothing else: 2000 for the first, 600 more for each one after.
+    #[test]
+    fn a_story_stage_pays_by_its_place() {
+        assert_eq!((story_xp(3000, 0), story_xp(3000, 1), story_xp(3000, 47)), (2000, 2600, 30200));
+        assert_eq!(story_xp(3004, 12), story_xp(3008, 12), "every chapter of every saga pays the same");
+        assert_eq!((story_xp(3001, 49), story_xp(3002, 50)), (31400, 32000), "the second and third moons sit past the forty-eighth place");
+        assert_eq!((story_xp(3000, 51), story_xp(2999, 0), story_xp(3009, 0)), (0, 0, 0));
+    }
+
+    // Each earlier clear takes a fourteenth of the first payout away, and it stops falling after thirteen.
+    #[test]
+    fn a_repeat_clear_pays_less() {
+        assert_eq!((story_xp_after(2000, 0), story_xp_after(2000, 1), story_xp_after(2000, 7)), (2000, 1858, 1000));
+        assert_eq!((story_xp_after(2000, 13), story_xp_after(2000, 99)), (143, 143));
     }
 }

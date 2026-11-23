@@ -108,7 +108,7 @@ fn crowns(stage: &Stage, selected: u8) -> Element {
     }
 }
 
-pub(crate) fn view(stage: &Stage, map: &Map, data: &StageDataState, globals: &Shared, crown: u8) -> Element {
+pub(crate) fn view(stage: &Stage, map: &Map, data: &StageDataState, globals: &Shared, crown: u8, actions: Element) -> Element {
     let vfs = &globals.0.vault().vfs;
     let prefix = stage.category.image_prefix();
     let map_banner = stage_files::map_banner_file(stage.map_id, &prefix);
@@ -129,7 +129,13 @@ pub(crate) fn view(stage: &Stage, map: &Map, data: &StageDataState, globals: &Sh
                 {banner(globals, &stage_banner, STAGE_IMG_HEIGHT, &stage.name)}
             }
             div { class: "rule" }
-            {crowns(stage, crown)}
+            div { class: "crown-actions",
+                {crowns(stage, crown)}
+                if stage.max_crowns > 1 {
+                    div { class: "crown-divider" }
+                }
+                {actions}
+            }
             div { class: "section",
                 div { class: "section-title", "Information" }
                 div { class: "rule" }

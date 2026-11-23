@@ -3,7 +3,7 @@ use std::borrow::Cow;
 use arboard::{Clipboard, ImageData};
 use image::RgbaImage;
 use iced::alignment::Horizontal;
-use iced::widget::{button, column};
+use iced::widget::{button, column, row};
 use iced::{Background, Border, Color, Element, Length, Task, Theme};
 use tracing::{error, warn};
 
@@ -66,6 +66,14 @@ impl std::fmt::Debug for Message {
     }
 }
 
+type Draw = Box<dyn FnOnce() -> Result<RgbaImage, String> + Send>;
+type Save = Box<dyn FnOnce(&RgbaImage) -> Result<(), String> + Send>;
+
+pub(crate) struct Work {
+    pub(crate) draw: Draw,
+    pub(crate) save: Save,
+}
+
 pub(crate) struct Request<'a> {
     pub(crate) data: StatblockData,
     pub(crate) sheets: &'a [SpriteSheet],
@@ -92,8 +100,16 @@ impl State {
     }
 
     pub(crate) fn update<'a>(&mut self, message: Message, request: impl FnOnce() -> Option<Request<'a>>) -> Task<Message> {
+        self.handle(message, |held, action| request().map_or_else(Task::none, |request| held.start(action, request)))
+    }
+
+    pub(crate) fn update_work(&mut self, message: Message, work: impl FnOnce() -> Option<Work>) -> Task<Message> {
+        self.handle(message, |held, action| work().map_or_else(Task::none, |work| held.run(action, work)))
+    }
+
+    fn handle(&mut self, message: Message, clicked: impl FnOnce(&mut Self, ExportAction) -> Task<Message>) -> Task<Message> {
         match message {
-            Message::Clicked(action) => request().map_or_else(Task::none, |request| self.start(action, request)),
+            Message::Clicked(action) => clicked(self, action),
             Message::Finished(job) => {
                 self.pending = None;
                 self.finish(job)
@@ -126,19 +142,31 @@ impl State {
 
         let layers: Vec<CoreSpriteSheet> = request.sheets.iter().map(|sheet| sheet.core.clone()).collect();
         let priority = request.settings.general.language_priority.clone();
+
+        self.run(action, Work {
+            draw: Box::new(move || statblock::build_statblock_image(&priority, &layers, data, &statblock::Fonts::embedded())),
+            save: Box::new(move |image| statblock::save_to_disk(image, is_cat, &id_str, &top_value).map(|_| ())),
+        })
+    }
+
+    fn run(&mut self, action: ExportAction, work: Work) -> Task<Message> {
+        if self.pending.is_some() {
+            return Task::none();
+        }
+
         let kind = self.kind;
 
         self.pending = Some(action);
 
         Task::perform(async move {
-            let build_result = statblock::build_statblock_image(&priority, &layers, data, &statblock::Fonts::embedded());
+            let build_result = (work.draw)();
 
             match action {
                 ExportAction::Copy => JobResult::Copy(build_result),
                 ExportAction::Save => {
-                    let result = build_result.and_then(|image| statblock::save_to_disk(&image, is_cat, &id_str, &top_value).map(|_| ()));
+                    let result = build_result.and_then(|image| (work.save)(&image));
                     if let Err(err) = &result {
-                        error!("{kind} statblock save failed: {err}");
+                        error!("{kind} image save failed: {err}");
                     }
                     JobResult::Save(result)
                 }
@@ -187,6 +215,18 @@ impl State {
     }
 
     pub(crate) fn view(&self) -> Element<'_, Message> {
+        let [copy, save] = self.buttons();
+
+        column![copy, save].spacing(BUTTON_SPACING).align_x(Horizontal::Center).into()
+    }
+
+    pub(crate) fn view_row(&self) -> Element<'_, Message> {
+        let [copy, save] = self.buttons();
+
+        row![copy, save].spacing(BUTTON_SPACING).into()
+    }
+
+    fn buttons(&self) -> [Element<'_, Message>; 2] {
         let copy_busy = self.pending == Some(ExportAction::Copy);
         let copy_feedback = self.copy_feedback.get().copied();
         let copy_label = feedback_label(copy_busy, copy_feedback, "Copy Image", "Copying...", "Copied!");
@@ -195,13 +235,10 @@ impl State {
         let save_feedback = self.save_feedback.get().copied();
         let save_label = feedback_label(save_busy, save_feedback, "Export Image", "Exporting...", "Exported!");
 
-        column![
+        [
             self.action_button(copy_label, copy_busy, copy_feedback, ExportAction::Copy),
             self.action_button(save_label, save_busy, save_feedback, ExportAction::Save),
         ]
-            .spacing(BUTTON_SPACING)
-            .align_x(Horizontal::Center)
-            .into()
     }
 
     fn action_button(&self, label: String, busy: bool, feedback: Option<bool>, action: ExportAction) -> Element<'_, Message> {

@@ -97,24 +97,24 @@ pub fn export_statblock(ui: &AppWindow, context: &Rc<Context>, data: StatblockDa
     let vault = context.engine.vault();
     let sheets: Vec<SpriteSheet> = context.images.sheets(&vault, IMG015).iter().cloned().collect();
     let priority = context.state.settings().general.language_priority.clone();
+
+    export_image(ui, context, "statblock", face, move || render_statblock(&priority, &sheets, data), finished);
+}
+
+pub fn export_image(ui: &AppWindow, context: &Rc<Context>, kind: &'static str, face: Face, work: impl FnOnce() -> Result<PathBuf, String> + Send + 'static, finished: impl FnOnce(&AppWindow) + 'static) {
     let ctx = Rc::clone(context);
 
     face(ui, "Exporting...", Tone::StatusWarning);
-    bridge::offload(
-        ui,
-        "statblock",
-        move || render_statblock(&priority, &sheets, data),
-        move |ui, outcome| {
-            finished(ui);
+    bridge::offload(ui, kind, work, move |ui, outcome| {
+        finished(ui);
 
-            match &outcome {
-                Ok(path) => info!(path = %path.display(), "Statblock exported"),
-                Err(reason) => error!("The statblock could not be exported: {reason}"),
-            }
+        match &outcome {
+            Ok(path) => info!(path = %path.display(), kind, "Image exported"),
+            Err(reason) => error!(kind, "The image could not be exported: {reason}"),
+        }
 
-            settle(ui, &ctx, outcome.is_ok(), face);
-        },
-    );
+        settle(ui, &ctx, outcome.is_ok(), face);
+    });
 }
 
 fn settle(ui: &AppWindow, context: &Rc<Context>, ok: bool, face: Face) {

@@ -24,7 +24,9 @@ use foundry::domains::settings::{Settings, SidebarBehavior};
 use foundry::domains::stage::filter::enemy::EnemyFilter;
 use foundry::domains::stage::filter::StageFilterState;
 use foundry::domains::stage::scanner::{self, StageBundle};
+use foundry::domains::stage::sheet::{self, Subject};
 use foundry::domains::stage::{fixedlineup as core_fixedlineup, GlobalMapId, StageDataState};
+use foundry::systems::statblock::{StageFonts, build_stage_image, save_stage_to_disk};
 use foundry::systems::treasure::Bonus;
 use foundry::Vault;
 
@@ -32,6 +34,7 @@ use crate::app::state::StageListState;
 use crate::app::theme;
 use crate::common::fonts;
 use crate::systems::combat::enemy_filter::Art;
+use crate::widget::statblock_export::{self, Work};
 use crate::widget::{slide, smooth_scroll, status, Slide};
 
 pub(crate) use crowns::CROWN_GLYPH;
@@ -59,6 +62,7 @@ pub enum Message {
     JumpToEnemy(u32, String),
     List(list::Message),
     Filter(filter::Message),
+    Export(statblock_export::Message),
 }
 
 impl std::fmt::Debug for Message {
@@ -73,6 +77,7 @@ impl std::fmt::Debug for Message {
             Self::JumpToEnemy(id, mag_input) => write!(f, "JumpToEnemy({}, {})", id, mag_input),
             Self::List(msg) => write!(f, "List({:?})", msg),
             Self::Filter(msg) => write!(f, "Filter({:?})", msg),
+            Self::Export(msg) => write!(f, "Export({:?})", msg),
         }
     }
 }
@@ -94,6 +99,7 @@ pub struct State {
     treasure: treasure::State,
     fixedlineup: fixedlineup::State,
     battleground: battleground::State,
+    export: statblock_export::State,
 }
 
 impl Default for State {
@@ -115,6 +121,7 @@ impl Default for State {
             treasure: treasure::State::default(),
             fixedlineup: fixedlineup::State::default(),
             battleground: battleground::State::default(),
+            export: statblock_export::State::new("Stage"),
         }
     }
 }
@@ -320,6 +327,11 @@ impl State {
             Message::SelectCrown(crown) => {
                 self.selected_crown = crown;
                 Task::none()
+            }
+            Message::Export(msg) => {
+                let (data, crown) = (&self.data, self.selected_crown);
+
+                self.export.update_work(msg, || shot(data, crown, global_ctx)).map(Message::Export)
             }
             Message::ShowEnemyAppearances(id) => {
                 self.is_sidebar_open = true;
@@ -530,7 +542,7 @@ impl State {
 
         let items = &global_ctx.vault.vds.items;
 
-        content = content.push(self.info.view(stage, map, vfs, &self.data, items, self.selected_crown));
+        content = content.push(self.info.view(stage, map, global_ctx.vault, &self.data, self.selected_crown, self.export.view_row().map(Message::Export)));
 
         if materials::has_drops(stage, map) {
             content = content.push(
@@ -559,4 +571,26 @@ impl State {
         )
             .into()
     }
+}
+
+fn shot(data: &StageDataState, crown: u8, ctx: GlobalContext<'_>) -> Option<Work> {
+    let stage = data.registry.stages.get(data.selected_stage.as_ref()?)?;
+    let map = data.registry.maps.get(&GlobalMapId { category: stage.category.clone(), map: stage.map_id })?;
+    let drawn = Arc::new(sheet::build(Subject {
+        stage,
+        map,
+        crown,
+        enemies: &data.enemy_registry,
+        drop_charas: &data.drop_chara_registry,
+        unit_buys: &data.unit_buy_registry,
+        lock_skips: &data.lock_skip_registry,
+        cpu: &data.scat_cpu_setting,
+        ctx,
+    }));
+    let saved = Arc::clone(&drawn);
+
+    Some(Work {
+        draw: Box::new(move || build_stage_image(&drawn, &StageFonts::embedded())),
+        save: Box::new(move |image| save_stage_to_disk(image, &saved).map(|_| ())),
+    })
 }
