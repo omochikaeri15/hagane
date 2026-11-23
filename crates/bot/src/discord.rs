@@ -1510,7 +1510,7 @@ async fn help(ctx: Context<'_>, #[description = "A command to explain, like cat 
 
 const HOME: &str = "home";
 const PAGES: [(&str, &str); 12] = [(HOME, "Home"), ("cat", "Cat"), ("enemy", "Enemy"), ("stage", "Stage"), ("map", "Map"), ("background", "Background"), ("audio", "Audio"), ("settings", "Settings"), ("website", "Website"), ("invite", "Invite"), ("legal", "Legal"), ("help", "Help")];
-const PAGES_PER_ROW: usize = 5;
+const HELP: &str = "help|";
 const GENERAL: &str = "general";
 const UNIT_SECTIONS: [(&str, &str); 4] = [(GENERAL, "General"), ("unit", "Unit"), ("stats", "Stats"), ("animation", "Animation")];
 const CAT_SECTIONS: [(&str, &str); 5] = [(GENERAL, "General"), ("unit", "Unit"), ("stats", "Stats"), ("animation", "Animation"), ("buttons", "Buttons")];
@@ -1548,16 +1548,15 @@ fn canonical(asked: &str) -> Option<&'static str> {
 }
 
 fn help_rows(owner: u64, current: &str, section: &str) -> Vec<serenity::CreateActionRow> {
-    let button = |custom: String, label: &str, here: bool| serenity::CreateButton::new(custom).label(label).style(if here { serenity::ButtonStyle::Primary } else { serenity::ButtonStyle::Secondary }).disabled(here);
-    let held = sections(current);
-    let buttons: Vec<serenity::CreateButton> = if held.is_empty() {
-        PAGES.iter().map(|(page, label)| button(format!("help|{owner}|{page}"), label, *page == current)).collect()
-    } else {
-        std::iter::once(button(format!("help|{owner}|{HOME}"), "Home", false)).chain(held.iter().map(|(key, label)| button(format!("help|{owner}|{current}|{key}"), label, *key == section))).collect()
-    };
-    let rows = buttons.len().div_ceil(PAGES_PER_ROW).max(1);
+    let menu = |custom: String, held: &[(&str, &str)], shown: &str, placeholder: &str| {
+        let options = held.iter().map(|(key, label)| serenity::CreateSelectMenuOption::new(*label, *key).default_selection(*key == shown)).collect();
 
-    buttons.chunks(buttons.len().div_ceil(rows).max(1)).map(|row| serenity::CreateActionRow::Buttons(row.to_vec())).collect()
+        serenity::CreateActionRow::SelectMenu(serenity::CreateSelectMenu::new(custom, serenity::CreateSelectMenuKind::String { options }).placeholder(placeholder))
+    };
+    let held = sections(current);
+    let parts = (!held.is_empty()).then(|| menu(format!("{HELP}{owner}|{current}"), held, section, "Sections"));
+
+    std::iter::once(menu(format!("{HELP}{owner}|"), &PAGES, current, "Commands")).chain(parts).collect()
 }
 
 fn page(title: &str, description: &str) -> serenity::CreateEmbed {
@@ -1902,12 +1901,14 @@ async fn on_press(ctx: &serenity::Context, press: &serenity::ComponentInteractio
         return on_seek(ctx, press, data, rest).await;
     }
 
-    if let Some((owner, page)) = custom.strip_prefix("help|").and_then(|rest| rest.split_once('|')) {
+    if let Some((owner, page)) = custom.strip_prefix(HELP).and_then(|rest| rest.split_once('|')) {
         if owner.parse::<u64>().ok() != Some(press.user.id.get()) {
             return refuse(ctx, press, data).await;
         }
 
-        let (page, section) = page.split_once('|').unwrap_or((page, ""));
+        let serenity::ComponentInteractionDataKind::StringSelect { values } = &press.data.kind else { return Ok(()) };
+        let Some(picked) = values.first().map(String::as_str) else { return Ok(()) };
+        let (page, section) = if page.is_empty() { (picked, "") } else { (page, picked) };
         let page = canonical(page).unwrap_or(HOME);
         let section = section_of(page, section);
         let turned = serenity::CreateInteractionResponseMessage::new().embed(help_page(page, section, &prefix_of(data, press.user.id.get()), data.book.prose(press.user.id.get()))).components(help_rows(press.user.id.get(), page, section));
@@ -2305,17 +2306,33 @@ mod tests {
         assert!(shown("settings", "hagane").contains("go back to `hg!`"));
     }
 
-    // Cat and Enemy open onto their own section buttons with Home beside them, every other page keeps the page buttons, and nothing overflows Discord's limits.
+    // Every help page carries the list of commands with its own page picked, and Cat and Enemy add a list of their sections under it.
     #[test]
-    fn help_pages_with_sections_swap_their_buttons() {
-        let labels = |page: &str, section: &str| -> Vec<Vec<String>> {
-            serde_json::to_value(help_rows(1, page, section)).unwrap().as_array().unwrap().iter().map(|row| row["components"].as_array().unwrap().iter().map(|button| button["label"].as_str().unwrap().to_owned()).collect()).collect()
-        };
+    fn help_pages_are_switched_from_lists() {
+        let lists = |page: &str, section: &str| -> Vec<(String, Vec<String>, Vec<String>)> {
+            serde_json::to_value(help_rows(1, page, section))
+                .unwrap()
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|row| {
+                    let menu = &row["components"][0];
+                    let options = menu["options"].as_array().unwrap();
+                    let labels = |picked: bool| options.iter().filter(|option| !picked || option["default"].as_bool() == Some(true)).map(|option| option["label"].as_str().unwrap().to_owned()).collect();
 
-        assert_eq!(labels("cat", GENERAL), [["Home", "General", "Unit"], ["Stats", "Animation", "Buttons"]]);
-        assert_eq!(labels("enemy", "stats"), [["Home", "General", "Unit", "Stats", "Animation"]]);
-        assert_eq!(labels(HOME, ""), [["Home", "Cat", "Enemy", "Stage"], ["Map", "Background", "Audio", "Settings"], ["Website", "Invite", "Legal", "Help"]]);
-        assert_eq!(labels("audio", ""), labels(HOME, ""));
+                    (menu["custom_id"].as_str().unwrap().to_owned(), labels(false), labels(true))
+                })
+                .collect()
+        };
+        let commands = ["Home", "Cat", "Enemy", "Stage", "Map", "Background", "Audio", "Settings", "Website", "Invite", "Legal", "Help"].map(str::to_owned).to_vec();
+
+        assert_eq!(lists(HOME, ""), [("help|1|".to_owned(), commands.clone(), vec!["Home".to_owned()])]);
+        assert_eq!(lists("audio", ""), [("help|1|".to_owned(), commands.clone(), vec!["Audio".to_owned()])]);
+        assert_eq!(
+            lists("cat", "stats"),
+            [("help|1|".to_owned(), commands.clone(), vec!["Cat".to_owned()]), ("help|1|cat".to_owned(), ["General", "Unit", "Stats", "Animation", "Buttons"].map(str::to_owned).to_vec(), vec!["Stats".to_owned()])]
+        );
+        assert_eq!(lists("enemy", GENERAL)[1], ("help|1|enemy".to_owned(), ["General", "Unit", "Stats", "Animation"].map(str::to_owned).to_vec(), vec!["General".to_owned()]));
         assert_eq!((section_of("cat", ""), section_of("cat", "stats"), section_of("cat", "anim"), section_of("cat", "nonsense"), section_of("enemy", "buttons"), section_of("audio", "unit")), (GENERAL, "stats", "animation", GENERAL, GENERAL, ""));
 
         for (page, _) in PAGES {
