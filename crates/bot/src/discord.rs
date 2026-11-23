@@ -33,6 +33,7 @@ use super::render::{self, Format, Options, Planned, Progress};
 use super::stage;
 use super::statblock;
 use super::talents;
+use super::usage::{self, Asker, Ledger, Tally};
 
 const REFRESH: Duration = Duration::from_secs(60 * 60);
 const TICK: Duration = Duration::from_secs(1);
@@ -91,6 +92,7 @@ pub(crate) struct Data {
     encoder: Arc<Semaphore>,
     book: Arc<Book>,
     lists: Mutex<Lists>,
+    usage: Mutex<Ledger>,
 }
 
 type Choice = (String, String, String);
@@ -129,7 +131,7 @@ fn lists(data: &Data) -> MutexGuard<'_, Lists> {
 
 pub(crate) async fn run(config: Config, cache: Cache) -> Result<(), Error> {
     let shelf: Shelf = Arc::new(RwLock::new(None));
-    let data = Data { shelf: Arc::clone(&shelf), cache: Arc::new(cache), sheets: Arc::new(Semaphore::new(1)), encoder: Arc::new(Semaphore::new(1)), book: Arc::new(Book::open()), lists: Mutex::new(Lists::new(SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |since| since.as_secs()))) };
+    let data = Data { shelf: Arc::clone(&shelf), cache: Arc::new(cache), sheets: Arc::new(Semaphore::new(1)), encoder: Arc::new(Semaphore::new(1)), book: Arc::new(Book::open()), lists: Mutex::new(Lists::new(SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |since| since.as_secs()))), usage: Mutex::new(Ledger::default()) };
 
     tokio::spawn(keep_fresh(config.source, shelf));
 
@@ -401,6 +403,25 @@ impl<'a> Voice<'a> {
             Voice::Press(_, press, _) => press.user.id,
             Voice::Message(_, msg, _) => msg.author.id,
         }
+    }
+
+    fn discord(self) -> &'a serenity::Context {
+        match self {
+            Voice::Command(ctx) => ctx.serenity_context(),
+            Voice::Press(ctx, _, _) | Voice::Message(ctx, _, _) => ctx,
+        }
+    }
+
+    fn guild(self) -> Option<serenity::GuildId> {
+        match self {
+            Voice::Command(ctx) => ctx.guild_id(),
+            Voice::Press(_, press, _) => press.guild_id,
+            Voice::Message(_, msg, _) => msg.guild_id,
+        }
+    }
+
+    fn asker(self) -> Asker {
+        self.guild().filter(|_| !self.personal()).map_or_else(|| Asker::User(self.user().get()), |guild| Asker::Server(guild.get()))
     }
 
     fn personal(self) -> bool {
@@ -1059,7 +1080,7 @@ async fn encoded(voice: Voice<'_>, label: String, searching: bool, work: impl Fn
     };
     let finished = loop {
         tokio::select! {
-            done = &mut work => break done?,
+            done = &mut work => break done,
             () = tokio::time::sleep(TICK) => {
                 if let Err(err) = voice.amend(&posted, Post::text(progress_bar(&label, searching, &progress, started.elapsed()))).await {
                     warn!("The progress bar could not be updated: {}", err);
@@ -1068,7 +1089,9 @@ async fn encoded(voice: Voice<'_>, label: String, searching: bool, work: impl Fn
         }
     };
 
-    match finished {
+    tally(voice, started).await;
+
+    match finished? {
         Ok((bytes, _)) if bytes.len() > UPLOAD_LIMIT => voice.amend(&posted, Post::text(oversized(bytes.len(), prose))).await?,
         Ok((bytes, name)) => voice.amend(&posted, Post::file(bytes, name)).await?,
         Err(trouble) => {
@@ -1081,6 +1104,23 @@ async fn encoded(voice: Voice<'_>, label: String, searching: bool, work: impl Fn
     }
 
     Ok(())
+}
+
+async fn tally(voice: Voice<'_>, started: Instant) {
+    let (asker, ended) = (voice.asker(), Instant::now());
+    let Tally { sessions, busy, alert } = voice.data().usage.lock().unwrap_or_else(PoisonError::into_inner).note(asker, started, ended);
+
+    info!(asker = asker.name(), id = asker.id(), ms = ended.saturating_duration_since(started).as_millis(), sessions, busy_seconds = busy.as_secs(), "An encoding session ended");
+
+    let Some(alert) = alert else {
+        return;
+    };
+
+    warn!(asker = asker.name(), id = asker.id(), "{}", alert);
+
+    if let Err(err) = serenity::ChannelId::new(usage::ALERT_CHANNEL).send_message(voice.discord(), serenity::CreateMessage::new().content(alert).allowed_mentions(quiet())).await {
+        error!(asker = asker.name(), id = asker.id(), "The abuse alert could not be sent: {}", err);
+    }
 }
 
 async fn send_background(voice: Voice<'_>, library: Arc<Library>, id: u32, scenery: &Scenery, prefs: &Prefs) -> Result<(), Error> {

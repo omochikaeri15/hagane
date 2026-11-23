@@ -14,6 +14,7 @@ mod render;
 mod stage;
 mod statblock;
 mod talents;
+mod usage;
 mod whitelist;
 
 use std::io::{self, IsTerminal};
