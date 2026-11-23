@@ -104,7 +104,7 @@ pub(crate) fn across(library: &Library, prefs: &Prefs, text: &str) -> Found {
     let mut sides: Vec<(Kind, Request, Vec<Hit>)> = Vec::new();
     let mut crowned = false;
 
-    for kind in Kind::ALL {
+    for kind in Kind::ALL.into_iter().filter(|kind| *kind != Kind::Cat || !grammar::names_an_enemy(text)) {
         match grammar::parse(text, kind) {
             Ok(request) => {
                 let request = settled(request, |name| names(library, kind, name));

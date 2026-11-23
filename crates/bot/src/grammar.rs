@@ -166,6 +166,7 @@ const OFFSET_HINT: &str = "`--offset` takes two whole numbers, like `100 50` or 
 const SIZE_HINT: &str = "`--dimensions` takes a width and a height, like `800x600`, `800×600` or `800 600`";
 const PAIR_MARKS: [char; 5] = ['x', 'X', '×', ',', '*'];
 const SEARCH_HINT: &str = "`--search` (`-s`) looks a name up, so give it a name instead of an ID";
+const ENEMY_MARK: &str = "e";
 const FORM_HINT: &str = "`form` (`f`) takes 1-4, n e t u, f c s u, or Normal, Evolved, True, Ultra";
 
 fn search_flag(token: &str) -> bool {
@@ -266,18 +267,30 @@ fn ends_a_name(token: &str) -> bool {
     want_of(token).is_some() || is_flag(token) || marked_level || marked_percent || level_word
 }
 
+fn enemy_id(token: &str) -> Option<u32> {
+    let (id, mark) = token.split_once(['-', '_'])?;
+
+    (lower(mark) == ENEMY_MARK).then(|| id.parse::<u32>().ok()).flatten()
+}
+
+pub(crate) fn names_an_enemy(text: &str) -> bool {
+    text.split_whitespace().next().is_some_and(|token| enemy_id(token).is_some())
+}
+
 fn unit_of(token: &str, kind: Kind) -> Option<Unit> {
     if let Ok(id) = token.parse::<u32>() {
         return Some(Unit::Id(id, None));
     }
 
-    if kind == Kind::Enemy {
-        return None;
+    match (kind, enemy_id(token)) {
+        (Kind::Enemy, id) => id.map(|id| Unit::Id(id, None)),
+        (_, Some(_)) => None,
+        (_, None) => {
+            let (id, form) = token.split_once(['-', '_'])?;
+
+            Some(Unit::Id(id.parse::<u32>().ok()?, Some(form_value(form)?)))
+        }
     }
-
-    let (id, form) = token.split_once(['-', '_'])?;
-
-    Some(Unit::Id(id.parse::<u32>().ok()?, Some(form_value(form)?)))
 }
 
 pub(crate) fn level_of(token: &str) -> Option<String> {
@@ -366,6 +379,10 @@ pub(crate) fn parse(text: &str, kind: Kind) -> Result<Request, String> {
 
     if matches!(kind, Kind::Stage | Kind::Map) {
         return placed(&tokens, search, &[kind]);
+    }
+
+    if let Some(token) = tokens.first().filter(|token| kind == Kind::Cat && enemy_id(token).is_some()) {
+        return Err(format!("`{token}` is an enemy's ID, so ask `enemy` for it. A cat's Evolved form is `-2` or `-c`"));
     }
 
     let mut at = 0;
@@ -883,6 +900,19 @@ mod tests {
         assert_eq!(parse("25_u", Kind::Cat).map(|request| request.unit), Ok(Unit::Id(25, Some(3))));
         assert_eq!(parse("25 s", Kind::Cat).map(|request| request.unit), Ok(Unit::Id(25, None)));
         assert_eq!(parse("763", Kind::Enemy).map(|request| request.unit), Ok(Unit::Id(763, None)));
+
+        // An ID ending in e is an enemy's, the way its statblock writes it, and never a cat's Evolved form.
+        for typed in ["763-e", "763_e", "763-E", "0763_E"] {
+            assert_eq!(parse(typed, Kind::Enemy).map(|request| request.unit), Ok(Unit::Id(763, None)), "{typed}");
+            assert!(parse(typed, Kind::Cat).is_err_and(|reason| reason.contains("enemy's ID")), "{typed}");
+            assert!(names_an_enemy(typed) && names_an_enemy(&format!("{typed} a attack")));
+        }
+
+        assert_eq!(parse("763-e 400%", Kind::Enemy).map(|request| request.want), Ok(Want::Stats(Stats { magnification: Some((400, 400)), ..Stats::default() })));
+        assert_eq!((parse("25-c", Kind::Cat).map(|request| request.unit), parse("25_2", Kind::Cat).map(|request| request.unit)), (Ok(Unit::Id(25, Some(1))), Ok(Unit::Id(25, Some(1)))));
+        assert_eq!(parse("25 form e", Kind::Cat).map(|request| (request.unit, request.form)), Ok((Unit::Id(25, None), Some(1))));
+        assert!(!names_an_enemy("763") && !names_an_enemy("25-3") && !names_an_enemy("e-763") && !names_an_enemy("elder-e"));
+        assert!(parse("763-3", Kind::Enemy).map(|request| request.unit) != Ok(Unit::Id(763, None)));
     }
 
     // The game writes IDs padded to three digits, so people copy them that way.

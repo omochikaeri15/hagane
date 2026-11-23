@@ -1601,7 +1601,7 @@ const SEARCHING: &str = "After a name: lists the closest matches for you to pick
 fn help_page(page_name: &str, section: &str, prefix: &str, prose: Prose) -> serenity::CreateEmbed {
     let voiced = match (page_name, section) {
         ("cat", "unit") => Voiced::new(prefix, "hg!cat (c) • Unit", "What goes where `<unit>` is in `hg!cat <unit> ...`")
-            .field("ID", "`25-3`, `25_t` or `25_s`: an ID and a form (1-4, n e t u, or f c s u)\n`25` or `025`: your default form, or the next one down if it has none", false)
+            .field("ID", "`25-3`, `25_t` or `25_s`: an ID and a form (1-4, n t u, or f c s u)\n`25` or `025`: your default form, or the next one down if it has none\nAn ID ending in `-e` is an enemy's, so Evolved is `-2` or `-c`", false)
             .field("Name", NAMES, false)
             .field("`--search` (`-s`)", SEARCHING, false)
             .field("`form` (`f`)", "After an ID or a name, picks a form: 1-4, n e t u, f c s u, or Normal, Evolved, True, Ultra", false),
@@ -1614,7 +1614,7 @@ fn help_page(page_name: &str, section: &str, prefix: &str, prose: Prose) -> sere
             .field("Stats or animation", "Worked out from what you type: an animation name or flag means animation, a level or `--talents` means stats. `s` or `a` still decides outright, and stats is the default.", false)
             .field("Examples", "`hg!c 137_u lv50+70 -t all`\n`hg!c bahamut cat form normal`\n`hg!c jamiera cat a showcase -f webp`\n`hg!c 008 a walk -l -r 10~120`", false),
         ("enemy", "unit") => Voiced::new(prefix, "hg!enemy (e) • Unit", "What goes where `<unit>` is in `hg!enemy <unit> ...`")
-            .field("ID", "`763` or `0763`", false)
+            .field("ID", "`763` or `0763`, and `763-e` or `763_E` the way its statblock writes it. Without a command, the `e` is what says enemy and not cat", false)
             .field("Name", NAMES, false)
             .field("`--search` (`-s`)", SEARCHING, false),
         ("enemy", "stats") => Voiced::new(prefix, "hg!enemy (e) • Stats", "`hg!enemy <unit> [s | stat] ...`").field("Magnification", "`400%`, or `400%/200%` for hitpoints and attack. 100% without one.", false),
