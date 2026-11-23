@@ -47,7 +47,7 @@ pub(crate) fn encoded(effect: &[u8]) -> Result<Vec<u8>, String> {
 }
 
 pub(crate) fn track(library: &Library, cache: &Cache, id: u32) -> Result<Option<Track>, Trouble> {
-    let name = format!("{id:03}.{MUSIC}");
+    let [name, _] = sound::names(id, MUSIC);
 
     if let Some(bytes) = held(library, id, MUSIC)? {
         return Ok(Some(Track { name, bytes, cached: true }));
