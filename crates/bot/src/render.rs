@@ -37,6 +37,7 @@ const TOO_BIG: &str = "big";
 const OVERLAY_MARGIN: f32 = 2.0;
 pub(crate) const MAX_FRAMES: i32 = 8400;
 const NO_CULL: i32 = 0;
+const STILL: i32 = 1;
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub(crate) enum Clip {
@@ -49,6 +50,7 @@ pub(crate) enum Clip {
     Surface,
     Dig,
     Spirit,
+    Model,
 }
 
 impl Clip {
@@ -63,6 +65,7 @@ impl Clip {
             Clip::Surface => "Surface",
             Clip::Dig => "Dig",
             Clip::Spirit => "Spirit",
+            Clip::Model => "Model",
         }
     }
 
@@ -77,6 +80,7 @@ impl Clip {
             Clip::Surface => "surface",
             Clip::Dig => "dig",
             Clip::Spirit => "spirit",
+            Clip::Model => "model",
         }
     }
 }
@@ -138,7 +142,7 @@ pub(crate) struct Progress {
 
 struct Track {
     role: Option<Role>,
-    anim: Animation,
+    anim: Option<Animation>,
     looping: Loop,
     length: i32,
     combat: Option<Combatant>,
@@ -189,6 +193,7 @@ impl Span {
 fn chosen(set: &MotionSet, clip: Clip) -> Vec<&Motion> {
     match clip {
         Clip::Showcase => SHOWCASE_ROLES.iter().filter_map(|role| set.motions.iter().find(|motion| motion.role == Some(*role) && motion.file.is_some())).collect(),
+        Clip::Model => set.motions.iter().find(|motion| motion.file.is_none()).into_iter().collect(),
         _ => set.motions.iter().find(|motion| motion.file.is_some() && motion.name.as_deref().is_some_and(|name| name.eq_ignore_ascii_case(clip.motion()))).into_iter().collect(),
     }
 }
@@ -219,19 +224,24 @@ pub(crate) fn plan(library: &Library, cache: &Cache, set: &MotionSet, options: &
     recipe.add(format!("{:?}", defaults.combat_look()).as_bytes());
 
     for motion in &motions {
-        let Some(file) = motion.file.as_ref() else { continue };
-        let bytes = read(file)?;
-        let anim = Animation::parse(&*bytes).map_err(|err| format!("{} could not be parsed: {err:?}", file.path.display()))?;
-        let length = match (options.clip, motion.role) {
-            (Clip::Showcase, Some(Role::Walk)) if playback_frames(&anim) <= SHORT_LOOP => 0,
+        let anim = match motion.file.as_ref() {
+            Some(file) => {
+                let bytes = read(file)?;
+
+                recipe.add(&bytes);
+                Some(Animation::parse(&*bytes).map_err(|err| format!("{} could not be parsed: {err:?}", file.path.display()))?)
+            }
+            None => None,
+        };
+        let length = anim.as_ref().map_or(STILL, |anim| match (options.clip, motion.role) {
+            (Clip::Showcase, Some(Role::Walk)) if playback_frames(anim) <= SHORT_LOOP => 0,
             (Clip::Showcase, Some(Role::Walk)) => defaults.default_showcase_walk,
-            (Clip::Showcase, Some(Role::Idle)) if playback_frames(&anim) <= SHORT_LOOP => 0,
+            (Clip::Showcase, Some(Role::Idle)) if playback_frames(anim) <= SHORT_LOOP => 0,
             (Clip::Showcase, Some(Role::Idle)) => defaults.default_showcase_idle,
             (Clip::Showcase, Some(Role::Knockback)) => defaults.default_showcase_kb,
             _ => anim.declared_frames(),
-        };
+        });
 
-        recipe.add(&bytes);
         recipe.add(format!("{:?}", (motion.role, motion.looping, &motion.combat, motion.slug())).as_bytes());
         tracks.push(Track { role: motion.role, anim, looping: motion.looping, length, combat: motion.combat.clone() });
     }
@@ -331,6 +341,9 @@ impl Job {
 
     fn span(&self, first: &Track, progress: &Progress) -> Result<Span, Trouble> {
         if let Some(looping) = self.looping {
+            let Some(anim) = first.anim.as_ref() else {
+                return Err(Trouble::NoLoop);
+            };
             let deadline = Instant::now() + LOOP_LIMIT;
             let (from, to) = self.range.unwrap_or((0, i32::MAX));
             let to = looping.maximum.map_or(to, |maximum| to.min(maximum));
@@ -346,7 +359,7 @@ impl Job {
                 progress.searched.store(u32::try_from(searched.max(0)).unwrap_or(u32::MAX), Ordering::Relaxed);
                 Instant::now() < deadline
             };
-            let cycle = self.rig.calculate_cycle_between(&first.anim, looping.difference as f32, Some(looping.minimum), from, to, searching).ok_or(Trouble::NoLoop)?;
+            let cycle = self.rig.calculate_cycle_between(anim, looping.difference as f32, Some(looping.minimum), from, to, searching).ok_or(Trouble::NoLoop)?;
 
             return Ok(Span::Loop(cycle.start, cycle.end));
         }
@@ -398,15 +411,16 @@ impl Job {
             .tracks
             .iter()
             .filter(|track| track.length > 0)
-            .map(|track| {
+            .filter_map(|track| {
+                let anim = track.anim.as_ref()?;
                 let last = match span {
                     Span::Showcase(_) => track.length,
-                    Span::Range(..) => playback_frames(&track.anim) - 1,
+                    Span::Range(..) => playback_frames(anim) - 1,
                     Span::Loop(_, end) => end,
                     Span::Whole(length) => length - 1,
                 };
 
-                (&track.anim, Some(last.max(0)))
+                Some((anim, Some(last.max(0))))
             })
             .collect();
         let sprite = match find_bounds::search(&self.rig, &swept, self.tolerance, offset, &ProgressCounter::default(), &abort) {
@@ -420,24 +434,28 @@ impl Job {
             Span::Loop(start, end) => (ExportMode::Loop, start, end),
             Span::Range(..) | Span::Whole(_) => (ExportMode::Manual, 0, frames - 1),
         };
-        let timing = FrameTiming { mode, frame_start, frame_end, loop_supported: first.looping.native(Some(&first.anim)) };
+        let timing = FrameTiming { mode, frame_start, frame_end, loop_supported: first.looping.native(first.anim.as_ref()) };
         let seat = |at: i32| -> (Option<&Track>, f32) {
             match span {
                 Span::Showcase(_) => {
                     let (role, local) = lengths.segment(at);
                     let track = self.track(role);
-                    let anim = track.map(|track| &track.anim);
+                    let anim = track.and_then(|track| track.anim.as_ref());
                     let local = if anim.is_some_and(|anim| anim.declared_frames() > 1) { local } else { 0.0 };
 
                     (track, calculate_export_time(&timing, anim, local, at))
                 }
                 Span::Range(from, to) => {
                     let raw = (from + if to >= from { at } else { -at }) as f32;
-                    let inside = raw >= 0.0 && raw < playback_frames(&first.anim) as f32;
+                    let time = first.anim.as_ref().map_or(0.0, |anim| {
+                        let inside = raw >= 0.0 && raw < playback_frames(anim) as f32;
 
-                    (Some(first), if inside && first.looping.native(Some(&first.anim)) { raw } else { loop_frame(&first.anim, raw) })
+                        if inside && first.looping.native(Some(anim)) { raw } else { loop_frame(anim, raw) }
+                    });
+
+                    (Some(first), time)
                 }
-                Span::Loop(..) | Span::Whole(_) => (Some(first), calculate_export_time(&timing, Some(&first.anim), 0.0, at)),
+                Span::Loop(..) | Span::Whole(_) => (Some(first), calculate_export_time(&timing, first.anim.as_ref(), 0.0, at)),
             }
         };
         let bottom = if self.overlays.combat {
@@ -445,7 +463,7 @@ impl Job {
                 .filter_map(|at| {
                     let (track, time) = seat(at);
                     let combatant = self.fighter(track)?;
-                    let stance = collision::Pose { rig: &self.rig, anim: track.map(|track| &track.anim), frame: time.floor() as i32, offset, zoom: 1.0, crest: Some(sprite.min_y) };
+                    let stance = collision::Pose { rig: &self.rig, anim: track.and_then(|track| track.anim.as_ref()), frame: time.floor() as i32, offset, zoom: 1.0, crest: Some(sprite.min_y) };
 
                     Some(reach(&collision::posed(&combatant.profile, self.look, &stance, |x, y| (x, y), |_, _| 0.0)))
                 })
@@ -517,7 +535,7 @@ impl Job {
                 }
 
                 let (track, time) = seat(at);
-                let anim = track.map(|track| &track.anim);
+                let anim = track.and_then(|track| track.anim.as_ref());
                 let frame = time.floor() as i32;
                 let mut parts = resolve_frame(&self.rig, anim, frame, offset);
 

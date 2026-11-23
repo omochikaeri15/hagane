@@ -49,8 +49,9 @@ const OPTION_LIMIT: usize = 100;
 const SEARCH_SHOWN: usize = 24;
 const ABORT: &str = "abort";
 const SET_JUMP: &str = "set|jump|";
-const SETTINGS_PAGES: usize = 2;
+const SETTINGS: [Setting; 6] = [Setting::Language, Setting::Format, Setting::Form, Setting::Search, Setting::Prose, Setting::Prefix];
 const SETTINGS_ROWS: usize = 4;
+const SETTINGS_PAGES: usize = SETTINGS.len().div_ceil(SETTINGS_ROWS);
 const PAGE_DIGITS: u16 = 2;
 const BLANK: &str = "-";
 const LEVEL_LIMIT: u16 = 12;
@@ -890,8 +891,8 @@ fn page(title: &str, description: &str) -> serenity::CreateEmbed {
     serenity::CreateEmbed::new().title(title).description(description).color(EMBED_COLOR)
 }
 
-const CLIPS: &str = "`attack` (`atk`, `a`), `idle` (`i`), `walk` (`w`), `knockback` (`kb`, `k`), `showcase` (`sh`, `sc`), `burrow` (`bur`, `b`), `surface` (`su`, `sf`, `rise`, `r`), `dig` (`d`), `spirit` (`sp`, `c`, `conjure`). Attack if none is given.";
-const MOTION_FLAGS: &str = "`--range 0~30` or `--range 0 30` (`-r`): frames to export, wrapping around the loop; not for showcases
+const CLIPS: &str = "`attack` (`atk`, `a`), `idle` (`i`), `walk` (`w`), `knockback` (`kb`, `k`), `showcase` (`sh`, `sc`), `burrow` (`bur`, `b`), `surface` (`su`, `sf`, `rise`, `r`), `dig` (`d`), `spirit` (`sp`, `c`, `conjure`), `model` (`m`) for a single picture of the unit with no animation. Attack if none is given.";
+const MOTION_FLAGS: &str = "`--range 0~30` or `--range 0 30` (`-r`): frames to export, wrapping around the loop; not for showcases or models
 `--loop` (`-l`), walk and idle only: finds a perfect loop; `min 15`, `max 200` and `diff 30` tune it, and with `--range` it only searches that window
 `--format webp` (`-f`): `avif` (`a`), `webp` (`w`) or `gif` (`g`), this time only, over your default
 `--background` (`-b`): a solid gray background instead of a transparent one
@@ -992,6 +993,68 @@ fn flag(code: &str) -> &'static str {
     FLAGS.iter().find(|(held, _)| *held == code).map_or("🌐", |(_, flag)| flag)
 }
 
+#[derive(Clone, Copy)]
+enum Setting {
+    Language,
+    Format,
+    Form,
+    Search,
+    Prose,
+    Prefix,
+}
+
+impl Setting {
+    fn key(self) -> &'static str {
+        match self {
+            Setting::Language => "lang",
+            Setting::Format => "fmt",
+            Setting::Form => "form",
+            Setting::Search => "search",
+            Setting::Prose => "prose",
+            Setting::Prefix => "prefix",
+        }
+    }
+
+    fn label(self) -> &'static str {
+        match self {
+            Setting::Language => "Language",
+            Setting::Format => "Format",
+            Setting::Form => "Form",
+            Setting::Search => "Search",
+            Setting::Prose => "Prose",
+            Setting::Prefix => "Prefix",
+        }
+    }
+
+    fn row(self, owner: u64, prefs: &Prefs) -> serenity::CreateActionRow {
+        let key = self.key();
+        let choices: Vec<serenity::CreateButton> = match self {
+            Setting::Language => {
+                let options = lang::choices()
+                    .map(|(code, name)| serenity::CreateSelectMenuOption::new(name, code).emoji(serenity::ReactionType::Unicode(flag(code).to_owned())).default_selection(code == prefs.language))
+                    .collect();
+
+                return serenity::CreateActionRow::SelectMenu(serenity::CreateSelectMenu::new(format!("set|{owner}|{key}"), serenity::CreateSelectMenuKind::String { options }).placeholder(self.label()));
+            }
+            Setting::Format => [Format::Avif, Format::WebP, Format::Gif].into_iter().map(|format| pick(format == prefs.format, format!("set|{owner}|{key}|{}", format.extension()), format.label())).collect(),
+            Setting::Form => FORMS.iter().enumerate().map(|(form, label)| pick(form == prefs.form, format!("set|{owner}|{key}|{form}"), label)).collect(),
+            Setting::Search => [Search::Exact, Search::Preferred].into_iter().map(|search| pick(search == prefs.search, format!("set|{owner}|{key}|{}", search.slug()), search.label())).collect(),
+            Setting::Prose => Prose::ALL.into_iter().map(|prose| pick(prose == prefs.prose, format!("set|{owner}|{key}|{}", prose.slug()), prose.label())).collect(),
+            Setting::Prefix => vec![pick(prefs.prefix.is_some(), format!("set|{owner}|{key}"), "Change")],
+        };
+
+        serenity::CreateActionRow::Buttons(std::iter::once(caption(format!("set|{owner}|caption|{key}"), self.label())).chain(choices).collect())
+    }
+}
+
+fn caption(custom: String, label: &str) -> serenity::CreateButton {
+    serenity::CreateButton::new(custom).label(label).style(serenity::ButtonStyle::Secondary).disabled(true)
+}
+
+fn pick(current: bool, custom: String, label: &str) -> serenity::CreateButton {
+    serenity::CreateButton::new(custom).label(label).style(if current { serenity::ButtonStyle::Success } else { serenity::ButtonStyle::Secondary })
+}
+
 fn settings_view(owner: u64, prefs: &Prefs, shown: usize) -> (serenity::CreateEmbed, Vec<serenity::CreateActionRow>) {
     let form = FORMS.get(prefs.form).copied().unwrap_or("True");
     let embed = page(prose::SETTINGS_TITLE.said(prefs.prose), prose::SETTINGS_NOTE.said(prefs.prose))
@@ -1001,34 +1064,8 @@ fn settings_view(owner: u64, prefs: &Prefs, shown: usize) -> (serenity::CreateEm
         .field("Search", prefs.search.label(), true)
         .field("Prefix", prefs.prefix(), true)
         .field("Prose", prefs.prose.label(), true);
-    let languages: Vec<serenity::CreateSelectMenuOption> = lang::choices()
-        .map(|(code, name)| serenity::CreateSelectMenuOption::new(name, code).emoji(serenity::ReactionType::Unicode(flag(code).to_owned())).default_selection(code == prefs.language))
-        .collect();
-    let caption = |custom: String, label: &str| serenity::CreateButton::new(custom).label(label).style(serenity::ButtonStyle::Secondary).disabled(true);
-    let pick = |current: bool, custom: String, label: &str| serenity::CreateButton::new(custom).label(label).style(if current { serenity::ButtonStyle::Success } else { serenity::ButtonStyle::Secondary });
-    let formats = std::iter::once(caption(format!("set|{owner}|caption|fmt"), "Format"))
-        .chain([Format::Avif, Format::WebP, Format::Gif].into_iter().map(|format| pick(format == prefs.format, format!("set|{owner}|fmt|{}", format.extension()), format.label())))
-        .collect();
-    let forms = std::iter::once(caption(format!("set|{owner}|caption|form"), "Form"))
-        .chain(FORMS.iter().enumerate().map(|(form, label)| pick(form == prefs.form, format!("set|{owner}|form|{form}"), label)))
-        .collect();
-    let searches = std::iter::once(caption(format!("set|{owner}|caption|search"), "Search"))
-        .chain([Search::Exact, Search::Preferred].into_iter().map(|search| pick(search == prefs.search, format!("set|{owner}|search|{}", search.slug()), search.label())))
-        .collect();
-    let voice = std::iter::once(caption(format!("set|{owner}|caption|prose"), "Prose"))
-        .chain(Prose::ALL.into_iter().map(|prose| pick(prose == prefs.prose, format!("set|{owner}|prose|{}", prose.slug()), prose.label())))
-        .collect();
-    let prefix = vec![caption(format!("set|{owner}|caption|prefix"), "Prefix"), pick(prefs.prefix.is_some(), format!("set|{owner}|prefix"), "Change")];
     let shown = shown.min(SETTINGS_PAGES - 1);
-    let mut rows = match shown {
-        0 => vec![
-            serenity::CreateActionRow::SelectMenu(serenity::CreateSelectMenu::new(format!("set|{owner}|lang"), serenity::CreateSelectMenuKind::String { options: languages }).placeholder("Language")),
-            serenity::CreateActionRow::Buttons(formats),
-            serenity::CreateActionRow::Buttons(forms),
-            serenity::CreateActionRow::Buttons(searches),
-        ],
-        _ => vec![serenity::CreateActionRow::Buttons(voice), serenity::CreateActionRow::Buttons(prefix)],
-    };
+    let mut rows: Vec<serenity::CreateActionRow> = SETTINGS.chunks(SETTINGS_ROWS).nth(shown).unwrap_or_default().iter().map(|setting| setting.row(owner, prefs)).collect();
 
     for blank in rows.len()..SETTINGS_ROWS {
         rows.push(serenity::CreateActionRow::Buttons(vec![caption(format!("set|{owner}|blank|{blank}"), BLANK)]));
@@ -1048,10 +1085,7 @@ fn settings_view(owner: u64, prefs: &Prefs, shown: usize) -> (serenity::CreateEm
 }
 
 fn settings_page(what: &str) -> usize {
-    match what {
-        "prose" | "prefix" => 1,
-        _ => 0,
-    }
+    SETTINGS.iter().position(|setting| setting.key() == what).map_or(0, |slot| slot / SETTINGS_ROWS)
 }
 
 #[poise::command(slash_command, prefix_command, install_context = "Guild|User", interaction_context = "Guild|BotDm|PrivateChannel", aliases("set", "s"))]
@@ -1453,10 +1487,39 @@ mod tests {
             assert_eq!(turns[2]["disabled"].as_bool().unwrap_or(false), page == SETTINGS_PAGES - 1);
         }
 
-        assert_eq!(rows(1)[2]["components"][0]["label"], BLANK);
-        assert_eq!(rows(1)[2]["components"][0]["disabled"], true);
         assert_eq!(rows(9), rows(SETTINGS_PAGES - 1), "a page past the end is the last one");
-        assert_eq!((settings_page("prose"), settings_page("prefix"), settings_page("fmt")), (1, 1, 0));
+    }
+
+    // The list of settings alone decides the pages: four to a page, the gaps padded, and each one found where it was put.
+    #[test]
+    fn settings_fill_their_pages_in_order() {
+        let rows = |page: usize| serde_json::to_value(settings_view(1, &Prefs::default(), page).1).unwrap();
+
+        assert_eq!(SETTINGS_PAGES, SETTINGS.len().div_ceil(SETTINGS_ROWS));
+
+        for (slot, setting) in SETTINGS.iter().enumerate() {
+            let row = &rows(slot / SETTINGS_ROWS)[slot % SETTINGS_ROWS]["components"];
+            let lead = row[0]["custom_id"].as_str().unwrap();
+
+            assert!(lead.ends_with(setting.key()), "{} is not in slot {slot}", setting.label());
+            assert_eq!(settings_page(setting.key()), slot / SETTINGS_ROWS);
+        }
+
+        for page in 0..SETTINGS_PAGES {
+            let filled = SETTINGS.chunks(SETTINGS_ROWS).nth(page).unwrap().len();
+            let rows = rows(page);
+
+            for row in filled..SETTINGS_ROWS {
+                assert_eq!(rows[row]["components"][0]["label"], BLANK);
+                assert_eq!(rows[row]["components"][0]["disabled"], true);
+            }
+
+            for row in 0..filled {
+                assert_ne!(rows[row]["components"][0]["label"], BLANK);
+            }
+        }
+
+        assert_eq!(settings_page("page"), 0, "anything that is not a setting opens the first page");
     }
 
     // Help speaks in the reader's own prefix, and only names hg! where it means the default.

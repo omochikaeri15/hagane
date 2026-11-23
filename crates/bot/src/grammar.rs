@@ -190,6 +190,7 @@ pub(crate) fn clip_of(token: &str) -> Option<Clip> {
         "surface" | "su" | "sf" | "rise" | "r" => Some(Clip::Surface),
         "dig" | "d" => Some(Clip::Dig),
         "spirit" | "conjure" | "sp" | "c" => Some(Clip::Spirit),
+        "model" | "m" => Some(Clip::Model),
         _ => None,
     }
 }
@@ -458,6 +459,14 @@ fn motion_of(tokens: &[&str]) -> Result<Motion, String> {
         return Err("`--range` doesn't work on a showcase".to_owned());
     }
 
+    if motion.range.is_some() && motion.clip == Clip::Model {
+        return Err("`--range` doesn't work on a model; it is a single picture with no frames to pick from".to_owned());
+    }
+
+    if motion.looping.is_some() && motion.clip == Clip::Model {
+        return Err("`--loop` doesn't work on a model; it is a single picture with nothing to loop".to_owned());
+    }
+
     if motion.looping.is_some() && !matches!(motion.clip, Clip::Walk | Clip::Idle) {
         return Err("`--loop` only works on walk and idle".to_owned());
     }
@@ -493,6 +502,23 @@ mod tests {
         assert_eq!(parse("cyclops --search 0", Kind::Enemy).unwrap().search, Some(1));
         assert_eq!(parse("25 --search", Kind::Cat), Err(SEARCH_HINT.to_owned()));
         assert_eq!(parse("25-3 a walk", Kind::Cat).unwrap().tail, "a walk", "a pick is replayed as an ID with the same tail");
+    }
+
+    // A model is a single picture, so it takes the picture flags and refuses the ones about time.
+    #[test]
+    fn a_model_takes_no_frames_or_loop() {
+        let motion = |text: &str| match parse(text, Kind::Cat).map(|request| request.want) {
+            Ok(Want::Motion(motion)) => Ok(motion),
+            Ok(Want::Stats(_)) => Err("read as stats".to_owned()),
+            Err(reason) => Err(reason),
+        };
+        let model = motion("25 m -f gif -b -c --cull 40").unwrap();
+
+        assert_eq!((model.clip, model.format, model.background, model.overlays.combat, model.cull), (Clip::Model, Some(Format::Gif), true, true, Some(40)));
+        assert_eq!(motion("bahamut cat a model").unwrap().clip, Clip::Model);
+        assert_eq!(motion("25 model").unwrap().clip, Clip::Model);
+        assert!(motion("25 model -r 0~10").unwrap_err().contains("--range"));
+        assert!(motion("25 m -l").unwrap_err().contains("--loop"));
     }
 
     fn stats(text: &str) -> Stats {
