@@ -6,7 +6,7 @@ use poise::serenity_prelude as serenity;
 use poise::{BoxFuture, CreateReply, FrameworkError};
 use tokio::sync::{OwnedRwLockReadGuard, RwLock, Semaphore};
 use tokio::task;
-use tracing::{error, info, warn};
+use tracing::{debug, error, info, warn};
 
 use foundry::common::architecture;
 use foundry::domains::cat::animation as cat_animation;
@@ -19,8 +19,9 @@ use foundry::systems::combat::registry::Magnification;
 use super::whitelist;
 use super::cache::Cache;
 use super::config::Config;
-use super::grammar::{self, Kind, Motion, Request, Stats, Unit, Want};
+use super::grammar::{self, Kind, Motion, Request, Unit, Want};
 use super::library::{self, Catalog, Library, Remote};
+use super::lookup::{self, Found, Hit};
 use super::prefs::{self, Book, FORMS, Prefs, Search};
 use super::prose::{self, Line, Prose, Trouble};
 use super::render::{self, Format, Options, Planned, Progress};
@@ -44,7 +45,7 @@ const EMBED_COLOR: u32 = 0x2468A8;
 const OPEN_SETTINGS: &str = "set|open";
 const SET_PREFIX: &str = "set|prefix";
 const FIND: &str = "find|";
-const CUSTOM_LIMIT: usize = 100;
+const VALUE_LIMIT: usize = 100;
 const OPTION_LIMIT: usize = 100;
 const SEARCH_SHOWN: usize = 24;
 const ABORT: &str = "abort";
@@ -173,11 +174,30 @@ async fn on_error(failure: FrameworkError<'_, Data, Error>) {
                 error!("The failure notice could not be sent: {}", err);
             }
         }
-        FrameworkError::UnknownCommand { msg, framework, .. } => {
-            if let Some(notice) = refusal(msg.guild_id, msg.guild_id.is_none())
-                && let Err(err) = msg.channel_id.say(framework.serenity_context, notice.said(framework.user_data.book.prose(msg.author.id.get()))).await
-            {
-                warn!(guild = msg.guild_id.map(|guild| guild.get()), "The whitelist notice could not be sent: {}", err);
+        FrameworkError::UnknownCommand { msg, content_start, framework, .. } => {
+            let (ctx, data) = (framework.serenity_context, framework.user_data);
+
+            if let Some(notice) = refusal(msg.guild_id, msg.guild_id.is_none()) {
+                if let Err(err) = msg.channel_id.say(ctx, notice.said(data.book.prose(msg.author.id.get()))).await {
+                    warn!(guild = msg.guild_id.map(|guild| guild.get()), "The whitelist notice could not be sent: {}", err);
+                }
+
+                return;
+            }
+
+            let Some((prefix, text)) = msg.content.split_at_checked(usize::from(content_start)).filter(|(prefix, _)| !prefix.trim().is_empty()) else {
+                return;
+            };
+            let voice = Voice::Message(ctx, msg, data);
+
+            debug!(prefix, "A request came without a command");
+
+            if let Err(err) = serve_any(voice, text).await {
+                error!("A request without a command failed: {}", err);
+
+                if let Err(err) = voice.say(prose::FAILED.said(voice.prose())).await {
+                    error!("The failure notice could not be sent: {}", err);
+                }
             }
         }
         FrameworkError::CommandCheckFailed { .. } => {}
@@ -252,6 +272,7 @@ async fn blocking<T: Send + 'static>(data: &Data, job: impl FnOnce() -> T + Send
 enum Voice<'a> {
     Command(Context<'a>),
     Press(&'a serenity::Context, &'a serenity::ComponentInteraction, &'a Data),
+    Message(&'a serenity::Context, &'a serenity::Message, &'a Data),
 }
 
 #[derive(Default)]
@@ -286,18 +307,32 @@ impl Post {
 
         serenity::EditInteractionResponse::new().content(self.text).components(self.rows).attachments(attachments)
     }
+
+    fn message(self) -> serenity::CreateMessage {
+        let message = serenity::CreateMessage::new().components(self.rows).allowed_mentions(quiet());
+        let message = if self.text.is_empty() { message } else { message.content(self.text) };
+
+        self.file.into_iter().fold(message, |message, (bytes, name)| message.add_file(serenity::CreateAttachment::bytes(bytes, name)))
+    }
+
+    fn revision(self) -> serenity::EditMessage {
+        let attachments = self.file.into_iter().fold(serenity::EditAttachments::new(), |held, (bytes, name)| held.add(serenity::CreateAttachment::bytes(bytes, name)));
+
+        serenity::EditMessage::new().content(self.text).components(self.rows).attachments(attachments).allowed_mentions(quiet())
+    }
 }
 
 enum Posted<'a> {
     Command(poise::ReplyHandle<'a>),
     Press,
+    Message(serenity::MessageId),
 }
 
 impl<'a> Voice<'a> {
     fn data(self) -> &'a Data {
         match self {
             Voice::Command(ctx) => ctx.data(),
-            Voice::Press(_, _, data) => data,
+            Voice::Press(_, _, data) | Voice::Message(_, _, data) => data,
         }
     }
 
@@ -305,6 +340,7 @@ impl<'a> Voice<'a> {
         match self {
             Voice::Command(ctx) => ctx.author().id,
             Voice::Press(_, press, _) => press.user.id,
+            Voice::Message(_, msg, _) => msg.author.id,
         }
     }
 
@@ -313,6 +349,7 @@ impl<'a> Voice<'a> {
             Voice::Command(poise::Context::Application(ctx)) => personal(ctx.interaction.guild_id, &ctx.interaction.authorizing_integration_owners),
             Voice::Command(ctx) => ctx.guild_id().is_none(),
             Voice::Press(_, press, _) => personal(press.guild_id, &press.authorizing_integration_owners),
+            Voice::Message(_, msg, _) => msg.guild_id.is_none(),
         }
     }
 
@@ -325,6 +362,11 @@ impl<'a> Voice<'a> {
             Voice::Command(ctx @ poise::Context::Application(_)) => ctx.defer().await?,
             Voice::Command(ctx) => {
                 if let Err(err) = ctx.http().broadcast_typing(ctx.channel_id()).await {
+                    warn!("The typing indicator could not be shown: {}", err);
+                }
+            }
+            Voice::Message(ctx, msg, _) => {
+                if let Err(err) = msg.channel_id.broadcast_typing(ctx).await {
                     warn!("The typing indicator could not be shown: {}", err);
                 }
             }
@@ -341,6 +383,18 @@ impl<'a> Voice<'a> {
                 press.edit_response(ctx, post.edit()).await?;
                 Ok(Posted::Press)
             }
+            Voice::Message(ctx, msg, _) => {
+                let message = post.message();
+                let sent = match msg.channel_id.send_message(ctx, message.clone().reference_message(msg)).await {
+                    Ok(sent) => sent,
+                    Err(err) => {
+                        warn!("An answer could not be sent as a reply, sending it on its own: {}", err);
+                        msg.channel_id.send_message(ctx, message).await?
+                    }
+                };
+
+                Ok(Posted::Message(sent.id))
+            }
         }
     }
 
@@ -350,7 +404,10 @@ impl<'a> Voice<'a> {
             (Voice::Press(ctx, press, _), _) => {
                 press.edit_response(ctx, post.edit()).await?;
             }
-            (Voice::Command(_), Posted::Press) => {}
+            (Voice::Message(ctx, msg, _), Posted::Message(sent)) => {
+                msg.channel_id.edit_message(ctx, *sent, post.revision()).await?;
+            }
+            (Voice::Command(_), _) | (Voice::Message(..), _) => {}
         }
 
         Ok(())
@@ -361,44 +418,61 @@ impl<'a> Voice<'a> {
     }
 }
 
-fn kind_tag(kind: Kind) -> &'static str {
+async fn offer(voice: Voice<'_>, prompt: String, labeled: bool, tails: &[(Kind, String)], found: Vec<Hit>) -> Result<(), Error> {
+    let mut options = Vec::with_capacity(found.len().min(SEARCH_SHOWN) + 1);
+
+    for hit in found.into_iter().take(SEARCH_SHOWN) {
+        let tail = tails.iter().find(|(kind, _)| *kind == hit.kind).map_or("", |(_, tail)| tail.as_str());
+        let value = format!("{}|{}|{tail}", hit.kind.tag(), hit.value);
+
+        if value.len() > VALUE_LIMIT {
+            return voice.say(prose::SEARCH_LONG.said(voice.prose())).await;
+        }
+
+        let note = if labeled { format!("{} • {}", hit.kind.label(), hit.note) } else { hit.note };
+
+        options.push(serenity::CreateSelectMenuOption::new(hit.label.chars().take(OPTION_LIMIT).collect::<String>(), value).description(note));
+    }
+
+    options.push(serenity::CreateSelectMenuOption::new("Abort", ABORT).description("Stops the request"));
+
+    let menu = serenity::CreateSelectMenu::new(format!("{FIND}{}", voice.user().get()), serenity::CreateSelectMenuKind::String { options }).placeholder("Pick one");
+
+    voice.post(Post::text(prompt).rows(vec![serenity::CreateActionRow::SelectMenu(menu)])).await.map(|_| ())
+}
+
+async fn serve(voice: Voice<'_>, kind: Kind, request: Request) -> Result<(), Error> {
     match kind {
-        Kind::Cat => "c",
-        Kind::Enemy => "e",
+        Kind::Cat => serve_cat(voice, request).await,
+        Kind::Enemy => serve_enemy(voice, request).await,
     }
 }
 
-async fn offer(voice: Voice<'_>, kind: Kind, name: &str, tail: &str, found: Vec<(String, String, String)>, prose: Prose) -> Result<(), Error> {
-    if found.is_empty() {
-        let none = match kind {
-            Kind::Cat => &prose::NO_CAT,
-            Kind::Enemy => &prose::NO_ENEMY,
+async fn serve_any(voice: Voice<'_>, text: &str) -> Result<(), Error> {
+    let owner = voice.user().get();
+    let prefs = voice.data().book.get(owner);
+    let found = {
+        let Some((_guard, library)) = open(voice.data(), &prefs.language).await? else {
+            return voice.say(prose::WARMING.said(prefs.prose)).await;
         };
 
-        return voice.say(none.said(prose)).await;
+        lookup::across(&library, &prefs, text)
+    };
+
+    match found {
+        Found::Unread(reason) => voice.say(prose::SEE_HELP.filled(prefs.prose, &[("reason", &reason), ("prefix", &prefix_of(voice.data(), owner))])).await,
+        Found::Nothing => voice.say(prose::NO_UNIT.filled(prefs.prose, &[("prefix", &prefix_of(voice.data(), owner))])).await,
+        Found::One(kind, request) => serve(voice, kind, request).await,
+        Found::Several { asked, searched, tails, hits } => {
+            let line = if searched { &prose::SEARCH_PICK } else { &prose::EITHER_PICK };
+
+            offer(voice, line.filled(prefs.prose, &[("name", &asked)]), true, &tails, hits).await
+        }
     }
-
-    let custom = format!("{FIND}{}|{}|{tail}", voice.user().get(), kind_tag(kind));
-
-    if custom.len() > CUSTOM_LIMIT {
-        return voice.say(prose::SEARCH_LONG.said(prose)).await;
-    }
-
-    let options = found
-        .into_iter()
-        .map(|(value, label, note)| serenity::CreateSelectMenuOption::new(label.chars().take(OPTION_LIMIT).collect::<String>(), value).description(note))
-        .chain([serenity::CreateSelectMenuOption::new("Abort", ABORT).description("Stops the request")])
-        .collect();
-    let menu = serenity::CreateSelectMenu::new(custom, serenity::CreateSelectMenuKind::String { options }).placeholder("Pick one");
-
-    voice.post(Post::text(prose::SEARCH_PICK.filled(prose, &[("name", name)])).rows(vec![serenity::CreateActionRow::SelectMenu(menu)])).await.map(|_| ())
 }
 
 async fn on_found(ctx: &serenity::Context, press: &serenity::ComponentInteraction, data: &Data, rest: &str) -> Result<(), Error> {
-    let mut parts = rest.splitn(3, '|');
-    let owner = parts.next().and_then(|owner| owner.parse::<u64>().ok());
-    let kind = parts.next().and_then(|tag| [Kind::Cat, Kind::Enemy].into_iter().find(|kind| kind_tag(*kind) == tag));
-    let (Some(owner), Some(kind), Some(tail)) = (owner, kind, parts.next()) else { return Ok(()) };
+    let Ok(owner) = rest.parse::<u64>() else { return Ok(()) };
 
     if press.user.id.get() != owner {
         return refuse(ctx, press, data).await;
@@ -414,9 +488,11 @@ async fn on_found(ctx: &serenity::Context, press: &serenity::ComponentInteractio
         return voice.say(prose::SEARCH_ABORT.said(voice.prose())).await;
     }
 
-    let served = match grammar::parse(&format!("{picked} {tail}"), kind) {
-        Ok(request) if kind == Kind::Cat => serve_cat(voice, request).await,
-        Ok(request) => serve_enemy(voice, request).await,
+    let mut parts = picked.splitn(3, '|');
+    let kind = parts.next().and_then(|tag| Kind::ALL.into_iter().find(|kind| kind.tag() == tag));
+    let (Some(kind), Some(unit), Some(tail)) = (kind, parts.next(), parts.next()) else { return Ok(()) };
+    let served = match grammar::parse(&format!("{unit} {tail}"), kind) {
+        Ok(request) => serve(voice, kind, request).await,
         Err(reason) => voice.say(prose::SEE_HELP.filled(voice.prose(), &[("reason", &reason), ("prefix", &prefix_of(data, owner))])).await,
     };
 
@@ -595,6 +671,7 @@ async fn animate(voice: Voice<'_>, library: Arc<Library>, set: MotionSet, option
             return Ok(());
         }
         Ok(Some(Planned::Ready(bytes, name))) => {
+            info!(title, clip = clip.slug(), format = format.extension(), name, "An animation came from the cache");
             voice.post(Post::file(bytes, name)).await?;
             return Ok(());
         }
@@ -671,13 +748,6 @@ fn options_of(motion: &Motion, prefs: &Prefs) -> Options {
     }
 }
 
-fn settled(request: Request, named: impl Fn(&str) -> bool) -> Request {
-    match request.whole {
-        Some(whole) if named(&whole) => Request { unit: Unit::Name(whole), want: Want::Stats(Stats::default()), whole: None, form: request.form, search: request.search, tail: String::new() },
-        _ => request,
-    }
-}
-
 fn prefix_of(data: &Data, user: u64) -> String {
     data.book.prefix(user).unwrap_or_else(|| prefs::PREFIX.to_owned())
 }
@@ -709,12 +779,16 @@ async fn serve_cat(voice: Voice<'_>, request: Request) -> Result<(), Error> {
         voice.say(prose::WARMING.said(prefs.prose)).await?;
         return Ok(());
     };
-    let request = settled(request, |name| library.names_cat(name));
+    let request = lookup::settled(request, |name| library.names_cat(name));
 
     if let (Some(closeness), Unit::Name(name)) = (request.search, &request.unit) {
-        let found = library.search_cats(name, closeness).into_iter().take(SEARCH_SHOWN).map(|(cat, form)| (format!("{}-{}", cat.id, form + 1), cat.display_name(form), format!("{} • {}", cat.id_str(form), FORMS.get(form).copied().unwrap_or_default()))).collect();
+        let found = lookup::hits(&library, Kind::Cat, &request.unit, closeness, &prefs);
 
-        return offer(voice, Kind::Cat, name, &request.tail, found, prefs.prose).await;
+        if found.is_empty() {
+            return voice.say(prose::NO_CAT.said(prefs.prose)).await;
+        }
+
+        return offer(voice, prose::SEARCH_PICK.filled(prefs.prose, &[("name", name)]), false, &[(Kind::Cat, request.tail)], found).await;
     }
     let found = match &request.unit {
         Unit::Id(id, form) => library.cat(*id).map(|cat| (cat, form.unwrap_or_else(|| prefs.form_from(&cat.forms)))),
@@ -779,12 +853,16 @@ async fn serve_enemy(voice: Voice<'_>, request: Request) -> Result<(), Error> {
         voice.say(prose::WARMING.said(prefs.prose)).await?;
         return Ok(());
     };
-    let request = settled(request, |name| library.names_enemy(name));
+    let request = lookup::settled(request, |name| library.names_enemy(name));
 
     if let (Some(closeness), Unit::Name(name)) = (request.search, &request.unit) {
-        let found = library.search_enemies(name, closeness).into_iter().take(SEARCH_SHOWN).map(|enemy| (enemy.id.to_string(), enemy.display_name(), enemy.id_str())).collect();
+        let found = lookup::hits(&library, Kind::Enemy, &request.unit, closeness, &prefs);
 
-        return offer(voice, Kind::Enemy, name, &request.tail, found, prefs.prose).await;
+        if found.is_empty() {
+            return voice.say(prose::NO_ENEMY.said(prefs.prose)).await;
+        }
+
+        return offer(voice, prose::SEARCH_PICK.filled(prefs.prose, &[("name", name)]), false, &[(Kind::Enemy, request.tail)], found).await;
     }
     let found = match &request.unit {
         Unit::Id(id, _) => library.enemy(*id),
@@ -898,7 +976,7 @@ const MOTION_FLAGS: &str = "`--range 0~30` or `--range 0 30` (`-r`): frames to e
 `--background` (`-b`): a solid gray background instead of a transparent one
 `--quality 90` (`-q`): 0 to 100, 80 to start
 `--compress 30` (`-p`): 0 to 100, 0 to start; higher takes longer
-`--cull 40`: bounds cull %, for long beams and faint effects; spirits are never culled
+`--cull 40` (`-u`): bounds cull %, for long beams and faint effects; spirits are never culled
 `--combat` (`-c`), `--rig` (`-g`), `--world` (`-w`), `--origin` (`-o`): debug overlays";
 
 const DEFAULT_PREFIX: &str = "{default}";

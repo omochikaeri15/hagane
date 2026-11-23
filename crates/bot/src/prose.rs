@@ -120,6 +120,7 @@ impl Trouble {
 
 pub(crate) const NO_CAT: Line = Line::new("Unable to find Cat!", "Hmph. There's no cat like that, dummy! Check your spelling!");
 pub(crate) const NO_ENEMY: Line = Line::new("Unable to find Enemy!", "That enemy doesn't exist! D-Don't make me look for things that aren't there!");
+pub(crate) const NO_UNIT: Line = Line::new("Unable to find Cat or Enemy! See `{prefix}help`", "There's no cat or enemy like that, dummy! If you wanted a command, go read `{prefix}help`!");
 pub(crate) const BUSY: Line = Line::new("Sorry! But I am busy encoding at the moment; check back later maybe?", "Can't you see I'm busy encoding?! Come back later... n-not that I'll be waiting for you or anything!");
 pub(crate) const WARMING: Line = Line::new("Still loading the game data, try again in a few minutes", "I'm still loading the game data, okay?! Give me a few minutes, geez!");
 pub(crate) const INVITE: Line = Line::new("If you want to invite me to a server, ask my creator to both whitelist your server ID and to provide to you an invite link!", "You want me in your server? Hmph... ask my creator to both whitelist your server ID and to give you an invite link. I-It's not like I want to go or anything!");
@@ -133,6 +134,7 @@ pub(crate) const TOO_LONG: Line = Line::new("That one took too long to encode!",
 pub(crate) const OVERSIZED: Line = Line::new("That one comes out at {size} MB, over Discord's 20 MB upload limit. Try `--format avif`, which is far smaller", "That one comes out at {size} MB, and Discord only takes 20 MB! Try `--format avif`, it's far smaller... n-not that I'm helping you or anything!");
 pub(crate) const OVER_LIMIT: Line = Line::new("That one went past Discord's 20 MB upload limit, so I stopped encoding it. Try `--format avif`, which is far smaller", "That one blew past Discord's 20 MB limit, so I stopped! Try `--format avif`, it's far smaller... n-not that I'm helping you or anything!");
 pub(crate) const SEARCH_PICK: Line = Line::new("Here's everything close to `{name}`. Pick one:", "You don't even know its name?! Fine, here's everything close to `{name}`. Pick one already!");
+pub(crate) const EITHER_PICK: Line = Line::new("`{name}` could be more than one thing. Pick one:", "`{name}` could be more than one thing, so which is it?! Pick one already!");
 pub(crate) const SEARCH_ABORT: Line = Line::new("Okay! I've dropped that request", "Fine, forget it then! I-It's not like I wanted to look it up for you anyway!");
 pub(crate) const SEARCH_LONG: Line = Line::new("That request is too long to search with. Find the unit first, then ask again with its ID", "That's way too much to search with! Find the unit first, then ask again with its ID, dummy!");
 pub(crate) const COULD_NOT: Line = Line::new("I couldn't make that one: {reason}", "I couldn't make that one, okay?! {reason}");
@@ -153,7 +155,7 @@ pub(crate) const TALENTLESS: Line = Line::new("No talents", "No talents. None. S
 pub(crate) const NOT_A_LEVEL: Line = Line::new("A level looks like `50`, `50+70` or `lv30`", "That's not a level! It looks like `50`, `50+70` or `lv30`, got it?!");
 pub(crate) const PREFIX_SPACED: Line = Line::new("A prefix can't have spaces in it", "A prefix can't have spaces in it, dummy!");
 pub(crate) const PREFIX_LONG: Line = Line::new("A prefix can be {limit} characters at most", "{limit} characters at most! I'm not memorizing a whole speech just for you!");
-pub(crate) const HELP_HOME: Line = Line::new("Use `hg!`, mention me, reply to me, DM me, or use `/`.\nThe buttons below open each command, or use `hg!help <command>`.", "Use `hg!`, mention me, reply to me, DM me, or use `/`. I-It's not like I'm happy when you do!\nThe buttons below open each command, or use `hg!help <command>`. Don't make me explain it twice!");
+pub(crate) const HELP_HOME: Line = Line::new("Use `hg!`, mention me, reply to me, DM me, or use `/`.\nLeave out `cat` or `enemy` and I look through both: `hg!bahamut`, `hg!cyclone a walk`.\nThe buttons below open each command, or use `hg!help <command>`.", "Use `hg!`, mention me, reply to me, DM me, or use `/`. I-It's not like I'm happy when you do!\nLeave out `cat` or `enemy` and I'll look through both, like `hg!bahamut` or `hg!cyclone a walk`. Honestly, how lazy can you get?!\nThe buttons below open each command, or use `hg!help <command>`. Don't make me explain it twice!");
 pub(crate) const HOME_CAT: Line = Line::new("A cat's statblock or animation, by ID or name", "A cat's statblock or animation, by ID or name. Fine, I'll fetch it");
 pub(crate) const HOME_ENEMY: Line = Line::new("An enemy's statblock or animation, by ID or name", "An enemy's statblock or animation, by ID or name. Don't blame me if it's scary");
 pub(crate) const HOME_SETTINGS: Line = Line::new("Your language, image format, default form and prefix", "Your language, image format, default form and prefix. Have it your way, see if I care");
@@ -169,9 +171,11 @@ pub(crate) const PAGE_HELP: Line = Line::new("`hg!help` lists every command. `hg
 pub(crate) const DO_NOTHING: Line = Line::new("Okay! I will do nothing", "Fine! I'll do nothing! I-It's not like I wanted to do something for you anyway!");
 
 #[cfg(test)]
-pub(crate) const LINES: [&Line; 49] = [
+pub(crate) const LINES: [&Line; 51] = [
     &NO_CAT,
     &NO_ENEMY,
+    &NO_UNIT,
+    &EITHER_PICK,
     &BUSY,
     &WARMING,
     &INVITE,

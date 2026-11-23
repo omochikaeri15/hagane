@@ -90,19 +90,19 @@ impl Library {
             .collect()
     }
 
-    pub(crate) fn search_cats(&self, name: &str, closeness: u32) -> Vec<(&CatEntry, usize)> {
+    pub(crate) fn search_cats(&self, name: &str, closeness: u32) -> Vec<(&CatEntry, usize, u32)> {
         let mut scored = self.scored_cats(&Query::new(name), closeness);
 
         scored.sort_by_key(|(cat, form, score)| (Reverse(*score), cat.id, *form));
-        scored.into_iter().map(|(cat, form, _)| (cat, form)).collect()
+        scored
     }
 
-    pub(crate) fn search_enemies(&self, name: &str, closeness: u32) -> Vec<&EnemyEntry> {
+    pub(crate) fn search_enemies(&self, name: &str, closeness: u32) -> Vec<(&EnemyEntry, u32)> {
         let query = Query::new(name);
         let mut scored: Vec<(&EnemyEntry, u32)> = self.enemies.iter().filter_map(|enemy| Some((enemy, query.score_within(&enemy.name, closeness)?))).collect();
 
         scored.sort_by_key(|(enemy, score)| (Reverse(*score), enemy.id));
-        scored.into_iter().map(|(enemy, _)| enemy).collect()
+        scored
     }
 
     pub(crate) fn find_cat(&self, name: &str, prefs: &Prefs) -> Option<(&CatEntry, usize)> {

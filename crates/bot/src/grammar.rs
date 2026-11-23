@@ -9,6 +9,24 @@ pub(crate) enum Kind {
     Enemy,
 }
 
+impl Kind {
+    pub(crate) const ALL: [Kind; 2] = [Kind::Cat, Kind::Enemy];
+
+    pub(crate) fn tag(self) -> &'static str {
+        match self {
+            Kind::Cat => "c",
+            Kind::Enemy => "e",
+        }
+    }
+
+    pub(crate) fn label(self) -> &'static str {
+        match self {
+            Kind::Cat => "Cat",
+            Kind::Enemy => "Enemy",
+        }
+    }
+}
+
 #[derive(Debug, PartialEq)]
 pub(crate) enum Unit {
     Id(u32, Option<usize>),
@@ -131,7 +149,7 @@ fn clip_word(token: &str) -> bool {
 fn motion_flag(token: &str) -> bool {
     matches!(
         lower(token).as_str(),
-        "--range" | "-r" | "--loop" | "-l" | "--format" | "-f" | "--cull" | "--combat" | "-c" | "--rig" | "-g" | "--world" | "-w" | "--origin" | "-o" | "--background" | "-b" | "--quality" | "-q" | "--compress" | "--compression" | "-p"
+        "--range" | "-r" | "--loop" | "-l" | "--format" | "-f" | "--cull" | "-u" | "--combat" | "-c" | "--rig" | "-g" | "--world" | "-w" | "--origin" | "-o" | "--background" | "-b" | "--quality" | "-q" | "--compress" | "--compression" | "-p"
     )
 }
 
@@ -409,7 +427,7 @@ fn motion_of(tokens: &[&str]) -> Result<Motion, String> {
                 };
                 at += 1;
             }
-            "--cull" => {
+            "--cull" | "-u" => {
                 let cull = tokens.get(at).and_then(|next| next.trim_end_matches('%').parse::<i32>().ok()).filter(|cull| (0..=MAX_CULL).contains(cull));
 
                 motion.cull = Some(cull.ok_or("`--cull` takes a number from 0 to 100")?);
@@ -512,13 +530,25 @@ mod tests {
             Ok(Want::Stats(_)) => Err("read as stats".to_owned()),
             Err(reason) => Err(reason),
         };
-        let model = motion("25 m -f gif -b -c --cull 40").unwrap();
+        let model = motion("25 m -f gif -b -c -u 40").unwrap();
 
         assert_eq!((model.clip, model.format, model.background, model.overlays.combat, model.cull), (Clip::Model, Some(Format::Gif), true, true, Some(40)));
+        assert_eq!(motion("25 --cull 40").unwrap().cull, Some(40), "the short flag alone is enough to mean an animation");
+        assert_eq!(motion("25 -u 15").unwrap().cull, Some(15));
         assert_eq!(motion("bahamut cat a model").unwrap().clip, Clip::Model);
         assert_eq!(motion("25 model").unwrap().clip, Clip::Model);
         assert!(motion("25 model -r 0~10").unwrap_err().contains("--range"));
         assert!(motion("25 m -l").unwrap_err().contains("--loop"));
+    }
+
+    // Attack is the default clip, so naming it or leaving it out is one request, and one cached file.
+    #[test]
+    fn a_default_clip_reads_the_same_named_or_not() {
+        let short = parse("gigapult a -c", Kind::Cat).unwrap();
+        let long = parse("gigapult a a -c", Kind::Cat).unwrap();
+
+        assert_eq!((&short.unit, &short.want), (&long.unit, &long.want));
+        assert!(matches!(short.want, Want::Motion(Motion { clip: Clip::Attack, overlays: Overlays { combat: true, rig: false, world: false, origin: false }, .. })));
     }
 
     fn stats(text: &str) -> Stats {

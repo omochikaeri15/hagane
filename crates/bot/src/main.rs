@@ -4,6 +4,7 @@ mod discord;
 mod fuzzy;
 mod grammar;
 mod library;
+mod lookup;
 mod prefs;
 mod prose;
 mod render;

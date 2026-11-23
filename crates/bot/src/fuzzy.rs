@@ -1,6 +1,6 @@
 use strsim::jaro_winkler;
 
-const EXACT: u32 = 10_000;
+pub(crate) const EXACT: u32 = 10_000;
 const PREFIX: u32 = 9_000;
 const WORDS: u32 = 8_000;
 const INSIDE: u32 = 7_000;
