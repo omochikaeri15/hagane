@@ -1,6 +1,9 @@
+mod audio;
+mod backdrop;
 mod cache;
 mod config;
 mod discord;
+mod encode;
 mod fuzzy;
 mod grammar;
 mod library;

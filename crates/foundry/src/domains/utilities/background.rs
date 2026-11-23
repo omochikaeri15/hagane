@@ -1,15 +1,17 @@
 use std::collections::BTreeSet;
 use std::fmt::Write as _;
+use std::ops::Range;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use image::RgbaImage;
 use codex::chapter::stage::{Background, BackgroundEntry};
-use codex::graphics::backdrop::{self, Assets, EffectRig, EffectsFile};
+use codex::graphics::backdrop::{self, Assets, EffectRig, EffectsFile, Quad, Surface};
 use codex::graphics::rig::{Animation, Model, SpriteSheet};
 use tracing::warn;
 
 use crate::Vfs;
+use crate::systems::raster::{self, Alpha, Batch, Texture, Vertex};
 
 pub const TABLE: &str = "bg.csv";
 pub const DEFAULT_SEED: u32 = 100;
@@ -112,16 +114,77 @@ pub struct Loaded {
     pub assets: Assets,
     pub names: Names,
     pub watched: BTreeSet<String>,
+    pub files: Vec<String>,
 }
 
 pub fn export_stem(id: u32) -> String {
     id.to_string()
 }
 
+pub fn paint(pixels: &mut [u8], width: u32, height: u32, quads: &[Quad], image_of: impl Fn(Surface) -> Option<Arc<RgbaImage>>) {
+    let mut vertices: Vec<Vertex> = Vec::with_capacity(quads.len() * 6);
+    let mut runs: Vec<(Option<usize>, u8, Range<usize>)> = Vec::new();
+    let mut textures: Vec<Arc<RgbaImage>> = Vec::new();
+
+    for quad in quads {
+        let texture = quad.surface.and_then(&image_of).map(|image| match textures.iter().position(|held| Arc::ptr_eq(held, &image)) {
+            Some(index) => index,
+            None => {
+                textures.push(image);
+                textures.len() - 1
+            }
+        });
+
+        if quad.surface.is_some() && texture.is_none() {
+            continue;
+        }
+
+        let uv = texture.map_or([[0.0f32; 2]; 4], |index| {
+            let image = &textures[index];
+            let (image_width, image_height) = (image.width().max(1) as f32, image.height().max(1) as f32);
+            let left = quad.source[0] / image_width;
+            let top = quad.source[1] / image_height;
+            let right = (quad.source[0] + quad.source[2]) / image_width;
+            let bottom = (quad.source[1] + quad.source[3]) / image_height;
+
+            [[left, top], [left, bottom], [right, bottom], [right, top]]
+        });
+        let corner = |slot: usize| Vertex {
+            position: [quad.corners[slot][0] / width as f32 * 2.0 - 1.0, 1.0 - quad.corners[slot][1] / height as f32 * 2.0],
+            uv: uv[slot],
+            color: quad.colors[slot],
+            tint: [0.0; 4],
+        };
+        let start = vertices.len();
+
+        vertices.extend([corner(0), corner(1), corner(2), corner(0), corner(2), corner(3)]);
+
+        let end = vertices.len();
+
+        match runs.last_mut() {
+            Some((held_texture, held_blend, range)) if *held_texture == texture && *held_blend == quad.blend => range.end = end,
+            _ => runs.push((texture, quad.blend, start..end)),
+        }
+    }
+
+    let batches: Vec<Batch<'_>> = runs
+        .into_iter()
+        .map(|(texture, blend, range)| Batch {
+            texture: texture.and_then(|index| textures.get(index)).map(|image| Texture { width: image.width(), height: image.height(), pixels: image.as_raw() }),
+            blend,
+            alpha: Alpha::Blended,
+            range,
+        })
+        .collect();
+
+    raster::draw(pixels, width, height, &vertices, &batches);
+}
+
 struct Reader<'a> {
     vfs: &'a Vfs,
     overrides: &'a Overrides,
     watched: BTreeSet<String>,
+    files: Vec<String>,
 }
 
 impl Reader<'_> {
@@ -140,12 +203,18 @@ impl Reader<'_> {
         self.watch(name);
 
         let path = self.vfs.find(name)?;
-
-        self.vfs
+        let bytes = self
+            .vfs
             .source(&path)
             .read()
             .inspect_err(|err| warn!(path = %path.display(), "Background file could not be read: {}", err))
-            .ok()
+            .ok()?;
+
+        if !self.files.iter().any(|held| held == name) {
+            self.files.push(name.to_owned());
+        }
+
+        Some(bytes)
     }
 
     fn name_of(path: &Path) -> String {
@@ -242,7 +311,7 @@ impl Reader<'_> {
 }
 
 pub fn load(vfs: &Vfs, id: u32, overrides: &Overrides) -> Result<Loaded, String> {
-    let mut reader = Reader { vfs, overrides, watched: BTreeSet::new() };
+    let mut reader = Reader { vfs, overrides, watched: BTreeSet::new(), files: Vec::new() };
 
     let (table_bytes, csv_name) = reader.table().ok_or_else(|| format!("{TABLE} is not within the mount"))?;
     let table = Background::parse(table_bytes.as_ref(), None).map_err(|err| err.to_string())?;
@@ -308,7 +377,7 @@ pub fn load(vfs: &Vfs, id: u32, overrides: &Overrides) -> Result<Loaded, String>
         models,
     };
 
-    Ok(Loaded { id, assets, names: Names { png: png_name, imgcut: cut_name, csv: csv_name }, watched: reader.watched })
+    Ok(Loaded { id, assets, names: Names { png: png_name, imgcut: cut_name, csv: csv_name }, watched: reader.watched, files: reader.files })
 }
 
 #[cfg(test)]

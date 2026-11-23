@@ -92,6 +92,18 @@ pub(crate) struct Motion {
 }
 
 #[derive(Debug, PartialEq)]
+pub(crate) struct Scenery {
+    pub(crate) id: u32,
+    pub(crate) seed: Option<u32>,
+    pub(crate) range: Option<(i32, i32)>,
+    pub(crate) offset: Option<(i32, i32)>,
+    pub(crate) size: Option<(u32, u32)>,
+    pub(crate) format: Option<Format>,
+    pub(crate) quality: Option<u32>,
+    pub(crate) compression: Option<u32>,
+}
+
+#[derive(Debug, PartialEq)]
 pub(crate) enum Want {
     Stats(Stats),
     Motion(Motion),
@@ -121,6 +133,11 @@ fn is_flag(token: &str) -> bool {
     token.starts_with("--") || token.strip_prefix('-').is_some_and(|rest| rest.chars().next().is_some_and(char::is_alphabetic))
 }
 
+const TRACK_HINT: &str = "Give me a track's ID, like `5`";
+const SCENERY_HINT: &str = "Give me a background's ID first, like `12`";
+const OFFSET_HINT: &str = "`--offset` takes two whole numbers, like `100 50` or `-200,0`";
+const SIZE_HINT: &str = "`--dimensions` takes a width and a height, like `800x600`, `800×600` or `800 600`";
+const PAIR_MARKS: [char; 5] = ['x', 'X', '×', ',', '*'];
 const SEARCH_HINT: &str = "`--search` (`-s`) looks a name up, so give it a name instead of an ID";
 const FORM_HINT: &str = "`form` (`f`) takes 1-4, n e t u, f c s u, or Normal, Evolved, True, Ultra";
 
@@ -404,6 +421,84 @@ fn percent_flag(value: Option<&&str>, flag: &str) -> Result<u32, String> {
     Ok(u32::try_from(parsed.clamp(0, MAX_PERCENT)).unwrap_or(0))
 }
 
+fn format_of(value: Option<&&str>) -> Result<Format, String> {
+    match value.map(|value| lower(value)).as_deref() {
+        Some("avif" | "a") => Ok(Format::Avif),
+        Some("webp" | "w") => Ok(Format::WebP),
+        Some("gif" | "g") => Ok(Format::Gif),
+        _ => Err("`--format` takes `avif` (`a`), `webp` (`w`) or `gif` (`g`)".to_owned()),
+    }
+}
+
+fn numbered(token: &str, lead: &str, extension: &str) -> Option<u32> {
+    let lowered = lower(token);
+    let bare = lowered.strip_suffix(extension).unwrap_or(&lowered);
+    let digits = bare.strip_prefix(lead).unwrap_or(bare);
+
+    (!digits.is_empty() && digits.chars().all(|glyph| glyph.is_ascii_digit())).then(|| digits.parse().ok()).flatten()
+}
+
+fn pair_of<T: std::str::FromStr>(tokens: &[&str], at: &mut usize) -> Option<(T, T)> {
+    let first = tokens.get(*at)?;
+
+    if let Some((across, down)) = first.split_once(PAIR_MARKS) {
+        *at += 1;
+
+        return Some((across.parse().ok()?, down.parse().ok()?));
+    }
+
+    let pair = (first.parse().ok()?, tokens.get(*at + 1)?.parse().ok()?);
+
+    *at += 2;
+    Some(pair)
+}
+
+pub(crate) fn track(text: &str) -> Result<u32, String> {
+    let mut tokens = text.split_whitespace();
+    let id = tokens.next().and_then(|token| numbered(token, "snd", ".ogg")).ok_or(TRACK_HINT)?;
+
+    match tokens.next() {
+        Some(extra) => Err(format!("I don't understand `{extra}`")),
+        None => Ok(id),
+    }
+}
+
+pub(crate) fn scenery(text: &str) -> Result<Scenery, String> {
+    let tokens: Vec<&str> = text.split_whitespace().collect();
+    let id = tokens.first().and_then(|token| numbered(token, "bg", ".png")).ok_or(SCENERY_HINT)?;
+    let mut scenery = Scenery { id, seed: None, range: None, offset: None, size: None, format: None, quality: None, compression: None };
+    let mut at = 1;
+
+    while let Some(token) = tokens.get(at) {
+        at += 1;
+
+        match lower(token).as_str() {
+            "--seed" | "-e" => {
+                scenery.seed = Some(tokens.get(at).and_then(|next| next.parse::<u32>().ok()).ok_or("`--seed` takes a whole number, 0 or higher")?);
+                at += 1;
+            }
+            "--range" | "-r" => scenery.range = Some(range_of(&tokens, &mut at)?),
+            "--offset" | "-o" => scenery.offset = Some(pair_of(&tokens, &mut at).ok_or(OFFSET_HINT)?),
+            "--dimensions" | "--dimension" | "-d" => scenery.size = Some(pair_of(&tokens, &mut at).ok_or(SIZE_HINT)?),
+            "--format" | "-f" => {
+                scenery.format = Some(format_of(tokens.get(at))?);
+                at += 1;
+            }
+            "--quality" | "-q" => {
+                scenery.quality = Some(percent_flag(tokens.get(at), "--quality")?);
+                at += 1;
+            }
+            "--compress" | "--compression" | "-p" => {
+                scenery.compression = Some(percent_flag(tokens.get(at), "--compress")?);
+                at += 1;
+            }
+            _ => return Err(format!("I don't understand `{token}`")),
+        }
+    }
+
+    Ok(scenery)
+}
+
 fn motion_of(tokens: &[&str]) -> Result<Motion, String> {
     let mut motion = Motion { clip: Clip::Attack, range: None, format: None, cull: None, overlays: Overlays::default(), looping: None, background: false, quality: None, compression: None };
     let mut at = 0;
@@ -419,12 +514,7 @@ fn motion_of(tokens: &[&str]) -> Result<Motion, String> {
         match lower(token).as_str() {
             "--range" | "-r" => motion.range = Some(range_of(tokens, &mut at)?),
             "--format" | "-f" => {
-                motion.format = match tokens.get(at).map(|next| lower(next)).as_deref() {
-                    Some("avif" | "a") => Some(Format::Avif),
-                    Some("webp" | "w") => Some(Format::WebP),
-                    Some("gif" | "g") => Some(Format::Gif),
-                    _ => return Err("`--format` takes `avif` (`a`), `webp` (`w`) or `gif` (`g`)".to_owned()),
-                };
+                motion.format = Some(format_of(tokens.get(at))?);
                 at += 1;
             }
             "--cull" | "-u" => {
@@ -549,6 +639,28 @@ mod tests {
 
         assert_eq!((&short.unit, &short.want), (&long.unit, &long.want));
         assert!(matches!(short.want, Want::Motion(Motion { clip: Clip::Attack, overlays: Overlays { combat: true, rig: false, world: false, origin: false }, .. })));
+    }
+
+    // Audio and backgrounds only go by ID, written bare or the way the game names the file.
+    #[test]
+    fn tracks_and_backgrounds_go_by_id() {
+        assert_eq!((track("5"), track("005"), track("snd005"), track("SND005.ogg"), track("009.ogg")), (Ok(5), Ok(5), Ok(5), Ok(5), Ok(9)));
+        assert!(track("").is_err() && track("walk").is_err() && track("5 6").is_err() && track("snd").is_err());
+
+        let plain = scenery("12").unwrap();
+        let full = scenery("bg012 -e 7 -r 30~90 -f gif -q 90 -p 20").unwrap();
+
+        assert_eq!(plain, Scenery { id: 12, seed: None, range: None, offset: None, size: None, format: None, quality: None, compression: None });
+        assert_eq!(full, Scenery { id: 12, seed: Some(7), range: Some((30, 90)), offset: None, size: None, format: Some(Format::Gif), quality: Some(90), compression: Some(20) });
+
+        let framed = |text: &str| scenery(text).map(|scenery| (scenery.offset, scenery.size));
+
+        assert_eq!(framed("12 -o 100 -50 -d 800 600"), Ok((Some((100, -50)), Some((800, 600)))));
+        assert_eq!(framed("12 --dimensions 800x600 --offset -200,0"), Ok((Some((-200, 0)), Some((800, 600)))));
+        assert_eq!(framed("12 -d 800×600 -f gif"), Ok((None, Some((800, 600)))));
+        assert!(framed("12 -d 800").is_err() && framed("12 -d -800 600").is_err() && framed("12 -o 100").is_err() && framed("12 -d wide").is_err());
+        assert_eq!(scenery("12 --seed 7 --range 30 90").unwrap().range, Some((30, 90)));
+        assert!(scenery("").is_err() && scenery("-e 7").is_err() && scenery("12 -e").is_err() && scenery("12 -e -3").is_err() && scenery("12 walk").is_err());
     }
 
     fn stats(text: &str) -> Stats {

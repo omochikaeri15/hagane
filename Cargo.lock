@@ -834,6 +834,7 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "unicode-width",
+ "vorbis-enc",
 ]
 
 [[package]]
@@ -9856,6 +9857,12 @@ name = "version_check"
 version = "0.9.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0b928f33d975fc6ad9f86c8f283853ad26bdd5b10b7f1542aa2fa15e2289105a"
+
+[[package]]
+name = "vorbis-enc"
+version = "0.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c1540da736810ed17651b1dbbd7a79d09c5adf714e7c331cc13f47d847ce17f2"
 
 [[package]]
 name = "vtable"

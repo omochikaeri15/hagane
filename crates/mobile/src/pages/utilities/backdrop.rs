@@ -11,10 +11,9 @@ use slint::{ComponentHandle, Image, Rgba8Pixel, SharedPixelBuffer, Timer, TimerM
 use tracing::{error, info, warn};
 
 use codex::chapter::stage::Background;
-use codex::graphics::backdrop::{Backdrop as Scene, Camera, Layers, Quad, Screen, Surface};
+use codex::graphics::backdrop::{Backdrop as Scene, Camera, Layers, Screen};
 use foundry::domains::utilities::background::{self as builder, Catalog, Names, Overrides, DEFAULT_SEED, STAGE_WIDTH};
 use foundry::systems::animation::export::{EncoderMessage, EncoderStatus, ExportFormat, ExportMode, ExportRequest, FrameTiming, ShowcaseLengths, leader, process};
-use foundry::systems::raster::{self, Alpha, Batch, Texture, Vertex};
 
 use crate::memory::Remembered;
 use crate::pages::Context;
@@ -260,72 +259,13 @@ fn wrapped_ranges(catalog: &Catalog) -> String {
     spans.chunks(RANGES_PER_LINE).map(|line| line.join(", ")).collect::<Vec<String>>().join("\n")
 }
 
-fn paint(pixels: &mut [u8], width: u32, height: u32, quads: &[Quad], image_of: impl Fn(Surface) -> Option<Arc<RgbaImage>>) {
-    let mut vertices: Vec<Vertex> = Vec::with_capacity(quads.len() * 6);
-    let mut runs: Vec<(Option<usize>, u8, std::ops::Range<usize>)> = Vec::new();
-    let mut textures: Vec<Arc<RgbaImage>> = Vec::new();
-
-    for quad in quads {
-        let texture = quad.surface.and_then(&image_of).map(|image| match textures.iter().position(|held| Arc::ptr_eq(held, &image)) {
-            Some(index) => index,
-            None => {
-                textures.push(image);
-                textures.len() - 1
-            }
-        });
-
-        if quad.surface.is_some() && texture.is_none() {
-            continue;
-        }
-
-        let uv = texture.map_or([[0.0f32; 2]; 4], |index| {
-            let image = &textures[index];
-            let (image_width, image_height) = (image.width().max(1) as f32, image.height().max(1) as f32);
-            let left = quad.source[0] / image_width;
-            let top = quad.source[1] / image_height;
-            let right = (quad.source[0] + quad.source[2]) / image_width;
-            let bottom = (quad.source[1] + quad.source[3]) / image_height;
-
-            [[left, top], [left, bottom], [right, bottom], [right, top]]
-        });
-        let corner = |slot: usize| Vertex {
-            position: [quad.corners[slot][0] / width as f32 * 2.0 - 1.0, 1.0 - quad.corners[slot][1] / height as f32 * 2.0],
-            uv: uv[slot],
-            color: quad.colors[slot],
-            tint: [0.0; 4],
-        };
-        let start = vertices.len();
-
-        vertices.extend([corner(0), corner(1), corner(2), corner(0), corner(2), corner(3)]);
-
-        let end = vertices.len();
-
-        match runs.last_mut() {
-            Some((held_texture, held_blend, range)) if *held_texture == texture && *held_blend == quad.blend => range.end = end,
-            _ => runs.push((texture, quad.blend, start..end)),
-        }
-    }
-
-    let batches: Vec<Batch<'_>> = runs
-        .into_iter()
-        .map(|(texture, blend, range)| Batch {
-            texture: texture.and_then(|index| textures.get(index)).map(|image| Texture { width: image.width(), height: image.height(), pixels: image.as_raw() }),
-            blend,
-            alpha: Alpha::Blended,
-            range,
-        })
-        .collect();
-
-    raster::draw(pixels, width, height, &vertices, &batches);
-}
-
 fn render(scene: &Scene, layers: &Layers, camera: Camera, width: u32, height: u32, pixels: &mut Vec<u8>) {
     let camera = Camera { width: width as f32, height: height as f32, ..camera.rescaled(camera.zoom * (width as f32 / camera.width.max(1.0))) };
     let quads = scene.compose(layers, camera);
 
     pixels.clear();
     pixels.resize(width as usize * height as usize * 4, 0);
-    paint(pixels, width, height, &quads, |surface| scene.image(surface).map(Arc::clone));
+    builder::paint(pixels, width, height, &quads, |surface| scene.image(surface).map(Arc::clone));
 }
 
 pub fn wire(window: &AppWindow, state: &Shared, context: &Rc<Context>) {

@@ -17,7 +17,7 @@ use crate::chapter::stage::{
 };
 use crate::chapter::treasure::{TreasureDataError, TreasureTextError};
 use crate::combat::{AttributeIndexError, DictionaryIndexError, EntityError, GlossaryError, TraitLabelError};
-use crate::files::{GatyaItemBuyError, GatyaItemNameError, LocalizableError, ParamError};
+use crate::files::{CafError, GatyaItemBuyError, GatyaItemNameError, LocalizableError, ParamError};
 use crate::enemy::{EnemyNameError, EnemyPictureBookError};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -64,6 +64,7 @@ pub enum Error {
     SpecialRulesMapOption(SpecialRulesMapOptionError),
     Localizable(LocalizableError),
     Param(ParamError),
+    Caf(CafError),
     GatyaItemBuy(GatyaItemBuyError),
     GatyaItemName(GatyaItemNameError),
     #[cfg(feature = "graphics")]
@@ -120,6 +121,7 @@ impl Error {
             Self::SpecialRulesMapOption(source) => source,
             Self::Localizable(source) => source,
             Self::Param(source) => source,
+            Self::Caf(source) => source,
             Self::GatyaItemBuy(source) => source,
             Self::GatyaItemName(source) => source,
             #[cfg(feature = "graphics")]
@@ -389,6 +391,12 @@ impl From<LocalizableError> for Error {
 impl From<ParamError> for Error {
     fn from(source: ParamError) -> Self {
         Self::Param(source)
+    }
+}
+
+impl From<CafError> for Error {
+    fn from(source: CafError) -> Self {
+        Self::Caf(source)
     }
 }
 

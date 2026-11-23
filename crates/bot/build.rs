@@ -45,6 +45,40 @@ const STATBLOCK: [&str; 10] = [
     "../codex/src/files/img015.rs",
 ];
 
+const BACKDROP: [&str; 29] = [
+    "src/backdrop.rs",
+    "src/encode.rs",
+    "../codex/src/chapter/stage/background.rs",
+    "../codex/src/common/rng.rs",
+    "../codex/src/graphics.rs",
+    "../codex/src/graphics/animate.rs",
+    "../codex/src/graphics/backdrop.rs",
+    "../codex/src/graphics/backdrop",
+    "../codex/src/graphics/engine.rs",
+    "../codex/src/graphics/rig.rs",
+    "../codex/src/graphics/rig",
+    "../codex/src/graphics/tools.rs",
+    "../codex/src/graphics/tools",
+    "../foundry/src/domains/utilities/background.rs",
+    "../foundry/src/systems/animation/alpha.rs",
+    "../foundry/src/systems/animation/export.rs",
+    "../foundry/src/systems/animation/export/avif.rs",
+    "../foundry/src/systems/animation/export/avif",
+    "../foundry/src/systems/animation/export/encoding.rs",
+    "../foundry/src/systems/animation/export/find_bounds.rs",
+    "../foundry/src/systems/animation/export/frames.rs",
+    "../foundry/src/systems/animation/export/gif.rs",
+    "../foundry/src/systems/animation/export/gif",
+    "../foundry/src/systems/animation/export/leader.rs",
+    "../foundry/src/systems/animation/export/process.rs",
+    "../foundry/src/systems/animation/export/webp.rs",
+    "../foundry/src/systems/animation/export/webp",
+    "../foundry/src/systems/raster.rs",
+    "../foundry/src/systems/raster",
+];
+
+const AUDIO: [&str; 2] = ["src/audio.rs", "../codex/src/files/sound.rs"];
+
 const NOT_DRAWING: [&str; 7] = [
     "../codex/src/graphics/backdrop.rs",
     "../foundry/src/systems/animation/authoring.rs",
@@ -62,6 +96,8 @@ const FNV_PRIME: u64 = 0x100000001b3;
 
 fn main() -> Result<(), Box<dyn Error>> {
     stamp("HAGANE_ANIMATION_STAMP", &ANIMATION)?;
+    stamp("HAGANE_AUDIO_STAMP", &AUDIO)?;
+    stamp("HAGANE_BACKDROP_STAMP", &BACKDROP)?;
     stamp("HAGANE_STATBLOCK_STAMP", &STATBLOCK)
 }
 

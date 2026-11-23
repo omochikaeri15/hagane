@@ -17,9 +17,11 @@ use foundry::systems::animation::MotionSet;
 use foundry::systems::combat::registry::Magnification;
 
 use super::whitelist;
+use super::audio;
+use super::backdrop;
 use super::cache::Cache;
 use super::config::Config;
-use super::grammar::{self, Kind, Motion, Request, Unit, Want};
+use super::grammar::{self, Kind, Motion, Request, Scenery, Unit, Want};
 use super::library::{self, Catalog, Library, Remote};
 use super::lookup::{self, Found, Hit};
 use super::prefs::{self, Book, FORMS, Prefs, Search};
@@ -79,7 +81,7 @@ pub(crate) async fn run(config: Config, cache: Cache) -> Result<(), Error> {
     tokio::spawn(keep_fresh(config.source, shelf));
 
     let options = poise::FrameworkOptions {
-        commands: vec![cat(), enemy(), settings(), website(), help(), invite(), legal(), donothing()],
+        commands: vec![cat(), enemy(), background(), audio(), settings(), website(), help(), invite(), legal(), donothing()],
         prefix_options: poise::PrefixFrameworkOptions {
             prefix: None,
             mention_as_prefix: false,
@@ -278,7 +280,7 @@ enum Voice<'a> {
 #[derive(Default)]
 struct Post {
     text: String,
-    file: Option<(Vec<u8>, String)>,
+    files: Vec<(Vec<u8>, String)>,
     rows: Vec<serenity::CreateActionRow>,
 }
 
@@ -288,7 +290,7 @@ impl Post {
     }
 
     fn file(bytes: Vec<u8>, name: String) -> Self {
-        Self { file: Some((bytes, name)), ..Self::default() }
+        Self { files: vec![(bytes, name)], ..Self::default() }
     }
 
     fn rows(self, rows: Vec<serenity::CreateActionRow>) -> Self {
@@ -299,11 +301,11 @@ impl Post {
         let reply = CreateReply::default().components(self.rows).allowed_mentions(quiet());
         let reply = if clearing || !self.text.is_empty() { reply.content(self.text) } else { reply };
 
-        self.file.into_iter().fold(reply, |reply, (bytes, name)| reply.attachment(serenity::CreateAttachment::bytes(bytes, name)))
+        self.files.into_iter().fold(reply, |reply, (bytes, name)| reply.attachment(serenity::CreateAttachment::bytes(bytes, name)))
     }
 
     fn edit(self) -> serenity::EditInteractionResponse {
-        let attachments = self.file.into_iter().fold(serenity::EditAttachments::new(), |held, (bytes, name)| held.add(serenity::CreateAttachment::bytes(bytes, name)));
+        let attachments = self.files.into_iter().fold(serenity::EditAttachments::new(), |held, (bytes, name)| held.add(serenity::CreateAttachment::bytes(bytes, name)));
 
         serenity::EditInteractionResponse::new().content(self.text).components(self.rows).attachments(attachments)
     }
@@ -312,11 +314,11 @@ impl Post {
         let message = serenity::CreateMessage::new().components(self.rows).allowed_mentions(quiet());
         let message = if self.text.is_empty() { message } else { message.content(self.text) };
 
-        self.file.into_iter().fold(message, |message, (bytes, name)| message.add_file(serenity::CreateAttachment::bytes(bytes, name)))
+        self.files.into_iter().fold(message, |message, (bytes, name)| message.add_file(serenity::CreateAttachment::bytes(bytes, name)))
     }
 
     fn revision(self) -> serenity::EditMessage {
-        let attachments = self.file.into_iter().fold(serenity::EditAttachments::new(), |held, (bytes, name)| held.add(serenity::CreateAttachment::bytes(bytes, name)));
+        let attachments = self.files.into_iter().fold(serenity::EditAttachments::new(), |held, (bytes, name)| held.add(serenity::CreateAttachment::bytes(bytes, name)));
 
         serenity::EditMessage::new().content(self.text).components(self.rows).attachments(attachments).allowed_mentions(quiet())
     }
@@ -461,7 +463,7 @@ async fn serve_any(voice: Voice<'_>, text: &str) -> Result<(), Error> {
 
     match found {
         Found::Unread(reason) => voice.say(prose::SEE_HELP.filled(prefs.prose, &[("reason", &reason), ("prefix", &prefix_of(voice.data(), owner))])).await,
-        Found::Nothing => voice.say(prose::NO_UNIT.filled(prefs.prose, &[("prefix", &prefix_of(voice.data(), owner))])).await,
+        Found::Nothing => voice.say(prose::NO_UNIT.filled(prefs.prose, &[("word", text.split_whitespace().next().unwrap_or_default()), ("prefix", &prefix_of(voice.data(), owner))])).await,
         Found::One(kind, request) => serve(voice, kind, request).await,
         Found::Several { asked, searched, tails, hits } => {
             let line = if searched { &prose::SEARCH_PICK } else { &prose::EITHER_PICK };
@@ -685,6 +687,14 @@ async fn animate(voice: Voice<'_>, library: Arc<Library>, set: MotionSet, option
             return Ok(());
         }
     };
+    let label = format!("{title} • {} • {}", clip.motion(), format.label());
+
+    encoded(voice, label, options_looping, move |cache, progress| job.run(cache, progress, UPLOAD_LIMIT as u64)).await
+}
+
+async fn encoded(voice: Voice<'_>, label: String, searching: bool, work: impl FnOnce(&Cache, &Progress) -> Result<(Vec<u8>, String), Trouble> + Send + 'static) -> Result<(), Error> {
+    let prose = voice.prose();
+
     if !encodes_for(voice.personal(), voice.user()) {
         voice.say(prose::DM_ENCODE.said(prose)).await?;
         return Ok(());
@@ -694,15 +704,13 @@ async fn animate(voice: Voice<'_>, library: Arc<Library>, set: MotionSet, option
         voice.say(prose::BUSY.said(prose)).await?;
         return Ok(());
     };
-    let label = format!("{title} • {} • {}", clip.motion(), format.label());
-    let searching = options_looping;
     let started = Instant::now();
     let progress = Arc::new(Progress::default());
     let posted = voice.post(Post::text(progress_bar(&label, searching, &progress, Duration::ZERO))).await?;
     let mut work = {
-        let progress = Arc::clone(&progress);
+        let (cache, progress) = (Arc::clone(&voice.data().cache), Arc::clone(&progress));
 
-        task::spawn_blocking(move || job.run(&cache, &progress, UPLOAD_LIMIT as u64))
+        task::spawn_blocking(move || work(&cache, &progress))
     };
     let finished = loop {
         tokio::select! {
@@ -720,7 +728,7 @@ async fn animate(voice: Voice<'_>, library: Arc<Library>, set: MotionSet, option
         Ok((bytes, name)) => voice.amend(&posted, Post::file(bytes, name)).await?,
         Err(trouble) => {
             if let Some(reason) = trouble.unexpected() {
-                error!(title, clip = clip.slug(), "An animation could not be exported: {}", reason);
+                error!(label, "An export could not be finished: {}", reason);
             }
 
             voice.amend(&posted, Post::text(trouble.told(prose))).await?;
@@ -728,6 +736,75 @@ async fn animate(voice: Voice<'_>, library: Arc<Library>, set: MotionSet, option
     }
 
     Ok(())
+}
+
+async fn serve_background(voice: Voice<'_>, scenery: Scenery) -> Result<(), Error> {
+    let prefs = voice.data().book.get(voice.user().get());
+
+    voice.working().await?;
+
+    let Some((_guard, library)) = open(voice.data(), &prefs.language).await? else {
+        voice.say(prose::WARMING.said(prefs.prose)).await?;
+        return Ok(());
+    };
+    let options = backdrop::Options { id: scenery.id, seed: scenery.seed, range: scenery.range, offset: scenery.offset, size: scenery.size, format: scenery.format.unwrap_or(prefs.format), quality: scenery.quality, compression: scenery.compression };
+    let (id, format) = (options.id, options.format);
+    let planned = {
+        let (library, cache) = (Arc::clone(&library), Arc::clone(&voice.data().cache));
+
+        task::spawn_blocking(move || backdrop::plan(&library, &cache, &options)).await?
+    };
+
+    match planned {
+        Ok(backdrop::Planned::Ready(bytes, _)) if bytes.len() > UPLOAD_LIMIT => voice.say(oversized(bytes.len(), prefs.prose)).await,
+        Ok(backdrop::Planned::Ready(bytes, name)) => {
+            info!(id, format = format.extension(), name, "A background came from the cache");
+            voice.post(Post::file(bytes, name)).await.map(|_| ())
+        }
+        Ok(backdrop::Planned::Encode(job)) => encoded(voice, format!("Background {id} • {}", format.label()), false, move |cache, progress| job.run(cache, progress, UPLOAD_LIMIT as u64)).await,
+        Err(trouble) => {
+            if let Some(reason) = trouble.unexpected() {
+                error!(id, "A background could not be prepared: {}", reason);
+            }
+
+            voice.say(trouble.told(prefs.prose)).await
+        }
+    }
+}
+
+async fn serve_audio(voice: Voice<'_>, id: u32) -> Result<(), Error> {
+    let prefs = voice.data().book.get(voice.user().get());
+
+    voice.working().await?;
+
+    let Some((_guard, library)) = open(voice.data(), &prefs.language).await? else {
+        voice.say(prose::WARMING.said(prefs.prose)).await?;
+        return Ok(());
+    };
+    let found = {
+        let (library, cache) = (Arc::clone(&library), Arc::clone(&voice.data().cache));
+
+        blocking(voice.data(), move || audio::track(&library, &cache, id)).await?
+    };
+
+    match found {
+        Ok(None) => voice.say(prose::NO_AUDIO.said(prefs.prose)).await,
+        Ok(Some(track)) if track.bytes.len() > UPLOAD_LIMIT => voice.say(oversized(track.bytes.len(), prefs.prose)).await,
+        Ok(Some(track)) => {
+            if !track.cached {
+                info!(id, bytes = track.bytes.len(), "A sound effect was converted");
+            }
+
+            voice.post(Post::file(track.bytes, track.name)).await.map(|_| ())
+        }
+        Err(trouble) => {
+            if let Some(reason) = trouble.unexpected() {
+                error!(id, "A track could not be sent: {}", reason);
+            }
+
+            voice.say(trouble.told(prefs.prose)).await
+        }
+    }
 }
 
 fn oversized(length: usize, prose: Prose) -> String {
@@ -756,7 +833,7 @@ async fn understood(ctx: Context<'_>, request: Option<String>, kind: Kind) -> Re
     match grammar::parse(request.as_deref().unwrap_or_default(), kind) {
         Ok(request) => Ok(Some(request)),
         Err(reason) => {
-            say(ctx, prose::SEE_HELP.filled(prose_of(ctx), &[("reason", &reason), ("prefix", &prefix_of(ctx.data(), ctx.author().id.get()))])).await?;
+            refused(ctx, &reason).await?;
             Ok(None)
         }
     }
@@ -907,22 +984,43 @@ async fn serve_enemy(voice: Voice<'_>, request: Request) -> Result<(), Error> {
     }
 }
 
+async fn refused(ctx: Context<'_>, reason: &str) -> Result<(), Error> {
+    say(ctx, prose::SEE_HELP.filled(prose_of(ctx), &[("reason", reason), ("prefix", &prefix_of(ctx.data(), ctx.author().id.get()))])).await?;
+    Ok(())
+}
+
+#[poise::command(slash_command, prefix_command, install_context = "Guild|User", interaction_context = "Guild|BotDm|PrivateChannel", aliases("bg", "b"))]
+async fn background(ctx: Context<'_>, #[description = "ID, then --seed, --range, --offset, --dimensions or --format"] #[rest] request: Option<String>) -> Result<(), Error> {
+    match grammar::scenery(request.as_deref().unwrap_or_default()) {
+        Ok(scenery) => serve_background(Voice::Command(ctx), scenery).await,
+        Err(reason) => refused(ctx, &reason).await,
+    }
+}
+
+#[poise::command(slash_command, prefix_command, install_context = "Guild|User", interaction_context = "Guild|BotDm|PrivateChannel", aliases("a"))]
+async fn audio(ctx: Context<'_>, #[description = "A track or sound effect ID, like 5"] #[rest] id: Option<String>) -> Result<(), Error> {
+    match grammar::track(id.as_deref().unwrap_or_default()) {
+        Ok(id) => serve_audio(Voice::Command(ctx), id).await,
+        Err(reason) => refused(ctx, &reason).await,
+    }
+}
+
 #[poise::command(slash_command, prefix_command, install_context = "Guild|User", interaction_context = "Guild|BotDm|PrivateChannel", aliases("h"))]
 async fn help(ctx: Context<'_>, #[description = "A command to explain, like cat or enemy"] #[rest] command: Option<String>) -> Result<(), Error> {
     let asked = command.as_deref().map(str::trim).filter(|asked| !asked.is_empty());
     let owner = ctx.author().id.get();
     let prefix = prefix_of(ctx.data(), owner);
-    let page = match asked {
-        None => Some(HOME),
-        Some(asked) => {
-            let asked = asked.to_lowercase();
-
-            canonical(asked.strip_prefix(prefix.to_lowercase().as_str()).or_else(|| asked.strip_prefix(prefs::PREFIX)).unwrap_or(&asked))
-        }
-    };
+    let lowered = asked.map(str::to_lowercase).unwrap_or_default();
+    let mut words = lowered.split_whitespace();
+    let named = words.next().map(|word| word.strip_prefix(prefix.to_lowercase().as_str()).or_else(|| word.strip_prefix(prefs::PREFIX)).unwrap_or(word));
+    let page = named.map_or(Some(HOME), canonical);
 
     match page {
-        Some(page) => send(ctx, CreateReply::default().embed(help_page(page, &prefix, prose_of(ctx))).components(help_rows(owner, page))).await?,
+        Some(page) => {
+            let section = section_of(page, words.next().unwrap_or_default());
+
+            send(ctx, CreateReply::default().embed(help_page(page, section, &prefix, prose_of(ctx))).components(help_rows(owner, page, section))).await?
+        }
         None => say(ctx, prose::NO_PAGE.filled(prose_of(ctx), &[("name", asked.unwrap_or_default()), ("prefix", &prefix)])).await?,
     };
 
@@ -930,15 +1028,34 @@ async fn help(ctx: Context<'_>, #[description = "A command to explain, like cat 
 }
 
 const HOME: &str = "home";
-const PAGES: [(&str, &str); 8] = [(HOME, "Home"), ("cat", "Cat"), ("enemy", "Enemy"), ("settings", "Settings"), ("website", "Website"), ("invite", "Invite"), ("legal", "Legal"), ("help", "Help")];
-const PAGES_PER_ROW: usize = 4;
+const PAGES: [(&str, &str); 10] = [(HOME, "Home"), ("cat", "Cat"), ("enemy", "Enemy"), ("background", "Background"), ("audio", "Audio"), ("settings", "Settings"), ("website", "Website"), ("invite", "Invite"), ("legal", "Legal"), ("help", "Help")];
+const PAGES_PER_ROW: usize = 5;
+const GENERAL: &str = "general";
+const UNIT_SECTIONS: [(&str, &str); 4] = [(GENERAL, "General"), ("unit", "Unit"), ("stats", "Stats"), ("animation", "Animation")];
+const CAT_SECTIONS: [(&str, &str); 5] = [(GENERAL, "General"), ("unit", "Unit"), ("stats", "Stats"), ("animation", "Animation"), ("buttons", "Buttons")];
+
+fn sections(page: &str) -> &'static [(&'static str, &'static str)] {
+    match page {
+        "cat" => &CAT_SECTIONS,
+        "enemy" => &UNIT_SECTIONS,
+        _ => &[],
+    }
+}
+
+fn section_of(page: &str, asked: &str) -> &'static str {
+    let held = sections(page);
+
+    held.iter().find(|(key, _)| *key == asked || key.starts_with(asked) && !asked.is_empty()).or(held.first()).map_or("", |(key, _)| key)
+}
 
 fn canonical(asked: &str) -> Option<&'static str> {
     match asked {
         "home" | "general" => Some(HOME),
         "cat" | "c" => Some("cat"),
         "enemy" | "e" => Some("enemy"),
-        "settings" | "s" | "set" => Some("settings"),
+        "background" | "bg" | "b" => Some("background"),
+        "audio" | "a" => Some("audio"),
+        "settings" | "set" => Some("settings"),
         "website" | "web" | "w" => Some("website"),
         "invite" | "i" | "inv" => Some("invite"),
         "legal" | "l" | "license" => Some("legal"),
@@ -947,22 +1064,17 @@ fn canonical(asked: &str) -> Option<&'static str> {
     }
 }
 
-fn help_rows(owner: u64, current: &str) -> Vec<serenity::CreateActionRow> {
-    PAGES
-        .chunks(PAGES_PER_ROW)
-        .map(|row| {
-            let buttons = row
-                .iter()
-                .map(|(page, label)| {
-                    let here = *page == current;
+fn help_rows(owner: u64, current: &str, section: &str) -> Vec<serenity::CreateActionRow> {
+    let button = |custom: String, label: &str, here: bool| serenity::CreateButton::new(custom).label(label).style(if here { serenity::ButtonStyle::Primary } else { serenity::ButtonStyle::Secondary }).disabled(here);
+    let held = sections(current);
+    let buttons: Vec<serenity::CreateButton> = if held.is_empty() {
+        PAGES.iter().map(|(page, label)| button(format!("help|{owner}|{page}"), label, *page == current)).collect()
+    } else {
+        std::iter::once(button(format!("help|{owner}|{HOME}"), "Home", false)).chain(held.iter().map(|(key, label)| button(format!("help|{owner}|{current}|{key}"), label, *key == section))).collect()
+    };
+    let rows = buttons.len().div_ceil(PAGES_PER_ROW).max(1);
 
-                    serenity::CreateButton::new(format!("help|{owner}|{page}")).label(*label).style(if here { serenity::ButtonStyle::Primary } else { serenity::ButtonStyle::Secondary }).disabled(here)
-                })
-                .collect();
-
-            serenity::CreateActionRow::Buttons(buttons)
-        })
-        .collect()
+    buttons.chunks(buttons.len().div_ceil(rows).max(1)).map(|row| serenity::CreateActionRow::Buttons(row.to_vec())).collect()
 }
 
 fn page(title: &str, description: &str) -> serenity::CreateEmbed {
@@ -1000,38 +1112,57 @@ impl<'a> Voiced<'a> {
     }
 }
 
-fn help_page(page_name: &str, prefix: &str, prose: Prose) -> serenity::CreateEmbed {
-    let voiced = match page_name {
-        "cat" => Voiced::new(prefix, "hg!cat (c)", "`hg!cat <unit> [stats | animation] ...`")
-            .field("Unit", "`25-3`, `25_t` or `25_s`: an ID and a form (1-4, n e t u, or f c s u)\n`25` or `025`: your default form, or the next one down if it has none\nA name: spaces are fine, close spellings still match\n`--search` (`-s`) after a name: lists the 24 closest matches for you to pick from. A number after it, 1 to 100, is how close a name has to be: 86 to start, lower finds more\n`form` (`f`) after either picks a form: 1-4, n e t u, f c s u, or Normal, Evolved, True, Ultra", false)
+const NAMES: &str = "Spaces are fine, and close spellings still match";
+const SEARCHING: &str = "After a name: lists the 24 closest matches for you to pick from. A number after it, 1 to 100, is how close a name has to be: 86 to start, lower finds more";
+
+fn help_page(page_name: &str, section: &str, prefix: &str, prose: Prose) -> serenity::CreateEmbed {
+    let voiced = match (page_name, section) {
+        ("cat", "unit") => Voiced::new(prefix, "hg!cat (c) • Unit", "What goes where `<unit>` is in `hg!cat <unit> ...`")
+            .field("ID", "`25-3`, `25_t` or `25_s`: an ID and a form (1-4, n e t u, or f c s u)\n`25` or `025`: your default form, or the next one down if it has none", false)
+            .field("Name", NAMES, false)
+            .field("`--search` (`-s`)", SEARCHING, false)
+            .field("`form` (`f`)", "After an ID or a name, picks a form: 1-4, n e t u, f c s u, or Normal, Evolved, True, Ultra", false),
+        ("cat", "stats") => Voiced::new(prefix, "hg!cat (c) • Stats", "`hg!cat <unit> [s | stat] ...`")
+            .field("Level", "`lv50+70`, `lvl50`, `l50`, `level50` or just `50`. Without one, a typical level for its rarity, raised to the level its form or its ultra talents unlock at if that's higher.", false)
+            .field("`--talents` (`-t`)", "`all` (`a`), `standard` (`s`), `ultra` (`u`), `none` (`n`), `show` (`sh`) to list them with their max levels, levels in order like `10 10 5`, or names like `Attack Buff 5`. Talents lift a Normal or Evolved form to True.", false),
+        ("cat", "animation") => Voiced::new(prefix, "hg!cat (c) • Animation", "`hg!cat <unit> [a | anim] [type] ...`").field("Types", CLIPS, false).field("Flags", MOTION_FLAGS, false),
+        ("cat", "buttons") => Voiced::new(prefix, "hg!cat (c) • Buttons", "Statblocks get a button per form, Level, and Talents on True and Ultra forms. Level and Talents turn green when you've set them. Only the person who asked can press them."),
+        ("cat", _) => Voiced::new(prefix, "hg!cat (c)", "`hg!cat <unit> [stats | animation] ...`")
             .field("Stats or animation", "Worked out from what you type: an animation name or flag means animation, a level or `--talents` means stats. `s` or `a` still decides outright, and stats is the default.", false)
-            .field("Stats (`s`, `stat`)", "A level: `lv50+70`, `lvl50`, `l50`, `level50` or just `50`. Without one, a typical level for its rarity, raised to the level its form or its ultra talents unlock at if that's higher.\n`--talents` (`-t`): `all` (`a`), `standard` (`s`), `ultra` (`u`), `none` (`n`), `show` (`sh`) to list them with their max levels, levels in order like `10 10 5`, or names like `Attack Buff 5`. Talents lift a Normal or Evolved form to True.", false)
-            .field("Animation (`a`, `anim`)", CLIPS, false)
-            .field("Animation flags", MOTION_FLAGS, false)
-            .field("Buttons", "Statblocks get a button per form, Level, and Talents on True and Ultra forms. Level and Talents turn green when you've set them. Only the person who asked can press them.", false)
             .field("Examples", "`hg!c 137_u lv50+70 -t all`\n`hg!c bahamut cat form normal`\n`hg!c jamiera cat a showcase -f webp`\n`hg!c 008 a walk -l -r 10~120`", false),
-        "enemy" => Voiced::new(prefix, "hg!enemy (e)", "`hg!enemy <unit> [stats | animation] ...`")
-            .field("Unit", "`763` or `0763`: an ID\nA name: spaces are fine, close spellings still match\n`--search` (`-s`) after a name: lists the 24 closest matches for you to pick from. A number after it, 1 to 100, is how close a name has to be: 86 to start, lower finds more", false)
+        ("enemy", "unit") => Voiced::new(prefix, "hg!enemy (e) • Unit", "What goes where `<unit>` is in `hg!enemy <unit> ...`")
+            .field("ID", "`763` or `0763`", false)
+            .field("Name", NAMES, false)
+            .field("`--search` (`-s`)", SEARCHING, false),
+        ("enemy", "stats") => Voiced::new(prefix, "hg!enemy (e) • Stats", "`hg!enemy <unit> [s | stat] ...`").field("Magnification", "`400%`, or `400%/200%` for hitpoints and attack. 100% without one.", false),
+        ("enemy", "animation") => Voiced::new(prefix, "hg!enemy (e) • Animation", "`hg!enemy <unit> [a | anim] [type] ...`").field("Types", CLIPS, false).field("Flags", MOTION_FLAGS, false),
+        ("enemy", _) => Voiced::new(prefix, "hg!enemy (e)", "`hg!enemy <unit> [stats | animation] ...`")
             .field("Stats or animation", "Worked out from what you type: an animation name or flag means animation, a percentage means stats. `s` or `a` still decides outright, and stats is the default.", false)
-            .field("Stats (`s`, `stat`)", "A magnification: `400%`, or `400%/200%` for hitpoints and attack. 100% without one.", false)
-            .field("Animation (`a`, `anim`)", CLIPS, false)
-            .field("Animation flags", MOTION_FLAGS, false)
             .field("Examples", "`hg!e akaza 400%`, `hg!e akaza s 400`\n`hg!e 763 a attack -c -w`", false),
-        "settings" => Voiced::new(prefix, "hg!settings (s, set)", prose::PAGE_SETTINGS.said(prose))
+        ("background", _) => Voiced::new(prefix, "hg!background (bg, b)", "`hg!background <ID> ...`")
+            .field("What you get", prose::PAGE_BACKGROUND.said(prose), false)
+            .field("Flags", "`--seed 100` (`-e`): which random run a moving background plays, 100 to start\n`--range 0~299` or `--range 0 299` (`-r`): frames of a moving background, 0~299 to start\n`--offset 100 50` (`-o`): moves the view right and up from the middle of the screen; negative numbers go left and down\n`--dimensions 800x600` (`-d`): the picture's size, growing outward from that middle; `800 600` and `800×600` work too. 960x640 to start, up to 4096 on a side and 4 megapixels in all\n`--format webp` (`-f`): `avif` (`a`), `webp` (`w`) or `gif` (`g`), this time only, over your default\n`--quality 90` (`-q`): 0 to 100, 80 to start\n`--compress 30` (`-p`): 0 to 100, 0 to start; higher takes longer", false)
+            .field("Examples", "`hg!bg 0`\n`hg!bg 12 -f gif -d 1920x640`\n`hg!bg 197 -e 7 -r 0~149`\n`hg!bg 2 -o 400 100 -d 800x600`", false),
+        ("audio", _) => Voiced::new(prefix, "hg!audio (a)", "`hg!audio <ID>`")
+            .field("What you get", prose::PAGE_AUDIO.said(prose), false)
+            .field("Examples", "`hg!audio 5`\n`hg!a 7`", false),
+        ("settings", _) => Voiced::new(prefix, "hg!settings (set)", prose::PAGE_SETTINGS.said(prose))
             .field("Language", "Every language the game data has. It also changes which names searches match. English to start.", false)
             .field("Format", "AVIF, WebP or GIF, for animations. AVIF to start, and the smallest by far. `--format` overrides it for one request.", false)
             .field("Default form", "The form a bare ID gets, or a name that matches several forms of one cat. True to start; a cat without it gets the next form down.", false)
             .field("Search", "Exact (to start): a form's exact name gets that form, anything else is a close search. Preferred: a found cat always gets your default form.", false)
             .field("Prefix", "What you type in front of a command, which is `hg!` for you right now. Up to 16 characters, no spaces; leave it empty to go back to `{default}`. Mentioning me and `/` always work.", false)
             .field("Prose", "Human (to start) or Tsundere: how I word what I say. What I tell you stays the same.", false),
-        "website" => Voiced::new(prefix, "hg!website (web, w)", prose::PAGE_WEBSITE.said(prose)),
-        "invite" => Voiced::new(prefix, "hg!invite (inv, i)", prose::PAGE_INVITE.said(prose)),
-        "legal" => Voiced::new(prefix, "hg!legal (license, l)", prose::PAGE_LEGAL.said(prose)),
-        "help" => Voiced::new(prefix, "hg!help (h)", prose::PAGE_HELP.said(prose)),
+        ("website", _) => Voiced::new(prefix, "hg!website (web, w)", prose::PAGE_WEBSITE.said(prose)),
+        ("invite", _) => Voiced::new(prefix, "hg!invite (inv, i)", prose::PAGE_INVITE.said(prose)),
+        ("legal", _) => Voiced::new(prefix, "hg!legal (license, l)", prose::PAGE_LEGAL.said(prose)),
+        ("help", _) => Voiced::new(prefix, "hg!help (h)", prose::PAGE_HELP.said(prose)),
         _ => Voiced::new(prefix, "Hagane", prose::HELP_HOME.said(prose))
             .field("`hg!cat` (`c`)", prose::HOME_CAT.said(prose), false)
             .field("`hg!enemy` (`e`)", prose::HOME_ENEMY.said(prose), false)
-            .field("`hg!settings` (`s`, `set`)", prose::HOME_SETTINGS.said(prose), false)
+            .field("`hg!background` (`bg`, `b`)", prose::HOME_BACKGROUND.said(prose), false)
+            .field("`hg!audio` (`a`)", prose::HOME_AUDIO.said(prose), false)
+            .field("`hg!settings` (`set`)", prose::HOME_SETTINGS.said(prose), false)
             .field("`hg!website` (`web`, `w`)", prose::HOME_WEBSITE.said(prose), false)
             .field("`hg!invite` (`inv`, `i`)", prose::HOME_INVITE.said(prose), false)
             .field("`hg!legal` (`license`, `l`)", prose::HOME_LEGAL.said(prose), false)
@@ -1166,7 +1297,7 @@ fn settings_page(what: &str) -> usize {
     SETTINGS.iter().position(|setting| setting.key() == what).map_or(0, |slot| slot / SETTINGS_ROWS)
 }
 
-#[poise::command(slash_command, prefix_command, install_context = "Guild|User", interaction_context = "Guild|BotDm|PrivateChannel", aliases("set", "s"))]
+#[poise::command(slash_command, prefix_command, install_context = "Guild|User", interaction_context = "Guild|BotDm|PrivateChannel", aliases("set"))]
 async fn settings(ctx: Context<'_>) -> Result<(), Error> {
     if let poise::Context::Prefix(_) = ctx {
         let open = serenity::CreateButton::new(OPEN_SETTINGS).label("Open Settings").style(serenity::ButtonStyle::Primary);
@@ -1258,8 +1389,10 @@ async fn on_press(ctx: &serenity::Context, press: &serenity::ComponentInteractio
             return refuse(ctx, press, data).await;
         }
 
+        let (page, section) = page.split_once('|').unwrap_or((page, ""));
         let page = canonical(page).unwrap_or(HOME);
-        let turned = serenity::CreateInteractionResponseMessage::new().embed(help_page(page, &prefix_of(data, press.user.id.get()), data.book.prose(press.user.id.get()))).components(help_rows(press.user.id.get(), page));
+        let section = section_of(page, section);
+        let turned = serenity::CreateInteractionResponseMessage::new().embed(help_page(page, section, &prefix_of(data, press.user.id.get()), data.book.prose(press.user.id.get()))).components(help_rows(press.user.id.get(), page, section));
 
         press.create_response(ctx, serenity::CreateInteractionResponse::UpdateMessage(turned)).await?;
         return Ok(());
@@ -1603,21 +1736,48 @@ mod tests {
     // Help speaks in the reader's own prefix, and only names hg! where it means the default.
     #[test]
     fn help_uses_the_readers_prefix() {
-        let voiced = |page: &str, prefix: &str, prose: Prose| serde_json::to_string(&help_page(page, prefix, prose)).unwrap();
-        let shown = |page: &str, prefix: &str| voiced(page, prefix, Prose::Human);
+        let voiced = |page: &str, section: &str, prefix: &str, prose: Prose| serde_json::to_string(&help_page(page, section, prefix, prose)).unwrap();
+        let shown = |page: &str, prefix: &str| voiced(page, section_of(page, ""), prefix, Prose::Human);
 
         for (page, _) in PAGES {
-            for prose in Prose::ALL {
-                assert!(!voiced(page, "hg!", prose).contains(DEFAULT_PREFIX), "{page}");
-                assert_eq!(voiced(page, "hagane", prose).matches("hg!").count(), usize::from(page == "settings"), "{page}");
+            for section in sections(page).iter().map(|(key, _)| *key).chain([""]) {
+                for prose in Prose::ALL {
+                    assert!(!voiced(page, section, "hg!", prose).contains(DEFAULT_PREFIX), "{page} {section}");
+                    assert_eq!(voiced(page, section, "hagane", prose).matches("hg!").count(), usize::from(page == "settings"), "{page} {section}");
+                }
             }
         }
 
-        assert!(voiced(HOME, "hagane", Prose::Tsundere).contains("Use `hagane`, mention me, reply to me, DM me, or use `/`. I-It's not like I'm happy when you do!"));
+        assert!(voiced(HOME, "", "hagane", Prose::Tsundere).contains("Use `hagane`, mention me, reply to me, DM me, or use `/`. I-It's not like I'm happy when you do!"));
 
         assert!(shown("cat", "hagane").contains("`haganecat <unit>"));
         assert!(shown("cat", "hg!").contains("`hg!cat <unit>"));
         assert!(shown("settings", "hagane").contains("go back to `hg!`"));
+    }
+
+    // Cat and Enemy open onto their own section buttons with Home beside them, every other page keeps the page buttons, and nothing overflows Discord's limits.
+    #[test]
+    fn help_pages_with_sections_swap_their_buttons() {
+        let labels = |page: &str, section: &str| -> Vec<Vec<String>> {
+            serde_json::to_value(help_rows(1, page, section)).unwrap().as_array().unwrap().iter().map(|row| row["components"].as_array().unwrap().iter().map(|button| button["label"].as_str().unwrap().to_owned()).collect()).collect()
+        };
+
+        assert_eq!(labels("cat", GENERAL), [["Home", "General", "Unit"], ["Stats", "Animation", "Buttons"]]);
+        assert_eq!(labels("enemy", "stats"), [["Home", "General", "Unit", "Stats", "Animation"]]);
+        assert_eq!(labels(HOME, ""), [["Home", "Cat", "Enemy", "Background", "Audio"], ["Settings", "Website", "Invite", "Legal", "Help"]]);
+        assert_eq!(labels("audio", ""), labels(HOME, ""));
+        assert_eq!((section_of("cat", ""), section_of("cat", "stats"), section_of("cat", "anim"), section_of("cat", "nonsense"), section_of("enemy", "buttons"), section_of("audio", "unit")), (GENERAL, "stats", "animation", GENERAL, GENERAL, ""));
+
+        for (page, _) in PAGES {
+            for section in sections(page).iter().map(|(key, _)| *key).chain([""]) {
+                let embed = serde_json::to_value(help_page(page, section_of(page, section), "hg!", Prose::Tsundere)).unwrap();
+                let fields = embed["fields"].as_array().cloned().unwrap_or_default();
+
+                assert!(embed["description"].as_str().is_some_and(|text| !text.is_empty() && text.len() <= 4096), "{page} {section}");
+                assert!(fields.iter().all(|field| field["value"].as_str().is_some_and(|text| !text.is_empty() && text.len() <= 1024)), "{page} {section}");
+                assert!(help_rows(1, page, section).len() <= 5);
+            }
+        }
     }
 
     // Someone's own prefix takes the place of hg!, which then reads as plain chat for them.

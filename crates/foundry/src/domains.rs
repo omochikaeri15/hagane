@@ -13,5 +13,5 @@ pub mod settings;
 pub mod stage;
 #[cfg(feature = "studio")]
 pub mod studio;
-#[cfg(feature = "studio")]
+#[cfg(any(feature = "studio", feature = "export"))]
 pub mod utilities;

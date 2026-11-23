@@ -76,6 +76,10 @@ pub(crate) enum Trouble {
     NoEnemy,
     NoLoop,
     NoBounds,
+    NoBackground,
+    Still(u32, &'static str),
+    BadFrames(i32),
+    BadSize { side: u32, megapixels: u32 },
     TooLong,
     TooBig,
     TooMany { frames: i32, limit: i32 },
@@ -99,6 +103,10 @@ impl Trouble {
             Trouble::NoEnemy => NO_ENEMY.said(prose).to_owned(),
             Trouble::NoLoop => NO_LOOP.said(prose).to_owned(),
             Trouble::NoBounds => NO_BOUNDS.said(prose).to_owned(),
+            Trouble::NoBackground => NO_BACKGROUND.said(prose).to_owned(),
+            Trouble::Still(id, flag) => STILL.filled(prose, &[("id", &id.to_string()), ("flag", flag)]),
+            Trouble::BadFrames(last) => BAD_FRAMES.filled(prose, &[("last", &last.to_string())]),
+            Trouble::BadSize { side, megapixels } => BAD_SIZE.filled(prose, &[("side", &side.to_string()), ("megapixels", &megapixels.to_string())]),
             Trouble::TooLong => TOO_LONG.said(prose).to_owned(),
             Trouble::TooBig => OVER_LIMIT.said(prose).to_owned(),
             Trouble::TooMany { frames, limit } => TOO_MANY.filled(prose, &[("frames", &frames.to_string()), ("limit", &limit.to_string())]),
@@ -120,7 +128,12 @@ impl Trouble {
 
 pub(crate) const NO_CAT: Line = Line::new("Unable to find Cat!", "Hmph. There's no cat like that, dummy! Check your spelling!");
 pub(crate) const NO_ENEMY: Line = Line::new("Unable to find Enemy!", "That enemy doesn't exist! D-Don't make me look for things that aren't there!");
-pub(crate) const NO_UNIT: Line = Line::new("Unable to find Cat or Enemy! See `{prefix}help`", "There's no cat or enemy like that, dummy! If you wanted a command, go read `{prefix}help`!");
+pub(crate) const NO_UNIT: Line = Line::new("`{word}` isn't a command I know, and I couldn't find a cat or enemy like that either. See `{prefix}help`", "`{word}` isn't a command, and there's no cat or enemy like that either, dummy! Go read `{prefix}help` already!");
+pub(crate) const NO_BACKGROUND: Line = Line::new("Unable to find Background!", "There's no background with that ID, dummy! Count again!");
+pub(crate) const NO_AUDIO: Line = Line::new("Unable to find Audio!", "There's no track with that ID! W-What were you expecting to hear?!");
+pub(crate) const STILL: Line = Line::new("Background {id} doesn't move, so `{flag}` has nothing to change", "Background {id} doesn't even move, so `{flag}` does nothing! Pay attention!");
+pub(crate) const BAD_FRAMES: Line = Line::new("A background's `--range` goes from a lower frame to a higher one, from 0 up to {last}", "A background's `--range` goes from a lower frame to a higher one, from 0 up to {last}! Is that so hard?!");
+pub(crate) const BAD_SIZE: Line = Line::new("A background can be from 2 to {side} on a side, and up to {megapixels} megapixels in all", "A background can be from 2 to {side} on a side, and up to {megapixels} megapixels in all! I'm not painting you a mural!");
 pub(crate) const BUSY: Line = Line::new("Sorry! But I am busy encoding at the moment; check back later maybe?", "Can't you see I'm busy encoding?! Come back later... n-not that I'll be waiting for you or anything!");
 pub(crate) const WARMING: Line = Line::new("Still loading the game data, try again in a few minutes", "I'm still loading the game data, okay?! Give me a few minutes, geez!");
 pub(crate) const INVITE: Line = Line::new("If you want to invite me to a server, ask my creator to both whitelist your server ID and to provide to you an invite link!", "You want me in your server? Hmph... ask my creator to both whitelist your server ID and to give you an invite link. I-It's not like I want to go or anything!");
@@ -158,6 +171,10 @@ pub(crate) const PREFIX_LONG: Line = Line::new("A prefix can be {limit} characte
 pub(crate) const HELP_HOME: Line = Line::new("Use `hg!`, mention me, reply to me, DM me, or use `/`.\nLeave out `cat` or `enemy` and I look through both: `hg!bahamut`, `hg!cyclone a walk`.\nThe buttons below open each command, or use `hg!help <command>`.", "Use `hg!`, mention me, reply to me, DM me, or use `/`. I-It's not like I'm happy when you do!\nLeave out `cat` or `enemy` and I'll look through both, like `hg!bahamut` or `hg!cyclone a walk`. Honestly, how lazy can you get?!\nThe buttons below open each command, or use `hg!help <command>`. Don't make me explain it twice!");
 pub(crate) const HOME_CAT: Line = Line::new("A cat's statblock or animation, by ID or name", "A cat's statblock or animation, by ID or name. Fine, I'll fetch it");
 pub(crate) const HOME_ENEMY: Line = Line::new("An enemy's statblock or animation, by ID or name", "An enemy's statblock or animation, by ID or name. Don't blame me if it's scary");
+pub(crate) const HOME_BACKGROUND: Line = Line::new("A stage background by ID, as a picture or an animation if it moves", "A stage background by ID, as a picture or an animation if it moves. It's just scenery, don't get excited");
+pub(crate) const HOME_AUDIO: Line = Line::new("A music track or sound effect by ID", "A music track or sound effect by ID. D-Don't play it too loud!");
+pub(crate) const PAGE_BACKGROUND: Line = Line::new("The background with that ID, as the game shows it on a 960 by 640 screen. One that moves comes as an animation, and one that doesn't comes as a single picture.", "The background with that ID, as the game shows it on a 960 by 640 screen. One that moves comes as an animation, and one that doesn't comes as a single picture. D-Don't just sit there staring at it!");
+pub(crate) const PAGE_AUDIO: Line = Line::new("The music track or sound effect with that ID.", "The music track or sound effect with that ID. I-It's not like I was humming along!");
 pub(crate) const HOME_SETTINGS: Line = Line::new("Your language, image format, default form and prefix", "Your language, image format, default form and prefix. Have it your way, see if I care");
 pub(crate) const HOME_WEBSITE: Line = Line::new("A link to the Hagane website", "A link to the Hagane website, if you really must");
 pub(crate) const HOME_INVITE: Line = Line::new("How to get me into a server", "How to get me into a server... n-not that I want to be invited!");
@@ -171,7 +188,16 @@ pub(crate) const PAGE_HELP: Line = Line::new("`hg!help` lists every command. `hg
 pub(crate) const DO_NOTHING: Line = Line::new("Okay! I will do nothing", "Fine! I'll do nothing! I-It's not like I wanted to do something for you anyway!");
 
 #[cfg(test)]
-pub(crate) const LINES: [&Line; 51] = [
+pub(crate) const LINES: [&Line; 60] = [
+    &BAD_SIZE,
+    &HOME_BACKGROUND,
+    &HOME_AUDIO,
+    &PAGE_BACKGROUND,
+    &PAGE_AUDIO,
+    &NO_BACKGROUND,
+    &NO_AUDIO,
+    &STILL,
+    &BAD_FRAMES,
     &NO_CAT,
     &NO_ENEMY,
     &NO_UNIT,
