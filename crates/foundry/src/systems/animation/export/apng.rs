@@ -6,7 +6,7 @@ use flate2::write::ZlibEncoder;
 use flate2::{Compression, Crc};
 use tracing::error;
 
-use super::frames::{self, Chain, Intake, Rect, Still, Take};
+use super::frames::{self, Chain, Intake, Rect, Still, Take, Weighed};
 
 const SIGNATURE: [u8; 8] = [0x89, b'P', b'N', b'G', 0x0D, 0x0A, 0x1A, 0x0A];
 const RGBA_8_BIT: [u8; 5] = [8, 6, 0, 0, 0];
@@ -85,6 +85,12 @@ struct Cel {
     rect: Rect,
     dispose: u8,
     blend: u8,
+}
+
+impl Weighed for Cel {
+    fn weight(&self) -> usize {
+        self.data.len()
+    }
 }
 
 struct Draft {

@@ -82,6 +82,29 @@ impl Library {
         self.enemies.iter().find(|enemy| enemy.id == id)
     }
 
+    fn scored_cats(&self, query: &Query, closeness: u32) -> Vec<(&CatEntry, usize, u32)> {
+        self.cats
+            .iter()
+            .flat_map(|cat| cat.names.iter().enumerate().filter(|(form, _)| cat.forms[*form]).filter_map(move |(form, held)| Some((cat, form, held.as_deref()?))))
+            .filter_map(|(cat, form, held)| Some((cat, form, query.score_within(held, closeness)?)))
+            .collect()
+    }
+
+    pub(crate) fn search_cats(&self, name: &str, closeness: u32) -> Vec<(&CatEntry, usize)> {
+        let mut scored = self.scored_cats(&Query::new(name), closeness);
+
+        scored.sort_by_key(|(cat, form, score)| (Reverse(*score), cat.id, *form));
+        scored.into_iter().map(|(cat, form, _)| (cat, form)).collect()
+    }
+
+    pub(crate) fn search_enemies(&self, name: &str, closeness: u32) -> Vec<&EnemyEntry> {
+        let query = Query::new(name);
+        let mut scored: Vec<(&EnemyEntry, u32)> = self.enemies.iter().filter_map(|enemy| Some((enemy, query.score_within(&enemy.name, closeness)?))).collect();
+
+        scored.sort_by_key(|(enemy, score)| (Reverse(*score), enemy.id));
+        scored.into_iter().map(|(enemy, _)| enemy).collect()
+    }
+
     pub(crate) fn find_cat(&self, name: &str, prefs: &Prefs) -> Option<(&CatEntry, usize)> {
         let query = Query::new(name);
 
@@ -89,12 +112,7 @@ impl Library {
             return None;
         }
 
-        let scored: Vec<(&CatEntry, usize, u32)> = self
-            .cats
-            .iter()
-            .flat_map(|cat| cat.names.iter().enumerate().filter(|(form, _)| cat.forms[*form]).filter_map(move |(form, held)| Some((cat, form, held.as_deref()?))))
-            .filter_map(|(cat, form, held)| Some((cat, form, query.score(held)?)))
-            .collect();
+        let scored = self.scored_cats(&query, fuzzy::CLOSENESS);
         let best = scored.iter().map(|(_, _, score)| *score).max()?;
         let (cat, _, _) = scored.iter().filter(|(_, _, score)| *score == best).min_by_key(|(cat, form, _)| (cat.id, *form))?;
 

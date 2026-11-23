@@ -1,5 +1,6 @@
 use std::mem;
 
+use super::fuzzy::CLOSENESS;
 use super::render::{Clip, Format};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -84,10 +85,13 @@ pub(crate) struct Request {
     pub(crate) want: Want,
     pub(crate) whole: Option<String>,
     pub(crate) form: Option<usize>,
+    pub(crate) search: Option<u32>,
+    pub(crate) tail: String,
 }
 
 const MAX_CULL: i32 = 100;
 const MAX_PERCENT: i64 = 100;
+const MAX_CLOSENESS: u32 = 100;
 const LOOP_MINIMUM: i32 = 15;
 const LOOP_DIFFERENCE: i32 = 30;
 
@@ -99,7 +103,12 @@ fn is_flag(token: &str) -> bool {
     token.starts_with("--") || token.strip_prefix('-').is_some_and(|rest| rest.chars().next().is_some_and(char::is_alphabetic))
 }
 
+const SEARCH_HINT: &str = "`--search` (`-s`) looks a name up, so give it a name instead of an ID";
 const FORM_HINT: &str = "`form` (`f`) takes 1-4, n e t u, f c s u, or Normal, Evolved, True, Ultra";
+
+fn search_flag(token: &str) -> bool {
+    matches!(lower(token).as_str(), "--search" | "-s")
+}
 
 fn form_word(token: &str) -> bool {
     matches!(lower(token).as_str(), "form" | "f")
@@ -280,7 +289,11 @@ pub(crate) fn talents_of(tokens: &[&str]) -> Vec<Talent> {
 }
 
 pub(crate) fn parse(text: &str, kind: Kind) -> Result<Request, String> {
-    let tokens: Vec<&str> = text.split_whitespace().collect();
+    let typed: Vec<&str> = text.split_whitespace().collect();
+    let flagged = |at: usize| at > 0 && typed.get(at).is_some_and(|token| search_flag(token));
+    let closeness = |at: usize| typed.get(at).and_then(|token| token.trim_end_matches('%').parse::<u32>().ok());
+    let search = (1..typed.len()).find(|at| flagged(*at)).map(|at| closeness(at + 1).map_or(CLOSENESS, |typed| typed.clamp(1, MAX_CLOSENESS)));
+    let tokens: Vec<&str> = typed.iter().enumerate().filter(|(at, _)| !flagged(*at) && !(flagged(at.wrapping_sub(1)) && closeness(*at).is_some())).map(|(_, token)| *token).collect();
     let mut at = 0;
     let unit = match tokens.first().and_then(|token| unit_of(token, kind)) {
         Some(unit) => {
@@ -310,6 +323,12 @@ pub(crate) fn parse(text: &str, kind: Kind) -> Result<Request, String> {
         return Err("Name a unit first, by ID or by name".to_owned());
     }
 
+    if search.is_some() && matches!(unit, Unit::Id(..)) {
+        return Err(SEARCH_HINT.to_owned());
+    }
+
+    let tail = tokens[at..].join(" ");
+
     let mut form = None;
 
     if kind == Kind::Cat && tokens.get(at).is_some_and(|token| form_word(token)) {
@@ -328,7 +347,7 @@ pub(crate) fn parse(text: &str, kind: Kind) -> Result<Request, String> {
 
     let want = if animated { Want::Motion(motion_of(rest)?) } else { Want::Stats(stats_of(rest, kind)?) };
 
-    Ok(Request { unit, want, whole, form })
+    Ok(Request { unit, want, whole, form, search, tail })
 }
 
 fn stats_of(tokens: &[&str], kind: Kind) -> Result<Stats, String> {
@@ -455,6 +474,26 @@ fn motion_of(tokens: &[&str]) -> Result<Motion, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // The search flag can sit anywhere after the name, and what is left is what gets asked of the pick.
+    #[test]
+    fn search_keeps_the_rest_of_the_request() {
+        let read = parse("cyclops --search a walk -f gif", Kind::Enemy).unwrap();
+        let late = parse("bahamut cat form normal lv30 -s", Kind::Cat).unwrap();
+
+        assert_eq!((read.unit, read.search, read.tail.as_str()), (Unit::Name("cyclops".to_owned()), Some(CLOSENESS), "a walk -f gif"));
+        assert!(matches!(read.want, Want::Motion(_)));
+        assert_eq!((late.unit, late.search, late.tail.as_str(), late.form), (Unit::Name("bahamut cat".to_owned()), Some(CLOSENESS), "form normal lv30", Some(0)));
+        assert_eq!(parse("bahamut cat", Kind::Cat).unwrap().search, None);
+
+        let loose = parse("cyclops 3d -s 70 a walk", Kind::Enemy).unwrap();
+
+        assert_eq!((loose.unit, loose.search, loose.tail.as_str()), (Unit::Name("cyclops 3d".to_owned()), Some(70), "a walk"), "a number right after the flag is how close a name must be");
+        assert_eq!(parse("cyclops --search 500%", Kind::Enemy).unwrap().search, Some(100));
+        assert_eq!(parse("cyclops --search 0", Kind::Enemy).unwrap().search, Some(1));
+        assert_eq!(parse("25 --search", Kind::Cat), Err(SEARCH_HINT.to_owned()));
+        assert_eq!(parse("25-3 a walk", Kind::Cat).unwrap().tail, "a walk", "a pick is replayed as an ID with the same tail");
+    }
 
     fn stats(text: &str) -> Stats {
         match parse(text, Kind::Cat).map(|request| request.want) {

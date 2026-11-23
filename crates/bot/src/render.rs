@@ -33,6 +33,7 @@ const SHORT_LOOP: i32 = 2;
 const SHOWCASE_ROLES: [Role; 4] = [Role::Walk, Role::Idle, Role::Attack, Role::Knockback];
 const JOB_LIMIT: Duration = Duration::from_secs(180);
 const FILE_NAME: &str = "name";
+const TOO_BIG: &str = "big";
 const OVERLAY_MARGIN: f32 = 2.0;
 pub(crate) const MAX_FRAMES: i32 = 8400;
 const NO_CULL: i32 = 0;
@@ -259,6 +260,10 @@ pub(crate) fn plan(library: &Library, cache: &Cache, set: &MotionSet, options: &
 
     let key = recipe.finish();
 
+    if cache.get(&key, TOO_BIG).is_some() {
+        return Err(Trouble::TooBig);
+    }
+
     if let Some(bytes) = cache.get(&key, options.format.extension())
         && let Some(name) = cache.get(&key, FILE_NAME).and_then(|name| String::from_utf8(name).ok())
     {
@@ -371,7 +376,7 @@ impl Job {
         process::file_name(&self.prefix, matches!(span, Span::Showcase(_)), from, to, &self.format.export())
     }
 
-    pub(crate) fn run(self, cache: &Cache, progress: &Progress) -> Result<(Vec<u8>, String), Trouble> {
+    pub(crate) fn run(self, cache: &Cache, progress: &Progress, limit: u64) -> Result<(Vec<u8>, String), Trouble> {
         let started = Instant::now();
         let offset = Placement::default().offset(self.rig.model.alignment.len());
         let Some(first) = self.tracks.first() else {
@@ -476,6 +481,7 @@ impl Job {
         let (sender, receiver) = mpsc::sync_channel(IN_FLIGHT);
         let (finished, watch) = mpsc::channel::<()>();
         let encoder_abort = AtomicBool::new(false);
+        let oversized = AtomicBool::new(false);
         let deadline = JOB_LIMIT.saturating_sub(started.elapsed());
 
         thread::scope(|scope| {
@@ -491,10 +497,15 @@ impl Job {
                 leader::run(
                     config,
                     receiver,
-                    |status| {
-                        if let EncoderStatus::Progress(done) = status {
+                    |status| match status {
+                        EncoderStatus::Progress(done) => {
                             progress.done.fetch_max(done, Ordering::Relaxed);
                         }
+                        EncoderStatus::Size(bytes) if bytes > limit => {
+                            oversized.store(true, Ordering::Relaxed);
+                            encoder_abort.store(true, Ordering::Relaxed);
+                        }
+                        EncoderStatus::Size(_) | EncoderStatus::Finished => {}
                     },
                     &encoder_abort,
                 )
@@ -554,6 +565,16 @@ impl Job {
 
             drop(finished);
         });
+
+        if oversized.load(Ordering::Relaxed) {
+            info!(set = self.name, clip = self.clip.slug(), format = self.format.extension(), frames, seconds = started.elapsed().as_secs(), "An animation passed the size limit and was stopped");
+
+            if let Err(err) = cache.keep(&self.key, TOO_BIG, TOO_BIG.as_bytes()) {
+                warn!(set = self.name, "The size refusal could not be cached: {}", err);
+            }
+
+            return Err(Trouble::TooBig);
+        }
 
         if encoder_abort.load(Ordering::Relaxed) {
             warn!(set = self.name, clip = self.clip.slug(), frames, seconds = started.elapsed().as_secs(), "An animation hit the time limit");

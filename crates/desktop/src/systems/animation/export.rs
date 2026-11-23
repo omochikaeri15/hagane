@@ -924,6 +924,7 @@ impl State {
 
                 match status {
                     EncoderStatus::Progress(progress) => job.encoded_frames = progress as i32,
+                    EncoderStatus::Size(_) => {}
                     EncoderStatus::Finished => {
                         let result = if matches!(job.phase, JobPhase::Aborting) {
                             JobResult::Terminated

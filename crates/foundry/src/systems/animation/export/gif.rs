@@ -7,7 +7,7 @@ use std::path::Path;
 
 use tracing::error;
 
-use super::frames::{self, Chain, Intake, Rect, Still, Take};
+use super::frames::{self, Chain, Intake, Rect, Still, Take, Weighed};
 
 const HEADER: &[u8; 6] = b"GIF89a";
 const LOOP_FOREVER: [u8; 19] = [0x21, 0xFF, 0x0B, b'N', b'E', b'T', b'S', b'C', b'A', b'P', b'E', b'2', b'.', b'0', 0x03, 0x01, 0x00, 0x00, 0x00];
@@ -46,6 +46,12 @@ struct Picture {
     data: Vec<u8>,
     rect: Rect,
     dispose: u8,
+}
+
+impl Weighed for Picture {
+    fn weight(&self) -> usize {
+        self.data.len() + self.colors.len() * 3
+    }
 }
 
 fn solid(texel: &[u8; PIXEL]) -> bool {

@@ -165,6 +165,16 @@ pub(crate) trait Chain {
     fn push(&mut self, before: Option<&Still<'_>>, now: &Still<'_>, next: Option<&Still<'_>>) -> Option<Self::Payload>;
 }
 
+pub(crate) trait Weighed {
+    fn weight(&self) -> usize;
+}
+
+impl Weighed for Vec<u8> {
+    fn weight(&self) -> usize {
+        self.len()
+    }
+}
+
 pub(crate) struct Take<P> {
     pub payload: P,
     pub ticks: u32,
@@ -214,7 +224,7 @@ fn stretch<C: Chain>(stretch: &Stretch, weights: &[u32], tally: &Tally<'_>, star
     Some(out)
 }
 
-pub(crate) fn runs<C: Chain, P: Send>(intake: Intake<'_>, length: usize, start: impl Fn(Option<Rect>, bool) -> C + Sync, finish: impl Fn(C::Payload) -> Option<P> + Sync, reuse: Option<fn(&P) -> P>) -> Option<Vec<Take<P>>> {
+pub(crate) fn runs<C: Chain, P: Send + Weighed>(intake: Intake<'_>, length: usize, start: impl Fn(Option<Rect>, bool) -> C + Sync, finish: impl Fn(C::Payload) -> Option<P> + Sync, reuse: Option<fn(&P) -> P>) -> Option<Vec<Take<P>>> {
     let Intake { config, receiver, emit, abort } = intake;
     let (width, height) = (config.width, config.height);
     let wanted = width as usize * height as usize * PIXEL;
@@ -234,6 +244,7 @@ pub(crate) fn runs<C: Chain, P: Send>(intake: Intake<'_>, length: usize, start: 
     let mut mirror: Option<usize> = None;
     let mut pending: Vec<usize> = Vec::new();
     let mut detached = false;
+    let mut written = 0u64;
 
     loop {
         let (batch, finished) = gather(&receiver, threads * 2);
@@ -362,10 +373,14 @@ pub(crate) fn runs<C: Chain, P: Send>(intake: Intake<'_>, length: usize, start: 
                     return None;
                 };
 
+                written += payload.weight() as u64;
+
                 if let Some(slot) = payloads.get_mut(at) {
                     *slot = Some(payload);
                 }
             }
+
+            emit(EncoderStatus::Size(written));
         }
 
         if finished {
@@ -401,7 +416,7 @@ pub(crate) fn runs<C: Chain, P: Send>(intake: Intake<'_>, length: usize, start: 
 #[cfg(test)]
 mod tests {
     use std::path::PathBuf;
-    use std::sync::mpsc;
+    use std::sync::{Mutex, mpsc};
 
     use crate::systems::animation::export::ExportFormat;
 
@@ -409,6 +424,7 @@ mod tests {
 
     const WIDTH: u32 = 8;
     const HEIGHT: u32 = 6;
+    const WEIGHT: usize = 7;
 
     fn frame(dots: &[(u32, u32)]) -> Vec<u8> {
         let mut pixels = vec![0u8; (WIDTH * HEIGHT) as usize * PIXEL];
@@ -439,7 +455,17 @@ mod tests {
 
     type Seen = (Option<Rect>, bool, usize, bool, bool, Option<Rect>);
 
+    impl Weighed for Seen {
+        fn weight(&self) -> usize {
+            WEIGHT
+        }
+    }
+
     fn pump(sequence: &[&Vec<u8>], length: usize, reuse: Option<fn(&Seen) -> Seen>) -> Vec<Take<Seen>> {
+        watched(sequence, length, reuse, &|_| {})
+    }
+
+    fn watched(sequence: &[&Vec<u8>], length: usize, reuse: Option<fn(&Seen) -> Seen>, emit: &(dyn Fn(EncoderStatus) + Sync)) -> Vec<Take<Seen>> {
         let config = ExportConfig { width: WIDTH, height: HEIGHT, format: ExportFormat::Png, quality_percent: 80, compression_percent: 30, fps: 30, start_frame: 0, end_frame: 0, output_path: PathBuf::new(), base_name: String::new(), background: false };
         let (tx, rx) = mpsc::channel();
 
@@ -449,11 +475,29 @@ mod tests {
         tx.send(EncoderMessage::Finish).unwrap();
 
         let abort = AtomicBool::new(false);
-        runs(Intake { config: &config, receiver: rx, emit: &|_| {}, abort: &abort }, length, |before, opening| Echo { before, opening, pushed: 0 }, Some, reuse).unwrap()
+        runs(Intake { config: &config, receiver: rx, emit, abort: &abort }, length, |before, opening| Echo { before, opening, pushed: 0 }, Some, reuse).unwrap()
     }
 
     fn spot(x: u32, y: u32) -> Option<Rect> {
         Some(Rect { x, y, width: 1, height: 1 })
+    }
+
+    // The size so far only grows, and a frame merged into the one before it adds nothing.
+    #[test]
+    fn the_size_so_far_counts_each_encoded_frame_once() {
+        let frames: Vec<Vec<u8>> = (0..5).map(|x| frame(&[(x, 1)])).collect();
+        let sequence = [&frames[0], &frames[0], &frames[1], &frames[2], &frames[3], &frames[4]];
+        let sizes = Mutex::new(Vec::new());
+        let takes = watched(&sequence, 2, None, &|status| {
+            if let EncoderStatus::Size(bytes) = status {
+                sizes.lock().unwrap().push(bytes);
+            }
+        });
+        let sizes = sizes.into_inner().unwrap();
+
+        assert_eq!(takes.len(), 5);
+        assert_eq!(sizes.last().copied(), Some(5 * WEIGHT as u64));
+        assert!(sizes.windows(2).all(|pair| pair[0] <= pair[1]));
     }
 
     #[test]

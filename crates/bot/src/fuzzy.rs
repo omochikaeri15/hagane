@@ -4,7 +4,8 @@ const EXACT: u32 = 10_000;
 const PREFIX: u32 = 9_000;
 const WORDS: u32 = 8_000;
 const INSIDE: u32 = 7_000;
-const SIMILAR_FLOOR: f64 = 0.86;
+pub(crate) const CLOSENESS: u32 = 86;
+const WHOLE: f64 = 100.0;
 const SIMILAR_SCALE: f64 = 6_000.0;
 
 pub(crate) fn strong(score: u32) -> bool {
@@ -34,7 +35,13 @@ impl Query {
     }
 
     pub(crate) fn score(&self, name: &str) -> Option<u32> {
+        self.score_within(name, CLOSENESS)
+    }
+
+    pub(crate) fn score_within(&self, name: &str, closeness: u32) -> Option<u32> {
         let held = normalized(name);
+        let floor = f64::from(closeness) / WHOLE;
+        let lenient = closeness <= CLOSENESS;
 
         if self.joined.is_empty() || held.is_empty() {
             return None;
@@ -46,18 +53,19 @@ impl Query {
             return Some(EXACT);
         }
 
-        if held.starts_with(&self.joined) {
-            return Some(shorter(PREFIX));
-        }
-
         let name_words = words(name);
+        let ranked = if held.starts_with(&self.joined) {
+            Some(shorter(PREFIX))
+        } else if !self.words.is_empty() && self.words.iter().all(|wanted| name_words.iter().any(|word| word.starts_with(wanted.as_str()))) {
+            Some(shorter(WORDS))
+        } else if held.contains(&self.joined) {
+            Some(shorter(INSIDE))
+        } else {
+            None
+        };
 
-        if !self.words.is_empty() && self.words.iter().all(|wanted| name_words.iter().any(|word| word.starts_with(wanted.as_str()))) {
-            return Some(shorter(WORDS));
-        }
-
-        if held.contains(&self.joined) {
-            return Some(shorter(INSIDE));
+        if lenient && ranked.is_some() {
+            return ranked;
         }
 
         let whole = jaro_winkler(&self.joined, &held);
@@ -68,7 +76,7 @@ impl Query {
         };
         let similar = whole.max(per_word);
 
-        (similar >= SIMILAR_FLOOR).then_some((similar * SIMILAR_SCALE) as u32)
+        (similar >= floor).then(|| ranked.unwrap_or((similar * SIMILAR_SCALE) as u32))
     }
 }
 

@@ -123,5 +123,6 @@ pub enum EncoderMessage {
 #[derive(Debug, Clone)]
 pub enum EncoderStatus {
     Progress(u32),
+    Size(u64),
     Finished,
 }

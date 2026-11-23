@@ -77,6 +77,7 @@ pub(crate) enum Trouble {
     NoLoop,
     NoBounds,
     TooLong,
+    TooBig,
     TooMany { frames: i32, limit: i32 },
     NoStats(String),
     NoTalents(String),
@@ -99,6 +100,7 @@ impl Trouble {
             Trouble::NoLoop => NO_LOOP.said(prose).to_owned(),
             Trouble::NoBounds => NO_BOUNDS.said(prose).to_owned(),
             Trouble::TooLong => TOO_LONG.said(prose).to_owned(),
+            Trouble::TooBig => OVER_LIMIT.said(prose).to_owned(),
             Trouble::TooMany { frames, limit } => TOO_MANY.filled(prose, &[("frames", &frames.to_string()), ("limit", &limit.to_string())]),
             Trouble::NoStats(unit) => NO_STATS.filled(prose, &[("unit", unit)]),
             Trouble::NoTalents(unit) => NO_TALENTS.filled(prose, &[("unit", unit)]),
@@ -122,13 +124,17 @@ pub(crate) const BUSY: Line = Line::new("Sorry! But I am busy encoding at the mo
 pub(crate) const WARMING: Line = Line::new("Still loading the game data, try again in a few minutes", "I'm still loading the game data, okay?! Give me a few minutes, geez!");
 pub(crate) const INVITE: Line = Line::new("If you want to invite me to a server, ask my creator to both whitelist your server ID and to provide to you an invite link!", "You want me in your server? Hmph... ask my creator to both whitelist your server ID and to give you an invite link. I-It's not like I want to go or anything!");
 pub(crate) const UNLISTED: Line = Line::new("If you want to enable me in a server, ask my creator to whitelist your server ID!", "I'm not lifting a finger in this server! If you want me that badly, ask my creator to whitelist your server ID!");
-pub(crate) const DM_ENCODE: Line = Line::new("I only encode new animations in servers! If you want that in DMs, ask my creator to whitelist your user ID!", "I'm not encoding something new for you in private! Do it in a server, or ask my creator to whitelist your user ID, dummy!");
+pub(crate) const DM_ENCODE: Line = Line::new("I only encode new animations in servers I'm a member of! If you want that here, ask my creator to whitelist your user ID!", "I'm not encoding something new for you here! Do it in a server I'm actually in, or ask my creator to whitelist your user ID, dummy!");
 pub(crate) const NOT_YOURS: Line = Line::new("Only the person who asked can change this one", "Hands off! That one isn't yours, only the person who asked gets to change it!");
 pub(crate) const FAILED: Line = Line::new("Something went wrong on my side", "S-Something went wrong on my side... it's not my fault, okay?!");
 pub(crate) const NO_LOOP: Line = Line::new("Couldn't find loop!", "I looked everywhere and there's no loop! D-Don't look at me like that!");
 pub(crate) const NO_BOUNDS: Line = Line::new("Nothing in that animation is visible!", "There's nothing to see in that animation! What did you expect me to draw, air?!");
 pub(crate) const TOO_LONG: Line = Line::new("That one took too long to encode!", "That one took way too long to encode! I do have limits, you know!");
 pub(crate) const OVERSIZED: Line = Line::new("That one comes out at {size} MB, over Discord's 20 MB upload limit. Try `--format avif`, which is far smaller", "That one comes out at {size} MB, and Discord only takes 20 MB! Try `--format avif`, it's far smaller... n-not that I'm helping you or anything!");
+pub(crate) const OVER_LIMIT: Line = Line::new("That one went past Discord's 20 MB upload limit, so I stopped encoding it. Try `--format avif`, which is far smaller", "That one blew past Discord's 20 MB limit, so I stopped! Try `--format avif`, it's far smaller... n-not that I'm helping you or anything!");
+pub(crate) const SEARCH_PICK: Line = Line::new("Here's everything close to `{name}`. Pick one:", "You don't even know its name?! Fine, here's everything close to `{name}`. Pick one already!");
+pub(crate) const SEARCH_ABORT: Line = Line::new("Okay! I've dropped that request", "Fine, forget it then! I-It's not like I wanted to look it up for you anyway!");
+pub(crate) const SEARCH_LONG: Line = Line::new("That request is too long to search with. Find the unit first, then ask again with its ID", "That's way too much to search with! Find the unit first, then ask again with its ID, dummy!");
 pub(crate) const COULD_NOT: Line = Line::new("I couldn't make that one: {reason}", "I couldn't make that one, okay?! {reason}");
 pub(crate) const TOO_MANY: Line = Line::new("That's {frames} frames, and the most I'll make is {limit}", "{frames} frames?! The most I'll make is {limit}, so don't push your luck!");
 pub(crate) const NO_CLIP: Line = Line::new("{unit} has no {clip} animation", "{unit} doesn't even have a {clip} animation! Do your homework!");
@@ -163,7 +169,7 @@ pub(crate) const PAGE_HELP: Line = Line::new("`hg!help` lists every command. `hg
 pub(crate) const DO_NOTHING: Line = Line::new("Okay! I will do nothing", "Fine! I'll do nothing! I-It's not like I wanted to do something for you anyway!");
 
 #[cfg(test)]
-pub(crate) const LINES: [&Line; 45] = [
+pub(crate) const LINES: [&Line; 49] = [
     &NO_CAT,
     &NO_ENEMY,
     &BUSY,
@@ -177,6 +183,10 @@ pub(crate) const LINES: [&Line; 45] = [
     &NO_BOUNDS,
     &TOO_LONG,
     &OVERSIZED,
+    &OVER_LIMIT,
+    &SEARCH_PICK,
+    &SEARCH_LONG,
+    &SEARCH_ABORT,
     &COULD_NOT,
     &TOO_MANY,
     &NO_CLIP,

@@ -43,6 +43,11 @@ const TALENT_HINT: &str = "all, standard, ultra, none, show, 10 10 5 or Attack B
 const EMBED_COLOR: u32 = 0x2468A8;
 const OPEN_SETTINGS: &str = "set|open";
 const SET_PREFIX: &str = "set|prefix";
+const FIND: &str = "find|";
+const CUSTOM_LIMIT: usize = 100;
+const OPTION_LIMIT: usize = 100;
+const SEARCH_SHOWN: usize = 24;
+const ABORT: &str = "abort";
 const SET_JUMP: &str = "set|jump|";
 const SETTINGS_PAGES: usize = 2;
 const SETTINGS_ROWS: usize = 4;
@@ -82,7 +87,7 @@ pub(crate) async fn run(config: Config, cache: Cache) -> Result<(), Error> {
         },
         command_check: Some(|ctx| {
             Box::pin(async move {
-                let Some(notice) = refusal(ctx.guild_id()) else {
+                let Some(notice) = refusal(ctx.guild_id(), Voice::Command(ctx).personal()) else {
                     return Ok(true);
                 };
 
@@ -99,7 +104,10 @@ pub(crate) async fn run(config: Config, cache: Cache) -> Result<(), Error> {
         .setup(|ctx, ready, framework| {
             Box::pin(async move {
                 info!(user = ready.user.name, guilds = ready.guilds.len(), "Connected to Discord");
-                poise::builtins::register_globally(ctx, &framework.options().commands).await?;
+                if let Err(err) = poise::builtins::register_globally(ctx, &framework.options().commands).await {
+                    error!("The slash commands could not be registered, the ones Discord already has stay in place: {}", err);
+                }
+
                 Ok(data)
             })
         })
@@ -112,12 +120,16 @@ pub(crate) async fn run(config: Config, cache: Cache) -> Result<(), Error> {
     Ok(())
 }
 
-fn refusal(guild: Option<serenity::GuildId>) -> Option<&'static Line> {
-    guild.filter(|guild| !whitelist::admits(guild.get())).map(|_| &prose::UNLISTED)
+fn refusal(guild: Option<serenity::GuildId>, personal: bool) -> Option<&'static Line> {
+    guild.filter(|guild| !personal && !whitelist::admits(guild.get())).map(|_| &prose::UNLISTED)
 }
 
-fn encodes_for(guild: Option<serenity::GuildId>, user: serenity::UserId) -> bool {
-    guild.is_some() || whitelist::trusts(user.get())
+fn encodes_for(personal: bool, user: serenity::UserId) -> bool {
+    !personal || whitelist::trusts(user.get())
+}
+
+fn personal(guild: Option<serenity::GuildId>, owners: &serenity::AuthorizingIntegrationOwners) -> bool {
+    guild.is_none() || !owners.0.iter().any(|owner| matches!(owner, serenity::AuthorizingIntegrationOwner::GuildInstall(_)))
 }
 
 fn prose_of(ctx: Context<'_>) -> Prose {
@@ -161,7 +173,7 @@ async fn on_error(failure: FrameworkError<'_, Data, Error>) {
             }
         }
         FrameworkError::UnknownCommand { msg, framework, .. } => {
-            if let Some(notice) = refusal(msg.guild_id)
+            if let Some(notice) = refusal(msg.guild_id, msg.guild_id.is_none())
                 && let Err(err) = msg.channel_id.say(framework.serenity_context, notice.said(framework.user_data.book.prose(msg.author.id.get()))).await
             {
                 warn!(guild = msg.guild_id.map(|guild| guild.get()), "The whitelist notice could not be sent: {}", err);
@@ -233,6 +245,186 @@ async fn blocking<T: Send + 'static>(data: &Data, job: impl FnOnce() -> T + Send
     let _sheet = Arc::clone(&data.sheets).acquire_owned().await?;
 
     Ok(task::spawn_blocking(job).await?)
+}
+
+#[derive(Clone, Copy)]
+enum Voice<'a> {
+    Command(Context<'a>),
+    Press(&'a serenity::Context, &'a serenity::ComponentInteraction, &'a Data),
+}
+
+#[derive(Default)]
+struct Post {
+    text: String,
+    file: Option<(Vec<u8>, String)>,
+    rows: Vec<serenity::CreateActionRow>,
+}
+
+impl Post {
+    fn text(text: impl Into<String>) -> Self {
+        Self { text: text.into(), ..Self::default() }
+    }
+
+    fn file(bytes: Vec<u8>, name: String) -> Self {
+        Self { file: Some((bytes, name)), ..Self::default() }
+    }
+
+    fn rows(self, rows: Vec<serenity::CreateActionRow>) -> Self {
+        Self { rows, ..self }
+    }
+
+    fn reply(self, clearing: bool) -> CreateReply {
+        let reply = CreateReply::default().components(self.rows);
+        let reply = if clearing || !self.text.is_empty() { reply.content(self.text) } else { reply };
+
+        self.file.into_iter().fold(reply, |reply, (bytes, name)| reply.attachment(serenity::CreateAttachment::bytes(bytes, name)))
+    }
+
+    fn edit(self) -> serenity::EditInteractionResponse {
+        let attachments = self.file.into_iter().fold(serenity::EditAttachments::new(), |held, (bytes, name)| held.add(serenity::CreateAttachment::bytes(bytes, name)));
+
+        serenity::EditInteractionResponse::new().content(self.text).components(self.rows).attachments(attachments)
+    }
+}
+
+enum Posted<'a> {
+    Command(poise::ReplyHandle<'a>),
+    Press,
+}
+
+impl<'a> Voice<'a> {
+    fn data(self) -> &'a Data {
+        match self {
+            Voice::Command(ctx) => ctx.data(),
+            Voice::Press(_, _, data) => data,
+        }
+    }
+
+    fn user(self) -> serenity::UserId {
+        match self {
+            Voice::Command(ctx) => ctx.author().id,
+            Voice::Press(_, press, _) => press.user.id,
+        }
+    }
+
+    fn personal(self) -> bool {
+        match self {
+            Voice::Command(poise::Context::Application(ctx)) => personal(ctx.interaction.guild_id, &ctx.interaction.authorizing_integration_owners),
+            Voice::Command(ctx) => ctx.guild_id().is_none(),
+            Voice::Press(_, press, _) => personal(press.guild_id, &press.authorizing_integration_owners),
+        }
+    }
+
+    fn prose(self) -> Prose {
+        self.data().book.prose(self.user().get())
+    }
+
+    async fn working(self) -> Result<(), Error> {
+        match self {
+            Voice::Command(ctx @ poise::Context::Application(_)) => ctx.defer().await?,
+            Voice::Command(ctx) => {
+                if let Err(err) = ctx.http().broadcast_typing(ctx.channel_id()).await {
+                    warn!("The typing indicator could not be shown: {}", err);
+                }
+            }
+            Voice::Press(..) => {}
+        }
+
+        Ok(())
+    }
+
+    async fn post(self, post: Post) -> Result<Posted<'a>, Error> {
+        match self {
+            Voice::Command(ctx) => Ok(Posted::Command(ctx.send(post.reply(false)).await?)),
+            Voice::Press(ctx, press, _) => {
+                press.edit_response(ctx, post.edit()).await?;
+                Ok(Posted::Press)
+            }
+        }
+    }
+
+    async fn amend(self, posted: &Posted<'_>, post: Post) -> Result<(), Error> {
+        match (self, posted) {
+            (Voice::Command(ctx), Posted::Command(handle)) => handle.edit(ctx, post.reply(true)).await?,
+            (Voice::Press(ctx, press, _), _) => {
+                press.edit_response(ctx, post.edit()).await?;
+            }
+            (Voice::Command(_), Posted::Press) => {}
+        }
+
+        Ok(())
+    }
+
+    async fn say(self, text: impl Into<String>) -> Result<(), Error> {
+        self.post(Post::text(text)).await.map(|_| ())
+    }
+}
+
+fn kind_tag(kind: Kind) -> &'static str {
+    match kind {
+        Kind::Cat => "c",
+        Kind::Enemy => "e",
+    }
+}
+
+async fn offer(voice: Voice<'_>, kind: Kind, name: &str, tail: &str, found: Vec<(String, String, String)>, prose: Prose) -> Result<(), Error> {
+    if found.is_empty() {
+        let none = match kind {
+            Kind::Cat => &prose::NO_CAT,
+            Kind::Enemy => &prose::NO_ENEMY,
+        };
+
+        return voice.say(none.said(prose)).await;
+    }
+
+    let custom = format!("{FIND}{}|{}|{tail}", voice.user().get(), kind_tag(kind));
+
+    if custom.len() > CUSTOM_LIMIT {
+        return voice.say(prose::SEARCH_LONG.said(prose)).await;
+    }
+
+    let options = found
+        .into_iter()
+        .map(|(value, label, note)| serenity::CreateSelectMenuOption::new(label.chars().take(OPTION_LIMIT).collect::<String>(), value).description(note))
+        .chain([serenity::CreateSelectMenuOption::new("Abort", ABORT).description("Stops the request")])
+        .collect();
+    let menu = serenity::CreateSelectMenu::new(custom, serenity::CreateSelectMenuKind::String { options }).placeholder("Pick one");
+
+    voice.post(Post::text(prose::SEARCH_PICK.filled(prose, &[("name", name)])).rows(vec![serenity::CreateActionRow::SelectMenu(menu)])).await.map(|_| ())
+}
+
+async fn on_found(ctx: &serenity::Context, press: &serenity::ComponentInteraction, data: &Data, rest: &str) -> Result<(), Error> {
+    let mut parts = rest.splitn(3, '|');
+    let owner = parts.next().and_then(|owner| owner.parse::<u64>().ok());
+    let kind = parts.next().and_then(|tag| [Kind::Cat, Kind::Enemy].into_iter().find(|kind| kind_tag(*kind) == tag));
+    let (Some(owner), Some(kind), Some(tail)) = (owner, kind, parts.next()) else { return Ok(()) };
+
+    if press.user.id.get() != owner {
+        return refuse(ctx, press, data).await;
+    }
+
+    let serenity::ComponentInteractionDataKind::StringSelect { values } = &press.data.kind else { return Ok(()) };
+    let Some(picked) = values.first() else { return Ok(()) };
+    let voice = Voice::Press(ctx, press, data);
+
+    press.create_response(ctx, serenity::CreateInteractionResponse::Acknowledge).await?;
+
+    if picked == ABORT {
+        return voice.say(prose::SEARCH_ABORT.said(voice.prose())).await;
+    }
+
+    let served = match grammar::parse(&format!("{picked} {tail}"), kind) {
+        Ok(request) if kind == Kind::Cat => serve_cat(voice, request).await,
+        Ok(request) => serve_enemy(voice, request).await,
+        Err(reason) => voice.say(prose::SEE_HELP.filled(voice.prose(), &[("reason", &reason), ("prefix", &prefix_of(data, owner))])).await,
+    };
+
+    if let Err(err) = served {
+        error!(picked, "A search pick failed: {}", err);
+        voice.say(prose::FAILED.said(voice.prose())).await?;
+    }
+
+    Ok(())
 }
 
 fn file(bytes: Vec<u8>, name: String) -> CreateReply {
@@ -309,18 +501,18 @@ fn sheet_rows(library: &Library, sheet: &Sheet) -> Vec<serenity::CreateActionRow
     rows
 }
 
-async fn send_sheet(ctx: Context<'_>, library: Arc<Library>, sheet: Sheet) -> Result<(), Error> {
+async fn send_sheet(voice: Voice<'_>, library: Arc<Library>, sheet: Sheet) -> Result<(), Error> {
     let rendered = {
         let (library, sheet) = (Arc::clone(&library), sheet.clone());
 
-        let cache = Arc::clone(&ctx.data().cache);
+        let cache = Arc::clone(&voice.data().cache);
 
-        blocking(ctx.data(), move || sheet_png(&library, &cache, &sheet)).await?
+        blocking(voice.data(), move || sheet_png(&library, &cache, &sheet)).await?
     };
 
     match rendered {
-        Ok((bytes, name)) => ctx.send(file(bytes, name).components(sheet_rows(&library, &sheet))).await?,
-        Err(trouble) => ctx.say(trouble.told(prose_of(ctx))).await?,
+        Ok((bytes, name)) => voice.post(Post::file(bytes, name).rows(sheet_rows(&library, &sheet))).await.map(|_| ())?,
+        Err(trouble) => voice.say(trouble.told(voice.prose())).await?,
     };
 
     Ok(())
@@ -362,10 +554,10 @@ fn progress_bar(title: &str, searching: bool, progress: &Progress, elapsed: Dura
     format!("{title}\nEncoding • {} • {done}/{total}\n{}\nElapsed Time: {} • Estimated Time: {estimate}", percent(share), bar(share), clock(elapsed))
 }
 
-async fn animate(ctx: Context<'_>, library: Arc<Library>, set: MotionSet, options: Options, title: String) -> Result<(), Error> {
+async fn animate(voice: Voice<'_>, library: Arc<Library>, set: MotionSet, options: Options, title: String) -> Result<(), Error> {
     let (clip, format, options_looping) = (options.clip, options.format, options.looping.is_some());
-    let prose = prose_of(ctx);
-    let cache = Arc::clone(&ctx.data().cache);
+    let prose = voice.prose();
+    let cache = Arc::clone(&voice.data().cache);
     let planned = {
         let (library, cache) = (Arc::clone(&library), Arc::clone(&cache));
 
@@ -373,15 +565,15 @@ async fn animate(ctx: Context<'_>, library: Arc<Library>, set: MotionSet, option
     };
     let job = match planned {
         Ok(None) => {
-            ctx.say(prose::NO_CLIP.filled(prose, &[("unit", &title), ("clip", clip.motion())])).await?;
+            voice.say(prose::NO_CLIP.filled(prose, &[("unit", &title), ("clip", clip.motion())])).await?;
             return Ok(());
         }
         Ok(Some(Planned::Ready(bytes, _))) if bytes.len() > UPLOAD_LIMIT => {
-            ctx.say(oversized(bytes.len(), prose)).await?;
+            voice.say(oversized(bytes.len(), prose)).await?;
             return Ok(());
         }
         Ok(Some(Planned::Ready(bytes, name))) => {
-            ctx.send(file(bytes, name)).await?;
+            voice.post(Post::file(bytes, name)).await?;
             return Ok(());
         }
         Ok(Some(Planned::Encode(job))) => job,
@@ -390,34 +582,34 @@ async fn animate(ctx: Context<'_>, library: Arc<Library>, set: MotionSet, option
                 error!(title, clip = clip.slug(), "An animation could not be prepared: {}", reason);
             }
 
-            ctx.say(trouble.told(prose)).await?;
+            voice.say(trouble.told(prose)).await?;
             return Ok(());
         }
     };
-    if !encodes_for(ctx.guild_id(), ctx.author().id) {
-        ctx.say(prose::DM_ENCODE.said(prose)).await?;
+    if !encodes_for(voice.personal(), voice.user()) {
+        voice.say(prose::DM_ENCODE.said(prose)).await?;
         return Ok(());
     }
 
-    let Ok(_encoding) = Arc::clone(&ctx.data().encoder).try_acquire_owned() else {
-        ctx.say(prose::BUSY.said(prose)).await?;
+    let Ok(_encoding) = Arc::clone(&voice.data().encoder).try_acquire_owned() else {
+        voice.say(prose::BUSY.said(prose)).await?;
         return Ok(());
     };
     let label = format!("{title} • {} • {}", clip.motion(), format.label());
     let searching = options_looping;
     let started = Instant::now();
     let progress = Arc::new(Progress::default());
-    let handle = ctx.send(CreateReply::default().content(progress_bar(&label, searching, &progress, Duration::ZERO))).await?;
+    let posted = voice.post(Post::text(progress_bar(&label, searching, &progress, Duration::ZERO))).await?;
     let mut work = {
         let progress = Arc::clone(&progress);
 
-        task::spawn_blocking(move || job.run(&cache, &progress))
+        task::spawn_blocking(move || job.run(&cache, &progress, UPLOAD_LIMIT as u64))
     };
     let finished = loop {
         tokio::select! {
             done = &mut work => break done?,
             () = tokio::time::sleep(TICK) => {
-                if let Err(err) = handle.edit(ctx, CreateReply::default().content(progress_bar(&label, searching, &progress, started.elapsed()))).await {
+                if let Err(err) = voice.amend(&posted, Post::text(progress_bar(&label, searching, &progress, started.elapsed()))).await {
                     warn!("The progress bar could not be updated: {}", err);
                 }
             }
@@ -425,14 +617,14 @@ async fn animate(ctx: Context<'_>, library: Arc<Library>, set: MotionSet, option
     };
 
     match finished {
-        Ok((bytes, _)) if bytes.len() > UPLOAD_LIMIT => handle.edit(ctx, CreateReply::default().content(oversized(bytes.len(), prose))).await?,
-        Ok((bytes, name)) => handle.edit(ctx, file(bytes, name).content(String::new())).await?,
+        Ok((bytes, _)) if bytes.len() > UPLOAD_LIMIT => voice.amend(&posted, Post::text(oversized(bytes.len(), prose))).await?,
+        Ok((bytes, name)) => voice.amend(&posted, Post::file(bytes, name)).await?,
         Err(trouble) => {
             if let Some(reason) = trouble.unexpected() {
                 error!(title, clip = clip.slug(), "An animation could not be exported: {}", reason);
             }
 
-            handle.edit(ctx, CreateReply::default().content(trouble.told(prose))).await?;
+            voice.amend(&posted, Post::text(trouble.told(prose))).await?;
         }
     }
 
@@ -459,7 +651,7 @@ fn options_of(motion: &Motion, prefs: &Prefs) -> Options {
 
 fn settled(request: Request, named: impl Fn(&str) -> bool) -> Request {
     match request.whole {
-        Some(whole) if named(&whole) => Request { unit: Unit::Name(whole), want: Want::Stats(Stats::default()), whole: None, form: request.form },
+        Some(whole) if named(&whole) => Request { unit: Unit::Name(whole), want: Want::Stats(Stats::default()), whole: None, form: request.form, search: request.search, tail: String::new() },
         _ => request,
     }
 }
@@ -478,42 +670,42 @@ async fn understood(ctx: Context<'_>, request: Option<String>, kind: Kind) -> Re
     }
 }
 
-async fn working(ctx: Context<'_>) -> Result<(), Error> {
-    match ctx {
-        poise::Context::Application(_) => ctx.defer().await?,
-        poise::Context::Prefix(_) => {
-            if let Err(err) = ctx.http().broadcast_typing(ctx.channel_id()).await {
-                warn!("The typing indicator could not be shown: {}", err);
-            }
-        }
-    }
-
-    Ok(())
-}
-
-#[poise::command(slash_command, prefix_command, aliases("c"))]
+#[poise::command(slash_command, prefix_command, install_context = "Guild|User", interaction_context = "Guild|BotDm|PrivateChannel", aliases("c"))]
 async fn cat(ctx: Context<'_>, #[description = "ID-form or name, then stats or anim"] #[rest] request: Option<String>) -> Result<(), Error> {
     let Some(request) = understood(ctx, request, Kind::Cat).await? else { return Ok(()) };
-    let owner = ctx.author().id.get();
-    let prefs = ctx.data().book.get(owner);
-    working(ctx).await?;
-    let Some((_guard, library)) = open(ctx.data(), &prefs.language).await? else {
-        ctx.say(prose::WARMING.said(prefs.prose)).await?;
+
+    serve_cat(Voice::Command(ctx), request).await
+}
+
+async fn serve_cat(voice: Voice<'_>, request: Request) -> Result<(), Error> {
+    let owner = voice.user().get();
+    let prefs = voice.data().book.get(owner);
+
+    voice.working().await?;
+
+    let Some((_guard, library)) = open(voice.data(), &prefs.language).await? else {
+        voice.say(prose::WARMING.said(prefs.prose)).await?;
         return Ok(());
     };
     let request = settled(request, |name| library.names_cat(name));
+
+    if let (Some(closeness), Unit::Name(name)) = (request.search, &request.unit) {
+        let found = library.search_cats(name, closeness).into_iter().take(SEARCH_SHOWN).map(|(cat, form)| (format!("{}-{}", cat.id, form + 1), cat.display_name(form), format!("{} • {}", cat.id_str(form), FORMS.get(form).copied().unwrap_or_default()))).collect();
+
+        return offer(voice, Kind::Cat, name, &request.tail, found, prefs.prose).await;
+    }
     let found = match &request.unit {
         Unit::Id(id, form) => library.cat(*id).map(|cat| (cat, form.unwrap_or_else(|| prefs.form_from(&cat.forms)))),
         Unit::Name(name) => library.find_cat(name, &prefs),
     };
     let found = found.map(|(cat, form)| (cat, request.form.unwrap_or(form)));
     let Some((cat, form)) = found else {
-        ctx.say(prose::NO_CAT.said(prefs.prose)).await?;
+        voice.say(prose::NO_CAT.said(prefs.prose)).await?;
         return Ok(());
     };
 
     if !cat.forms.get(form).copied().unwrap_or(false) {
-        ctx.say(prose::NO_FORM.filled(prefs.prose, &[("unit", &cat.display_name(0)), ("form", FORMS.get(form).copied().unwrap_or("such"))])).await?;
+        voice.say(prose::NO_FORM.filled(prefs.prose, &[("unit", &cat.display_name(0)), ("form", FORMS.get(form).copied().unwrap_or("such"))])).await?;
         return Ok(());
     }
 
@@ -521,7 +713,7 @@ async fn cat(ctx: Context<'_>, #[description = "ID-form or name, then stats or a
         Want::Stats(stats) if stats.talents.as_deref().is_some_and(talents::shows) => {
             let form = if form < TRUE_FORM && cat.forms[TRUE_FORM] { TRUE_FORM } else { form };
 
-            ctx.say(talents::overview(&library, cat, form, prefs.prose)).await?;
+            voice.say(talents::overview(&library, cat, form, prefs.prose)).await?;
             Ok(())
         }
         Want::Stats(stats) => {
@@ -529,7 +721,7 @@ async fn cat(ctx: Context<'_>, #[description = "ID-form or name, then stats or a
                 Some(words) => match talents::levels(&library, cat, &words) {
                     Ok(levels) => talents::encoded(&levels, cat.talent_data.as_ref().map_or(0, |data| data.groups.len())),
                     Err(trouble) => {
-                        ctx.say(trouble.told(prefs.prose)).await?;
+                        voice.say(trouble.told(prefs.prose)).await?;
                         return Ok(());
                     }
                 },
@@ -538,33 +730,46 @@ async fn cat(ctx: Context<'_>, #[description = "ID-form or name, then stats or a
             let form = if talents.is_some() && form < TRUE_FORM && cat.forms[TRUE_FORM] { TRUE_FORM } else { form };
             let sheet = Sheet { owner, id: cat.id, form, level: stats.level, talents };
 
-            send_sheet(ctx, Arc::clone(&library), sheet).await
+            send_sheet(voice, Arc::clone(&library), sheet).await
         }
         Want::Motion(motion) => {
             let set = cat_animation::motions(cat, form, &library.vault.vfs);
             let title = cat.display_name(form);
 
-            animate(ctx, Arc::clone(&library), set, options_of(&motion, &prefs), title).await
+            animate(voice, Arc::clone(&library), set, options_of(&motion, &prefs), title).await
         }
     }
 }
 
-#[poise::command(slash_command, prefix_command, aliases("e"))]
+#[poise::command(slash_command, prefix_command, install_context = "Guild|User", interaction_context = "Guild|BotDm|PrivateChannel", aliases("e"))]
 async fn enemy(ctx: Context<'_>, #[description = "ID or name, then stats or anim"] #[rest] request: Option<String>) -> Result<(), Error> {
     let Some(request) = understood(ctx, request, Kind::Enemy).await? else { return Ok(()) };
-    let prefs = ctx.data().book.get(ctx.author().id.get());
-    working(ctx).await?;
-    let Some((_guard, library)) = open(ctx.data(), &prefs.language).await? else {
-        ctx.say(prose::WARMING.said(prefs.prose)).await?;
+
+    serve_enemy(Voice::Command(ctx), request).await
+}
+
+async fn serve_enemy(voice: Voice<'_>, request: Request) -> Result<(), Error> {
+    let prefs = voice.data().book.get(voice.user().get());
+
+    voice.working().await?;
+
+    let Some((_guard, library)) = open(voice.data(), &prefs.language).await? else {
+        voice.say(prose::WARMING.said(prefs.prose)).await?;
         return Ok(());
     };
     let request = settled(request, |name| library.names_enemy(name));
+
+    if let (Some(closeness), Unit::Name(name)) = (request.search, &request.unit) {
+        let found = library.search_enemies(name, closeness).into_iter().take(SEARCH_SHOWN).map(|enemy| (enemy.id.to_string(), enemy.display_name(), enemy.id_str())).collect();
+
+        return offer(voice, Kind::Enemy, name, &request.tail, found, prefs.prose).await;
+    }
     let found = match &request.unit {
         Unit::Id(id, _) => library.enemy(*id),
         Unit::Name(name) => library.find_enemy(name),
     };
     let Some(enemy) = found else {
-        ctx.say(prose::NO_ENEMY.said(prefs.prose)).await?;
+        voice.say(prose::NO_ENEMY.said(prefs.prose)).await?;
         return Ok(());
     };
 
@@ -577,9 +782,9 @@ async fn enemy(ctx: Context<'_>, #[description = "ID or name, then stats or anim
             });
             let id = enemy.id;
             let rendered = {
-                let (library, cache) = (Arc::clone(&library), Arc::clone(&ctx.data().cache));
+                let (library, cache) = (Arc::clone(&library), Arc::clone(&voice.data().cache));
 
-                blocking(ctx.data(), move || {
+                blocking(voice.data(), move || {
                     let enemy = library.enemy(id).ok_or(Trouble::NoEnemy)?;
                     statblock::enemy(&library, &cache, enemy, Magnification { hitpoints, attack }).map(|bytes| (bytes, format!("{}.png", enemy.id_str())))
                 })
@@ -587,8 +792,8 @@ async fn enemy(ctx: Context<'_>, #[description = "ID or name, then stats or anim
             };
 
             match rendered {
-                Ok((bytes, name)) => ctx.send(file(bytes, name)).await?,
-                Err(trouble) => ctx.say(trouble.told(prefs.prose)).await?,
+                Ok((bytes, name)) => voice.post(Post::file(bytes, name)).await.map(|_| ())?,
+                Err(trouble) => voice.say(trouble.told(prefs.prose)).await?,
             };
 
             Ok(())
@@ -597,12 +802,12 @@ async fn enemy(ctx: Context<'_>, #[description = "ID or name, then stats or anim
             let set = enemy_animation::motions(enemy, &library.vault.vfs);
             let title = enemy.display_name();
 
-            animate(ctx, Arc::clone(&library), set, options_of(&motion, &prefs), title).await
+            animate(voice, Arc::clone(&library), set, options_of(&motion, &prefs), title).await
         }
     }
 }
 
-#[poise::command(slash_command, prefix_command, aliases("h"))]
+#[poise::command(slash_command, prefix_command, install_context = "Guild|User", interaction_context = "Guild|BotDm|PrivateChannel", aliases("h"))]
 async fn help(ctx: Context<'_>, #[description = "A command to explain, like cat or enemy"] #[rest] command: Option<String>) -> Result<(), Error> {
     let asked = command.as_deref().map(str::trim).filter(|asked| !asked.is_empty());
     let owner = ctx.author().id.get();
@@ -698,7 +903,7 @@ impl<'a> Voiced<'a> {
 fn help_page(page_name: &str, prefix: &str, prose: Prose) -> serenity::CreateEmbed {
     let voiced = match page_name {
         "cat" => Voiced::new(prefix, "hg!cat (c)", "`hg!cat <unit> [stats | animation] ...`")
-            .field("Unit", "`25-3`, `25_t` or `25_s`: an ID and a form (1-4, n e t u, or f c s u)\n`25` or `025`: your default form, or the next one down if it has none\nA name: spaces are fine, close spellings still match\n`form` (`f`) after either picks a form: 1-4, n e t u, f c s u, or Normal, Evolved, True, Ultra", false)
+            .field("Unit", "`25-3`, `25_t` or `25_s`: an ID and a form (1-4, n e t u, or f c s u)\n`25` or `025`: your default form, or the next one down if it has none\nA name: spaces are fine, close spellings still match\n`--search` (`-s`) after a name: lists the 24 closest matches for you to pick from. A number after it, 1 to 100, is how close a name has to be: 86 to start, lower finds more\n`form` (`f`) after either picks a form: 1-4, n e t u, f c s u, or Normal, Evolved, True, Ultra", false)
             .field("Stats or animation", "Worked out from what you type: an animation name or flag means animation, a level or `--talents` means stats. `s` or `a` still decides outright, and stats is the default.", false)
             .field("Stats (`s`, `stat`)", "A level: `lv50+70`, `lvl50`, `l50`, `level50` or just `50`. Without one, a typical level for its rarity, raised to the level its form or its ultra talents unlock at if that's higher.\n`--talents` (`-t`): `all` (`a`), `standard` (`s`), `ultra` (`u`), `none` (`n`), `show` (`sh`) to list them with their max levels, levels in order like `10 10 5`, or names like `Attack Buff 5`. Talents lift a Normal or Evolved form to True.", false)
             .field("Animation (`a`, `anim`)", CLIPS, false)
@@ -706,7 +911,7 @@ fn help_page(page_name: &str, prefix: &str, prose: Prose) -> serenity::CreateEmb
             .field("Buttons", "Statblocks get a button per form, Level, and Talents on True and Ultra forms. Level and Talents turn green when you've set them. Only the person who asked can press them.", false)
             .field("Examples", "`hg!c 137_u lv50+70 -t all`\n`hg!c bahamut cat form normal`\n`hg!c jamiera cat a showcase -f webp`\n`hg!c 008 a walk -l -r 10~120`", false),
         "enemy" => Voiced::new(prefix, "hg!enemy (e)", "`hg!enemy <unit> [stats | animation] ...`")
-            .field("Unit", "`763` or `0763`: an ID\nA name: spaces are fine, close spellings still match", false)
+            .field("Unit", "`763` or `0763`: an ID\nA name: spaces are fine, close spellings still match\n`--search` (`-s`) after a name: lists the 24 closest matches for you to pick from. A number after it, 1 to 100, is how close a name has to be: 86 to start, lower finds more", false)
             .field("Stats or animation", "Worked out from what you type: an animation name or flag means animation, a percentage means stats. `s` or `a` still decides outright, and stats is the default.", false)
             .field("Stats (`s`, `stat`)", "A magnification: `400%`, or `400%/200%` for hitpoints and attack. 100% without one.", false)
             .field("Animation (`a`, `anim`)", CLIPS, false)
@@ -736,7 +941,7 @@ fn help_page(page_name: &str, prefix: &str, prose: Prose) -> serenity::CreateEmb
     voiced.embed
 }
 
-#[poise::command(slash_command, prefix_command, aliases("web", "w"))]
+#[poise::command(slash_command, prefix_command, install_context = "Guild|User", interaction_context = "Guild|BotDm|PrivateChannel", aliases("web", "w"))]
 async fn website(ctx: Context<'_>) -> Result<(), Error> {
     ctx.say(prose::WEBSITE.said(prose_of(ctx))).await?;
     Ok(())
@@ -748,13 +953,13 @@ async fn donothing(ctx: Context<'_>) -> Result<(), Error> {
     Ok(())
 }
 
-#[poise::command(slash_command, prefix_command, aliases("inv", "i"))]
+#[poise::command(slash_command, prefix_command, install_context = "Guild|User", interaction_context = "Guild|BotDm|PrivateChannel", aliases("inv", "i"))]
 async fn invite(ctx: Context<'_>) -> Result<(), Error> {
     ctx.say(prose::INVITE.said(prose_of(ctx))).await?;
     Ok(())
 }
 
-#[poise::command(slash_command, prefix_command, aliases("license", "l"))]
+#[poise::command(slash_command, prefix_command, install_context = "Guild|User", interaction_context = "Guild|BotDm|PrivateChannel", aliases("license", "l"))]
 async fn legal(ctx: Context<'_>) -> Result<(), Error> {
     ctx.send(file(LICENSES.as_bytes().to_vec(), "licenses.txt".to_owned()).content(LEGAL)).await?;
     Ok(())
@@ -828,7 +1033,7 @@ fn settings_page(what: &str) -> usize {
     }
 }
 
-#[poise::command(slash_command, prefix_command, aliases("set", "s"))]
+#[poise::command(slash_command, prefix_command, install_context = "Guild|User", interaction_context = "Guild|BotDm|PrivateChannel", aliases("set", "s"))]
 async fn settings(ctx: Context<'_>) -> Result<(), Error> {
     if let poise::Context::Prefix(_) = ctx {
         let open = serenity::CreateButton::new(OPEN_SETTINGS).label("Open Settings").style(serenity::ButtonStyle::Primary);
@@ -909,6 +1114,10 @@ async fn on_press(ctx: &serenity::Context, press: &serenity::ComponentInteractio
 
     if let Some(rest) = custom.strip_prefix("set|") {
         return on_setting(ctx, press, data, rest).await;
+    }
+
+    if let Some(rest) = custom.strip_prefix(FIND) {
+        return on_found(ctx, press, data, rest).await;
     }
 
     if let Some((owner, page)) = custom.strip_prefix("help|").and_then(|rest| rest.split_once('|')) {
@@ -1165,18 +1374,25 @@ mod tests {
 
     const ME: serenity::UserId = serenity::UserId::new(42);
 
-    // DMs are open to everyone, but only listed users get something new encoded there.
+    // DMs and a person's own install are open to everyone, but only listed users get something new encoded there.
     #[test]
-    fn dms_answer_but_only_encode_for_listed_users() {
+    fn personal_use_answers_but_only_encodes_for_listed_users() {
         let owner = serenity::UserId::new(1360862647578394704);
         let listed = Some(serenity::GuildId::new(1456204440951455786));
+        let elsewhere = Some(serenity::GuildId::new(7));
+        let by_server = serenity::AuthorizingIntegrationOwners(vec![serenity::AuthorizingIntegrationOwner::GuildInstall(elsewhere), serenity::AuthorizingIntegrationOwner::UserInstall(ME)]);
+        let by_user = serenity::AuthorizingIntegrationOwners(vec![serenity::AuthorizingIntegrationOwner::UserInstall(ME)]);
 
-        assert_eq!(refusal(None), None);
-        assert_eq!(refusal(listed), None);
-        assert_eq!(refusal(Some(serenity::GuildId::new(7))), Some(&prose::UNLISTED));
-        assert!(encodes_for(listed, ME));
-        assert!(encodes_for(None, owner));
-        assert!(!encodes_for(None, ME));
+        assert!(personal(None, &by_server), "a DM is personal however she was installed");
+        assert!(personal(elsewhere, &by_user), "her own install in someone else's server is personal");
+        assert!(!personal(elsewhere, &by_server), "a server that installed her is not");
+        assert_eq!(refusal(None, true), None);
+        assert_eq!(refusal(listed, false), None);
+        assert_eq!(refusal(elsewhere, false), Some(&prose::UNLISTED));
+        assert_eq!(refusal(elsewhere, true), None, "the whitelist is for servers that install her");
+        assert!(encodes_for(false, ME));
+        assert!(encodes_for(true, owner));
+        assert!(!encodes_for(true, ME));
     }
     const SOMEONE: serenity::UserId = serenity::UserId::new(7);
 

@@ -1181,6 +1181,7 @@ fn encoder_status(ui: &AppWindow, context: &Rc<Context>, key: (String, Option<us
 
         match status {
             EncoderStatus::Progress(progress) => job.encoded = progress as i32,
+            EncoderStatus::Size(_) => {}
             EncoderStatus::Finished => {
                 let outcome = if matches!(job.phase, Phase::Aborting) { Outcome::Terminated } else { Outcome::Completed };
 

@@ -17,7 +17,7 @@ use tracing::error;
 use bits::BitWriter;
 use frame::{CLEAR, Header, KEY, PAINT, TRANSFORMED};
 
-use super::frames::{self, Chain, Intake, Still};
+use super::frames::{self, Chain, Intake, Still, Weighed};
 
 const TILE: usize = 8;
 const SAVE: u8 = 8;
@@ -325,6 +325,15 @@ impl Chain for Planner {
         let draft = self.run.plan(&Frame { rgba: now.pixels, content: now.content.map(bounds) }, next.is_none());
 
         Some(if self.deferred { draft } else { draft.render() })
+    }
+}
+
+impl Weighed for Draft {
+    fn weight(&self) -> usize {
+        match self {
+            Self::Done(bytes) => bytes.len(),
+            _ => 0,
+        }
     }
 }
 

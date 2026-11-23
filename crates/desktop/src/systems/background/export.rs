@@ -277,7 +277,7 @@ impl State {
                 };
 
                 match event {
-                    Event::Encoder(EncoderStatus::Progress(_)) => return Task::none(),
+                    Event::Encoder(EncoderStatus::Progress(_) | EncoderStatus::Size(_)) => return Task::none(),
                     Event::Encoder(EncoderStatus::Finished) => job.encoded = true,
                     Event::Rendered(outcome) => job.rendered = Some(outcome.is_ok()),
                 }

@@ -8,7 +8,7 @@ use tracing::error;
 
 use container::Rect;
 
-use super::frames::{self, Chain, Intake, Still};
+use super::frames::{self, Chain, Intake, Still, Weighed};
 
 const LOSSLESS_ALPHA: u8 = 1;
 const LOSSLESS_QUALITY: u8 = 100;
@@ -327,6 +327,15 @@ impl Chain for Planner {
         let draft = self.run.plan(&Frame { rgba: now.pixels, content: now.content.map(bounds) }, next.is_none());
 
         Some(if self.deferred { draft } else { draft.render() })
+    }
+}
+
+impl Weighed for Draft {
+    fn weight(&self) -> usize {
+        match self {
+            Self::Done(bytes) => bytes.len(),
+            _ => 0,
+        }
     }
 }
 
