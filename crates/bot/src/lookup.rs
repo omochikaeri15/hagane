@@ -81,14 +81,8 @@ fn map_hit(area: &Area<'_>, score: u32) -> Hit {
 
 pub(crate) fn stage_line<'a>(library: &'a Library, found: &Staged<'a>) -> (&'a str, Option<&'static str>) {
     let seat = found.host.map_or(found.stage, |(_, host)| host);
-    let variant = match (found.zombie(), found.invasion()) {
-        (true, true) => Some("Outbreak Invasion"),
-        (true, false) => Some("Outbreak"),
-        (false, true) => Some("Invasion"),
-        (false, false) => None,
-    };
 
-    (library.stage_map(seat).map_or("", |map| map.name.as_str()), variant)
+    (library.stage_map(seat).map_or("", |map| map.name.as_str()), found.kind())
 }
 
 fn stage_hit(library: &Library, found: &Staged<'_>, score: u32) -> Hit {

@@ -277,6 +277,17 @@ impl Library {
     }
 }
 
+fn variety(category: &Category, invasion: bool) -> Option<&'static str> {
+    match (category, invasion) {
+        (Category::ZombieOutbreaks, true) => Some("Outbreak Invasion"),
+        (Category::ZombieOutbreaks, false) => Some("Outbreak"),
+        (Category::CataminStages, true) => Some("Catamin Invasion"),
+        (Category::CataminStages, false) => Some("Catamin"),
+        (_, true) => Some("Invasion"),
+        (_, false) => None,
+    }
+}
+
 pub(crate) struct Area<'a> {
     pub(crate) id: &'a GlobalMapId,
     pub(crate) map: &'a Map,
@@ -302,12 +313,7 @@ impl Area<'_> {
     }
 
     pub(crate) fn kind(&self) -> Option<&'static str> {
-        match (self.id.category == Category::ZombieOutbreaks, self.invasion()) {
-            (true, true) => Some("Outbreak Invasion"),
-            (true, false) => Some("Outbreak"),
-            (false, true) => Some("Invasion"),
-            (false, false) => None,
-        }
+        variety(&self.id.category, self.invasion())
     }
 }
 
@@ -333,12 +339,8 @@ impl Staged<'_> {
         }
     }
 
-    pub(crate) fn zombie(&self) -> bool {
-        self.id.category == Category::ZombieOutbreaks
-    }
-
-    pub(crate) fn invasion(&self) -> bool {
-        self.host.is_some()
+    pub(crate) fn kind(&self) -> Option<&'static str> {
+        variety(&self.id.category, self.host.is_some())
     }
 }
 
