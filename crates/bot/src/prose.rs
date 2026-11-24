@@ -207,10 +207,12 @@ pub(crate) const PAGE_WEBSITE: Line = Line::new("A link to the Hagane website.",
 pub(crate) const PAGE_INVITE: Line = Line::new("How to get me into another server.", "How to get me into another server... as if I'd be lonely here!");
 pub(crate) const PAGE_LEGAL: Line = Line::new("The licenses for everything I'm built from, and who I'm not affiliated with.", "The licenses for everything I'm built from, and who I'm not affiliated with. D-Don't go reading all of it!");
 pub(crate) const PAGE_HELP: Line = Line::new("`hg!help` lists every command. `hg!help <command>` opens one, aliases included, like `hg!help c`. The list below switches between them.", "`hg!help` lists every command. `hg!help <command>` opens one, aliases included, like `hg!help c`. The list below switches between them, since you clearly need the help!");
+pub(crate) const PICK_LAPSED: Line = Line::new("Nothing was picked for {minutes} minutes, so I've dropped that request", "{minutes} whole minutes and you still couldn't pick?! Fine, I've dropped it... n-not that I was waiting on you or anything!");
 pub(crate) const DO_NOTHING: Line = Line::new("Okay! I will do nothing", "Fine! I'll do nothing! I-It's not like I wanted to do something for you anyway!");
 
 #[cfg(test)]
-pub(crate) const LINES: [&Line; 74] = [
+pub(crate) const LINES: [&Line; 75] = [
+    &PICK_LAPSED,
     &LIST_GONE,
     &NO_PLACE,
     &NO_MAP,

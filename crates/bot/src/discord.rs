@@ -1,9 +1,9 @@
-use std::collections::VecDeque;
+use std::collections::{HashMap, VecDeque};
 use std::sync::atomic::Ordering;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
-use poise::serenity_prelude as serenity;
+use poise::serenity_prelude::{self as serenity, Builder};
 use poise::{BoxFuture, CreateReply, FrameworkError};
 use tokio::sync::{OwnedRwLockReadGuard, RwLock, Semaphore};
 use tokio::task;
@@ -36,6 +36,7 @@ use super::talents;
 use super::usage::{self, Asker, Ledger, Tally};
 
 const REFRESH: Duration = Duration::from_secs(60 * 60);
+const PICK_WAIT: Duration = Duration::from_secs(5 * 60);
 const TICK: Duration = Duration::from_secs(1);
 const BAR: usize = 24;
 const TRUE_FORM: usize = 2;
@@ -84,6 +85,18 @@ type Error = Box<dyn std::error::Error + Send + Sync>;
 type Context<'a> = poise::Context<'a, Data, Error>;
 type Shelf = Arc<RwLock<Option<Arc<Catalog>>>>;
 type Guard = OwnedRwLockReadGuard<Option<Arc<Catalog>>>;
+type Waits = Arc<Mutex<HashMap<u64, Wait>>>;
+
+enum Slip {
+    Message(serenity::ChannelId, serenity::MessageId),
+    Reply(String),
+}
+
+struct Wait {
+    due: Instant,
+    slip: Slip,
+    prose: Prose,
+}
 
 pub(crate) struct Data {
     shelf: Shelf,
@@ -93,6 +106,7 @@ pub(crate) struct Data {
     book: Arc<Book>,
     lists: Mutex<Lists>,
     usage: Mutex<Ledger>,
+    waits: Waits,
 }
 
 type Choice = (String, String, String);
@@ -131,7 +145,17 @@ fn lists(data: &Data) -> MutexGuard<'_, Lists> {
 
 pub(crate) async fn run(config: Config, cache: Cache) -> Result<(), Error> {
     let shelf: Shelf = Arc::new(RwLock::new(None));
-    let data = Data { shelf: Arc::clone(&shelf), cache: Arc::new(cache), sheets: Arc::new(Semaphore::new(1)), encoder: Arc::new(Semaphore::new(1)), book: Arc::new(Book::open()), lists: Mutex::new(Lists::new(SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |since| since.as_secs()))), usage: Mutex::new(Ledger::default()) };
+    let born = SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |since| since.as_secs());
+    let data = Data {
+        shelf: Arc::clone(&shelf),
+        cache: Arc::new(cache),
+        sheets: Arc::new(Semaphore::new(1)),
+        encoder: Arc::new(Semaphore::new(1)),
+        book: Arc::new(Book::open()),
+        lists: Mutex::new(Lists::new(born)),
+        usage: Mutex::new(Ledger::default()),
+        waits: Arc::new(Mutex::new(HashMap::new())),
+    };
 
     tokio::spawn(keep_fresh(config.source, shelf));
 
@@ -222,6 +246,10 @@ fn prefix_length(content: &str, prefix: &str, me: serenity::UserId, direct: bool
     (direct || replied_to == Some(me)).then_some(leading)
 }
 
+fn unasked(prefix: &str) -> bool {
+    prefix.trim().is_empty()
+}
+
 async fn on_error(failure: FrameworkError<'_, Data, Error>) {
     match failure {
         FrameworkError::Command { error, ctx, .. } => {
@@ -242,7 +270,7 @@ async fn on_error(failure: FrameworkError<'_, Data, Error>) {
                 return;
             }
 
-            let Some((prefix, text)) = msg.content.split_at_checked(usize::from(content_start)).filter(|(prefix, _)| !prefix.trim().is_empty()) else {
+            let Some((prefix, text)) = msg.content.split_at_checked(usize::from(content_start)).filter(|(prefix, _)| !unasked(prefix)) else {
                 return;
             };
             let voice = Voice::Message(ctx, msg, data);
@@ -258,6 +286,9 @@ async fn on_error(failure: FrameworkError<'_, Data, Error>) {
             }
         }
         FrameworkError::CommandCheckFailed { .. } => {}
+        FrameworkError::ArgumentParse { ctx: poise::Context::Prefix(typed), input, .. } if unasked(typed.prefix()) => {
+            debug!(command = %typed.command().name, input, "Chat that only looked like a command was left alone");
+        }
         other => {
             if let Err(err) = poise::builtins::on_error(other).await {
                 error!("An error could not be handled: {}", err);
@@ -387,6 +418,85 @@ enum Posted<'a> {
     Command(poise::ReplyHandle<'a>),
     Press,
     Message(serenity::MessageId),
+}
+
+impl Posted<'_> {
+    async fn slip(&self, voice: Voice<'_>) -> Option<(u64, Slip)> {
+        match (self, voice) {
+            (Posted::Command(handle), Voice::Command(ctx)) => match handle.message().await {
+                Ok(message) => Some((
+                    message.id.get(),
+                    match ctx {
+                        poise::Context::Application(asked) => Slip::Reply(asked.interaction.token.clone()),
+                        poise::Context::Prefix(_) => Slip::Message(message.channel_id, message.id),
+                    },
+                )),
+                Err(err) => {
+                    warn!("A pick list could not be found again, so it will not time out: {}", err);
+                    None
+                }
+            },
+            (Posted::Press, Voice::Press(_, press, _)) => Some((press.message.id.get(), Slip::Reply(press.token.clone()))),
+            (Posted::Message(sent), Voice::Message(_, msg, _)) => Some((sent.get(), Slip::Message(msg.channel_id, *sent))),
+            _ => None,
+        }
+    }
+}
+
+fn waits(data: &Data) -> MutexGuard<'_, HashMap<u64, Wait>> {
+    data.waits.lock().unwrap_or_else(PoisonError::into_inner)
+}
+
+async fn expiring(voice: Voice<'_>, posted: &Posted<'_>) {
+    let Some((message, slip)) = posted.slip(voice).await else {
+        return;
+    };
+    let wait = Wait { due: Instant::now() + PICK_WAIT, slip, prose: voice.prose() };
+    let fresh = waits(voice.data()).insert(message, wait).is_none();
+
+    if fresh {
+        tokio::spawn(lapse(Arc::clone(&voice.discord().http), Arc::clone(&voice.data().waits), message));
+    }
+}
+
+fn extend(held: &mut HashMap<u64, Wait>, message: Option<serenity::MessageId>, token: &str) {
+    if let Some(wait) = message.and_then(|message| held.get_mut(&message.get())) {
+        wait.due = Instant::now() + PICK_WAIT;
+        wait.slip = Slip::Reply(token.to_owned());
+    }
+}
+
+fn touched(data: &Data, message: Option<serenity::MessageId>, token: &str) {
+    extend(&mut waits(data), message, token);
+}
+
+async fn lapse(http: Arc<serenity::Http>, waits: Waits, message: u64) {
+    loop {
+        let due = waits.lock().unwrap_or_else(PoisonError::into_inner).get(&message).map(|wait| wait.due);
+        let Some(due) = due else {
+            return;
+        };
+
+        if Instant::now() < due {
+            tokio::time::sleep_until(due.into()).await;
+            continue;
+        }
+
+        let Some(wait) = waits.lock().unwrap_or_else(PoisonError::into_inner).remove(&message) else {
+            return;
+        };
+        let text = prose::PICK_LAPSED.filled(wait.prose, &[("minutes", &(PICK_WAIT.as_secs() / 60).to_string())]);
+        let edited = match wait.slip {
+            Slip::Message(channel, sent) => channel.edit_message(&http, sent, serenity::EditMessage::new().content(text).components(Vec::new()).allowed_mentions(quiet())).await.map(drop),
+            Slip::Reply(token) => serenity::EditInteractionResponse::new().content(text).components(Vec::new()).execute(&http, &token).await.map(drop),
+        };
+
+        if let Err(err) = edited {
+            warn!(message, "A pick list could not be marked as timed out: {}", err);
+        }
+
+        return;
+    }
 }
 
 impl<'a> Voice<'a> {
@@ -565,8 +675,11 @@ async fn offer_choices(voice: Voice<'_>, prompt: String, choices: Vec<Choice>) -
 
     let choices: Arc<[Choice]> = choices.into();
     let token = (choices.len() > SEARCH_SHOWN).then(|| lists(voice.data()).keep(owner, Arc::clone(&choices)));
+    let posted = voice.post(Post::text(prompt).rows(list_rows(owner, token, &choices, 0))).await?;
 
-    voice.post(Post::text(prompt).rows(list_rows(owner, token, &choices, 0))).await.map(|_| ())
+    expiring(voice, &posted).await;
+
+    Ok(())
 }
 
 async fn on_seek(ctx: &serenity::Context, press: &serenity::ComponentInteraction, data: &Data, rest: &str) -> Result<(), Error> {
@@ -578,6 +691,8 @@ async fn on_seek(ctx: &serenity::Context, press: &serenity::ComponentInteraction
     if press.user.id.get() != owner {
         return refuse(ctx, press, data).await;
     }
+
+    touched(data, Some(press.message.id), &press.token);
 
     let held = lists(data).find(token, owner);
     let Some(choices) = held else {
@@ -654,7 +769,16 @@ fn chart(owner: u64, library: &Library, code: &str, shown: usize, route: &str, t
 
 async fn listed(voice: Voice<'_>, library: &Library, code: &str, route: &str, tail: &str) -> Result<(), Error> {
     match chart(voice.user().get(), library, code, 0, route, tail, voice.prose()) {
-        Ok(post) => voice.post(post).await.map(|_| ()),
+        Ok(post) => {
+            let picking = !post.rows.is_empty();
+            let posted = voice.post(post).await?;
+
+            if picking {
+                expiring(voice, &posted).await;
+            }
+
+            Ok(())
+        }
         Err(line) => voice.say(line.said(voice.prose())).await,
     }
 }
@@ -689,6 +813,8 @@ async fn on_chart(ctx: &serenity::Context, press: &serenity::ComponentInteractio
     if press.user.id.get() != owner {
         return refuse(ctx, press, data).await;
     }
+
+    touched(data, Some(press.message.id), &press.token);
 
     let prefs = data.book.get(owner);
     let Some((_guard, library)) = open(data, &prefs.language).await? else { return Ok(()) };
@@ -845,6 +971,7 @@ async fn on_found(ctx: &serenity::Context, press: &serenity::ComponentInteractio
     let Some(picked) = values.first() else { return Ok(()) };
     let voice = Voice::Press(ctx, press, data);
 
+    waits(data).remove(&press.message.id.get());
     press.create_response(ctx, serenity::CreateInteractionResponse::Acknowledge).await?;
 
     if picked == ABORT {
@@ -1604,7 +1731,7 @@ fn page(title: &str, description: &str) -> serenity::CreateEmbed {
 }
 
 const CLIPS: &str = "`attack` (`atk`, `a`), `idle` (`i`), `walk` (`w`), `knockback` (`kb`, `k`), `showcase` (`sh`, `sc`), `burrow` (`bur`, `b`), `surface` (`su`, `sf`, `rise`, `r`), `dig` (`d`), `spirit` (`sp`, `c`, `conjure`), `model` (`m`) for a single picture of the unit with no animation. Attack if none is given.";
-const MOTION_FLAGS: &str = "`--range 0~30` or `--range 0 30` (`-r`): frames to export, wrapping around the loop; not for showcases or models
+const MOTION_FLAGS: &str = "`--range 0~30` or `--range 0 30` (`-r`): frames to export, wrapping around the loop, and one number alone is a single frame; not for showcases or models
 `--loop` (`-l`), walk and idle only: finds a perfect loop; `min 15`, `max 200` and `diff 30` tune it, and with `--range` it only searches that window
 `--format webp` (`-f`): `avif` (`a`), `webp` (`w`) or `gif` (`g`), this time only, over your default
 `--background` (`-b`): a solid gray background instead of a transparent one
@@ -1677,7 +1804,7 @@ fn help_page(page_name: &str, section: &str, prefix: &str, prose: Prose) -> sere
             .field("Examples", "`hg!map the legend begins`\n`hg!m N 0 -c 4`\n`hg!m empire of cats ch. 1`", false),
         ("background", _) => Voiced::new(prefix, "hg!background (bg, b)", "`hg!background <ID | stage | map> ...`")
             .field("What you get", prose::PAGE_BACKGROUND.said(prose), false)
-            .field("Flags", "`--seed 100` (`-e`): which random run a moving background plays, 100 to start\n`--range 0~299` or `--range 0 299` (`-r`): frames of a moving background, 0~299 to start\n`--offset 100 50` (`-o`): moves the view right and up from the middle of the screen; negative numbers go left and down\n`--dimensions 800x600` (`-d`): the picture's size, growing outward from that middle; `800 600` and `800×600` work too. 960x640 to start, up to 4096 on a side and 4 megapixels in all\n`--format webp` (`-f`): `avif` (`a`), `webp` (`w`) or `gif` (`g`), this time only, over your default\n`--quality 90` (`-q`): 0 to 100, 80 to start\n`--compress 30` (`-p`): 0 to 100, 0 to start; higher takes longer", false)
+            .field("Flags", "`--seed 100` (`-e`): which random run a moving background plays, 100 to start\n`--range 0~299` or `--range 0 299` (`-r`): frames of a moving background, 0~299 to start; one number alone is a single frame\n`--offset 100 50` (`-o`): moves the view right and up from the middle of the screen; negative numbers go left and down\n`--dimensions 800x600` (`-d`): the picture's size, growing outward from that middle; `800 600` and `800×600` work too. 960x640 to start, up to 4096 on a side and 4 megapixels in all\n`--format webp` (`-f`): `avif` (`a`), `webp` (`w`) or `gif` (`g`), this time only, over your default\n`--quality 90` (`-q`): 0 to 100, 80 to start\n`--compress 30` (`-p`): 0 to 100, 0 to start; higher takes longer", false)
             .field("Stage or map", "A stage's name, or its ID like `N 0 7`, finds it the way `hg!stage` does and sends the background that stage uses.\nA map's name, or its ID like `N 0`, lists its stages the way `hg!map` does, and the one you pick sends its background. Your flags carry over.\nStages and maps are looked through together, and `--search` (`-s`) works here too.", false)
             .field("Examples", "`hg!bg 0`\n`hg!bg 12 -f gif -d 1920x640`\n`hg!bg 197 -e 7 -r 0~149`\n`hg!bg 2 -o 400 100 -d 800x600`\n`hg!bg earthshaker -f webp`\n`hg!bg the legend begins`", false),
         ("audio", _) => Voiced::new(prefix, "hg!audio (a)", "`hg!audio <ID | stage | map> ...`")
@@ -2068,6 +2195,8 @@ async fn on_modal(ctx: &serenity::Context, form: &serenity::ModalInteraction, da
             form.create_response(ctx, serenity::CreateInteractionResponse::Message(gone)).await?;
             return Ok(());
         };
+
+        touched(data, form.message.as_ref().map(|message| message.id), &form.token);
         let asked = typed(form).trim().parse::<usize>().ok().map_or(shown, |page| page.clamp(1, list_pages(&choices)) - 1);
         let turned = serenity::CreateInteractionResponseMessage::new().components(list_rows(owner, Some(token), &choices, asked));
 
@@ -2084,6 +2213,8 @@ async fn on_modal(ctx: &serenity::Context, form: &serenity::ModalInteraction, da
         let pages = chart_pages(&library, code).unwrap_or(1);
         let asked = typed(form).trim().parse::<usize>().ok().map_or(shown, |page| page.clamp(1, pages) - 1);
         let Ok(post) = chart(owner, &library, code, asked, route, tail, prefs.prose) else { return Ok(()) };
+
+        touched(data, form.message.as_ref().map(|message| message.id), &form.token);
         let turned = serenity::CreateInteractionResponseMessage::new().content(post.text).components(post.rows);
 
         form.create_response(ctx, serenity::CreateInteractionResponse::UpdateMessage(turned)).await?;
@@ -2398,6 +2529,37 @@ mod tests {
         assert_eq!(chosen("hg!cat 25"), None);
         assert_eq!(prefix_length("ねこcat", "ねこ", ME, false, None), Some("ねこ".len()));
         assert_eq!(prefix_length("猫", "ねこ", ME, false, None), None);
+    }
+
+    // A reply or a DM has no prefix, so text that only happens to start with a command word is chat, not a request to complain about.
+    #[test]
+    fn only_a_typed_prefix_makes_a_request() {
+        let prefix = |content: &'static str, direct: bool, replied_to: Option<serenity::UserId>| prefix_length(content, prefs::PREFIX, ME, direct, replied_to).map(|length| &content[..length]);
+
+        assert_eq!(prefix("I didnt want that", false, Some(ME)).map(unasked), Some(true));
+        assert_eq!(prefix("  invite me please", true, None).map(unasked), Some(true));
+        assert_eq!(prefix("hg!i didnt want that", false, Some(ME)).map(unasked), Some(false));
+        assert_eq!(prefix("<@42> invite me please", false, None).map(unasked), Some(false));
+    }
+
+    // A pick list that is turned or jumped stays alive, one that is answered stops waiting, and nothing else is touched.
+    #[test]
+    fn a_pick_list_waits_from_its_last_turn() {
+        let data_waits: Waits = Arc::new(Mutex::new(HashMap::new()));
+        let early = Instant::now();
+        let wait = |due: Instant| Wait { due, slip: Slip::Message(serenity::ChannelId::new(1), serenity::MessageId::new(5)), prose: Prose::Human };
+
+        data_waits.lock().unwrap().insert(5, wait(early));
+        extend(&mut data_waits.lock().unwrap(), Some(serenity::MessageId::new(5)), "token");
+        extend(&mut data_waits.lock().unwrap(), Some(serenity::MessageId::new(6)), "other");
+        extend(&mut data_waits.lock().unwrap(), None, "none");
+
+        let held = data_waits.lock().unwrap();
+
+        assert_eq!(held.len(), 1);
+        assert!(held[&5].due >= early + PICK_WAIT);
+        assert!(matches!(&held[&5].slip, Slip::Reply(token) if token == "token"));
+        assert_eq!(prose::PICK_LAPSED.filled(Prose::Human, &[("minutes", &(PICK_WAIT.as_secs() / 60).to_string())]), "Nothing was picked for 5 minutes, so I've dropped that request");
     }
 
     // Ordinary chat must never be read as a command.

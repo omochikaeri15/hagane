@@ -313,7 +313,7 @@ fn magnification_of(token: &str) -> Option<(i32, i32)> {
 }
 
 fn range_of(tokens: &[&str], at: &mut usize) -> Result<(i32, i32), String> {
-    let first = tokens.get(*at).ok_or("`--range` needs two frames, like `0~30` or `0 30`")?;
+    let first = tokens.get(*at).ok_or("`--range` needs a frame or two, like `12`, `0~30` or `0 30`")?;
 
     if let Some((from, to)) = first.split_once('~') {
         *at += 1;
@@ -324,15 +324,12 @@ fn range_of(tokens: &[&str], at: &mut usize) -> Result<(i32, i32), String> {
         };
     }
 
-    let second = tokens.get(*at + 1).ok_or("`--range` needs two frames, like `0~30` or `0 30`")?;
+    let from = first.parse::<i32>().map_err(|_| format!("`{first}` is not a frame range"))?;
+    let to = tokens.get(*at + 1).and_then(|second| second.parse::<i32>().ok());
 
-    match (first.parse::<i32>(), second.parse::<i32>()) {
-        (Ok(from), Ok(to)) => {
-            *at += 2;
-            Ok((from, to))
-        }
-        _ => Err(format!("`{first} {second}` is not a frame range")),
-    }
+    *at += 1 + usize::from(to.is_some());
+
+    Ok((from, to.unwrap_or(from)))
 }
 
 pub(crate) fn talents_of(tokens: &[&str]) -> Vec<Talent> {
@@ -967,6 +964,17 @@ mod tests {
         assert_eq!(motion("25 a attack -r -10~40").range, Some((-10, 40)));
         assert_eq!(motion("25 a kb --range -5 5").range, Some((-5, 5)));
         assert!(parse("25 a sh -r 0~10", Kind::Cat).is_err());
+    }
+
+    // One number is that frame alone, whatever comes after it.
+    #[test]
+    fn a_lone_range_number_is_a_single_frame() {
+        assert_eq!(motion("25 a attack -r 12").range, Some((12, 12)));
+        assert_eq!(motion("25 a walk --range -4 -f webp").range, Some((-4, -4)));
+        assert_eq!((motion("25 -r 7 -b").range, motion("25 -r 7 -b").background), (Some((7, 7)), true));
+        assert_eq!(scenery("12 -r 40 -f gif").unwrap().range, Some((40, 40)));
+        assert!(parse("25 a walk -l -r 30", Kind::Cat).is_ok(), "a loop search still reads it, as a window of one frame");
+        assert!(parse("25 a attack -r", Kind::Cat).is_err() && parse("25 a attack -r soon", Kind::Cat).is_err());
     }
 
     #[test]
