@@ -5,14 +5,23 @@ const SERVERS: [(u64, &str); 4] = [
     (1421463076594651238, "Temmoz Tier-List"),
 ];
 
-const USERS: [(u64, &str); 1] = [(1360862647578394704, "@omochikaeri15")];
+const USERS: [(u64, &str); 2] = [
+    (1360862647578394704, "@omochikaeri15"),
+    (1054939004723793951, "Unknown User"),
+];
 
 pub(crate) fn server(id: u64) -> Option<&'static str> {
-    SERVERS.iter().find(|(listed, _)| *listed == id).map(|(_, name)| *name)
+    SERVERS
+        .iter()
+        .find(|(listed, _)| *listed == id)
+        .map(|(_, name)| *name)
 }
 
 pub(crate) fn user(id: u64) -> Option<&'static str> {
-    USERS.iter().find(|(listed, _)| *listed == id).map(|(_, name)| *name)
+    USERS
+        .iter()
+        .find(|(listed, _)| *listed == id)
+        .map(|(_, name)| *name)
 }
 
 pub(crate) fn admits(server_id: u64) -> bool {
