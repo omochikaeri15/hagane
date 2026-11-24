@@ -2013,7 +2013,8 @@ impl HaganeApp {
 
                 let mut gathering: Option<Task<Message>> = None;
 
-                if matches!(msg, sandbox::Message::Play)
+                if let sandbox::Message::Play(checked) = msg
+                    && !self.sandbox_state.outdated(checked)
                     && let Some(entry) = self.staged_entry()
                 {
                     let setup = self.sandbox_state.setup(&self.app_state, entry);

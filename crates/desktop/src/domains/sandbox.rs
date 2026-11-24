@@ -24,6 +24,7 @@ use foundry::systems::treasure::{Bonus, Catalog};
 use foundry::domains::sandbox::keybind::Bind;
 use foundry::domains::sandbox::altar::Altars;
 use foundry::domains::sandbox::jailbreak::Board;
+use foundry::domains::sandbox::vintage;
 use foundry::domains::sandbox::{TECHS, TERMS};
 use foundry::domains::sandbox::replay as replay_tape;
 use foundry::domains::settings::{CombatLook, ReplaySource, SavedBcvName, ScannerConfig, Settings};
@@ -78,7 +79,7 @@ pub enum Message {
     OpenUrl(String),
     Agree,
     Disagree,
-    Play,
+    Play(bool),
     Tick,
     Tab(SandboxTab),
     Lineup(lineup::Message),
@@ -131,6 +132,7 @@ pub struct State {
     was_running: bool,
     version: popup::State,
     foreign: Option<String>,
+    dated: Option<String>,
     altars: Altars,
     castle: Option<i32>,
 }
@@ -162,6 +164,7 @@ impl Default for State {
             was_running: false,
             version: popup::State::default(),
             foreign: None,
+            dated: None,
             altars: Altars::default(),
             castle: None,
         }
@@ -713,20 +716,28 @@ impl State {
 
                 Task::none()
             }
-            Message::Play | Message::Watch(_) => Task::none(),
+            Message::Play(_) | Message::Watch(_) => Task::none(),
             Message::VersionPopup(msg) => {
                 if self.version.update(msg, VERSION_POPUP) {
                     self.foreign = None;
+                    self.dated = None;
                 }
 
                 Task::none()
             }
             Message::CloseVersion => {
                 self.foreign = None;
+                self.dated = None;
 
                 Task::none()
             }
             Message::IgnoreVersion => {
+                if self.dated.take().is_some() {
+                    vintage::clear(VERSION);
+
+                    return Task::done(Message::Play(true));
+                }
+
                 self.foreign = None;
 
                 let Some(target) = self.replay.target() else {
@@ -1083,30 +1094,50 @@ impl State {
     }
 
     pub fn version_popup_open(&self) -> bool {
-        self.foreign.is_some()
+        self.foreign.is_some() || self.dated.is_some()
+    }
+
+    pub(crate) fn outdated(&mut self, checked: bool) -> bool {
+        self.dated = if checked { None } else { vintage::stale(VERSION) };
+        self.dated.is_some()
     }
 
     pub fn version_view(&self, window: Size) -> Option<Element<'_, Message>> {
-        let recorded = self.foreign.as_deref()?;
+        let (notice, onward) = match (self.dated.as_deref(), self.foreign.as_deref()) {
+            (Some(files), _) => (Self::dated_notice(files), Message::Play(true)),
+            (None, Some(recorded)) => (Self::foreign_notice(recorded), Message::Watch(true)),
+            (None, None) => return None,
+        };
 
-        Some(self.version.view("Version Mismatch", VERSION_POPUP, window, Message::VersionPopup, move || Self::version_content(recorded), None))
+        Some(self.version.view("Version Mismatch", VERSION_POPUP, window, Message::VersionPopup, move || Self::version_content(notice.clone(), onward.clone()), None))
     }
 
-    fn version_content(recorded: &str) -> Element<'_, Message> {
-        let notice = format!(
+    fn dated_notice(files: &str) -> String {
+        format!(
+            "Last import yielded game files from version {files}, but Sandbox currently replicates game version {VERSION}.\n\n\
+             Game files from an earlier game version may cause stage initialization to fail, unexpected game faults, or incorrect and undefined behavior. \
+             If you encounter any issues, you can resolve them by importing the most recent game version among all four regions.\n\n\
+             Ignore marks your highest import version as working in game version {VERSION}, so you won't be asked again until the game version changes."
+        )
+    }
+
+    fn foreign_notice(recorded: &str) -> String {
+        format!(
             "This replay was recorded in game version {recorded}, but Sandbox currently replicates game version {VERSION}.\n\n\
              Replays recorded in a different game version may play out differently, desync, or crash partway through. \
              If the replay crashes due to missing files, try setting Replay Source to VFS under Settings > Sandbox.\n\n\
              Ignore marks this replay as working in game version {VERSION}, so you won't be asked again until the game version changes."
-        );
+        )
+    }
 
+    fn version_content<'a>(notice: String, onward: Message) -> Element<'a, Message> {
         column![
             smooth_scroll(scrollable(text(notice).size(BODY_SIZE)).width(Length::Fill).height(Length::Fill).spacing(SCROLLBAR_GAP)),
             Space::new().height(CHOICE_GAP),
             row![
                 theme::sized_button("Close", theme::POPUP_ACTION_BUTTON_WIDTH, theme::danger_button).on_press(Message::CloseVersion),
                 theme::sized_button("Ignore", theme::POPUP_ACTION_BUTTON_WIDTH, theme::warning_button).on_press(Message::IgnoreVersion),
-                theme::sized_button("Continue", theme::POPUP_ACTION_BUTTON_WIDTH, theme::success_button).on_press(Message::Watch(true)),
+                theme::sized_button("Continue", theme::POPUP_ACTION_BUTTON_WIDTH, theme::success_button).on_press(onward),
             ]
                 .spacing(CHOICE_SPACING),
         ]
@@ -1207,7 +1238,7 @@ impl State {
             theme::sized_button("Watch", PLAY_WIDTH, theme::primary_button)
                 .on_press_maybe(self.replay.reel().is_some().then_some(Message::Watch(false)))
         } else {
-            theme::sized_button("Play", PLAY_WIDTH, theme::primary_button).on_press_maybe(playable.then_some(Message::Play))
+            theme::sized_button("Play", PLAY_WIDTH, theme::primary_button).on_press_maybe(playable.then_some(Message::Play(false)))
         };
 
         let play = container(

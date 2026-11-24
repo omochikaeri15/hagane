@@ -24,6 +24,7 @@ use crate::common::architecture;
 use crate::common::io;
 use crate::common::job::{JobEvent, ProgressCounter};
 use crate::domains::mining;
+use crate::domains::sandbox::vintage;
 use crate::domains::settings::ImportStructure;
 use crate::domains::settings::RuleHandling;
 use crate::domains::settings::UserKeys;
@@ -526,6 +527,7 @@ pub(crate) fn run_universal_import(
     if final_extraction_queue.is_empty() && stale_rosters.is_empty() {
         emit(JobEvent::Log("Workspace is completely up to date.".to_string()));
 
+        vintage::note(detected_builds.iter().map(|build| build.name.as_str()));
         mining::commit(Vec::new(), Vec::new(), detected_builds);
 
         if absorb_pack_hashes(&mut ledger, current_pack_hashes) {
@@ -777,6 +779,8 @@ pub(crate) fn run_universal_import(
         ledger.place(filename_key, placement);
         found.extend(sample);
     }
+
+    vintage::note(detected_builds.iter().map(|build| build.name.as_str()));
 
     if mining::commit(found, touched, detected_builds) {
         emit(JobEvent::Log("Changes in previous database content detected.".to_string()));

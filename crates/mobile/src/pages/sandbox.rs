@@ -409,7 +409,7 @@ pub fn wire(window: &AppWindow, context: &Rc<Context>) -> Shared {
     let (held, ctx, weak) = on(&state, context, window);
     sandbox.on_play(move || {
         if let Some(ui) = weak.upgrade() {
-            play(&ui, &held, &ctx);
+            play(&ui, &held, &ctx, false);
         }
     });
 
@@ -577,13 +577,17 @@ fn options(saved: &Saved) -> BattleOptions {
     BattleOptions { music: Volume::nearest(saved.music_volume).percent(), effects: Volume::nearest(saved.effects_volume).percent(), two_rows: saved.two_rows, vibrate: saved.vibrate }
 }
 
-fn play(ui: &AppWindow, state: &Shared, context: &Rc<Context>) {
+fn play(ui: &AppWindow, state: &Shared, context: &Rc<Context>, checked: bool) {
     let Some(staging) = staging(&state.borrow(), context) else {
         return;
     };
     let fielded = state.borrow().saved().roster.current().is_some_and(|lineup| !lineup.slots.is_empty());
 
     if !fielded || state.borrow().cats.is_none() {
+        return;
+    }
+
+    if replay::outdated(ui, state, context, checked) {
         return;
     }
 

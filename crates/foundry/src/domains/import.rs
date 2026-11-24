@@ -11,6 +11,7 @@ use std::time::SystemTime;
 use serde::{Deserialize, Serialize};
 
 use crate::common::region::Region;
+use crate::domains::sandbox::vintage;
 use crate::domains::{cat, enemy, mining, stage};
 use crate::ContentStore;
 
@@ -27,6 +28,7 @@ pub fn pack_stamp() -> Option<SystemTime> {
 pub fn forget_imports() {
     engine::manifest::reset();
     mining::clear();
+    vintage::forget();
 }
 
 pub fn purge_derived_caches() {

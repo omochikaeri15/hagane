@@ -19,6 +19,8 @@ pub mod replay;
 pub mod scored;
 #[cfg(feature = "sandbox")]
 mod terms;
+#[cfg(feature = "disk")]
+pub mod vintage;
 
 #[cfg(feature = "sandbox")]
 pub use config::{Config, Tech, ITEMS, TECHS};

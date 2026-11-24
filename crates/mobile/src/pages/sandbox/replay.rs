@@ -16,6 +16,7 @@ use foundry::common::job::JobOutcome;
 use foundry::domains::cat::scanner::{self, CatEntry};
 use foundry::domains::sandbox::jailbreak::Board;
 use foundry::domains::sandbox::replay::{self as tape, Save, Summary, Unit};
+use foundry::domains::sandbox::vintage;
 use foundry::systems::treasure::{self, Bonus};
 
 use crate::host::{Command, Reel};
@@ -23,7 +24,7 @@ use crate::pages::{Context, cats, detail};
 use crate::{AppWindow, Cats, DeckCell, Field, OrbSlot, ReplayRow, Sandbox, Tone, bridge, delivery, paths};
 
 use super::state::{Device, Tab, Volume};
-use super::{Shared, battle, refresh, report};
+use super::{Shared, battle, play, refresh, report};
 
 const NP_ICON: &str = "gatyaitemD_07_f.png";
 const LATEST_LABEL: &str = "Latest Battle";
@@ -91,6 +92,7 @@ pub struct Part {
     rename: String,
     failure: Option<String>,
     foreign: Option<String>,
+    dated: Option<String>,
     collision: bool,
     ticket: Option<bridge::Ticket>,
     timer: slint::Timer,
@@ -257,6 +259,20 @@ fn inspect(ui: &AppWindow, state: &Shared, context: &Rc<Context>) {
             refresh(ui, &landing, &ctx);
         },
     );
+}
+
+pub fn outdated(ui: &AppWindow, state: &Shared, context: &Rc<Context>, checked: bool) -> bool {
+    let files = if checked { None } else { vintage::stale(VERSION) };
+    let asking = files.is_some();
+    let changed = state.borrow().replay.dated != files;
+
+    state.borrow_mut().replay.dated = files;
+
+    if changed {
+        refresh(ui, state, context);
+    }
+
+    asking
 }
 
 pub fn watch(ui: &AppWindow, state: &Shared, context: &Rc<Context>, checked: bool) {
@@ -773,6 +789,7 @@ pub fn wire(window: &AppWindow, state: &Shared, context: &Rc<Context>) {
     let (held, ctx, weak) = on(state, context, window);
     sandbox.on_version_close(move || {
         held.borrow_mut().replay.foreign = None;
+        held.borrow_mut().replay.dated = None;
 
         if let Some(ui) = weak.upgrade() {
             refresh(&ui, &held, &ctx);
@@ -781,10 +798,14 @@ pub fn wire(window: &AppWindow, state: &Shared, context: &Rc<Context>) {
 
     let (held, ctx, weak) = on(state, context, window);
     sandbox.on_version_continue(move || {
+        let dated = held.borrow_mut().replay.dated.take().is_some();
+
         held.borrow_mut().replay.foreign = None;
 
-        if let Some(ui) = weak.upgrade() {
-            watch(&ui, &held, &ctx, true);
+        match (weak.upgrade(), dated) {
+            (Some(ui), true) => play(&ui, &held, &ctx, true),
+            (Some(ui), false) => watch(&ui, &held, &ctx, true),
+            (None, _) => {}
         }
     });
 
@@ -793,6 +814,13 @@ pub fn wire(window: &AppWindow, state: &Shared, context: &Rc<Context>) {
         let Some(ui) = weak.upgrade() else {
             return;
         };
+
+        if held.borrow_mut().replay.dated.take().is_some() {
+            vintage::clear(VERSION);
+            play(&ui, &held, &ctx, true);
+
+            return;
+        }
 
         held.borrow_mut().replay.foreign = None;
 
@@ -963,9 +991,11 @@ pub fn sync(ui: &AppWindow, state: &Shared, context: &Rc<Context>) {
     sandbox.set_job_status(part.status.as_str().into());
     sandbox.set_job_progress(if busy { part.fraction } else { 1.0 });
     sandbox.set_replay_failure(part.failure.clone().unwrap_or_default().into());
-    sandbox.set_version_open(part.foreign.is_some());
+    sandbox.set_version_open(part.foreign.is_some() || part.dated.is_some());
 
-    if let Some(recorded) = &part.foreign {
+    if let Some(files) = &part.dated {
+        sandbox.set_version_text(format!("Last import yielded game files from version {files}, but Sandbox currently replicates game version {VERSION}.\n\nGame files from an earlier game version may cause stage initialization to fail, unexpected game faults, or incorrect and undefined behavior. If you encounter any issues, you can resolve them by importing the most recent game version among all four regions.\n\nIgnore marks your highest import version as working in game version {VERSION}, so you won't be asked again until the game version changes.").into());
+    } else if let Some(recorded) = &part.foreign {
         sandbox.set_version_text(format!("This replay was recorded in game version {recorded}, but Sandbox currently replicates game version {VERSION}.\n\nReplays recorded in a different game version may play out differently, desync, or crash partway through. If the replay crashes due to missing files, try setting Replay Source to VFS under Settings > Sandbox.\n\nIgnore marks this replay as working in game version {VERSION}, so you won't be asked again until the game version changes.").into());
     }
 
