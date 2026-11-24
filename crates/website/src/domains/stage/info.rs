@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::path::PathBuf;
 
 use dioxus::prelude::*;
 
@@ -67,10 +68,9 @@ fn skip_status(category: &Category, map_id: u32, lock_registry: &HashMap<u32, Lo
     "-".to_owned()
 }
 
-fn banner(globals: &Shared, name: &str, height: f32, fallback: &str) -> Element {
+fn banner(found: Option<PathBuf>, height: f32, fallback: &str) -> Element {
     let pictures = images::pictures();
-    let vfs = &globals.0.vault().vfs;
-    let sized = vfs.find(name).and_then(|path| pictures.trimmed(&path));
+    let sized = found.and_then(|path| pictures.trimmed(&path));
 
     match sized {
         Some(sized) => {
@@ -110,9 +110,8 @@ fn crowns(stage: &Stage, selected: u8) -> Element {
 
 pub(crate) fn view(stage: &Stage, map: &Map, data: &StageDataState, globals: &Shared, crown: u8, actions: Element) -> Element {
     let vfs = &globals.0.vault().vfs;
-    let prefix = stage.category.image_prefix();
-    let map_banner = stage_files::map_banner_file(stage.map_id, &prefix);
-    let stage_banner = stage_files::stage_banner_file(&stage.category, stage.map_id, stage.stage_id, &prefix);
+    let map_banner = stage_files::map_banner(vfs, &stage.category, stage.map_id);
+    let stage_banner = stage_files::stage_banner(vfs, &stage.category, stage.map_id, stage.stage_id);
     let magnification = stage.crown_magnification(crown.saturating_add(1)).unwrap_or(100);
     let final_hp = if stage.anim_base_id != 0 { (stage.base_hp * magnification) / 100 } else { stage.base_hp };
     let dojo = stage.category == Category::DojoRankingEvents || stage.category == Category::DojoHallOfInitiates;
@@ -125,8 +124,8 @@ pub(crate) fn view(stage: &Stage, map: &Map, data: &StageDataState, globals: &Sh
     rsx! {
         div { class: "stage-info",
             div { class: "banner-row",
-                {banner(globals, &map_banner, MAP_IMG_HEIGHT, &map.name)}
-                {banner(globals, &stage_banner, STAGE_IMG_HEIGHT, &stage.name)}
+                {banner(map_banner, MAP_IMG_HEIGHT, &map.name)}
+                {banner(stage_banner, STAGE_IMG_HEIGHT, &stage.name)}
             }
             div { class: "rule" }
             div { class: "crown-actions",

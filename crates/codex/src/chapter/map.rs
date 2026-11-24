@@ -1,5 +1,7 @@
 mod demoncastle;
 mod dropitem;
+mod ex_group;
+mod ex_lottery;
 mod ex_option;
 mod invasion;
 mod lockskipdata;
@@ -18,6 +20,8 @@ use crate::chapter::Category;
 
 pub use demoncastle::{DemonCastleDefine, DemonCastleError, DemonCastleLimit};
 pub use dropitem::{DropItem, DropItemEntry, DropItemError, DropRoll};
+pub use ex_group::{ExDraw, ExGroup, ExGroupEntry, ExGroupError};
+pub use ex_lottery::{ExLottery, ExLotteryEntry, ExLotteryError};
 pub use ex_option::{ExOption, ExOptionError};
 pub use invasion::{fixed_invasion_target, InvasionTarget};
 pub use lockskipdata::{LockSkipData, LockSkipDataEntry, LockSkipDataError};

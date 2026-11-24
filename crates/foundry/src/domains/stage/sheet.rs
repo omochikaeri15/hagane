@@ -1,18 +1,20 @@
 use std::collections::HashMap;
+use std::path::PathBuf;
 
 use codex::cat::unit::UnitBuy;
 use codex::chapter::Category;
 use codex::chapter::map::{BonusType, LockSkipDataEntry, RuleType, ScoreBonusMapEntry, SpecialRulesMapEntry};
-use codex::chapter::stage::{BossType, DropOdds, EnemyAmount, RewardStructure, ScatCpuSetting};
+use codex::chapter::stage::{BossType, EnemyAmount, RewardStructure, ScatCpuSetting};
 use codex::common::{BreakHandling, strip_html_tags};
 
 use crate::Vfs;
 use crate::common::context::GlobalContext;
 use crate::domains::enemy::scanner::EnemyEntry;
-use crate::systems::statblock::{StageCrown, StageDrop, StageDropTable, StageGround, StageMaterial, StageMaterials, StageNote, StagePlate, StageSheet, StageSpawn};
+use crate::systems::statblock::{StageContinuation, StageCrown, StageDrop, StageDropTable, StageGround, StageMaterial, StageMaterials, StageNote, StagePlate, StageSheet, StageSpawn};
 use crate::systems::treasure;
 
-use super::{Map, Stage, cost, files, materials, restrictions, treasure as drops};
+use super::continuation;
+use super::{GlobalStageId, Map, Stage, cost, files, materials, restrictions, treasure as drops};
 
 const ENEMY_COLUMN: u16 = 4;
 const COUNT_COLUMN: u16 = 5;
@@ -32,6 +34,7 @@ const SILENT_SWITCH: u32 = 100;
 pub struct Subject<'a> {
     pub stage: &'a Stage,
     pub map: &'a Map,
+    pub stages: &'a HashMap<GlobalStageId, Stage>,
     pub crown: u8,
     pub enemies: &'a HashMap<u32, EnemyEntry>,
     pub drop_charas: &'a HashMap<u32, u32>,
@@ -73,24 +76,6 @@ fn skip(subject: &Subject<'_>) -> String {
     let consumed = subject.cpu.super_cpu_consume_amount;
 
     dash_unless(consumed > 0, || format!("{consumed} CPUs"))
-}
-
-fn percent(value: f64) -> String {
-    let rounded = format!("{value:.2}");
-
-    format!("{}%", rounded.trim_end_matches('0').trim_end_matches('.'))
-}
-
-fn odds(odds: DropOdds) -> String {
-    let first = percent(odds.first);
-
-    if odds.repeat <= 0.0 {
-        return first;
-    }
-
-    let repeat = percent(odds.repeat);
-
-    if first == repeat { first } else { format!("{first} -> {repeat}") }
 }
 
 fn treasure_rule(drop_rule: i32) -> &'static str {
@@ -255,7 +240,7 @@ fn drop_tables(subject: &Subject<'_>) -> Vec<StageDropTable> {
         .iter()
         .zip(rewards.odds())
         .filter(|(_, held)| held.first > 0.0 || held.repeat > 0.0)
-        .map(|(drop, held)| drop_row(subject, odds(held), drop.item_id, drop.amount))
+        .map(|(drop, held)| drop_row(subject, drops::odds(held), drop.item_id, drop.amount))
         .collect();
     let mut tables = Vec::new();
 
@@ -272,6 +257,15 @@ fn drop_tables(subject: &Subject<'_>) -> Vec<StageDropTable> {
     }
 
     tables
+}
+
+fn continuations(subject: &Subject<'_>) -> Vec<StageContinuation> {
+    let vfs = &subject.ctx.vault.vfs;
+
+    continuation::resolve(subject.stage, subject.stages, vfs)
+        .into_iter()
+        .map(|held| StageContinuation { chance: held.chance, plate: StagePlate { image: held.banner.as_deref().map(|path| vfs.source(path)), name: held.name } })
+        .collect()
 }
 
 fn notes(subject: &Subject<'_>) -> Vec<StageNote> {
@@ -374,12 +368,11 @@ pub fn boss_track(stage: &Stage) -> Option<u32> {
 }
 
 pub fn plates(stage: &Stage, map: &Map, vfs: &Vfs) -> (StagePlate, StagePlate) {
-    let prefix = stage.category.image_prefix();
-    let banner = |file: String| vfs.find(file.as_str()).map(|path| vfs.source(&path));
+    let shown = |found: Option<PathBuf>| found.map(|path| vfs.source(&path));
 
     (
-        StagePlate { image: banner(files::map_banner_file(stage.map_id, &prefix)), name: map.name.clone() },
-        StagePlate { image: banner(files::stage_banner_file(&stage.category, stage.map_id, stage.stage_id, &prefix)), name: stage.name.clone() },
+        StagePlate { image: shown(files::map_banner(vfs, &stage.category, stage.map_id)), name: map.name.clone() },
+        StagePlate { image: shown(files::stage_banner(vfs, &stage.category, stage.map_id, stage.stage_id)), name: stage.name.clone() },
     )
 }
 
@@ -394,7 +387,7 @@ pub fn build(subject: Subject<'_>) -> StageSheet {
     let [headers_1, values_1, headers_2, values_2] = information(&subject);
 
     StageSheet {
-        id: format!("{}{:03}-{:02}", stage.category.map_prefix(), stage.map_id, stage.stage_id),
+        id: GlobalStageId { category: stage.category.clone(), map: stage.map_id, stage: stage.stage_id }.code(),
         crown: subject.crown,
         map: map_plate,
         stage: stage_plate,
@@ -405,6 +398,7 @@ pub fn build(subject: Subject<'_>) -> StageSheet {
         values_2,
         materials: material_drops(&subject),
         tables: drop_tables(&subject),
+        continuations: continuations(&subject),
         notes: notes(&subject),
         ground: ground(&subject),
     }

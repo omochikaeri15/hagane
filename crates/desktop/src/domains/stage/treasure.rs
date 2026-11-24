@@ -7,7 +7,7 @@ use iced::widget::image::Handle;
 use iced::widget::{column, container, image as iced_image, row, space, text, tooltip, Column};
 use iced::{Alignment, Element, Length, Theme};
 use codex::cat::unit::UnitBuy;
-use codex::chapter::stage::{DropOdds, RewardStructure};
+use codex::chapter::stage::RewardStructure;
 
 use foundry::domains::stage::treasure;
 use foundry::domains::stage::Stage;
@@ -19,30 +19,12 @@ use crate::common::item_icon;
 use crate::editor;
 use crate::widget::section;
 
-const TREASURE_TABLE_WIDTH: f32 = 345.0;
+pub(super) const TREASURE_TABLE_WIDTH: f32 = 345.0;
 const MAX_ICON_SIZE: f32 = 32.0;
-const HEADER_TEXT_SIZE: f32 = 13.0;
-const CELL_PADDING: [u16; 2] = [4, 8];
-const COLUMN_SPACING: f32 = 8.0;
+pub(super) const HEADER_TEXT_SIZE: f32 = 13.0;
+pub(super) const CELL_PADDING: [u16; 2] = [4, 8];
+pub(super) const COLUMN_SPACING: f32 = 8.0;
 const TABLE_GAP: f32 = 15.0;
-
-fn format_percent(value: f64) -> String {
-    let rounded = format!("{value:.2}");
-
-    format!("{}%", rounded.trim_end_matches('0').trim_end_matches('.'))
-}
-
-fn format_odds(odds: DropOdds) -> String {
-    let first = format_percent(odds.first);
-
-    if odds.repeat <= 0.0 {
-        return first;
-    }
-
-    let repeat = format_percent(odds.repeat);
-
-    if first == repeat { first } else { format!("{first} -> {repeat}") }
-}
 
 fn format_treasure_rule(drop_rule: i32) -> &'static str {
     match drop_rule {
@@ -183,7 +165,7 @@ impl State {
             grid = grid.push(self.item_row(
                 index,
                 drop.item_id,
-                format_odds(odds),
+                treasure::odds(odds),
                 resolved.amount_display.clone(),
                 resolved.image_path.as_deref(),
                 resolved.name.clone(),

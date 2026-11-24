@@ -132,6 +132,8 @@ mod tests {
         special_rules: Option<u8>,
         special_rule_options: Option<u8>,
         ex_options: Option<u8>,
+        ex_groups: Option<u8>,
+        ex_lottery: Option<u8>,
         difficulties: Option<u8>,
         fixed_formations: Option<u8>,
     }

@@ -1,4 +1,5 @@
 pub mod authoring;
+pub mod continuation;
 pub mod cost;
 pub mod filter;
 pub mod fixedlineup;
@@ -39,6 +40,12 @@ pub struct GlobalStageId {
     pub category: Category,
     pub map: u32,
     pub stage: u32,
+}
+
+impl GlobalStageId {
+    pub fn code(&self) -> String {
+        format!("{}{:03}-{:02}", self.category.map_prefix(), self.map, self.stage)
+    }
 }
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]

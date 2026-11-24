@@ -1,4 +1,8 @@
+use std::path::PathBuf;
+
 use codex::chapter::Category;
+
+use crate::Vfs;
 
 pub fn gatya_item_img(id: u32) -> String {
     format!("gatyaitemD_{:02}_f.png", id)
@@ -32,6 +36,11 @@ pub(crate) fn stage_name_targets(cat_prefix: &str) -> Vec<String> {
     targets
 }
 
+const PNG_SIGNATURE: [u8; 8] = [137, 80, 78, 71, 13, 10, 26, 10];
+const PNG_WIDTH: usize = 16;
+const PNG_HEIGHT: usize = 20;
+const PNG_HEAD: usize = 24;
+
 pub const MAP_NAME: &str = "Map_Name.csv";
 pub const DROP_ITEM: &str = "DropItem.csv";
 pub const DROP_CHARA: &str = "drop_chara.csv";
@@ -42,6 +51,8 @@ pub(crate) const SCORE_BONUS: &str = "ScoreBonusMap.json";
 pub(crate) const SPECIAL_RULES: &str = "SpecialRulesMap.json";
 pub(crate) const SPECIAL_RULE_OPTIONS: &str = "SpecialRulesMapOption.json";
 pub(crate) const EX_OPTION: &str = "EX_option.csv";
+pub(crate) const EX_GROUP: &str = "EX_group.csv";
+pub(crate) const EX_LOTTERY: &str = "EX_lottery.csv";
 pub(crate) const DIFFICULTY: &str = "difficulty_level.tsv";
 pub(crate) const FIXED_FORMATION: &str = "fixed_formation.csv";
 pub const GATYA_ITEM_BUY: &str = "Gatyaitembuy.csv";
@@ -54,6 +65,28 @@ pub fn map_banner_file(map_id: u32, image_prefix: &str) -> String {
 pub fn stage_banner_file(category: &Category, map_id: u32, stage_id: u32, image_prefix: &str) -> String {
     story_banner_file(category, map_id, stage_id)
         .unwrap_or_else(|| format!("mapsn{:03}_{:02}{}.png", map_id, stage_id, artwork_suffix(image_prefix)))
+}
+
+fn hollow(head: &[u8]) -> bool {
+    let edge = |at: usize| head.get(at..at + 4).and_then(|raw| <[u8; 4]>::try_from(raw).ok()).map(u32::from_be_bytes);
+
+    head.starts_with(&PNG_SIGNATURE) && matches!((edge(PNG_WIDTH), edge(PNG_HEIGHT)), (Some(width), Some(height)) if width <= 1 && height <= 1)
+}
+
+fn drawn(vfs: &Vfs, names: &[String]) -> Option<PathBuf> {
+    vfs.list(names).into_iter().find(|path: &PathBuf| !vfs.head(path.as_path(), PNG_HEAD).is_ok_and(|head| hollow(&head)))
+}
+
+pub fn map_banner(vfs: &Vfs, category: &Category, map_id: u32) -> Option<PathBuf> {
+    let names: Vec<String> = category.image_prefixes().iter().map(|prefix| map_banner_file(map_id, prefix)).collect();
+
+    drawn(vfs, &names)
+}
+
+pub fn stage_banner(vfs: &Vfs, category: &Category, map_id: u32, stage_id: u32) -> Option<PathBuf> {
+    let names: Vec<String> = category.image_prefixes().iter().map(|prefix| stage_banner_file(category, map_id, stage_id, prefix)).collect();
+
+    drawn(vfs, &names)
 }
 
 fn artwork_suffix(image_prefix: &str) -> String {
@@ -104,6 +137,13 @@ mod tests {
     #[test]
     fn event_chapters_name_plates_by_map_and_stage() {
         assert_eq!(map_banner_file(3, "v"), "mapname003_v.png");
+        assert_eq!(Category::TowersAndCitadels.image_prefixes(), ["v"]);
+
+        let png = |width: u32, height: u32| [PNG_SIGNATURE.as_slice(), &[0, 0, 0, 13], b"IHDR", &width.to_be_bytes(), &height.to_be_bytes()].concat();
+
+        assert!(hollow(&png(1, 1)), "a region that lacks a stage ships a one-pixel plate for it");
+        assert!(!hollow(&png(256, 64)) && !hollow(b"not a picture") && !hollow(&png(1, 1)[..20]), "anything else, or a head that has not arrived, is taken as drawn");
+        assert_eq!(Category::ExtraStages.image_prefixes(), ["ex", "re"], "the game draws a continuation stage's plate from ex, and what ships under re is an empty picture");
         assert_eq!(stage_banner_file(&Category::TowersAndCitadels, 3, 0, "v"), "mapsn003_00_v.png");
     }
 }

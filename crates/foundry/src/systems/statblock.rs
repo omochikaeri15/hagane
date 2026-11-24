@@ -97,6 +97,12 @@ pub struct StageDropTable {
 }
 
 #[derive(Clone, Debug)]
+pub struct StageContinuation {
+    pub chance: String,
+    pub plate: StagePlate,
+}
+
+#[derive(Clone, Debug)]
 pub struct StageNote {
     pub title: String,
     pub lines: Vec<String>,
@@ -128,6 +134,7 @@ pub struct StageSheet {
     pub values_2: Vec<String>,
     pub materials: Option<StageMaterials>,
     pub tables: Vec<StageDropTable>,
+    pub continuations: Vec<StageContinuation>,
     pub notes: Vec<StageNote>,
     pub ground: StageGround,
 }

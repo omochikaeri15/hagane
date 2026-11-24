@@ -2,12 +2,32 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 
 use codex::cat::unit::UnitBuy;
+use codex::chapter::stage::DropOdds;
 use tracing::{debug, trace};
 
+use crate::common::glyphs::ARROW;
 use crate::domains::cat::waiter::unitexplanation;
 use crate::{ItemStore, Vfs};
 
 use super::files;
+
+pub fn percent(value: f64) -> String {
+    let rounded = format!("{value:.2}");
+
+    format!("{}%", rounded.trim_end_matches('0').trim_end_matches('.'))
+}
+
+pub fn odds(odds: DropOdds) -> String {
+    let first = percent(odds.first);
+
+    if odds.repeat <= 0.0 {
+        return first;
+    }
+
+    let repeat = percent(odds.repeat);
+
+    if first == repeat { first } else { format!("{first} {ARROW} {repeat}") }
+}
 
 pub struct ResolvedDrop {
     pub name: String,

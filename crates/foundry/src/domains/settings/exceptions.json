@@ -544,6 +544,38 @@
         "it": true,
         "th": true
       }
+    },
+    {
+      "pattern": "stageRC271_0[0-5]",
+      "extension": "csv",
+      "handling": "Include",
+      "languages": {
+        "en": false,
+        "ja": true,
+        "tw": false,
+        "ko": false,
+        "es": false,
+        "de": false,
+        "fr": false,
+        "it": false,
+        "th": false
+      }
+    },
+    {
+      "pattern": "stageRS267_0[0-7]",
+      "extension": "csv",
+      "handling": "Include",
+      "languages": {
+        "en": false,
+        "ja": false,
+        "tw": false,
+        "ko": true,
+        "es": false,
+        "de": false,
+        "fr": false,
+        "it": false,
+        "th": false
+      }
     }
   ]
 }

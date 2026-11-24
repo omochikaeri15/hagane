@@ -37,6 +37,8 @@ impl Default for Category {
 }
 
 impl Category {
+    pub const CONTINUED_IMAGE_PREFIX: &'static str = "ex";
+
     pub fn map_prefix(&self) -> String {
         match self {
             Self::StoriesOfLegend      => "N".to_string(),
@@ -70,6 +72,13 @@ impl Category {
 
     pub fn image_prefix(&self) -> String {
         self.map_prefix().to_lowercase()
+    }
+
+    pub fn image_prefixes(&self) -> Vec<String> {
+        match self {
+            Self::ExtraStages => vec![Self::CONTINUED_IMAGE_PREFIX.to_owned(), self.image_prefix()],
+            _ => vec![self.image_prefix()],
+        }
     }
 
     pub fn stage_prefix(&self) -> Vec<String> {

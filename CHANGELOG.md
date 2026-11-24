@@ -1,6 +1,5 @@
 Changes:
-- Added stage image exporting.
+- Added continuation stages and chances to the stage UI.
 
 Bug Fixes:
-- Fixed a bug that prevented the bot from deploying.
-- Fixed a bug that caused story stages to display the wrong XP values.
+- Fixed a bug that caused some stages to not have nameplates.

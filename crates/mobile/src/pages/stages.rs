@@ -6,12 +6,12 @@ use std::rc::Rc;
 use std::time::Instant;
 use std::sync::Arc;
 
-use slint::{ComponentHandle, Image, ModelRc, SharedString, VecModel};
+use slint::{ComponentHandle, ModelRc, SharedString, VecModel};
 use tracing::warn;
 
 use codex::chapter::Category;
 use codex::chapter::map::{BonusType, LockSkipDataEntry, RuleType, ScoreBonusMapEntry, SpecialRulesMapEntry};
-use codex::chapter::stage::{AbilityType, BossType, CannonType, CataminGrade, CertificationPreset, CostType, DropOdds, EnemyAmount, EvolutionForm, RewardStructure, ScatCpuSetting, TreasureType};
+use codex::chapter::stage::{AbilityType, BossType, CannonType, CataminGrade, CertificationPreset, CostType, EnemyAmount, EvolutionForm, RewardStructure, ScatCpuSetting, TreasureType};
 use codex::combat::Identity;
 use codex::common::{BreakHandling, strip_html_tags};
 use foundry::Vault;
@@ -28,7 +28,7 @@ use foundry::domains::stage::filter::{StageFilterState, StageLookupContext};
 use foundry::domains::stage::fixedlineup::{self as core_fixedlineup, ResolvedSlot};
 use foundry::domains::stage::scanner::StageBundle;
 use foundry::domains::stage::sheet::{self, Subject};
-use foundry::domains::stage::{GlobalMapId, GlobalStageId, Map, Stage, StageDataState, cost, files as stage_files, materials, names, navigate, restrictions, treasure as stage_treasure};
+use foundry::domains::stage::{GlobalMapId, GlobalStageId, Map, Stage, StageDataState, continuation, cost, files as stage_files, materials, names, navigate, restrictions, treasure as stage_treasure};
 use foundry::systems::combat::{NameBook, present_identities};
 use foundry::systems::statblock::{StageFonts, build_stage_image, save_stage_to_disk};
 use foundry::systems::treasure;
@@ -38,7 +38,7 @@ use crate::context::Globals;
 use crate::images::{self, Images};
 use crate::pages::cats::text_cell;
 use crate::pages::{Context, detail, enemies};
-use crate::{AppWindow, Tone, Crown, DropRow, FilterCard, FlagRow, GroundRow, LineupSlot, MaterialCell, Page, Pair, PickRow, RangeField, Shell, Stages};
+use crate::{AppWindow, Tone, Crown, DropRow, FilterCard, FlagRow, GroundRow, LeadRow, LineupSlot, MaterialCell, Page, Pair, PickRow, RangeField, Shell, Stages};
 
 const MAX_ICON_SIZE: u32 = 32;
 
@@ -446,24 +446,6 @@ fn skip_status(category: &Category, map_id: u32, lock_registry: &std::collection
     "-".to_owned()
 }
 
-fn format_percent(value: f64) -> String {
-    let rounded = format!("{value:.2}");
-
-    format!("{}%", rounded.trim_end_matches('0').trim_end_matches('.'))
-}
-
-fn format_odds(odds: DropOdds) -> String {
-    let first = format_percent(odds.first);
-
-    if odds.repeat <= 0.0 {
-        return first;
-    }
-
-    let repeat = format_percent(odds.repeat);
-
-    if first == repeat { first } else { format!("{first} -> {repeat}") }
-}
-
 fn format_rule(drop_rule: i32) -> &'static str {
     match drop_rule {
         1 | 2 => "First Drop Once",
@@ -782,6 +764,7 @@ fn export(ui: &AppWindow, state: &Shared, context: &Rc<Context>) {
         sheet::build(Subject {
             stage,
             map,
+            stages: &data.registry.stages,
             crown: held.crown,
             enemies: &data.enemy_registry,
             drop_charas: &data.drop_chara_registry,
@@ -868,6 +851,19 @@ pub fn wire(window: &AppWindow, context: &Rc<Context>) -> Shared {
         let picked = held.borrow().shown_stages.get(index.max(0) as usize).cloned();
 
         if let (Some(ui), Some(id)) = (weak.upgrade(), picked) {
+            select(&ui, &held, &ctx, id);
+        }
+    });
+
+    let (held, ctx, weak) = on(&state, context, window);
+    stages.on_jump_stage(move |prefix, map, stage| {
+        let (Ok(map), Ok(stage)) = (u32::try_from(map), u32::try_from(stage)) else {
+            return;
+        };
+        let id = GlobalStageId { category: Category::from_prefix(&prefix), map, stage };
+        let known = held.borrow().data.as_ref().is_some_and(|data| data.registry.stages.contains_key(&id));
+
+        if let (Some(ui), true) = (weak.upgrade(), known) {
             select(&ui, &held, &ctx, id);
         }
     });
@@ -1455,10 +1451,6 @@ fn refresh_browser(ui: &AppWindow, state: &Shared, context: &Rc<Context>) {
     held.shown_stages = shown_stages;
 }
 
-fn banner(images: &Images, vault: &Arc<Vault>, name: &str) -> Option<Image> {
-    vault.vfs.find(name).and_then(|path| images.trimmed(vault, &path))
-}
-
 fn refresh(ui: &AppWindow, state: &Shared, context: &Rc<Context>) {
     let stages = ui.global::<Stages>();
     let Some(globals) = context.globals() else {
@@ -1483,9 +1475,8 @@ fn refresh(ui: &AppWindow, state: &Shared, context: &Rc<Context>) {
         return;
     };
     let ctx = globals.context(&vault);
-    let prefix = stage.category.image_prefix();
-    let map_banner = banner(images, &vault, &stage_files::map_banner_file(stage.map_id, &prefix));
-    let stage_banner = banner(images, &vault, &stage_files::stage_banner_file(&stage.category, stage.map_id, stage.stage_id, &prefix));
+    let map_banner = stage_files::map_banner(&vault.vfs, &stage.category, stage.map_id).and_then(|path| images.trimmed(&vault, &path));
+    let stage_banner = stage_files::stage_banner(&vault.vfs, &stage.category, stage.map_id, stage.stage_id).and_then(|path| images.trimmed(&vault, &path));
 
     stages.set_selected(true);
     stages.set_has_map_banner(map_banner.is_some());
@@ -1531,6 +1522,7 @@ fn refresh(ui: &AppWindow, state: &Shared, context: &Rc<Context>) {
 
     refresh_materials(ui, images, &vault, stage, map, crown);
     refresh_treasure(ui, images, &vault, stage, &data);
+    refresh_continuation(ui, images, &vault, stage, &data);
     refresh_lineup(ui, images, &vault, &globals, stage, crown);
     refresh_battleground(ui, images, &vault, &globals, &ctx, stage, map, crown, &data);
 }
@@ -1604,7 +1596,7 @@ fn refresh_treasure(ui: &AppWindow, images: &Images, vault: &Arc<Vault>, stage: 
             .iter()
             .zip(rewards.odds())
             .filter(|(_, odds)| odds.first > 0.0 || odds.repeat > 0.0)
-            .map(|(drop, odds)| (format_odds(odds), drop.item_id, drop.amount))
+            .map(|(drop, odds)| (stage_treasure::odds(odds), drop.item_id, drop.amount))
             .collect();
 
         (!rows.is_empty()).then(|| (format!("Treasure | {rule}"), rows))
@@ -1636,6 +1628,29 @@ fn refresh_treasure(ui: &AppWindow, images: &Images, vault: &Arc<Vault>, stage: 
         }
         None => stages.set_has_timed(false),
     }
+}
+
+fn refresh_continuation(ui: &AppWindow, images: &Images, vault: &Arc<Vault>, stage: &Stage, data: &StageDataState) {
+    let stages = ui.global::<Stages>();
+    let rows: Vec<LeadRow> = continuation::resolve(stage, &data.registry.stages, &vault.vfs)
+        .into_iter()
+        .map(|held| {
+            let banner = held.banner.as_deref().and_then(|path| images.trimmed(vault, path));
+
+            LeadRow {
+                chance: held.chance.into(),
+                has_banner: banner.is_some(),
+                banner: banner.unwrap_or_default(),
+                name: held.name.into(),
+                prefix: held.target.category.map_prefix().into(),
+                map: i32::try_from(held.target.map).unwrap_or(-1),
+                stage: i32::try_from(held.target.stage).unwrap_or(-1),
+            }
+        })
+        .collect();
+
+    stages.set_has_continuation(!rows.is_empty());
+    stages.set_continuation_rows(ModelRc::new(VecModel::from(rows)));
 }
 
 fn slot_view(images: &Images, vault: &Arc<Vault>, slot: &ResolvedSlot, preset: &CertificationPreset) -> LineupSlot {

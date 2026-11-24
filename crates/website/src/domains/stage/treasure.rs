@@ -1,6 +1,6 @@
 use dioxus::prelude::*;
 
-use codex::chapter::stage::{DropOdds, RewardStructure};
+use codex::chapter::stage::RewardStructure;
 use foundry::domains::stage::treasure;
 use foundry::domains::stage::{Stage, StageDataState};
 
@@ -10,24 +10,6 @@ use crate::systems::picture::Pic;
 use crate::widget::Tip;
 
 const MAX_ICON_SIZE: u32 = 32;
-
-fn format_percent(value: f64) -> String {
-    let rounded = format!("{value:.2}");
-
-    format!("{}%", rounded.trim_end_matches('0').trim_end_matches('.'))
-}
-
-fn format_odds(odds: DropOdds) -> String {
-    let first = format_percent(odds.first);
-
-    if odds.repeat <= 0.0 {
-        return first;
-    }
-
-    let repeat = format_percent(odds.repeat);
-
-    if first == repeat { first } else { format!("{first} -> {repeat}") }
-}
 
 fn format_rule(drop_rule: i32) -> &'static str {
     match drop_rule {
@@ -71,7 +53,7 @@ fn drop_table(rewards: &RewardStructure, rule: &str, data: &StageDataState, glob
         .iter()
         .zip(rewards.odds())
         .filter(|(_, odds)| odds.first > 0.0 || odds.repeat > 0.0)
-        .map(|(drop, odds)| Row { left: format_odds(odds), item_id: drop.item_id, amount: drop.amount })
+        .map(|(drop, odds)| Row { left: treasure::odds(odds), item_id: drop.item_id, amount: drop.amount })
         .collect();
 
     if rows.is_empty() {

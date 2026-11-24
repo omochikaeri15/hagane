@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use codex::chapter::map::{
-    DropItem, DropItemEntry, ExOption, MapName, MapOption, MapOptionEntry, ScoreBonusMap,
+    DropItem, DropItemEntry, ExGroup, ExLottery, ExOption, MapName, MapOption, MapOptionEntry, ScoreBonusMap,
     ScoreBonusMapEntry, SpecialRulesMap, SpecialRulesMapEntry, SpecialRulesMapOption,
     SpecialRulesMapOptionEntry,
 };
@@ -13,7 +13,7 @@ use codex::chapter::stage::{
 use serde::{Deserialize, Serialize};
 
 use crate::domains::stage::files::{
-    CHARA_GROUP, DIFFICULTY, DROP_ITEM, EX_OPTION, FIXED_FORMATION, MAP_NAME, MAP_OPTION, SCORE_BONUS, SPECIAL_RULES,
+    CHARA_GROUP, DIFFICULTY, DROP_ITEM, EX_GROUP, EX_LOTTERY, EX_OPTION, FIXED_FORMATION, MAP_NAME, MAP_OPTION, SCORE_BONUS, SPECIAL_RULES,
     SPECIAL_RULE_OPTIONS, STAGE_OPTION,
 };
 use crate::Vfs;
@@ -31,6 +31,8 @@ pub struct StageStore {
     special_rules: Slot<HashMap<u32, SpecialRulesMapEntry>>,
     special_rule_options: Slot<HashMap<u8, SpecialRulesMapOptionEntry>>,
     ex_options: Slot<HashMap<u32, u32>>,
+    ex_groups: Slot<ExGroup>,
+    ex_lottery: Slot<ExLottery>,
     difficulties: Slot<HashMap<u32, Vec<u16>>>,
     fixed_formations: Slot<HashMap<(u32, u8, u32), FixedFormationEntry>>,
 }
@@ -47,6 +49,8 @@ impl Clone for StageStore {
             special_rules: super::snapshot(&self.special_rules),
             special_rule_options: super::snapshot(&self.special_rule_options),
             ex_options: super::snapshot(&self.ex_options),
+            ex_groups: super::snapshot(&self.ex_groups),
+            ex_lottery: super::snapshot(&self.ex_lottery),
             difficulties: super::snapshot(&self.difficulties),
             fixed_formations: super::snapshot(&self.fixed_formations),
         }
@@ -64,6 +68,8 @@ impl StageStore {
             && super::held(&self.special_rules)
             && super::held(&self.special_rule_options)
             && super::held(&self.ex_options)
+            && super::held(&self.ex_groups)
+            && super::held(&self.ex_lottery)
             && super::held(&self.difficulties)
             && super::held(&self.fixed_formations)
     }
@@ -146,6 +152,14 @@ impl StageStore {
         })
     }
 
+    pub fn ex_groups(&self, vfs: &Vfs) -> Arc<ExGroup> {
+        super::cached(&self.ex_groups, || super::parsed(vfs, EX_GROUP, |bytes| ExGroup::parse(bytes, None)).unwrap_or_default())
+    }
+
+    pub fn ex_lottery(&self, vfs: &Vfs) -> Arc<ExLottery> {
+        super::cached(&self.ex_lottery, || super::parsed(vfs, EX_LOTTERY, |bytes| ExLottery::parse(bytes, None)).unwrap_or_default())
+    }
+
     pub fn difficulties(&self, vfs: &Vfs) -> Arc<HashMap<u32, Vec<u16>>> {
         super::cached(&self.difficulties, || {
             super::parsed(vfs, DIFFICULTY, |bytes| DifficultyLevel::parse(bytes, None))
@@ -173,6 +187,8 @@ impl StageStore {
             SPECIAL_RULES => super::reset(&self.special_rules),
             SPECIAL_RULE_OPTIONS => super::reset(&self.special_rule_options),
             EX_OPTION => super::reset(&self.ex_options),
+            EX_GROUP => super::reset(&self.ex_groups),
+            EX_LOTTERY => super::reset(&self.ex_lottery),
             DIFFICULTY => super::reset(&self.difficulties),
             FIXED_FORMATION => super::reset(&self.fixed_formations),
             _ => return false,
@@ -191,6 +207,8 @@ impl StageStore {
         super::reset(&self.special_rules);
         super::reset(&self.special_rule_options);
         super::reset(&self.ex_options);
+        super::reset(&self.ex_groups);
+        super::reset(&self.ex_lottery);
         super::reset(&self.difficulties);
         super::reset(&self.fixed_formations);
     }

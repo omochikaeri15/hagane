@@ -25,8 +25,9 @@ fn pictures(sheet: &StageSheet) -> Vec<&Source> {
     let drops = sheet.tables.iter().flat_map(|table| table.rows.iter().filter_map(|row| row.icon.as_ref()));
     let materials = sheet.materials.iter().flat_map(|held| held.chunks.iter().flatten().filter_map(|material| material.icon.as_ref()));
     let spawns = sheet.ground.spawns.iter().filter_map(|spawn| spawn.icon.as_ref());
+    let leads = sheet.continuations.iter().filter_map(|lead| lead.plate.image.as_ref());
 
-    sheet.map.image.iter().chain(sheet.stage.image.iter()).chain(materials).chain(drops).chain(spawns).collect()
+    sheet.map.image.iter().chain(sheet.stage.image.iter()).chain(materials).chain(drops).chain(leads).chain(spawns).collect()
 }
 
 fn encoded(image: &RgbaImage) -> Result<Vec<u8>, String> {
@@ -64,6 +65,7 @@ pub(crate) fn sheet(library: &Library, found: &Staged<'_>, crown: u8) -> Result<
     let mut drawn = sheet::build(Subject {
         stage,
         map,
+        stages: &library.stages.registry.stages,
         crown,
         enemies: &library.foes,
         drop_charas: &dictionaries.drop_chara_registry,

@@ -110,6 +110,10 @@ pub struct Battleground {
     pub anim_base_id: u32,
     pub time_limit: u32,
     pub is_no_continues: bool,
+    pub ex_chance: i32,
+    pub ex_map: i32,
+    pub ex_stage_min: i32,
+    pub ex_stage_max: i32,
     pub is_base_indestructible: bool,
     pub unknown_value: u32,
     pub entries: Vec<BattlegroundEntry>,
@@ -119,6 +123,10 @@ impl Battleground {
     pub const HEADER_COLUMNS: &'static [Column<Self>] = columns::columns! {
         base_id          : 0;
         is_no_continues  : 1;
+        ex_chance        : 2;
+        ex_map           : 3;
+        ex_stage_min     : 4;
+        ex_stage_max     : 5;
     };
 
     pub const CONFIG_COLUMNS: &'static [Column<Self>] = columns::columns! {
@@ -237,5 +245,14 @@ mod tests {
         columns::assert_one_field_per_column(Battleground::HEADER_COLUMNS);
         columns::assert_one_field_per_column(Battleground::CONFIG_COLUMNS);
         columns::assert_one_field_per_column(BattlegroundEntry::COLUMNS);
+    }
+
+    // The first row also says where a win may lead: the odds, the map and the range of stages one is drawn from.
+    #[test]
+    fn the_header_row_carries_the_stage_a_win_may_lead_to() {
+        let held = Battleground::parse("4,0,10,81,0,2,\n4000,60000,1,90,35,7,0,0,0,0,\n", None).expect("a stage file");
+
+        assert_eq!((held.base_id, held.is_no_continues, held.ex_chance, held.ex_map, held.ex_stage_min, held.ex_stage_max), (4, false, 10, 81, 0, 2));
+        assert_eq!((held.width, held.base_hp), (4000, 60000));
     }
 }

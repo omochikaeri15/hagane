@@ -6,8 +6,8 @@ use std::sync::{Arc, Mutex, OnceLock, RwLock};
 
 use codex::cat::unit::UnitBuy;
 use codex::chapter::Category;
-use codex::chapter::map::{DropItemEntry, LockSkipDataEntry, MapOptionEntry, RuleType, ScoreBonusMapEntry, SpecialRulesMapEntry, SpecialRulesMapOptionEntry};
-use codex::chapter::stage::{CharaGroupEntry, CostType, FixedFormationEntry, MapStageData, ScatCpuSetting, StageNameEntry, StageOptionEntry, story_xp};
+use codex::chapter::map::{DropItemEntry, ExGroup, ExLottery, LockSkipDataEntry, MapOptionEntry, RuleType, ScoreBonusMapEntry, SpecialRulesMapEntry, SpecialRulesMapOptionEntry};
+use codex::chapter::stage::{CharaGroupEntry, CostType, FixedFormationEntry, MapStageData, ScatCpuSetting, StageNameEntry, StageOptionEntry, continuations, story_xp};
 use rayon::prelude::*;
 use rustc_hash::FxHashMap;
 use serde::{Deserialize, Serialize};
@@ -110,6 +110,8 @@ struct ScanContext<'a> {
     pub special_rules: Arc<HashMap<u32, SpecialRulesMapEntry>>,
     pub special_rule_options: Arc<HashMap<u8, SpecialRulesMapOptionEntry>>,
     pub ex_options: Arc<HashMap<u32, u32>>,
+    pub ex_groups: Arc<ExGroup>,
+    pub ex_lottery: Arc<ExLottery>,
     pub difficulties: Arc<HashMap<u32, Vec<u16>>>,
     pub fixed_formations: Arc<HashMap<(u32, u8, u32), FixedFormationEntry>>,
 }
@@ -304,6 +306,14 @@ pub fn touched(registry: &StageRegistry, before: &StageStore, vault: &Vault, cha
             files::SCORE_BONUS => globals.extend(differing_keys(&before.score_bonuses(vfs), &after.score_bonuses(vfs))),
             files::SPECIAL_RULES => globals.extend(differing_keys(&before.special_rules(vfs), &after.special_rules(vfs))),
             files::EX_OPTION => globals.extend(differing_keys(&before.ex_options(vfs), &after.ex_options(vfs))),
+            files::EX_GROUP => {
+                let (before, after) = (before.ex_groups(vfs), after.ex_groups(vfs));
+
+                globals.extend(differing_keys(&before.entries, &after.entries).filter_map(|key| before.entries.get(&key).or_else(|| after.entries.get(&key))).filter_map(|entry| u32::try_from(entry.map_id).ok()));
+            }
+            files::EX_LOTTERY if before.ex_lottery(vfs) != after.ex_lottery(vfs) => {
+                globals.extend(after.ex_groups(vfs).entries.values().filter_map(|entry| u32::try_from(entry.map_id).ok()));
+            }
             files::DIFFICULTY => globals.extend(differing_keys(&before.difficulties(vfs), &after.difficulties(vfs))),
             files::FIXED_FORMATION => {
                 globals.extend(differing_keys(&before.fixed_formations(vfs), &after.fixed_formations(vfs)).map(|(map, _, _)| map));
@@ -377,6 +387,8 @@ fn context(vault: &Vault) -> ScanContext<'_> {
         special_rules: stages.special_rules(vfs),
         special_rule_options: stages.special_rule_options(vfs),
         ex_options: stages.ex_options(vfs),
+        ex_groups: stages.ex_groups(vfs),
+        ex_lottery: stages.ex_lottery(vfs),
         difficulties: stages.difficulties(vfs),
         fixed_formations: stages.fixed_formations(vfs),
     }
@@ -969,6 +981,7 @@ fn build_base_stage(
         max_enemies: raw_layout.max_enemies,
         time_limit: raw_layout.time_limit,
         is_no_continues: raw_layout.is_no_continues,
+        continuations: continuations(raw_layout, global_map_id, stage_id, &ctx.ex_groups, &ctx.ex_lottery),
         is_base_indestructible: raw_layout.is_base_indestructible,
         unknown_value: raw_layout.unknown_value,
         enemies: raw_layout.entries.clone(),

@@ -1,6 +1,6 @@
 use std::cell::RefCell;
 use std::collections::HashMap;
-use std::path::Path;
+use std::path::PathBuf;
 
 use iced::widget::image::Handle;
 use iced::widget::{column, container, image as iced_image, row, rule};
@@ -23,7 +23,7 @@ const STAGE_IMG_HEIGHT: f32 = 35.0;
 const BANNER_GAP: f32 = 12.0;
 const RULE_HEIGHT: f32 = 1.0;
 const GRID_SPACING: f32 = 4.0;
-const FALLBACK_NAME_SIZE: f32 = 32.0;
+pub(super) const FALLBACK_NAME_SIZE: f32 = 32.0;
 const ACTIONS_GAP: f32 = 8.0;
 const ACTIONS_HEIGHT: f32 = 30.0;
 
@@ -87,9 +87,11 @@ fn get_skip_status(
     "-".to_string()
 }
 
+pub(super) type Texture = (Handle, u32, u32);
+
 #[derive(Default)]
 pub struct State {
-    icon_cache: RefCell<HashMap<String, (Handle, u32, u32)>>,
+    icon_cache: RefCell<HashMap<String, Option<Texture>>>,
 }
 
 impl State {
@@ -97,14 +99,15 @@ impl State {
         self.icon_cache.borrow_mut().clear();
     }
 
-    fn texture(&self, key: &str, path: &Path) -> Option<(Handle, u32, u32)> {
+    fn texture(&self, key: &str, find: impl FnOnce() -> Option<PathBuf>) -> Option<Texture> {
         if let Some(cached) = self.icon_cache.borrow().get(key) {
-            return Some(cached.clone());
+            return cached.clone();
         }
 
-        let loaded = item_icon::load_cropped(&Source::disk(path))?;
+        let loaded = find().and_then(|path| item_icon::load_cropped(&Source::disk(path)));
+
         self.icon_cache.borrow_mut().insert(key.to_string(), loaded.clone());
-        Some(loaded)
+        loaded
     }
 
     pub fn view<'a>(
@@ -117,18 +120,11 @@ impl State {
         actions: Element<'a, super::Message>,
     ) -> Element<'a, super::Message> {
         let (vfs, items) = (&vault.vfs, &vault.vds.items);
-        let image_prefix = stage.category.image_prefix();
-
         let map_key = format!("map_img_{:?}_{}", stage.category, stage.map_id);
         let stage_key = format!("stage_img_{:?}_{}_{}", stage.category, stage.map_id, stage.stage_id);
 
-        let map_texture = vfs
-            .find(&stage_files::map_banner_file(stage.map_id, &image_prefix))
-            .and_then(|path| self.texture(&map_key, &path));
-
-        let stage_texture = vfs
-            .find(&stage_files::stage_banner_file(&stage.category, stage.map_id, stage.stage_id, &image_prefix))
-            .and_then(|path| self.texture(&stage_key, &path));
+        let map_texture = self.texture(&map_key, || stage_files::map_banner(vfs, &stage.category, stage.map_id));
+        let stage_texture = self.texture(&stage_key, || stage_files::stage_banner(vfs, &stage.category, stage.map_id, stage.stage_id));
 
         let banner_row = row![
             plate(map_texture, MAP_IMG_HEIGHT, &map.name, editor::Target::MapBanner, editor::Target::MapName),
@@ -243,7 +239,7 @@ fn plate<'a, Message: 'a>(
     editor::target(banner_element(texture, target_height, fallback_name), claim)
 }
 
-fn banner_element<'a, Message: 'a>(texture: Option<(Handle, u32, u32)>, target_height: f32, fallback_name: &str) -> Element<'a, Message> {
+pub(super) fn banner_element<'a, Message: 'a>(texture: Option<(Handle, u32, u32)>, target_height: f32, fallback_name: &str) -> Element<'a, Message> {
     texture.map_or_else(
         || container(theme::bold_text(fallback_name).size(FALLBACK_NAME_SIZE)).into(),
         |(handle, width, height)| {

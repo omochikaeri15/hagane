@@ -1,5 +1,6 @@
 mod battleground;
 mod category;
+mod continuation;
 mod filter;
 mod fixedlineup;
 mod info;
@@ -541,6 +542,7 @@ fn StageView(data: Loaded, globals: Shared, stage_id: Option<GlobalStageId>, cro
             } else {
                 {treasure::view(stage, &data.0.state, &globals)}
             }
+            {continuation::view(stage, &data.0.state, &globals)}
             if let (Some(preset), Some(lineup)) = (preset, lineup.as_ref()) {
                 {fixedlineup::view(lineup, preset, &globals)}
             }
@@ -558,6 +560,7 @@ fn sheet_request(data: Loaded, globals: Shared, stage_id: Option<GlobalStageId>,
         Some(Rc::new(sheet::build(Subject {
             stage,
             map,
+            stages: &held.registry.stages,
             crown,
             enemies: &held.enemy_registry,
             drop_charas: &held.drop_chara_registry,

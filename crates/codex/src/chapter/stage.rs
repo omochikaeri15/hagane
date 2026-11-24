@@ -2,6 +2,7 @@ mod background;
 mod battleground;
 mod certification_preset;
 mod charagroup;
+mod continuation;
 mod cost;
 mod difficulty_level;
 mod drop_chara;
@@ -22,6 +23,7 @@ pub use background::{Background, BackgroundEntry, BackgroundError, Rgba};
 pub use battleground::{Battleground, BattlegroundEntry, BattlegroundError, BossType, EnemyAmount};
 pub use certification_preset::{AbilityType, CannonType, CertificationPreset, CertificationPresetError, EvolutionForm, PresetAbility, PresetChara, PresetTreasure, TreasureType};
 pub use charagroup::{CharaGroup, CharaGroupEntry, CharaGroupError, CharaGroupType};
+pub use continuation::{continuations, Continuation};
 pub use cost::{resolve_energy, CataminGrade, CostType, ResolvedCost};
 pub use difficulty_level::{DifficultyLevel, DifficultyLevelError};
 pub use drop_chara::{DropChara, DropCharaError};
@@ -48,6 +50,7 @@ pub struct Stage {
     pub max_enemies: u32,
     pub time_limit: u32,
     pub is_no_continues: bool,
+    pub continuations: Vec<Continuation>,
     pub is_base_indestructible: bool,
     pub unknown_value: u32,
     pub enemies: Vec<BattlegroundEntry>,

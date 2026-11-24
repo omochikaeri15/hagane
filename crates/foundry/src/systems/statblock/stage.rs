@@ -14,7 +14,7 @@ use crate::common::assets;
 use crate::common::gfx::{autocrop, open_image};
 
 use super::draw::{CellShape, draw_bordered_rect_mut, draw_centered_text, line_offset, wrap_text};
-use super::{StageCrown, StageDropTable, StageGround, StageMaterials, StageNote, StagePlate, StageSheet};
+use super::{StageContinuation, StageCrown, StageDropTable, StageGround, StageMaterials, StageNote, StagePlate, StageSheet};
 
 const COLOR_BACKGROUND: Rgba<u8> = Rgba([33, 33, 33, 255]);
 const COLOR_TEXT: Rgba<u8> = Rgba([230, 230, 230, 255]);
@@ -77,6 +77,8 @@ const TREASURE_PAD_X: f32 = 8.0;
 const TREASURE_GAP: f32 = 8.0;
 const TREASURE_HEAD: f32 = 13.0;
 
+const BOUND_NAME: usize = 16;
+
 const GROUND_PAD_X: f32 = 6.0;
 const GROUND_GAP: f32 = 6.0;
 const GROUND_TEXT: f32 = 12.0;
@@ -115,6 +117,11 @@ enum Weight {
     Regular,
     Bold,
     Symbols,
+}
+
+enum Plate {
+    Picture(RgbaImage),
+    Lines(Vec<String>),
 }
 
 struct Faces<'a> {
@@ -440,6 +447,59 @@ impl<'a> Page<'a> {
         at.max(beside.unwrap_or(top))
     }
 
+    fn plate(&self, lead: &StageContinuation, room: f32) -> Plate {
+        if let Some(found) = lead.plate.image.as_ref().and_then(picture) {
+            return Plate::Picture(fitted(found, Some(px(room) as u32), px(STAGE_BANNER) as u32));
+        }
+
+        let font = self.face(Weight::Bold, &lead.plate.name);
+
+        Plate::Lines(wrap_text(&lead.plate.name, font, Self::scale(font, FALLBACK_NAME), room * RENDER_SCALE))
+    }
+
+    fn continued(&mut self, held: &[StageContinuation], left: f32, top: f32) -> f32 {
+        let chance = (DROP_WIDTH - TREASURE_PAD_X * 2.0 - TREASURE_GAP * 2.0) / 3.0;
+        let room = CONTENT_WIDTH - TREASURE_PAD_X * 2.0 - TREASURE_GAP - chance;
+        let plates: Vec<Plate> = held.iter().map(|lead| self.plate(lead, room)).collect();
+        let wide = |plate: &Plate| match plate {
+            Plate::Picture(found) => found.width() as f32 / RENDER_SCALE,
+            Plate::Lines(lines) => lines.iter().map(|line| self.width(Weight::Bold, FALLBACK_NAME, line)).fold(0.0, f32::max),
+        };
+        let stage = plates.iter().map(wide).fold(self.width(Weight::Regular, TREASURE_HEAD, "Stage"), f32::max).min(room);
+        let width = TREASURE_PAD_X * 2.0 + chance + TREASURE_GAP + stage;
+        let seats = [(left + TREASURE_PAD_X, chance), (left + TREASURE_PAD_X + chance + TREASURE_GAP, stage)];
+        let heading = Self::line(TREASURE_HEAD) + ROW_PAD_Y * 2.0;
+        let mut at = self.section("Continuation", left, top, width);
+
+        self.head((left, at, width, heading));
+
+        for (label, (start, span)) in ["Chance", "Stage"].into_iter().zip(seats) {
+            self.label((start, at, span, heading), Weight::Regular, TREASURE_HEAD, COLOR_WHITE, label);
+        }
+
+        at += heading;
+
+        for (index, (lead, plate)) in held.iter().zip(&plates).enumerate() {
+            let inner = match plate {
+                Plate::Picture(_) => STAGE_BANNER,
+                Plate::Lines(lines) => Self::line(FALLBACK_NAME) * lines.len() as f32,
+            };
+            let row = inner.max(STAGE_BANNER) + ROW_PAD_Y * 2.0;
+
+            self.fill((left, at, width, row), Self::stripe(index));
+            self.label((seats[0].0, at, seats[0].1, row), Weight::Regular, TEXT_SIZE, COLOR_TEXT, &lead.chance);
+
+            match plate {
+                Plate::Picture(found) => self.stamp(found, (seats[1].0, at, seats[1].1, row), Seat::Middle),
+                Plate::Lines(lines) => self.label((seats[1].0, at, seats[1].1, row), Weight::Bold, FALLBACK_NAME, COLOR_TEXT, &lines.join("\n")),
+            }
+
+            at += row;
+        }
+
+        at
+    }
+
     fn notes(&mut self, notes: &[StageNote], left: f32, top: f32) -> f32 {
         let mut at = top;
 
@@ -513,8 +573,9 @@ fn bound(sheet: &StageSheet) -> f32 {
     let rows = sheet.ground.spawns.len() + sheet.tables.iter().map(|held| held.rows.len() + 2).sum::<usize>();
     let chunks = sheet.materials.as_ref().map_or(0, |held| held.chunks.len() + 1);
     let lines: usize = sheet.notes.iter().map(|note| note.lines.iter().map(|line| line.len() / BOUND_WRAP + 2).sum::<usize>() + 3).sum();
+    let leads = if sheet.continuations.is_empty() { 0 } else { sheet.continuations.iter().map(|lead| lead.plate.name.chars().count() / BOUND_NAME + 1).sum::<usize>() + 3 };
 
-    BOUND_BASE + rows as f32 * (ICON + ROW_PAD_Y * 2.0) + chunks as f32 * BOUND_CHUNK + lines as f32 * TEXT_SIZE * LINE_HEIGHT
+    BOUND_BASE + rows as f32 * (ICON + ROW_PAD_Y * 2.0) + chunks as f32 * BOUND_CHUNK + lines as f32 * TEXT_SIZE * LINE_HEIGHT + leads as f32 * (FALLBACK_NAME * LINE_HEIGHT + ROW_PAD_Y * 2.0)
 }
 
 #[derive(Clone)]
@@ -551,6 +612,10 @@ fn drawn(sheet: &StageSheet, faces: Faces<'_>, part: &Part) -> RgbaImage {
 
         if sheet.materials.is_some() || !sheet.tables.is_empty() {
             at = page.drops(sheet, left, at) + BLOCK_GAP;
+        }
+
+        if !sheet.continuations.is_empty() {
+            at = page.continued(&sheet.continuations, left, at) + BLOCK_GAP;
         }
     }
 

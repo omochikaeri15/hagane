@@ -10,6 +10,7 @@ import { Shell } from "../shell.slint";
 export struct PickRow { label: string, selected: bool }
 export struct Crown { label: string, enabled: bool }
 export struct DropRow { left: string, icon: image, has-icon: bool, name: string, amount: string }
+export struct LeadRow { chance: string, banner: image, has-banner: bool, name: string, prefix: string, map: int, stage: int }
 export struct MaterialCell { name: string, icon: image, has-icon: bool, chance: string, weight: string, faint: bool }
 export struct LineupSlot { icon: image, has-icon: bool, tip: string, cat-id: int, form: int, level: string, jumpable: bool }
 export struct Pair { left: string, right: string }
@@ -56,6 +57,8 @@ export global Stages {
     in property <[DropRow]> treasure-rows;
     in property <bool> has-timed;
     in property <[DropRow]> timed-rows;
+    in property <bool> has-continuation;
+    in property <[LeadRow]> continuation-rows;
 
     in property <bool> has-lineup;
     in property <[LineupSlot]> lineup;
@@ -110,6 +113,7 @@ export global Stages {
     callback export-image();
     callback open-filter();
     callback jump-enemy(int, string);
+    callback jump-stage(string, int, int);
     callback jump-cat(int, int, string);
     callback filter-name(int, string);
     callback filter-flag(int);
@@ -236,6 +240,58 @@ component DropTable inherits VerticalLayout {
     }
 }
 
+component LeadTable inherits VerticalLayout {
+    in property <[LeadRow]> rows;
+    in property <length> span;
+    property <length> chance: max(0px, (root.span - 28px) / 3);
+    spacing: 0px;
+    Rule { }
+    Rectangle { height: 6px; }
+    Rectangle {
+        height: 28px;
+        background: Theme.table-header;
+        border-top-left-radius: Theme.radius-sm;
+        border-top-right-radius: Theme.radius-sm;
+        HorizontalLayout {
+            padding-left: 6px; padding-right: 6px; spacing: 8px;
+            Cell { text: "Chance"; ink: Theme.white; size: 12px; horizontal-stretch: 0; width: root.chance; }
+            Cell { text: "Stage"; ink: Theme.white; size: 12px; min-width: 32px; }
+        }
+    }
+    for row[index] in root.rows: Rectangle {
+        background: mod(index, 2) == 0 ? Theme.table-row : Theme.bg;
+        HorizontalLayout {
+            padding-left: 6px; padding-right: 6px; padding-top: 4px; padding-bottom: 4px; spacing: 8px;
+            Cell { text: row.chance; horizontal-stretch: 0; width: root.chance; }
+            seat := Rectangle {
+                horizontal-stretch: 1;
+                min-width: 32px;
+                min-height: row.has-banner ? 35px : max(35px, name.preferred-height);
+                preferred-width: row.has-banner ? 35px * row.banner.width / max(row.banner.height, 1) : name.preferred-width;
+                if row.has-banner: Image {
+                    source: row.banner;
+                    height: min(35px, seat.width * row.banner.height / max(row.banner.width, 1));
+                    width: self.height * row.banner.width / max(row.banner.height, 1);
+                    x: (parent.width - self.width) / 2;
+                    y: (parent.height - self.height) / 2;
+                    image-fit: fill;
+                }
+                name := Text { text: row.name; color: Theme.text; font-size: 21px; font-weight: 700; horizontal-alignment: center; vertical-alignment: center; width: parent.width; wrap: word-wrap; visible: !row.has-banner; }
+                Tap { enabled: !Shell.swiping; tapped => { Stages.jump-stage(row.prefix, row.map, row.stage); } }
+            }
+        }
+    }
+}
+
+component Leads inherits VerticalLayout {
+    spacing: 6px;
+    Label { text: "Continuation"; font-size: 18px; }
+    HorizontalLayout {
+        alignment: start;
+        LeadTable { rows: Stages.continuation-rows; span: root.width; max-width: root.width; }
+    }
+}
+
 component MaterialChunk inherits VerticalLayout {
     in property <[MaterialCell]> cells;
     spacing: 0px;
@@ -347,6 +403,7 @@ component Drops inherits VerticalLayout {
         title: "Timed Score Rewards";
         DropTable { first: "Score"; rows: Stages.timed-rows; }
     }
+    if Stages.has-continuation: Leads { }
 }
 
 component Lineup inherits Section {

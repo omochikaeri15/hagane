@@ -1,4 +1,5 @@
 mod battleground;
+mod continuation;
 pub(crate) mod category;
 mod crowns;
 mod filter;
@@ -25,7 +26,7 @@ use foundry::domains::stage::filter::enemy::EnemyFilter;
 use foundry::domains::stage::filter::StageFilterState;
 use foundry::domains::stage::scanner::{self, StageBundle};
 use foundry::domains::stage::sheet::{self, Subject};
-use foundry::domains::stage::{fixedlineup as core_fixedlineup, GlobalMapId, StageDataState};
+use foundry::domains::stage::{fixedlineup as core_fixedlineup, GlobalMapId, GlobalStageId, StageDataState};
 use foundry::systems::statblock::{StageFonts, build_stage_image, save_stage_to_disk};
 use foundry::systems::treasure::Bonus;
 use foundry::Vault;
@@ -60,6 +61,7 @@ pub enum Message {
     ShowEnemyAppearances(u32),
     JumpToUnit(u32, usize, u16, u16),
     JumpToEnemy(u32, String),
+    JumpToStage(GlobalStageId),
     List(list::Message),
     Filter(filter::Message),
     Export(statblock_export::Message),
@@ -75,6 +77,7 @@ impl std::fmt::Debug for Message {
             Self::ShowEnemyAppearances(id) => write!(f, "ShowEnemyAppearances({})", id),
             Self::JumpToUnit(id, form, level, plus_level) => write!(f, "JumpToUnit({}, {}, {}, {})", id, form, level, plus_level),
             Self::JumpToEnemy(id, mag_input) => write!(f, "JumpToEnemy({}, {})", id, mag_input),
+            Self::JumpToStage(id) => write!(f, "JumpToStage({})", id.code()),
             Self::List(msg) => write!(f, "List({:?})", msg),
             Self::Filter(msg) => write!(f, "Filter({:?})", msg),
             Self::Export(msg) => write!(f, "Export({:?})", msg),
@@ -97,6 +100,7 @@ pub struct State {
     info: info::State,
     materials: materials::State,
     treasure: treasure::State,
+    continuation: continuation::State,
     fixedlineup: fixedlineup::State,
     battleground: battleground::State,
     export: statblock_export::State,
@@ -119,6 +123,7 @@ impl Default for State {
             info: info::State::default(),
             materials: materials::State::default(),
             treasure: treasure::State::default(),
+            continuation: continuation::State::default(),
             fixedlineup: fixedlineup::State::default(),
             battleground: battleground::State::default(),
             export: statblock_export::State::new("Stage"),
@@ -139,6 +144,7 @@ impl State {
 
         if coarse {
             self.info.clear_icons();
+            self.continuation.clear_icons();
             self.fixedlineup.clear_icons();
         }
 
@@ -251,6 +257,7 @@ impl State {
         self.fixedlineup.clear_icons();
         self.treasure.clear_icons();
         self.materials.clear_icons();
+        self.continuation.clear_icons();
         self.battleground.clear_icons();
     }
 
@@ -304,6 +311,7 @@ impl State {
                 self.info.clear_icons();
                 self.treasure.clear_icons();
                 self.materials.clear_icons();
+                self.continuation.clear_icons();
                 self.fixedlineup.clear_icons();
                 self.list.invalidate();
                 self.data.registry = bundle.registry;
@@ -341,6 +349,16 @@ impl State {
             }
             Message::JumpToUnit(..) => Task::none(),
             Message::JumpToEnemy(..) => Task::none(),
+            Message::JumpToStage(id) => {
+                if self.data.registry.stages.contains_key(&id) {
+                    self.data.selected_category = Some(id.category.clone());
+                    self.data.selected_map = Some(GlobalMapId { category: id.category.clone(), map: id.map });
+                    self.data.selected_stage = Some(id);
+                    self.clamp_crown();
+                }
+
+                Task::none()
+            }
             Message::List(list::Message::ToggleFilter) => {
                 self.filter.update(filter::Message::Toggle);
                 Task::none()
@@ -369,6 +387,7 @@ impl State {
         });
 
         self.battleground.refresh(selected, self.selected_crown, &global_ctx);
+        self.continuation.refresh(selected.map(|(stage, _)| stage), &self.data.registry.stages, &global_ctx.vault.vfs);
     }
 
     pub fn view<'a>(&'a self, settings: &Settings, global_ctx: GlobalContext<'a>) -> Element<'a, Message> {
@@ -557,6 +576,10 @@ impl State {
             content = content.push(self.treasure.view(stage, items, &self.data.drop_chara_registry, &self.data.unit_buy_registry, vfs));
         }
 
+        if let Some(continued) = self.continuation.view() {
+            content = content.push(continued);
+        }
+
         if let Some(preset) = stage.fixed_lineups.get(&self.selected_crown) {
             let resolved = core_fixedlineup::resolve_lineup(vfs, preset);
             content = content.push(self.fixedlineup.view(&resolved, preset, vfs, global_ctx.names));
@@ -579,6 +602,7 @@ fn shot(data: &StageDataState, crown: u8, ctx: GlobalContext<'_>) -> Option<Work
     let drawn = Arc::new(sheet::build(Subject {
         stage,
         map,
+        stages: &data.registry.stages,
         crown,
         enemies: &data.enemy_registry,
         drop_charas: &data.drop_chara_registry,
