@@ -4,7 +4,9 @@ use codex::chapter::map::{BonusType, RuleType, ScoreBonusMapEntry, SpecialRulesM
 use codex::chapter::stage::{BossType, EnemyAmount};
 use codex::common::{BreakHandling, strip_html_tags};
 use foundry::common::context::GlobalContext;
+use foundry::domains::stage::sheet::stacked;
 use foundry::domains::stage::{Map, Stage, StageDataState, restrictions};
+use foundry::systems::combat::registry::Magnification;
 use foundry::systems::treasure;
 use tracing::warn;
 
@@ -15,6 +17,48 @@ use crate::systems::images;
 use crate::systems::picture::Pic;
 use crate::widget::Tip;
 
+const LABEL_WIDTH: f64 = 48.0;
+const LABEL_HEIGHT: f64 = 28.0;
+const LABEL_SLACK: f64 = 0.5;
+
+#[component]
+fn Label(name: Option<String>, id: u32) -> Element {
+    let mut longest = use_signal(|| None::<f64>);
+    let mut tall = use_signal(|| None::<f64>);
+    let measured = longest().zip(tall());
+    let fits = measured.is_some_and(|(longest, tall)| longest <= LABEL_WIDTH + LABEL_SLACK && tall <= LABEL_HEIGHT + LABEL_SLACK);
+
+    rsx! {
+        match name {
+            Some(name) => rsx! {
+                if fits {
+                    span { class: "ground-label", "{name}" }
+                } else if measured.is_some() {
+                    span { class: "ground-label", "{id:03}" }
+                }
+                span {
+                    class: "ground-probe word",
+                    onresize: move |event| {
+                        if let Ok(size) = event.data().get_border_box_size() {
+                            longest.set(Some(size.width));
+                        }
+                    },
+                    "{name}"
+                }
+                span {
+                    class: "ground-probe lines",
+                    onresize: move |event| {
+                        if let Ok(size) = event.data().get_border_box_size() {
+                            tall.set(Some(size.height));
+                        }
+                    },
+                    "{name}"
+                }
+            },
+            None => rsx! { span { class: "ground-label", "{id:03}" } },
+        }
+    }
+}
 
 fn format_amount(amount: &EnemyAmount) -> String {
     match amount {
@@ -168,7 +212,7 @@ pub(crate) fn view(stage: &Stage, map: &Map, crown: u8, data: &StageDataState, g
     let chapter = treasure::chapter(&stage.category, stage.map_id);
     let show_score = stage.enemies.iter().any(|enemy| enemy.score > 0);
     let dojo = stage.enemies.iter().any(|enemy| enemy.base_hp_perc > 100);
-    let split = stage.enemies.iter().any(|enemy| (enemy.magnification * crown_mag) / 100 != (enemy.atk_magnification * crown_mag) / 100);
+    let split = stage.enemies.iter().any(|enemy| Magnification::spawned(enemy, crown_mag).split());
     let mag_detail = split.then_some("(HP% / ATK%)");
     let base_header = if dojo { "Dmg #" } else { "Base %" };
 
@@ -229,16 +273,16 @@ pub(crate) fn view(stage: &Stage, map: &Map, crown: u8, data: &StageDataState, g
                         tbody {
                             for (index, spawn) in stage.enemies.iter().enumerate() {
                                 {
-                                    let name = data.enemy_name_registry.get(spawn.enemy_id as usize).filter(|name| !name.is_empty()).cloned().unwrap_or_else(|| format!("{:03}-E", spawn.enemy_id));
-                                    let hp_mag = (spawn.magnification * crown_mag) / 100;
-                                    let atk_mag = (spawn.atk_magnification * crown_mag) / 100;
-                                    let same = hp_mag == atk_mag;
+                                    let given = data.enemy_name_registry.get(spawn.enemy_id as usize).filter(|name| !name.is_empty()).cloned();
+                                    let name = given.clone().unwrap_or_else(|| format!("{:03}-E", spawn.enemy_id));
+                                    let magnification = Magnification::spawned(spawn, crown_mag);
                                     let entry = data.enemy_registry.get(&spawn.enemy_id);
                                     let icon = entry.and_then(|entry| entry.icon_path.as_ref()).and_then(|path| pictures.trimmed(path));
                                     let gap = entry.map_or(0, |entry| globals.0.treasure.weakening(&entry.stats, chapter));
-                                    let strengthened = |magnification: u32| (i64::from(magnification) * i64::from(100 + gap) / 100).to_string();
-                                    let formatted = if same { format!("{}%", strengthened(hp_mag)) } else { format!("{}% / {}%", strengthened(hp_mag), strengthened(atk_mag)) };
-                                    let magnification_input = if same { hp_mag.to_string() } else { format!("{hp_mag}/{atk_mag}") };
+                                    let (health, attack) = magnification.shown(gap);
+                                    let formatted = if magnification.split() { format!("{health}% / {attack}%") } else { format!("{health}%") };
+                                    let magnification_input = entry.map_or(magnification, |entry| magnification.folded(&entry.stats)).text();
+                                    let enemy_class = if icon.is_some() { "ground-enemy" } else { "ground-enemy named" };
                                     let enemy_id = spawn.enemy_id;
                                     let class = if index % 2 == 0 { "zebra-row-even" } else { "zebra-row-odd" };
 
@@ -247,7 +291,7 @@ pub(crate) fn view(stage: &Stage, map: &Map, crown: u8, data: &StageDataState, g
                                             td {
                                                 Tip { text: name.clone(),
                                                     button {
-                                                        class: "ground-enemy",
+                                                        class: "{enemy_class}",
                                                         onclick: move |_| {
                                                             let mut enemy_state = enemy_state;
 
@@ -257,7 +301,7 @@ pub(crate) fn view(stage: &Stage, map: &Map, crown: u8, data: &StageDataState, g
                                                         },
                                                         match icon.as_ref() {
                                                             Some(sized) => rsx! { Pic { url: sized.url.clone(), class: "drop-icon", alt: name.clone() } },
-                                                            None => rsx! { span { class: "tiny", "{enemy_id:03}" } },
+                                                            None => rsx! { Label { name: given.as_deref().map(stacked), id: enemy_id } },
                                                         }
                                                     }
                                                 }

@@ -145,11 +145,7 @@ impl CompiledEnemyFilter {
         let Some(attributes) = &self.attributes else { return true; };
         let Some(entry) = ctx.enemy_registry.get(&enemy.enemy_id) else { return false; };
 
-        let staged = |magnification: u32| i32::try_from(u64::from(magnification) * u64::from(crown_mag) / 100).unwrap_or(i32::MAX);
-        let magnification = target_magnification(attributes).unwrap_or_else(|| Magnification {
-            hitpoints: staged(enemy.magnification),
-            attack: staged(enemy.atk_magnification),
-        });
+        let magnification = target_magnification(attributes).unwrap_or_else(|| Magnification::spawned(enemy, crown_mag));
 
         passes_at(entry, attributes, magnification, ctx.treasure)
     }

@@ -3,8 +3,9 @@ use std::collections::HashMap;
 
 use iced::alignment::Horizontal;
 use iced::widget::image::Handle;
+use iced::widget::text::Wrapping;
 use iced::widget::{button, column, container, image as iced_image, row, text, tooltip};
-use iced::{Alignment, Element, Length, Theme};
+use iced::{Alignment, Element, Font, Length, Theme};
 use codex::chapter::map::{BonusType, RuleType, ScoreBonusMapEntry, SpecialRulesMapEntry};
 use codex::chapter::stage::{BossType, EnemyAmount};
 use codex::common::{strip_html_tags, BreakHandling};
@@ -12,12 +13,15 @@ use tracing::warn;
 
 use foundry::common::context::GlobalContext;
 use foundry::domains::enemy::scanner::EnemyEntry;
+use foundry::domains::stage::sheet::stacked;
 use foundry::domains::stage::{restrictions, Map, Stage};
+use foundry::systems::combat::registry::Magnification;
 use foundry::systems::treasure::{self, Bonus};
 use foundry::Source;
 
 use crate::app::theme;
 use crate::editor;
+use crate::common::glyphs::{self, Ruler};
 use crate::common::item_icon;
 use crate::widget::{section, subsection};
 
@@ -28,6 +32,9 @@ const CELL_PADDING: [u16; 2] = [4, 6];
 const COLUMN_SPACING: f32 = 6.0;
 const BODY_SPACING: f32 = 10.0;
 const LINE_SPACING: f32 = 2.0;
+const LABEL_TEXT_SIZE: f32 = 11.0;
+const LABEL_LINES: usize = 2;
+const LABEL_SLACK: f32 = 1.0;
 
 const ENEMY_COLUMN: u16 = 4;
 const COUNT_COLUMN: u16 = 5;
@@ -40,6 +47,52 @@ const LAYER_COLUMN: u16 = 6;
 const BOSS_COLUMN: u16 = 8;
 const SCORE_COLUMN: u16 = 5;
 const KILLS_COLUMN: u16 = 5;
+const FIXED_PORTIONS: u16 = ENEMY_COLUMN + COUNT_COLUMN + MAG_COLUMN + BASE_COLUMN + SPAWN_COLUMN + RESPAWN_COLUMN + LAYER_COLUMN + BOSS_COLUMN + KILLS_COLUMN;
+const FIXED_COLUMNS: f32 = 9.0;
+
+fn enemy_room(scored: bool) -> f32 {
+    let (portions, columns) = if scored { (FIXED_PORTIONS + SCORE_COLUMN, FIXED_COLUMNS + 1.0) } else { (FIXED_PORTIONS, FIXED_COLUMNS) };
+    let inner = super::CONTENT_WIDTH - f32::from(CELL_PADDING[1]) * 2.0 - COLUMN_SPACING * (columns - 1.0);
+
+    inner * f32::from(ENEMY_COLUMN) / f32::from(portions) - LABEL_SLACK
+}
+
+fn fits(label: &str, room: f32) -> bool {
+    let mut ruler = Ruler::new(Font::DEFAULT, LABEL_TEXT_SIZE);
+    let space = ruler.width(" ");
+    let mut lines = 0;
+
+    for paragraph in label.split('\n') {
+        let mut used = 0.0;
+
+        lines += 1;
+
+        for word in paragraph.split_whitespace() {
+            let pieces: Vec<f32> = if word.chars().any(glyphs::wide) {
+                word.chars().map(|glyph| ruler.width(glyph.encode_utf8(&mut [0; 4]))).collect()
+            } else {
+                vec![ruler.width(word)]
+            };
+
+            for (part, wide) in pieces.into_iter().enumerate() {
+                let lead = if part == 0 && used > 0.0 { space } else { 0.0 };
+
+                if wide > room {
+                    return false;
+                }
+
+                if used + lead + wide > room {
+                    lines += 1;
+                    used = wide;
+                } else {
+                    used += lead + wide;
+                }
+            }
+        }
+    }
+
+    lines <= LABEL_LINES
+}
 
 fn format_enemy_amount(spawn_amount: &EnemyAmount) -> String {
     match spawn_amount {
@@ -224,9 +277,16 @@ struct Summary {
     score_bonus: Option<String>,
 }
 
+struct Label {
+    name: String,
+    scored: bool,
+    shown: String,
+}
+
 #[derive(Default)]
 pub struct State {
     icon_cache: RefCell<HashMap<u32, Handle>>,
+    labels: RefCell<HashMap<u32, Label>>,
     summary: Summary,
 }
 
@@ -241,10 +301,26 @@ impl State {
 
     pub fn forget(&self, id: u32) {
         self.icon_cache.borrow_mut().remove(&id);
+        self.labels.borrow_mut().remove(&id);
     }
 
     pub fn clear_icons(&self) {
         self.icon_cache.borrow_mut().clear();
+        self.labels.borrow_mut().clear();
+    }
+
+    fn label(&self, id: u32, name: &str, scored: bool) -> String {
+        if let Some(held) = self.labels.borrow().get(&id)
+            && held.scored == scored
+            && held.name == name
+        {
+            return held.shown.clone();
+        }
+
+        let shown = Some(stacked(name)).filter(|label| !label.is_empty() && fits(label, enemy_room(scored))).unwrap_or_else(|| format!("{id:03}"));
+
+        self.labels.borrow_mut().insert(id, Label { name: name.to_owned(), scored, shown: shown.clone() });
+        shown
     }
 
     fn icon(&self, id: u32, path: &std::path::Path) -> Option<Handle> {
@@ -300,11 +376,7 @@ impl State {
 
         let show_score_column = stage.enemies.iter().any(|enemy| enemy.score > 0);
         let is_dojo_mechanic = stage.enemies.iter().any(|enemy| enemy.base_hp_perc > 100);
-        let has_split_magnification = stage.enemies.iter().any(|enemy| {
-            let final_hp_mag = (enemy.magnification * crown_mag) / 100;
-            let final_atk_mag = (enemy.atk_magnification * crown_mag) / 100;
-            final_hp_mag != final_atk_mag
-        });
+        let has_split_magnification = stage.enemies.iter().any(|enemy| Magnification::spawned(enemy, crown_mag).split());
 
         let mag_column = if has_split_magnification { MAG_SPLIT_COLUMN } else { MAG_COLUMN };
         let mag_header = if has_split_magnification { "Magnification %\n(HP% / ATK%)" } else { "Magnification %" };
@@ -331,30 +403,35 @@ impl State {
         ].width(Length::Fixed(super::CONTENT_WIDTH));
 
         for (index, spawn) in stage.enemies.iter().enumerate() {
-            let resolved_name = enemy_name_registry
-                .get(spawn.enemy_id as usize)
-                .filter(|name| !name.is_empty())
-                .cloned()
-                .unwrap_or_else(|| format!("{:03}-E", spawn.enemy_id));
-
-            let final_hp_mag = (spawn.magnification * crown_mag) / 100;
-            let final_atk_mag = (spawn.atk_magnification * crown_mag) / 100;
-            let same_mag = final_hp_mag == final_atk_mag;
+            let given_name = enemy_name_registry.get(spawn.enemy_id as usize).map_or("", String::as_str);
+            let resolved_name = if given_name.is_empty() { format!("{:03}-E", spawn.enemy_id) } else { given_name.to_owned() };
+            let magnification = Magnification::spawned(spawn, crown_mag);
 
             let icon_content: Element<'a, super::Message> = enemy_registry.get(&spawn.enemy_id)
                 .and_then(|entry| entry.icon_path.as_ref())
                 .and_then(|path| self.icon(spawn.enemy_id, path))
                 .map_or_else(
-                    || text(format!("{:03}", spawn.enemy_id)).size(11).into(),
+                    || {
+                        let label = text(self.label(spawn.enemy_id, given_name, show_score_column))
+                            .size(LABEL_TEXT_SIZE)
+                            .width(Length::Fill)
+                            .align_x(Horizontal::Center)
+                            .wrapping(Wrapping::WordOrGlyph);
+
+                        container(label)
+                            .width(Length::Fixed(enemy_room(show_score_column)))
+                            .height(Length::Fixed(MAX_ICON_SIZE))
+                            .align_y(Alignment::Center)
+                            .clip(true)
+                            .into()
+                    },
                     |handle| iced_image(handle).width(Length::Fixed(MAX_ICON_SIZE)).height(Length::Fixed(MAX_ICON_SIZE)).into(),
                 );
 
-            let mag_input = if same_mag { final_hp_mag.to_string() } else { format!("{}/{}", final_hp_mag, final_atk_mag) };
-
             let clickable_icon = button(icon_content)
                 .padding(0)
-                .on_press(super::Message::JumpToEnemy(spawn.enemy_id, mag_input))
-                .style(|_theme: &Theme, _status| button::Style::default());
+                .on_press(super::Message::JumpToEnemy(spawn.enemy_id, enemy_registry.get(&spawn.enemy_id).map_or(magnification, |entry| magnification.folded(&entry.stats)).text()))
+                .style(|theme: &Theme, _status| button::Style { text_color: theme.palette().text, ..button::Style::default() });
 
             let icon_element: Element<'a, super::Message> = tooltip(
                 clickable_icon,
@@ -363,13 +440,8 @@ impl State {
             ).into();
 
             let gap = enemy_registry.get(&spawn.enemy_id).map_or(0, |entry| bonus.weakening(&entry.stats, chapter));
-            let strengthened = |magnification: u32| (i64::from(magnification) * i64::from(100 + gap) / 100).to_string();
-
-            let formatted_mag = if same_mag {
-                format!("{}%", strengthened(final_hp_mag))
-            } else {
-                format!("{}% / {}%", strengthened(final_hp_mag), strengthened(final_atk_mag))
-            };
+            let (health, attack) = magnification.shown(gap);
+            let formatted_mag = if magnification.split() { format!("{health}% / {attack}%") } else { format!("{health}%") };
 
             let mut value_row = row![
                 container(icon_element).width(Length::FillPortion(ENEMY_COLUMN)).align_x(Horizontal::Center).align_y(Alignment::Center),

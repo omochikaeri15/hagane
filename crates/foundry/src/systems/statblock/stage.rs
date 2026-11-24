@@ -83,6 +83,7 @@ const GROUND_PAD_X: f32 = 6.0;
 const GROUND_GAP: f32 = 6.0;
 const GROUND_TEXT: f32 = 12.0;
 const FALLBACK_TEXT: f32 = 11.0;
+const FALLBACK_LINES: usize = 2;
 
 const BOUND_BASE: f32 = 600.0;
 const BOUND_CHUNK: f32 = 120.0;
@@ -285,6 +286,14 @@ impl<'a> Page<'a> {
             }
             None => self.label(frame, Weight::Regular, FALLBACK_TEXT, COLOR_TEXT, fallback),
         }
+    }
+
+    fn named(&self, name: &str, room: f32) -> Option<String> {
+        let font = self.face(Weight::Regular, name);
+        let lines = wrap_text(name, font, Self::scale(font, FALLBACK_TEXT), room * RENDER_SCALE);
+        let fits = lines.len() <= FALLBACK_LINES && lines.iter().all(|line| self.width(Weight::Regular, FALLBACK_TEXT, line) <= room);
+
+        fits.then(|| lines.join("\n"))
     }
 
     fn rule(&mut self, left: f32, top: f32, width: f32) {
@@ -556,7 +565,10 @@ impl<'a> Page<'a> {
 
         for (index, spawn) in spawns.iter().enumerate().skip(shown.start).take(shown.len()) {
             self.fill((left, at, CONTENT_WIDTH, row), Self::stripe(index));
-            self.icon(spawn.icon.as_ref(), &spawn.fallback, place(0, at, row), Seat::Floor);
+            let seat = place(0, at, row);
+            let label = spawn.name.as_deref().filter(|_| spawn.icon.is_none()).and_then(|name| self.named(name, seat.2));
+
+            self.icon(spawn.icon.as_ref(), label.as_deref().unwrap_or(&spawn.fallback), seat, Seat::Floor);
 
             for (cell, text) in spawn.cells.iter().enumerate().take(columns.len().saturating_sub(1)) {
                 self.label(place(cell + 1, at, row), Weight::Regular, GROUND_TEXT, COLOR_TEXT, text);

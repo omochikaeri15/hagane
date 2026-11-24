@@ -29,6 +29,7 @@ use foundry::domains::stage::fixedlineup::{self as core_fixedlineup, ResolvedSlo
 use foundry::domains::stage::scanner::StageBundle;
 use foundry::domains::stage::sheet::{self, Subject};
 use foundry::domains::stage::{GlobalMapId, GlobalStageId, Map, Stage, StageDataState, continuation, cost, files as stage_files, materials, names, navigate, restrictions, treasure as stage_treasure};
+use foundry::systems::combat::registry::Magnification;
 use foundry::systems::combat::{NameBook, present_identities};
 use foundry::systems::statblock::{StageFonts, build_stage_image, save_stage_to_disk};
 use foundry::systems::treasure;
@@ -1740,7 +1741,7 @@ fn refresh_battleground(ui: &AppWindow, images: &Images, vault: &Arc<Vault>, glo
     let chapter = treasure::chapter(&stage.category, stage.map_id);
     let show_score = stage.enemies.iter().any(|enemy| enemy.score > 0);
     let dojo = stage.enemies.iter().any(|enemy| enemy.base_hp_perc > 100);
-    let split = stage.enemies.iter().any(|enemy| (enemy.magnification * crown_mag) / 100 != (enemy.atk_magnification * crown_mag) / 100);
+    let split = stage.enemies.iter().any(|enemy| Magnification::spawned(enemy, crown_mag).split());
     let mag_header = if split { "Magnification %\n(HP% / ATK%)" } else { "Magnification %" };
     let base_header = if dojo { "Dmg #" } else { "Base %" };
     let mut headers: Vec<SharedString> = vec!["Count".into(), mag_header.into(), base_header.into(), "Spawn".into(), "Respawn".into(), "Layer".into(), "Boss".into()];
@@ -1755,16 +1756,13 @@ fn refresh_battleground(ui: &AppWindow, images: &Images, vault: &Arc<Vault>, glo
         .enemies
         .iter()
         .map(|spawn| {
-            let name = data.enemy_name_registry.get(spawn.enemy_id as usize).filter(|name| !name.is_empty()).cloned().unwrap_or_else(|| format!("{:03}-E", spawn.enemy_id));
-            let hp_mag = (spawn.magnification * crown_mag) / 100;
-            let atk_mag = (spawn.atk_magnification * crown_mag) / 100;
-            let same = hp_mag == atk_mag;
+            let name = data.enemy_name_registry.get(spawn.enemy_id as usize).map(|name| sheet::stacked(name)).unwrap_or_default();
+            let magnification = Magnification::spawned(spawn, crown_mag);
             let entry = data.enemy_registry.get(&spawn.enemy_id);
             let icon = entry.and_then(|entry| entry.icon_path.as_ref()).and_then(|path| images.trimmed(vault, path));
             let gap = entry.map_or(0, |entry| globals.treasure.weakening(&entry.stats, chapter));
-            let strengthened = |magnification: u32| (i64::from(magnification) * i64::from(100 + gap) / 100).to_string();
-            let formatted = if same { format!("{}%", strengthened(hp_mag)) } else { format!("{}% / {}%", strengthened(hp_mag), strengthened(atk_mag)) };
-            let magnification_input = if same { hp_mag.to_string() } else { format!("{hp_mag}/{atk_mag}") };
+            let (health, attack) = magnification.shown(gap);
+            let formatted = if magnification.split() { format!("{health}% / {attack}%") } else { format!("{health}%") };
             let mut cells: Vec<SharedString> = vec![
                 format_amount(&spawn.amount).into(),
                 formatted.into(),
@@ -1787,7 +1785,7 @@ fn refresh_battleground(ui: &AppWindow, images: &Images, vault: &Arc<Vault>, glo
                 id: format!("{:03}", spawn.enemy_id).into(),
                 name: name.into(),
                 enemy_id: spawn.enemy_id as i32,
-                magnification: magnification_input.into(),
+                magnification: entry.map_or(magnification, |entry| magnification.folded(&entry.stats)).text().into(),
                 cells: ModelRc::new(VecModel::from(cells)),
             }
         })

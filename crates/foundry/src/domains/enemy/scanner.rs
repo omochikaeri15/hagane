@@ -37,6 +37,7 @@ impl EnemyEntry {
 }
 
 const PNG_HEAD: usize = 25;
+const ICONLESS: [u32; 1] = [21];
 
 fn is_placeholder_png(vfs: &Vfs, path: &Path) -> bool {
     let Ok(buffer) = vfs.head(path, PNG_HEAD) else { return true; };
@@ -53,8 +54,8 @@ fn resolve_icon(vfs: &Vfs, id: u32, show_invalid: bool, pristine: bool) -> Optio
     (show_invalid || !is_placeholder_png(vfs, &resolved)).then_some(resolved)
 }
 
-fn valid_icon(icon: Option<&PathBuf>, show_invalid: bool) -> bool {
-    show_invalid || icon.is_some()
+fn valid_icon(id: u32, icon: Option<&PathBuf>, show_invalid: bool) -> bool {
+    show_invalid || icon.is_some() || ICONLESS.contains(&id)
 }
 
 pub fn icon(vfs: &Vfs, id: u32, config: &ScannerConfig) -> Option<PathBuf> {
@@ -64,12 +65,12 @@ pub fn icon(vfs: &Vfs, id: u32, config: &ScannerConfig) -> Option<PathBuf> {
 pub fn listable(vfs: &Vfs, id: u32, config: &ScannerConfig) -> bool {
     let icon = resolve_icon(vfs, id, config.show_invalid_enemies, config.pristine);
 
-    valid_icon(icon.as_ref(), config.show_invalid_enemies)
+    valid_icon(id, icon.as_ref(), config.show_invalid_enemies)
 }
 
 pub fn revalidate(vfs: &Vfs, entry: &mut EnemyEntry, show_invalid: bool) -> bool {
     let icon = resolve_icon(vfs, entry.id, show_invalid, false);
-    let listable = valid_icon(icon.as_ref(), show_invalid);
+    let listable = valid_icon(entry.id, icon.as_ref(), show_invalid);
 
     entry.icon_path = icon;
 
@@ -203,7 +204,7 @@ pub fn scan_single(id: u32, vault: &Vault, show_invalid: bool) -> Option<EnemyEn
 fn process_enemy_entry(id: u32, vfs: &Vfs, stats: Entity, name: String, description: Vec<String>, show_invalid: bool) -> Option<EnemyEntry> {
     let resolved_icon = resolve_icon(vfs, id, show_invalid, false);
 
-    if !valid_icon(resolved_icon.as_ref(), show_invalid) {
+    if !valid_icon(id, resolved_icon.as_ref(), show_invalid) {
         return None;
     }
 

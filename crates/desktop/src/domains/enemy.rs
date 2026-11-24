@@ -60,10 +60,6 @@ fn animation_preload(state: &mut animation::State, enemy: &EnemyEntry, vfs: &Vfs
     state.preload(&key, || enemy_animation::motions(enemy, vfs), anim_state).map(Message::Animation)
 }
 
-fn typable_magnification(value: &str) -> bool {
-    value.chars().all(|glyph| glyph.is_ascii_digit() || matches!(glyph, '/' | '|' | '\\'))
-}
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DetailTab {
     Abilities,
@@ -159,7 +155,7 @@ impl Default for EnemyState {
             selected_tab: DetailTab::Abilities,
             search_query: String::new(),
             mag_input: String::from("100"),
-            magnification: Magnification { hitpoints: 100, attack: 100 },
+            magnification: Magnification::default(),
 
             img015_sheets: Vec::new(),
             sheet_generation: 0,
@@ -452,7 +448,7 @@ impl EnemyState {
 
                 self.selected_enemy = Some(id);
                 self.mag_input = String::from("100");
-                self.magnification = Magnification { hitpoints: 100, attack: 100 };
+                self.magnification = Magnification::default();
                 self.animation.reset_playhead();
 
                 info!("Selected enemy ID: {}", id);
@@ -495,22 +491,12 @@ impl EnemyState {
                 Task::none()
             }
             Message::MagnificationChanged(input) => {
-                if !typable_magnification(&input) {
+                if !Magnification::typable(&input) {
                     return Task::none();
                 }
 
+                self.magnification = Magnification::parse(&input);
                 self.mag_input = input;
-                let trimmed = self.mag_input.trim();
-                let parts: Vec<&str> = trimmed.split(['/', '|', '\\']).collect();
-
-                self.magnification = if parts.len() >= 2 {
-                    let hitpoints = parts[0].trim().parse::<i32>().unwrap_or(100);
-                    let attack = parts[1].trim().parse::<i32>().unwrap_or(hitpoints);
-                    Magnification { hitpoints, attack }
-                } else {
-                    let mag = trimmed.parse::<i32>().unwrap_or(100);
-                    Magnification { hitpoints: mag, attack: mag }
-                };
                 Task::none()
             }
             Message::NavigateAppearances(_) => Task::none(),

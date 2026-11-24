@@ -31,11 +31,8 @@ fn assemble(ctx: &RenderContext<'_>, enemy_entry: &EnemyEntry) -> StatblockData 
     let stat_ctx = StatContext::enemy(ctx.final_stats, enemy_entry.atk_anim_frames, ctx.magnification, ctx.global.treasure);
     let cycle = (STAT_ATK_CYCLE.get_value)(&stat_ctx);
 
-    let top_val_str = if ctx.magnification.hitpoints == ctx.magnification.attack {
-        format!("{}%", ctx.magnification.hitpoints)
-    } else {
-        format!("{}%/{}%", ctx.magnification.hitpoints, ctx.magnification.attack)
-    };
+    let (hitpoints, attack) = ctx.magnification.shown(0);
+    let top_val_str = if ctx.magnification.split() { format!("{hitpoints}%/{attack}%") } else { format!("{hitpoints}%") };
 
     let headers_1 = vec![
         STAT_ATTACK.display_name.to_string(),

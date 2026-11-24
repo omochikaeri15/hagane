@@ -111,6 +111,7 @@ pub struct StageNote {
 #[derive(Clone, Debug)]
 pub struct StageSpawn {
     pub icon: Option<Source>,
+    pub name: Option<String>,
     pub fallback: String,
     pub cells: Vec<String>,
 }

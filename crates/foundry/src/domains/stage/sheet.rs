@@ -10,6 +10,7 @@ use codex::common::{BreakHandling, strip_html_tags};
 use crate::Vfs;
 use crate::common::context::GlobalContext;
 use crate::domains::enemy::scanner::EnemyEntry;
+use crate::systems::combat::registry::Magnification;
 use crate::systems::statblock::{StageContinuation, StageCrown, StageDrop, StageDropTable, StageGround, StageMaterial, StageMaterials, StageNote, StagePlate, StageSheet, StageSpawn};
 use crate::systems::treasure;
 
@@ -42,6 +43,15 @@ pub struct Subject<'a> {
     pub lock_skips: &'a HashMap<u32, LockSkipDataEntry>,
     pub cpu: &'a ScatCpuSetting,
     pub ctx: GlobalContext<'a>,
+}
+
+pub fn stacked(name: &str) -> String {
+    let mut words = name.split_whitespace();
+
+    match (words.next(), words.next(), words.next()) {
+        (Some(first), Some(second), None) => format!("{first}\n{second}"),
+        _ => name.to_owned(),
+    }
 }
 
 fn dash_unless(shown: bool, text: impl FnOnce() -> String) -> String {
@@ -299,12 +309,7 @@ fn ground(subject: &Subject<'_>) -> StageGround {
     let chapter = treasure::chapter(&stage.category, stage.map_id);
     let scored = stage.enemies.iter().any(|enemy| enemy.score > 0);
     let dojo = stage.enemies.iter().any(|enemy| enemy.base_hp_perc > 100);
-    let pair = |magnification: u32, attack: u32| (magnification * crown / 100, attack * crown / 100);
-    let split = stage.enemies.iter().any(|enemy| {
-        let (health, attack) = pair(enemy.magnification, enemy.atk_magnification);
-
-        health != attack
-    });
+    let split = stage.enemies.iter().any(|enemy| Magnification::spawned(enemy, crown).split());
     let mut headers = vec![
         ("Enemy".to_owned(), ENEMY_COLUMN),
         ("Count".to_owned(), COUNT_COLUMN),
@@ -322,21 +327,21 @@ fn ground(subject: &Subject<'_>) -> StageGround {
 
     headers.push(("Kills".to_owned(), KILLS_COLUMN));
 
+    let names = subject.ctx.vault.vds.enemies.names(&subject.ctx.vault.vfs);
     let spawns = stage
         .enemies
         .iter()
         .map(|spawn| {
             let entry = subject.enemies.get(&spawn.enemy_id);
-            let (health, attack) = pair(spawn.magnification, spawn.atk_magnification);
             let gap = entry.map_or(0, |entry| subject.ctx.treasure.weakening(&entry.stats, chapter));
-            let strengthened = |magnification: u32| i64::from(magnification) * i64::from(100 + gap) / 100;
+            let (health, attack) = Magnification::spawned(spawn, crown).shown(gap);
             let single = spawn.amount == EnemyAmount::Limit(1);
             let mut cells = vec![
                 match spawn.amount {
                     EnemyAmount::Infinite => "\u{221e}".to_owned(),
                     EnemyAmount::Limit(limit) => limit.to_string(),
                 },
-                span(strengthened(health), strengthened(attack), "%", " / "),
+                span(health, attack, "%", " / "),
                 if dojo { spawn.base_hp_perc.to_string() } else { dash_unless(spawn.base_hp_perc != 100, || format!("{}%", spawn.base_hp_perc)) },
                 dash_unless(spawn.base_hp_perc == 100 || spawn.time_flag != 0, || format!("{}f", spawn.start_frame)),
                 dash_unless(!single, || span(spawn.respawn_min, spawn.respawn_max, "f", " ~ ")),
@@ -356,7 +361,12 @@ fn ground(subject: &Subject<'_>) -> StageGround {
 
             cells.push(dash_unless(spawn.kill_count != 0, || spawn.kill_count.to_string()));
 
-            StageSpawn { icon: entry.and_then(|entry| entry.icon_path.as_deref()).map(|path| subject.ctx.vault.vfs.source(path)), fallback: format!("{:03}", spawn.enemy_id), cells }
+            StageSpawn {
+                icon: entry.and_then(|entry| entry.icon_path.as_deref()).map(|path| subject.ctx.vault.vfs.source(path)),
+                name: names.get(spawn.enemy_id as usize).filter(|name| !name.is_empty()).map(|name| stacked(name)),
+                fallback: format!("{:03}", spawn.enemy_id),
+                cells,
+            }
         })
         .collect();
 

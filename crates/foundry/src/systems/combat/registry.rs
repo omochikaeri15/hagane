@@ -2,7 +2,8 @@ use std::cmp::Reverse;
 use std::collections::HashMap;
 
 use codex::cat::unit::UnitBuy;
-use codex::combat::{deploy_cost, magnified, AttrValue, Entity, Faction, Identity, REGISTRY};
+use codex::chapter::stage::BattlegroundEntry;
+use codex::combat::{crowned, deploy_cost, magnified, AttrValue, Entity, Faction, Identity, REGISTRY};
 use codex::chapter::treasure::TraitBonus;
 use codex::files::{img015, Param};
 use serde::{Deserialize, Serialize};
@@ -11,15 +12,87 @@ use crate::common::{decimal::trimmed, frames};
 use crate::systems::combat::{CustomIcon, NameBook};
 use crate::systems::treasure::Bonus;
 
+const WHOLE: i32 = 100;
+const SHARES: i64 = 10_000;
+const SPLITS: [char; 3] = ['/', '|', '\\'];
+const CROWNS: [char; 4] = ['x', 'X', '*', '\u{d7}'];
+
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Magnification {
     pub hitpoints: i32,
     pub attack: i32,
+    pub crown: i32,
 }
 
 impl Default for Magnification {
     fn default() -> Self {
-        Self { hitpoints: 100, attack: 100 }
+        Self { hitpoints: WHOLE, attack: WHOLE, crown: WHOLE }
+    }
+}
+
+impl Magnification {
+    pub fn even(percent: i32) -> Self {
+        Self::pair(percent, percent)
+    }
+
+    pub fn pair(hitpoints: i32, attack: i32) -> Self {
+        Self { hitpoints, attack, crown: WHOLE }
+    }
+
+    pub fn spawned(spawn: &BattlegroundEntry, crown: u32) -> Self {
+        let held = |percent: u32| i32::try_from(percent).unwrap_or(i32::MAX);
+
+        Self { hitpoints: held(spawn.magnification), attack: held(spawn.atk_magnification), crown: held(crown) }
+    }
+
+    pub fn split(self) -> bool {
+        self.hitpoints != self.attack
+    }
+
+    pub fn folded(self, stats: &Entity) -> Self {
+        let whole = |percent: i32| {
+            let scaled = i64::from(percent) * i64::from(self.crown);
+
+            i32::try_from(scaled / i64::from(WHOLE)).ok().filter(|_| scaled % i64::from(WHOLE) == 0)
+        };
+        let Some((hitpoints, attack)) = whole(self.hitpoints).zip(whole(self.attack)) else {
+            return self;
+        };
+        let same = |stat: i32, percent: i32, merged: i32| crowned(stat, percent, self.crown, 0) == magnified(stat, merged, 0);
+        let exact = [stats.hitpoints, stats.shield_hitpoints].into_iter().all(|stat| same(stat, self.hitpoints, hitpoints))
+            && [stats.attack_1_damage, stats.attack_2_damage, stats.attack_3_damage].into_iter().all(|stat| same(stat, self.attack, attack));
+
+        if exact { Self::pair(hitpoints, attack) } else { self }
+    }
+
+    pub fn shown(self, gap: i32) -> (String, String) {
+        let share = |percent: i32| {
+            let scaled = i64::from(percent) * i64::from(self.crown) * i64::from(WHOLE + gap);
+            let text = format!("{}.{:04}", scaled / SHARES, (scaled % SHARES).abs());
+
+            text.trim_end_matches('0').trim_end_matches('.').to_owned()
+        };
+
+        (share(self.hitpoints), share(self.attack))
+    }
+
+    pub fn typable(value: &str) -> bool {
+        value.chars().all(|glyph| glyph.is_ascii_digit() || SPLITS.contains(&glyph) || CROWNS.contains(&glyph))
+    }
+
+    pub fn parse(input: &str) -> Self {
+        let (stats, crown) = input.trim().split_once(CROWNS).map_or((input.trim(), None), |(stats, crown)| (stats, crown.trim().parse::<i32>().ok()));
+        let mut parts = stats.split(SPLITS).map(|part| part.trim().parse::<i32>().ok());
+        let hitpoints = parts.next().flatten().unwrap_or(WHOLE);
+        let attack = parts.next().flatten().unwrap_or(hitpoints);
+
+        Self { hitpoints, attack, crown: crown.unwrap_or(WHOLE) }
+    }
+
+    pub fn text(self) -> String {
+        let stats = if self.split() { format!("{}/{}", self.hitpoints, self.attack) } else { self.hitpoints.to_string() };
+
+        if self.crown == WHOLE { stats } else { format!("{stats}x{}", self.crown) }
     }
 }
 
@@ -220,7 +293,7 @@ fn fmt_effective_range(stats: &Entity) -> String {
 }
 
 fn fmt_multihit(stats: &Entity, magnification: Magnification, treasure: &Bonus) -> String {
-    let scale = |damage: i32| treasure.scaled(stats, damage, magnification.attack);
+    let scale = |damage: i32| treasure.scaled(stats, damage, magnification.attack, magnification.crown);
 
     let ability_flag_1 = if stats.attack_1_abilities > 0 { "True" } else { "False" };
     let ability_flag_2 = if stats.attack_2_abilities > 0 { "True" } else { "False" };
@@ -927,7 +1000,7 @@ pub fn get_display_def(identity: Identity) -> AbilityDisplayDef {
             icon: AbilityIcon::Standard(img015::ICON_SHIELD),
             group: DisplayGroup::Body2,
             formatter: |ctx| {
-                let scaled_hp = magnified(finite(ctx.value), ctx.magnification.hitpoints, 0);
+                let scaled_hp = crowned(finite(ctx.value), ctx.magnification.hitpoints, ctx.magnification.crown, 0);
                 let shield = named(ctx, Identity::AkuShield);
 
                 if ctx.stats.shield_regen > 0 {
@@ -1375,7 +1448,7 @@ impl<'a> StatContext<'a> {
     }
 
     fn scaled(&self, stat: i32, percent: i32) -> i32 {
-        self.treasure.scaled(self.stats, stat, percent)
+        self.treasure.scaled(self.stats, stat, percent, self.magnification.crown)
     }
 
     fn scaled_attack(&self) -> i32 {
@@ -1593,7 +1666,44 @@ mod trait_tests {
 mod tests {
     use codex::combat::REGISTRY;
 
-    use super::get_display_def;
+    use codex::combat::Entity;
+
+    use super::{Magnification, get_display_def};
+
+    // A crown is kept as its own step because the game applies it after rounding; one merged percent loses that.
+    #[test]
+    fn a_crown_survives_the_text_box() {
+        let crowned = Magnification { hitpoints: 75, attack: 100, crown: 150 };
+
+        assert_eq!(crowned.text(), "75/100x150");
+        assert_eq!(Magnification::parse(&crowned.text()), crowned);
+        assert_eq!(Magnification::parse("200").text(), "200");
+        assert_eq!(Magnification::parse("75 x 150"), Magnification { hitpoints: 75, attack: 75, crown: 150 });
+        assert_eq!(Magnification::parse(""), Magnification::default());
+        assert!(Magnification::typable("75/100x150"));
+        assert!(!Magnification::typable("75%"));
+    }
+
+    // A crown folds into one plain percent only where that gives this enemy the very same numbers.
+    #[test]
+    fn a_crown_folds_only_where_nothing_changes() {
+        let crowned = Magnification { hitpoints: 100, attack: 100, crown: 150 };
+        let even = Entity { hitpoints: 1000, attack_1_damage: 200, ..Entity::default() };
+        let odd = Entity { hitpoints: 1001, attack_1_damage: 200, ..Entity::default() };
+        let halved = Magnification { hitpoints: 75, attack: 75, crown: 150 };
+
+        assert_eq!(crowned.folded(&even), Magnification::even(150));
+        assert_eq!(crowned.folded(&odd), crowned, "1001 HP is 1501 in the game and 1502 at a plain 150%");
+        assert_eq!(halved.folded(&even), halved, "112.5% is not a number the box can hold");
+    }
+
+    // 75% at a 150% crown is 112.5%, and the game honors the half.
+    #[test]
+    fn shown_percents_keep_their_fraction() {
+        assert_eq!(Magnification { hitpoints: 75, attack: 100, crown: 150 }.shown(0), ("112.5".to_owned(), "150".to_owned()));
+        assert_eq!(Magnification { hitpoints: 1, attack: 1, crown: 130 }.shown(0).0, "1.3");
+        assert_eq!(Magnification::even(200).shown(600).0, "1400");
+    }
 
     #[test]
     fn every_registry_ability_has_a_display_def() {

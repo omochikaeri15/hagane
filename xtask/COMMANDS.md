@@ -22,4 +22,10 @@ Builds the site for release, replaces any running deploy and serves it at `http:
 Same as `cargo deploy website`.
 
 ### cargo deploy stop
-Stops the running deploy.
+Stops the running website deploy.
+
+### cargo deploy bot
+Builds the bot for release, uploads it over SSH to the server named in `HAGANE_BOT_HOST`, installs its service and restarts it.
+
+### cargo deploy bot user@host
+Same as `cargo deploy bot`, to the server named on the command line.

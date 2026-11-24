@@ -77,26 +77,6 @@ pub(crate) fn state() -> EnemyState {
     use_context::<EnemyState>()
 }
 
-fn typable_magnification(value: &str) -> bool {
-    value.chars().all(|glyph| glyph.is_ascii_digit() || matches!(glyph, '/' | '|' | '\\'))
-}
-
-pub(crate) fn parse_magnification(input: &str) -> Magnification {
-    let trimmed = input.trim();
-    let parts: Vec<&str> = trimmed.split(['/', '|', '\\']).collect();
-
-    if parts.len() >= 2 {
-        let hitpoints = parts[0].trim().parse::<i32>().unwrap_or(100);
-        let attack = parts[1].trim().parse::<i32>().unwrap_or(hitpoints);
-
-        Magnification { hitpoints, attack }
-    } else {
-        let magnification = trimmed.parse::<i32>().unwrap_or(100);
-
-        Magnification { hitpoints: magnification, attack: magnification }
-    }
-}
-
 impl EnemyState {
     fn select(&mut self, id: u32) {
         if (self.seeded_for)() == Some(id) {
@@ -109,11 +89,11 @@ impl EnemyState {
     }
 
     pub(crate) fn set_magnification(&mut self, input: String) {
-        if !typable_magnification(&input) {
+        if !Magnification::typable(&input) {
             return;
         }
 
-        self.magnification.set(parse_magnification(&input));
+        self.magnification.set(Magnification::parse(&input));
         self.mag_input.set(input);
     }
 }

@@ -78,26 +78,6 @@ pub struct State {
 
 pub type Shared = Rc<RefCell<State>>;
 
-fn typable_magnification(value: &str) -> bool {
-    value.chars().all(|glyph| glyph.is_ascii_digit() || matches!(glyph, '/' | '|' | '\\'))
-}
-
-pub fn parse_magnification(input: &str) -> Magnification {
-    let trimmed = input.trim();
-    let parts: Vec<&str> = trimmed.split(['/', '|', '\\']).collect();
-
-    if parts.len() >= 2 {
-        let hitpoints = parts[0].trim().parse::<i32>().unwrap_or(100);
-        let attack = parts[1].trim().parse::<i32>().unwrap_or(hitpoints);
-
-        Magnification { hitpoints, attack }
-    } else {
-        let magnification = trimmed.parse::<i32>().unwrap_or(100);
-
-        Magnification { hitpoints: magnification, attack: magnification }
-    }
-}
-
 fn matches(enemy: &EnemyEntry, query: &str) -> bool {
     let by_id = query.chars().next().is_some_and(|glyph| glyph.is_ascii_digit());
 
@@ -260,10 +240,10 @@ pub fn wire(window: &AppWindow, context: &Rc<Context>) -> Shared {
             return;
         };
 
-        if typable_magnification(&value) {
+        if Magnification::typable(&value) {
             let mut state = held.borrow_mut();
 
-            state.magnification = parse_magnification(&value);
+            state.magnification = Magnification::parse(&value);
             state.mag_input = value.to_string();
         }
 
@@ -683,10 +663,10 @@ pub fn filter_view(filter: &EnemyFilterState, available: &HashSet<Identity>, glo
 pub fn jump(ui: &AppWindow, state: &Shared, context: &Rc<Context>, id: u32, magnification: String) {
     select(ui, state, context, id);
 
-    if typable_magnification(&magnification) {
+    if Magnification::typable(&magnification) {
         let mut held = state.borrow_mut();
 
-        held.magnification = parse_magnification(&magnification);
+        held.magnification = Magnification::parse(&magnification);
         held.mag_input = magnification;
     }
 

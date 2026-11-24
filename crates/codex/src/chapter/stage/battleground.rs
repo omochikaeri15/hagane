@@ -208,11 +208,7 @@ fn parse_inner(bytes: &[u8], separator: Option<Separator>) -> Result<Battlegroun
         entry.is_base = raw_enemy_id == ground.anim_base_id;
 
         let declared_amount = read_u32(&enemy_parts, 1);
-        entry.amount = if declared_amount == 0 || entry.respawn_min == 0 {
-            EnemyAmount::Infinite
-        } else {
-            EnemyAmount::Limit(declared_amount)
-        };
+        entry.amount = if declared_amount == 0 { EnemyAmount::Infinite } else { EnemyAmount::Limit(declared_amount) };
 
         entry.atk_magnification = columns::parse_cell::<u32>(
             enemy_parts.get(11).copied(),
@@ -245,6 +241,15 @@ mod tests {
         columns::assert_one_field_per_column(Battleground::HEADER_COLUMNS);
         columns::assert_one_field_per_column(Battleground::CONFIG_COLUMNS);
         columns::assert_one_field_per_column(BattlegroundEntry::COLUMNS);
+    }
+
+    // The count alone says how many spawn: a row that respawns at once is still a single enemy when its count is one.
+    #[test]
+    fn only_a_count_of_zero_is_endless() {
+        let held = Battleground::parse("4,0,0,0,0,0,\n4000,60000,1,90,35,7,0,0,0,0,\n31,1,100,0,300,100,0,0,0,\n31,0,100,0,300,100,0,0,0,\n31,3,100,50,300,100,0,0,0,\n", None).expect("a stage file");
+        let amounts: Vec<&EnemyAmount> = held.entries.iter().map(|entry| &entry.amount).collect();
+
+        assert_eq!(amounts, [&EnemyAmount::Limit(1), &EnemyAmount::Infinite, &EnemyAmount::Limit(3)]);
     }
 
     // The first row also says where a win may lead: the odds, the map and the range of stages one is drawn from.

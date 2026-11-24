@@ -33,7 +33,7 @@ pub fn entity_passes_filter(enemy: &EnemyEntry, filter: &EnemyFilterState) -> bo
 }
 
 pub(crate) fn target_magnification(filter: &EnemyFilterState) -> Option<Magnification> {
-    filter.mag_input.trim().parse::<i32>().ok().map(|mag| Magnification { hitpoints: mag, attack: mag })
+    filter.mag_input.trim().parse::<i32>().ok().map(Magnification::even)
 }
 
 pub(crate) fn passes_at(enemy: &EnemyEntry, filter: &EnemyFilterState, magnification: Magnification, treasure: &Bonus) -> bool {

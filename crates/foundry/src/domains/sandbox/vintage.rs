@@ -1,4 +1,5 @@
 use std::cmp::Ordering;
+#[cfg(feature = "import")]
 use std::fs;
 
 use serde::{Deserialize, Serialize};
@@ -75,6 +76,7 @@ pub fn note<'a>(names: impl IntoIterator<Item = &'a str>) {
     }
 }
 
+#[cfg(feature = "import")]
 pub(crate) fn forget() {
     if let Some(path) = json::state_file(FILE)
         && path.exists()

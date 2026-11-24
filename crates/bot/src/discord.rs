@@ -229,12 +229,25 @@ fn invocation<'a>(ctx: &'a serenity::Context, msg: &'a serenity::Message, data: 
     })
 }
 
+fn closing_line(content: &str, prefix: &str) -> Option<usize> {
+    let body = content.trim_end();
+    let line = body.rfind('\n').map_or(0, |at| at + 1);
+    let text = body.get(line..)?.trim_start();
+    let start = body.len() - text.len();
+
+    text.get(..prefix.len()).is_some_and(|head| head.eq_ignore_ascii_case(prefix)).then_some(start + prefix.len())
+}
+
 fn prefix_length(content: &str, prefix: &str, me: serenity::UserId, direct: bool, replied_to: Option<serenity::UserId>) -> Option<usize> {
     let text = content.trim_start();
     let leading = content.len() - text.len();
 
     if text.get(..prefix.len()).is_some_and(|head| head.eq_ignore_ascii_case(prefix)) {
         return Some(leading + prefix.len());
+    }
+
+    if let Some(length) = closing_line(content, prefix) {
+        return Some(length);
     }
 
     for mention in [format!("<@{me}>"), format!("<@!{me}>")] {
@@ -1596,7 +1609,7 @@ async fn serve_enemy(voice: Voice<'_>, request: Request) -> Result<(), Error> {
 
                 blocking(voice.data(), move || {
                     let enemy = library.enemy(id).ok_or(Trouble::NoEnemy)?;
-                    statblock::enemy(&library, &cache, enemy, Magnification { hitpoints, attack }).map(|bytes| (bytes, format!("{}.png", enemy.id_str())))
+                    statblock::enemy(&library, &cache, enemy, Magnification::pair(hitpoints, attack)).map(|bytes| (bytes, format!("{}.png", enemy.id_str())))
                 })
                 .await?
             };
@@ -2399,6 +2412,21 @@ mod tests {
         assert_eq!(rest("cat 25", true, None), Some("cat 25"));
         assert_eq!(rest("cat 25", false, Some(ME)), Some("cat 25"));
         assert_eq!(prefix_length("hg!cat 25", prefs::PREFIX, ME, false, None).map(|length| &"hg!cat 25"[..length]), Some("hg!"));
+    }
+
+    // A remark first and the command on the last line is still a command. Only the last line counts,
+    // so the request is never mixed with chat and a list of example commands is left alone.
+    #[test]
+    fn a_command_may_close_a_message() {
+        assert_eq!(rest("hey, look!\nhg!c 005", false, None), Some("c 005"));
+        assert_eq!(rest("hey, look!\n\n  Hg!c 005", false, None), Some("c 005"));
+        assert_eq!(rest("hey, look!\nhg!c 005\n \n", false, None), Some("c 005\n \n"), "blank lines under it do not hide it");
+        assert_eq!(rest("hey\nhg!c 005", true, None), Some("c 005"), "in a DM the command still wins over the bare text");
+        assert_eq!(rest("<@42> hey\nhg!c 005", false, None), Some("c 005"));
+        assert_eq!(rest("try hg!c 005", false, None), None, "mid-line is only talk");
+        assert_eq!(rest("use these:\nhg!c 005\nthey are neat", false, None), None);
+        assert_eq!(rest("like this:\n```\nhg!c 005\n```", false, None), None);
+        assert_eq!(rest("hg!c 005\nlook at him", false, None), Some("c 005\nlook at him"), "a leading command reads on as it always did");
     }
 
     // Every settings page is the same height, and the arrows stop at the ends.

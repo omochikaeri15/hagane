@@ -440,6 +440,16 @@ component Lineup inherits Section {
     }
 }
 
+component EnemyLabel inherits Rectangle {
+    in property <string> name;
+    in property <string> id;
+    property <bool> named: root.name != "" && wrapped.min-width <= root.width && wrapped.preferred-height <= single.preferred-height * 2 + 1px;
+    clip: true;
+    wrapped := Text { x: 0; y: 0; visible: false; text: root.name; font-size: 11px; wrap: word-wrap; width: root.width; }
+    single := Text { x: 0; y: 0; visible: false; text: "0"; font-size: 11px; wrap: no-wrap; }
+    Text { text: root.named ? root.name : root.id; color: Theme.text; font-size: 11px; horizontal-alignment: center; vertical-alignment: center; wrap: word-wrap; width: root.width; height: root.height; }
+}
+
 component Battleground inherits Section {
     title: "Battleground";
     if Stages.restrictions.length > 0: VerticalLayout {
@@ -507,7 +517,7 @@ component Battleground inherits Section {
                     Rectangle {
                         width: 48px;
                         if row.has-icon: Image { source: row.icon; width: 40px; height: 40px; x: 4px; y: 2px; image-fit: contain; }
-                        if !row.has-icon: Text { text: row.id; color: Theme.text; font-size: 11px; horizontal-alignment: center; vertical-alignment: center; width: parent.width; height: parent.height; }
+                        if !row.has-icon: EnemyLabel { name: row.name; id: row.id; y: 2px; width: parent.width; height: 40px; }
                         Tap { enabled: !Shell.swiping; tapped => { Stages.jump-enemy(row.enemy-id, row.magnification); } }
                     }
                     for cell[index] in row.cells: Text { text: cell; color: Theme.text; font-size: 12px; horizontal-alignment: center; vertical-alignment: center; width: index == 1 ? 108px : 78px; wrap: word-wrap; }
