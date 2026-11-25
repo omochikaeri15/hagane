@@ -15,7 +15,7 @@ use tracing::{debug, info, warn};
 
 use emulator::engine::{AudioHost, AudioSource, SoundData};
 
-use super::assets::{FileIndex, SharedLedger};
+use super::assets::{FileIndex, SharedLedger, SharedStash};
 
 const BUFFER_VOICES: i32 = 24;
 const STREAM_VOICES: i32 = 2;
@@ -286,14 +286,15 @@ impl Drop for Voice {
 pub(super) struct Pool {
     files: Rc<RefCell<FileIndex>>,
     ledger: SharedLedger,
+    stash: SharedStash,
     speaker: Rc<Speaker>,
     buffers: Rc<Cell<i32>>,
     streams: Rc<Cell<i32>>,
 }
 
 impl Pool {
-    pub(super) fn new(files: Rc<RefCell<FileIndex>>, ledger: SharedLedger, speaker: Rc<Speaker>) -> Self {
-        Self { files, ledger, speaker, buffers: Rc::new(Cell::new(0)), streams: Rc::new(Cell::new(0)) }
+    pub(super) fn new(files: Rc<RefCell<FileIndex>>, ledger: SharedLedger, stash: SharedStash, speaker: Rc<Speaker>) -> Self {
+        Self { files, ledger, stash, speaker, buffers: Rc::new(Cell::new(0)), streams: Rc::new(Cell::new(0)) }
     }
 
     fn name(path: &[u8]) -> String {
@@ -310,7 +311,7 @@ impl Pool {
             self.ledger.borrow_mut().note(&name, &source.path);
         }
 
-        let bytes = source.read().map(|bytes| bytes.to_vec()).inspect_err(|error| warn!("emu: {name} could not be read: {error}")).ok()?;
+        let bytes = self.stash.borrow_mut().read(&source).map(|bytes| bytes.to_vec()).inspect_err(|error| warn!("emu: {name} could not be read: {error}")).ok()?;
 
         Some((name, bytes))
     }

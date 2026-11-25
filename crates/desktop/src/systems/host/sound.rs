@@ -13,7 +13,7 @@ use rodio::mixer::Mixer;
 use rodio::{ChannelCount, Decoder, DeviceSinkBuilder, MixerDeviceSink, Player, SampleRate, Source};
 use tracing::{debug, warn};
 
-use super::assets::{FileIndex, SharedLedger};
+use super::assets::{FileIndex, SharedLedger, SharedStash};
 #[cfg(target_os = "linux")]
 use super::server_audio::ServerLink;
 
@@ -313,6 +313,7 @@ impl Drop for Voice {
 pub struct Pool {
     files: Rc<RefCell<FileIndex>>,
     ledger: SharedLedger,
+    stash: SharedStash,
     backend: Rc<dyn Backend>,
     buffers: Rc<Cell<i32>>,
     streams: Rc<Cell<i32>>,
@@ -320,10 +321,11 @@ pub struct Pool {
 }
 
 impl Pool {
-    pub fn new(files: Rc<RefCell<FileIndex>>, ledger: SharedLedger, backend: Rc<dyn Backend>) -> Self {
+    pub fn new(files: Rc<RefCell<FileIndex>>, ledger: SharedLedger, stash: SharedStash, backend: Rc<dyn Backend>) -> Self {
         Self {
             files,
             ledger,
+            stash,
             backend,
             buffers: Rc::new(Cell::new(0)),
             streams: Rc::new(Cell::new(0)),
@@ -345,8 +347,10 @@ impl Pool {
             self.ledger.borrow_mut().note(&name, &source.path);
         }
 
-        let bytes = source
-            .read()
+        let bytes = self
+            .stash
+            .borrow_mut()
+            .read(&source)
             .map(|bytes| bytes.to_vec())
             .inspect_err(|error| warn!("emu: {name} could not be read: {error}"))
             .ok()?;

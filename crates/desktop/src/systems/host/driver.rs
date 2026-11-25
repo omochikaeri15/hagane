@@ -4,6 +4,7 @@ use std::mem;
 use std::ops::Range;
 use std::path::PathBuf;
 use std::rc::Rc;
+use std::thread::{self, JoinHandle};
 use std::time::Instant;
 
 use emulator::engine::{AppContext, set_bgm_volume_setting, set_se_volume_setting, sound_manager, sound_pause_all};
@@ -15,10 +16,11 @@ use emulator::runtime::{phone_activity,
 use foundry::Vfs;
 use foundry::domains::settings::CombatLook;
 use foundry::domains::sandbox::replay::{self as tape, Cue, Forgiven, Recording};
-use tracing::{debug, info, trace, warn};
+use foundry::domains::sandbox::stash::Stash;
+use tracing::{debug, error, info, trace, warn};
 
 use super::collision;
-use super::assets::{DiskAssets, FileIndex, Ledger, SharedLedger, SheetCache};
+use super::assets::{DiskAssets, FileIndex, Ledger, SharedLedger, SharedStash, SheetCache};
 use super::diagnostics::{self, Diagnostics};
 use super::input::{Touch, TouchQueue};
 use super::keys::{Action, Keys, LEAVE_AFTER};
@@ -51,6 +53,7 @@ const FORM_DROPS: Range<i32> = 10000..0x7530;
 const PAIRED_DROP_ITEM: i32 = 0x3ea;
 const PAIRED_DROP_UNIT: i32 = 0x1b;
 const UNIT_REWARD: i32 = 1;
+const STASH_SAVER: &str = "sandbox_cache_save";
 
 enum Tape {
     Off,
@@ -84,6 +87,8 @@ pub struct Driver {
     tripped: Option<Site>,
     reason: String,
     ledger: SharedLedger,
+    stash: SharedStash,
+    saver: Option<JoinHandle<()>>,
     seeds: Seeds,
     tape: Tape,
     pending: Vec<Cue>,
@@ -210,6 +215,8 @@ impl Driver {
             tripped: None,
             reason: String::new(),
             ledger: Rc::new(RefCell::new(Ledger::default())),
+            stash: Rc::new(RefCell::new(Stash::default())),
+            saver: None,
             seeds: Seeds::draw(),
             tape: Tape::Off,
             pending: Vec::new(),
@@ -235,7 +242,7 @@ impl Driver {
     fn host(&mut self) {
         let ctx = &mut self.ctx;
 
-        let assets = DiskAssets::new(Rc::clone(&self.files), Rc::clone(&self.sheets), Rc::clone(&self.ledger));
+        let assets = DiskAssets::new(Rc::clone(&self.files), Rc::clone(&self.sheets), Rc::clone(&self.ledger), Rc::clone(&self.stash));
         let wanted = assets.limits();
         let applied = set_limits(ctx, wanted);
 
@@ -252,7 +259,7 @@ impl Driver {
             None => Rc::new(Speaker(self.output.share())),
         };
 
-        ctx.set_audio(Box::new(Pool::new(Rc::clone(&self.files), Rc::clone(&self.ledger), backend)));
+        ctx.set_audio(Box::new(Pool::new(Rc::clone(&self.files), Rc::clone(&self.ledger), Rc::clone(&self.stash), backend)));
         ctx.set_meta(Box::new(InertMeta));
         ctx.set_scene_host(Box::new(InertScene {
             returning: Rc::clone(&self.returning),
@@ -432,6 +439,7 @@ impl Driver {
 
     pub fn arm_playback(&mut self, save: &tape::Save, frames: Vec<Vec<Cue>>, faults: Vec<Forgiven>, index: FileIndex) {
         self.close_tape();
+        self.stash.borrow_mut().close();
         self.set_setup(replay::setup_from(&save.setup));
         self.phone = save.screen.phone;
         self.insets = save.screen.insets;
@@ -544,10 +552,19 @@ impl Driver {
     pub fn forget_assets(&mut self) {
         self.files.borrow_mut().clear();
         self.sheets.borrow_mut().clear();
+        self.stash.borrow_mut().forget();
     }
 
     pub fn reindex(&mut self, vfs: &Vfs) {
         self.adopt_index(DiskAssets::index(vfs));
+    }
+
+    pub fn unwatch(&mut self) {
+        self.stash.borrow_mut().unwatch();
+    }
+
+    pub fn stock(&mut self, vfs: &Vfs, settled: bool) {
+        self.stash.borrow_mut().stock(vfs, settled, &self.files.borrow());
     }
 
     fn adopt_index(&mut self, fresh: FileIndex) {
@@ -888,6 +905,33 @@ impl Driver {
             return true;
         }
 
+        self.stash.borrow_mut().keep();
+
+        if !self.load_game_data() {
+            self.stash.borrow_mut().close();
+
+            return false;
+        }
+
+        if self.saver.as_ref().is_some_and(|saver| !saver.is_finished()) {
+            self.stash.borrow_mut().rest();
+
+            return true;
+        }
+
+        let Some(save) = self.stash.borrow_mut().settle() else {
+            return true;
+        };
+
+        match thread::Builder::new().name(STASH_SAVER.to_owned()).spawn(move || save.write()) {
+            Ok(saver) => self.saver = Some(saver),
+            Err(err) => error!("The sandbox cache thread could not be started: {err}"),
+        }
+
+        true
+    }
+
+    fn load_game_data(&mut self) -> bool {
         plant_seeds(&mut self.ctx, self.seeds);
 
         let mark = Instant::now();

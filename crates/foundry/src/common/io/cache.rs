@@ -48,8 +48,18 @@ pub(crate) fn content_key(index: u64, config: &ScannerConfig) -> u64 {
     hasher.finish()
 }
 
+#[cfg(all(feature = "sandbox", feature = "disk"))]
+pub(crate) fn file_key(fingerprint: u64) -> u64 {
+    let mut hasher = FxHasher::default();
+
+    fingerprint.hash(&mut hasher);
+    force_token().hash(&mut hasher);
+
+    hasher.finish()
+}
+
 #[cfg(feature = "disk")]
-const SIZE_LIMIT: u64 = 1024 * 1024 * 100;
+pub(crate) const SIZE_LIMIT: u64 = 1024 * 1024 * 100;
 
 const BUILD_STAMP: &str = env!("CORE_FINGERPRINT");
 

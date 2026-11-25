@@ -13,6 +13,7 @@ use codex::combat::Separator;
 use emulator::engine::{AssetSource, SheetImage};
 use emulator::runtime::HostLimits;
 use foundry::common::io::APP_LANGUAGES;
+use foundry::domains::sandbox::stash::Stash;
 use foundry::{Source, Vfs};
 
 const UNIT_STEM: &str = "unit";
@@ -129,16 +130,19 @@ impl Ledger {
 
 pub(super) type SharedLedger = Rc<RefCell<Ledger>>;
 
+pub(super) type SharedStash = Rc<RefCell<Stash>>;
+
 pub(super) struct DiskAssets {
     files: Rc<RefCell<FileIndex>>,
     sheets: Rc<RefCell<SheetCache>>,
     ledger: SharedLedger,
+    stash: SharedStash,
     missing: Vec<Box<str>>,
 }
 
 impl DiskAssets {
-    pub(super) fn new(files: Rc<RefCell<FileIndex>>, sheets: Rc<RefCell<SheetCache>>, ledger: SharedLedger) -> Self {
-        Self { files, sheets, ledger, missing: Vec::new() }
+    pub(super) fn new(files: Rc<RefCell<FileIndex>>, sheets: Rc<RefCell<SheetCache>>, ledger: SharedLedger, stash: SharedStash) -> Self {
+        Self { files, sheets, ledger, stash, missing: Vec::new() }
     }
 
     fn note(&self, name: &str) {
@@ -212,20 +216,34 @@ impl DiskAssets {
     }
 
     fn read(&self, name: &str) -> Option<Vec<u8>> {
-        self.resolve(name)?.read().ok().map(|bytes| bytes.to_vec())
+        self.stash.borrow_mut().read(&self.resolve(name)?).ok().map(|bytes| bytes.to_vec())
+    }
+
+    fn warm(&self, head: &str, tail: &str) {
+        if !self.stash.borrow().keeping() {
+            return;
+        }
+
+        let files = self.files.borrow();
+        let copies: Vec<&Source> = APP_LANGUAGES.iter().filter_map(|&(code, _)| files.get(format!("{head}_{code}{tail}").as_str())).collect();
+
+        self.stash.borrow_mut().warm(&copies);
     }
 
     fn fuller(&self, name: &str) -> Option<(Box<str>, Vec<[u32; 4]>)> {
         let stem = name.strip_suffix(CUT_SUFFIX)?;
         let head = stripped(name).map_or(stem, |(head, _)| head);
         let own = cut_rects(&self.read(name)?);
+
+        self.warm(head, CUT_SUFFIX);
+
         let files = self.files.borrow();
 
         APP_LANGUAGES
             .iter()
             .filter_map(|&(code, _)| {
                 let variant = format!("{head}_{code}");
-                let rects = cut_rects(&files.get(format!("{variant}{CUT_SUFFIX}").as_str())?.read().ok()?);
+                let rects = cut_rects(&self.stash.borrow_mut().read(files.get(format!("{variant}{CUT_SUFFIX}").as_str())?).ok()?);
 
                 (rects.len() > own.len() && rects.starts_with(&own)).then(|| (Box::from(variant.as_str()), rects.split_at(own.len()).1.to_vec()))
             })
@@ -234,7 +252,7 @@ impl DiskAssets {
 
     fn plain(&self, name: &str) -> Option<Vec<u8>> {
         let source = self.resolve(name)?;
-        let bytes = source.read().ok()?.to_vec();
+        let bytes = self.stash.borrow_mut().read(&source).ok()?.to_vec();
         let path = &source.path;
         let piped = path.file_name().and_then(|found| found.to_str()).is_some_and(|found| Separator::localized(found) == Separator::Pipe);
         let tabular = path.extension().and_then(|extension| extension.to_str()).is_some_and(|extension| extension == "csv");
@@ -261,6 +279,8 @@ impl DiskAssets {
         let Some((head, extension)) = stripped(name).or(keyed).filter(|(_, extension)| TABLE_KINDS.contains(extension)) else {
             return own;
         };
+
+        self.warm(head, &format!(".{extension}"));
 
         if KEYED_TABLES.contains(&head) {
             return self.keyed(name, head, extension, own);

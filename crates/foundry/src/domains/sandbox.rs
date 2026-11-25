@@ -17,6 +17,8 @@ pub mod rules;
 pub mod replay;
 #[cfg(feature = "sandbox")]
 pub mod scored;
+#[cfg(all(feature = "sandbox", feature = "disk"))]
+pub mod stash;
 #[cfg(feature = "sandbox")]
 mod terms;
 #[cfg(feature = "disk")]

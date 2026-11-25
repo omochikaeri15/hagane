@@ -1625,6 +1625,7 @@ impl HaganeApp {
             Message::FilesChanged(Change::Unavailable(lapse)) => {
                 warn!(?lapse, "File watcher could not be initialized; reporting it as an initialization error");
                 self.init_errors.report_watcher_failure(lapse, self.settings.general.ignore_watcher_failure);
+                self.sandbox_state.unwatch();
                 self.sync_popup(ActivePopup::InitErrors, self.init_errors.is_open());
                 Task::none()
             }
@@ -2040,6 +2041,9 @@ impl HaganeApp {
                 let retuned = msg.retunes_treasure();
                 let resurfaced = msg.resurfaces_editor();
                 let global_ctx = GlobalContext { param: &self.param, localizable: &self.localizable, vault: &self.vault, treasure: &self.sandbox_treasure, names: &self.names };
+
+                self.sandbox_state.set_settled(self.vault_ready && !self.rebuild_running && !self.rebuild_queued && !self.mods_state.mounting());
+
                 let task = self.sandbox_state.update(msg, &mut self.settings, &mut self.app_state, global_ctx).map(Message::Sandbox);
 
                 if retuned {

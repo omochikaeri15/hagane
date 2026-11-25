@@ -290,6 +290,10 @@ impl Session {
         self.failure = None;
     }
 
+    pub fn unwatch(&mut self) {
+        self.driver.unwatch();
+    }
+
     pub fn forget_assets(&mut self) {
         if self.phase == Phase::Idle {
             self.driver.forget_assets();
@@ -383,7 +387,7 @@ impl Session {
         self.driver.resize(width, height);
     }
 
-    pub fn tick(&mut self, vfs: &Vfs) {
+    pub fn tick(&mut self, vfs: &Vfs, settled: bool) {
         let elapsed = self.started.elapsed().div_duration_f32(FRAME_TIME) as i32;
         let gap = self.ticked.elapsed();
 
@@ -472,7 +476,7 @@ impl Session {
                 }
 
                 match self.reel.take() {
-                    Some((reel, source)) => match self.cue(&reel, source, vfs) {
+                    Some((reel, source)) => match self.cue(&reel, source, vfs, settled) {
                         Ok(()) => {
                             self.driver.draw_curtain(self.sweep);
                             self.load();
@@ -488,6 +492,11 @@ impl Session {
                         self.driver.reindex(vfs);
 
                         let reindexed = mark.elapsed();
+                        let mark = Instant::now();
+
+                        self.driver.stock(vfs, settled);
+
+                        let stocked = mark.elapsed();
                         let mark = Instant::now();
 
                         if self.recording {
@@ -507,6 +516,7 @@ impl Session {
 
                         trace!(
                             reindex_ms = reindexed.as_millis(),
+                            cache_ms = stocked.as_millis(),
                             recording_ms = armed.as_millis(),
                             load_ms = loaded.as_millis(),
                             keep_ms = mark.elapsed().as_millis(),
@@ -657,7 +667,7 @@ impl Session {
         }
     }
 
-    fn cue(&mut self, reel: &Reel, source: ReplaySource, vfs: &Vfs) -> Result<(), String> {
+    fn cue(&mut self, reel: &Reel, source: ReplaySource, vfs: &Vfs, settled: bool) -> Result<(), String> {
         let opened = open(reel)?;
         let index = match source {
             ReplaySource::Bcv => opened.index,
@@ -671,6 +681,10 @@ impl Session {
         };
 
         self.driver.arm_playback(&opened.save, opened.frames, opened.faults, index);
+
+        if source == ReplaySource::Vfs {
+            self.driver.stock(vfs, settled);
+        }
 
         Ok(())
     }

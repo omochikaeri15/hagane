@@ -12,7 +12,7 @@ use foundry::Vault;
 use foundry::domains::sandbox::replay::Insets;
 use foundry::domains::settings::{CombatLook, ReplaySource, SavedBcvName};
 
-use crate::{AppWindow, bridge};
+use crate::{AppWindow, bridge, engine};
 
 use super::diagnostics::Diagnostics;
 use super::driver::Label;
@@ -97,6 +97,7 @@ pub struct Arena {
 struct Stage {
     session: Option<Session>,
     vault: Arc<Vault>,
+    shared: Arc<engine::Shared>,
     weak: Weak<AppWindow>,
     ticket: bridge::Ticket,
     bounds: (f32, f32),
@@ -254,7 +255,8 @@ impl Stage {
         let Some(session) = self.session.as_mut() else {
             return;
         };
-        let changed = session.tick(&self.vault.vfs);
+        let settled = self.shared.settled() && Arc::ptr_eq(&self.vault, &self.shared.vault());
+        let changed = session.tick(&self.vault.vfs, settled);
         let standing = Standing { phase: session.phase(), covered: session.covered(), surfaced: session.surfaced(), watching: session.watching() };
         let failure = session.failure().map(str::to_owned);
         let options = session.take_options();
@@ -341,10 +343,10 @@ impl Stage {
 }
 
 impl Arena {
-    pub fn spawn(weak: Weak<AppWindow>, ticket: bridge::Ticket, vault: Arc<Vault>) -> Option<Self> {
+    pub fn spawn(weak: Weak<AppWindow>, ticket: bridge::Ticket, shared: Arc<engine::Shared>) -> Option<Self> {
         let (sender, receiver) = mpsc::channel::<Command>();
         let spawned = thread::Builder::new().name("battle".to_owned()).spawn(move || {
-            let mut stage = Stage { session: None, vault, weak, ticket, bounds: (0.0, 0.0), scale: 1.0, padded: false, density: 1.0, insets: None, held: false, diagnosing: false, standing: Standing::default(), failure: None, was_running: false };
+            let mut stage = Stage { session: None, vault: shared.vault(), shared, weak, ticket, bounds: (0.0, 0.0), scale: 1.0, padded: false, density: 1.0, insets: None, held: false, diagnosing: false, standing: Standing::default(), failure: None, was_running: false };
 
             info!("emu: the battle thread is up");
 

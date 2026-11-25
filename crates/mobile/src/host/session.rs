@@ -411,7 +411,7 @@ impl Session {
         self.driver.resize(width, height);
     }
 
-    pub(super) fn tick(&mut self, vfs: &Vfs) -> bool {
+    pub(super) fn tick(&mut self, vfs: &Vfs, settled: bool) -> bool {
         let elapsed = self.started.elapsed().div_duration_f32(FRAME_TIME) as i32;
 
         match self.phase {
@@ -504,7 +504,7 @@ impl Session {
                 }
 
                 match self.reel.take() {
-                    Some((reel, source)) => match self.cue(&reel, source, vfs) {
+                    Some((reel, source)) => match self.cue(&reel, source, vfs, settled) {
                         Ok(()) => {
                             self.driver.draw_curtain(self.sweep);
                             self.load();
@@ -516,6 +516,7 @@ impl Session {
                     },
                     None => {
                         self.driver.reindex(vfs);
+                        self.driver.stock(vfs, settled);
 
                         if self.recording {
                             self.driver.arm_recording();
@@ -680,7 +681,7 @@ impl Session {
         }
     }
 
-    fn cue(&mut self, reel: &Reel, source: ReplaySource, vfs: &Vfs) -> Result<(), String> {
+    fn cue(&mut self, reel: &Reel, source: ReplaySource, vfs: &Vfs, settled: bool) -> Result<(), String> {
         let opened = open(reel)?;
         let index = match source {
             ReplaySource::Bcv => opened.index,
@@ -694,6 +695,10 @@ impl Session {
         };
 
         self.driver.arm_playback(&opened.save, opened.frames, opened.faults, index);
+
+        if source == ReplaySource::Vfs {
+            self.driver.stock(vfs, settled);
+        }
 
         Ok(())
     }

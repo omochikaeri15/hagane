@@ -11,6 +11,8 @@ use std::time::SystemTime;
 use serde::{Deserialize, Serialize};
 
 use crate::common::region::Region;
+#[cfg(feature = "sandbox")]
+use crate::domains::sandbox::stash;
 use crate::domains::sandbox::vintage;
 use crate::domains::{cat, enemy, mining, stage};
 use crate::ContentStore;
@@ -36,6 +38,8 @@ pub fn purge_derived_caches() {
     enemy::scanner::purge();
     stage::scanner::purge();
     ContentStore::purge();
+    #[cfg(feature = "sandbox")]
+    stash::purge();
 }
 
 #[derive(PartialEq, Clone, Copy, Debug, Deserialize, Serialize)]

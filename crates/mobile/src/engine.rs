@@ -29,6 +29,7 @@ pub struct Shared {
     mounted: Mutex<Option<String>>,
     cached: AtomicBool,
     ready: AtomicBool,
+    settled: AtomicBool,
     generation: AtomicU64,
 }
 
@@ -58,6 +59,10 @@ impl Shared {
 
     pub fn ready(&self) -> bool {
         self.ready.load(Ordering::Acquire)
+    }
+
+    pub fn settled(&self) -> bool {
+        self.settled.load(Ordering::Acquire)
     }
 
     pub fn generation(&self) -> u64 {
@@ -169,6 +174,7 @@ impl Engine {
             mounted: Mutex::new(mounted.clone()),
             cached: AtomicBool::new(false),
             ready: AtomicBool::new(false),
+            settled: AtomicBool::new(false),
             generation: AtomicU64::new(0),
         });
         let worker = Arc::clone(&shared);
@@ -240,6 +246,8 @@ impl Engine {
                 shared.adopt(rebuilt, false);
             }
 
+            shared.settled.store(true, Ordering::Release);
+
             bridge::on_ui(&weak, |ui| {
                 phase(&ui, WALKING, true);
                 ui.global::<Shell>().set_engine_generation(ui.global::<Shell>().get_engine_generation() + 1);
@@ -251,6 +259,7 @@ impl Engine {
         let weak = window.as_weak();
 
         self.shared.ready.store(false, Ordering::Release);
+        self.shared.settled.store(false, Ordering::Release);
         phase(window, WALKING, false);
         self.shared.set_mounted(config.active_mod.clone());
 
@@ -260,6 +269,7 @@ impl Engine {
 
             adopt_walk(&rebuilt, index);
             shared.adopt(rebuilt, false);
+            shared.settled.store(true, Ordering::Release);
             bridge::on_ui(&weak, |ui| {
                 phase(&ui, WALKING, true);
                 ui.global::<Shell>().set_engine_generation(ui.global::<Shell>().get_engine_generation() + 1);

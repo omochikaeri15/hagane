@@ -130,6 +130,8 @@ pub struct State {
     config: config::State,
     replay: replay::State,
     was_running: bool,
+    settled: bool,
+    unwatched: bool,
     version: popup::State,
     foreign: Option<String>,
     dated: Option<String>,
@@ -162,6 +164,8 @@ impl Default for State {
             config: config::State::default(),
             replay: replay::State::new(),
             was_running: false,
+            settled: false,
+            unwatched: false,
             version: popup::State::default(),
             foreign: None,
             dated: None,
@@ -347,6 +351,14 @@ impl State {
 
     pub(crate) fn set_rules(&mut self, rules: foundry::domains::sandbox::rules::Rules, app_state: &AppState) {
         self.lineup.set_rules(rules, app_state);
+    }
+
+    pub(crate) fn set_settled(&mut self, settled: bool) {
+        self.settled = settled;
+    }
+
+    pub(crate) fn unwatch(&mut self) {
+        self.unwatched = true;
     }
 
     pub(crate) fn forget_assets(&mut self) {
@@ -931,7 +943,11 @@ impl State {
                 self.was_running = running;
 
                 if let Some(session) = self.session.as_mut() {
-                    session.tick(&ctx.vault.vfs);
+                    if self.unwatched {
+                        session.unwatch();
+                    }
+
+                    session.tick(&ctx.vault.vfs, self.settled);
 
                     match session.diagnose().filter(|_| self.diagnosing) {
                         Some(probe) => {

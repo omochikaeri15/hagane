@@ -483,7 +483,7 @@ pub fn entered(ui: &AppWindow, state: &Shared, context: &Rc<Context>) {
         let ticket = state.borrow().arena_ticket;
 
         if let Some(ticket) = ticket {
-            state.borrow_mut().arena = Arena::spawn(ui.as_weak(), ticket, context.engine.vault());
+            state.borrow_mut().arena = Arena::spawn(ui.as_weak(), ticket, Arc::clone(context.engine.shared()));
         }
     }
 
