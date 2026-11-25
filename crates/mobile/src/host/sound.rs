@@ -311,7 +311,7 @@ impl Pool {
             self.ledger.borrow_mut().note(&name, &source.path);
         }
 
-        let bytes = self.stash.borrow_mut().read(&source).map(|bytes| bytes.to_vec()).inspect_err(|error| warn!("emu: {name} could not be read: {error}")).ok()?;
+        let bytes = self.stash.borrow_mut().read(&source, &self.files.borrow()).map(|bytes| bytes.to_vec()).inspect_err(|error| warn!("emu: {name} could not be read: {error}")).ok()?;
 
         Some((name, bytes))
     }

@@ -350,7 +350,7 @@ impl Pool {
         let bytes = self
             .stash
             .borrow_mut()
-            .read(&source)
+            .read(&source, &self.files.borrow())
             .map(|bytes| bytes.to_vec())
             .inspect_err(|error| warn!("emu: {name} could not be read: {error}"))
             .ok()?;

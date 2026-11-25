@@ -22,6 +22,8 @@ const BUNDLE_STEM: &str = "Replay";
 const EXPORTS: &str = "exports";
 const STAGING: &str = "replay";
 
+type Copy = (PathBuf, Box<str>, Option<Arc<[u8]>>);
+
 pub fn latest() -> Option<PathBuf> {
     dirs::state().map(|state| state.join(LATEST))
 }
@@ -121,9 +123,9 @@ impl Recording {
         fs::write(self.dir.join(SAVE), text)
     }
 
-    pub fn keep(&mut self, requested: Vec<(Box<str>, PathBuf)>) -> Vec<(Box<str>, io::Error)> {
+    pub fn keep(&mut self, requested: Vec<(Box<str>, PathBuf)>, held: impl Fn(&Path) -> Option<Arc<[u8]>>) -> Vec<(Box<str>, io::Error)> {
         let mut planned: Vec<(Box<str>, Box<str>)> = Vec::new();
-        let mut copies: Vec<(PathBuf, Box<str>)> = Vec::new();
+        let mut copies: Vec<Copy> = Vec::new();
 
         for (name, path) in requested {
             if !self.kept.insert(name.clone()) {
@@ -137,7 +139,10 @@ impl Recording {
 
                     self.taken.insert(fresh.clone());
                     self.stored.insert(path.clone(), fresh.clone());
-                    copies.push((path, fresh.clone()));
+
+                    let bytes = held(&path);
+
+                    copies.push((path, fresh.clone(), bytes));
 
                     fresh
                 }
@@ -149,7 +154,12 @@ impl Recording {
         let assets = self.dir.join(ASSETS);
         let failed: BTreeMap<Box<str>, io::Error> = copies
             .par_iter()
-            .filter_map(|(path, stored)| fs::copy(path, assets.join(stored.as_ref())).err().map(|error| (stored.clone(), error)))
+            .filter_map(|(path, stored, bytes)| {
+                let target = assets.join(stored.as_ref());
+                let written = bytes.as_ref().map_or_else(|| fs::copy(path, &target).map(drop), |bytes| fs::write(&target, bytes));
+
+                written.err().map(|error| (stored.clone(), error))
+            })
             .collect();
         let mut problems = Vec::new();
 

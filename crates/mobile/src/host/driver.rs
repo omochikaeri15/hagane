@@ -446,6 +446,11 @@ impl Driver {
     }
 
     pub(super) fn keep_assets(&mut self) {
+        self.keep_requested();
+        self.stash.borrow_mut().release();
+    }
+
+    fn keep_requested(&mut self) {
         let Tape::Recording(recording) = &mut self.tape else {
             return;
         };
@@ -459,7 +464,9 @@ impl Driver {
             return;
         }
 
-        for (name, error) in recording.keep(requested) {
+        let stash = self.stash.borrow();
+
+        for (name, error) in recording.keep(requested, |path| stash.held(path)) {
             warn!("emu: {name} could not be kept for the replay: {error}");
         }
     }
@@ -783,22 +790,26 @@ impl Driver {
             return false;
         }
 
+        self.stash.borrow_mut().turn();
+
+        true
+    }
+
+    fn settle_stash(&mut self) {
         if self.saver.as_ref().is_some_and(|saver| !saver.is_finished()) {
             self.stash.borrow_mut().rest();
 
-            return true;
+            return;
         }
 
         let Some(save) = self.stash.borrow_mut().settle() else {
-            return true;
+            return;
         };
 
         match thread::Builder::new().name(STASH_SAVER.to_owned()).spawn(move || save.write()) {
             Ok(saver) => self.saver = Some(saver),
             Err(err) => error!("The sandbox cache thread could not be started: {err}"),
         }
-
-        true
     }
 
     fn load_game_data(&mut self) -> bool {
@@ -848,6 +859,14 @@ impl Driver {
     }
 
     pub(super) fn enter_battle(&mut self) -> bool {
+        let entered = self.enter();
+
+        self.settle_stash();
+
+        entered
+    }
+
+    fn enter(&mut self) -> bool {
         let mark = Instant::now();
 
         trace!(map = self.setup.stage.map_id, stage = self.setup.stage.stage, units = self.setup.lineup.len(), "emu: entering the battle");

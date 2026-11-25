@@ -1,6 +1,7 @@
 use std::cell::RefCell;
 use std::collections::{BTreeMap, BTreeSet};
 use std::mem;
+use std::ops::Bound;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -28,6 +29,7 @@ const CUT_HEADER: usize = 4;
 const TABLE_KINDS: [&str; 2] = ["csv", "tsv"];
 const KEYED_TABLES: [&str; 1] = ["localizable"];
 const CLOSERS: [&[u8]; 2] = [b"@", "\u{ff20}".as_bytes()];
+const MOST_KIN: usize = 32;
 
 #[derive(Clone)]
 pub struct Sheet {
@@ -242,7 +244,7 @@ impl DiskAssets {
     }
 
     fn read(&self, name: &str) -> Option<Vec<u8>> {
-        self.stash.borrow_mut().read(&self.resolve(name)?).ok().map(|bytes| bytes.to_vec())
+        self.stash.borrow_mut().read(&self.resolve(name)?, &self.files.borrow()).ok().map(|bytes| bytes.to_vec())
     }
 
     fn warm(&self, head: &str, tail: &str) {
@@ -254,6 +256,26 @@ impl DiskAssets {
         let copies: Vec<&Source> = APP_LANGUAGES.iter().filter_map(|&(code, _)| files.get(format!("{head}_{code}{tail}").as_str())).collect();
 
         self.stash.borrow_mut().warm(&copies);
+    }
+
+    fn gather(&self, name: &str) {
+        if !self.stash.borrow().keeping() {
+            return;
+        }
+
+        let Some((stem, _)) = name.split_once('.') else {
+            return;
+        };
+        let files = self.files.borrow();
+        let kin: Vec<&Source> = files
+            .range::<str, _>((Bound::Included(stem), Bound::Unbounded))
+            .take_while(|(held, _)| held.starts_with(stem))
+            .filter(|(held, _)| held.get(stem.len()..).and_then(|rest| rest.split_once('.')).is_some_and(|(digits, _)| digits.bytes().all(|byte| byte.is_ascii_digit())))
+            .map(|(_, source)| source)
+            .take(MOST_KIN)
+            .collect();
+
+        self.stash.borrow_mut().warm(&kin);
     }
 
     fn fuller(&self, name: &str) -> Option<(Box<str>, Vec<[u32; 4]>)> {
@@ -269,7 +291,7 @@ impl DiskAssets {
             .iter()
             .filter_map(|&(code, _)| {
                 let variant = format!("{head}_{code}");
-                let rects = cut_rects(&self.stash.borrow_mut().read(files.get(format!("{variant}{CUT_SUFFIX}").as_str())?).ok()?);
+                let rects = cut_rects(&self.stash.borrow_mut().read(files.get(format!("{variant}{CUT_SUFFIX}").as_str())?, &files).ok()?);
 
                 (rects.len() > own.len() && rects.starts_with(&own)).then(|| (Box::from(variant.as_str()), rects.split_at(own.len()).1.to_vec()))
             })
@@ -278,7 +300,7 @@ impl DiskAssets {
 
     fn plain(&self, name: &str) -> Option<Vec<u8>> {
         let source = self.resolve(name)?;
-        let bytes = self.stash.borrow_mut().read(&source).ok()?.to_vec();
+        let bytes = self.stash.borrow_mut().read(&source, &self.files.borrow()).ok()?.to_vec();
         let path = &source.path;
         let piped = path
             .file_name()
@@ -508,6 +530,7 @@ impl AssetSource for DiskAssets {
         let name = std::str::from_utf8(name).ok()?;
 
         self.note(name);
+        self.gather(name);
 
         let found = self.table(name);
 
@@ -523,6 +546,7 @@ impl AssetSource for DiskAssets {
         let name = std::str::from_utf8(name).ok()?;
 
         self.note(name);
+        self.gather(name);
 
         let sheet = self.decode(name)?;
 
@@ -536,6 +560,7 @@ impl AssetSource for DiskAssets {
     fn upload(&mut self, name: &[u8]) {
         if let Ok(name) = std::str::from_utf8(name) {
             self.note(name);
+            self.gather(name);
             self.decode(name);
         }
     }
