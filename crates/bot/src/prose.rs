@@ -134,7 +134,7 @@ impl Trouble {
     }
 }
 
-pub(crate) const NO_CAT: Line = Line::new("Unable to find Cat!", "Hmph. There's no cat like that, dummy! Check your spelling!");
+pub(crate) const NO_CAT: Line = Line::new("Unable to find Cat!", "Hmph. There's no cat like that, baka! Check your spelling!");
 pub(crate) const NO_ENEMY: Line = Line::new("Unable to find Enemy!", "That enemy doesn't exist! D-Don't make me look for things that aren't there!");
 pub(crate) const NO_UNIT: Line = Line::new("`{word}` isn't a command I know, and I couldn't find a cat, enemy, stage or map like that either. See `{prefix}help`", "`{word}` isn't a command, and there's no cat, enemy, stage or map like that either, dummy! Go read `{prefix}help` already!");
 pub(crate) const NO_BACKGROUND: Line = Line::new("Unable to find Background!", "There's no background with that ID, dummy! Count again!");
@@ -187,7 +187,7 @@ pub(crate) const NO_TALENTS: Line = Line::new("{unit} has no talents", "{unit} d
 pub(crate) const FEW_TALENTS: Line = Line::new("{unit} only has {count} talents", "{unit} only has {count} talents! Can't you count?!");
 pub(crate) const NO_TALENT_LIKE: Line = Line::new("{unit} has no talent like `{name}`", "{unit} has no talent like `{name}`! Where did you even get that from?!");
 pub(crate) const NOT_A_LEVEL: Line = Line::new("A level looks like `50`, `50+70` or `lv30`", "That's not a level! It looks like `50`, `50+70` or `lv30`, got it?!");
-pub(crate) const NOT_A_PERCENT: Line = Line::new("A magnification looks like `400%` or `400%/200%`", "That's not a magnification! It looks like `400%` or `400%/200%`, got it?!");
+pub(crate) const NOT_A_PERCENT: Line = Line::new("A magnification looks like `400%` or `400%/200%`", "That's not a magnification, baka! It looks like `400%` or `400%/200%`, got it?!");
 pub(crate) const PREFIX_SPACED: Line = Line::new("A prefix can't have spaces in it", "A prefix can't have spaces in it, dummy!");
 pub(crate) const PREFIX_LONG: Line = Line::new("A prefix can be {limit} characters at most", "{limit} characters at most! I'm not memorizing a whole speech just for you!");
 pub(crate) const HELP_HOME: Line = Line::new("Use `hg!`, mention me, reply to me, DM me, or use `/`.\nLeave out the command and I look through cats, enemies, stages and maps: `hg!bahamut`, `hg!cyclone a walk`.\nThe list below opens each command, or use `hg!help <command>`.", "Use `hg!`, mention me, reply to me, DM me, or use `/`. I-It's not like I'm happy when you do!\nLeave out the command and I'll look through cats, enemies, stages and maps, like `hg!bahamut` or `hg!cyclone a walk`. Honestly, how lazy can you get?!\nThe list below opens each command, or use `hg!help <command>`. Don't make me explain it twice!");

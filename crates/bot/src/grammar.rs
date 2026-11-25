@@ -237,8 +237,20 @@ fn motion_flag(token: &str) -> bool {
     )
 }
 
+fn marked_level(token: &str) -> bool {
+    level_of(token).is_some() && (token.contains('+') || !token.chars().all(|glyph| glyph.is_ascii_digit()))
+}
+
+fn plain_number(token: &str) -> bool {
+    !token.is_empty() && token.chars().all(|glyph| glyph.is_ascii_digit())
+}
+
+fn level_word(token: &str) -> bool {
+    matches!(lower(token).as_str(), "lv" | "lvl" | "l" | "level")
+}
+
 fn stats_tell(token: &str, kind: Kind) -> bool {
-    let marked_level = level_of(token).is_some() && (token.contains('+') || !token.chars().all(|glyph| glyph.is_ascii_digit()));
+    let marked_level = marked_level(token);
     let marked_percent = kind == Kind::Enemy && token.contains('%') && magnification_of(token).is_some();
 
     matches!(lower(token).as_str(), "--talents" | "-t" | "lv" | "lvl" | "level") || mode_of(token).is_some() || (kind == Kind::Cat && marked_level) || marked_percent
@@ -274,7 +286,12 @@ fn carries_on(rest: &[&str], kind: Kind) -> bool {
     match rest.split_first() {
         Some((keyword, after)) => match want_of(keyword, kind) {
             Some(Asked::Motion) => motion_of(after).is_ok(),
-            Some(Asked::Page(_)) => stats_of(after, kind).is_ok(),
+            Some(Asked::Page(Page::Talents)) => talented(after).is_ok(),
+            Some(Asked::Page(_)) => {
+                let marked: Vec<&str> = after.iter().copied().filter(|token| kind != Kind::Cat || !plain_number(token)).collect();
+
+                stats_of(&marked, kind).is_ok()
+            }
             None => false,
         },
         None => false,
@@ -308,7 +325,7 @@ pub(crate) fn clip_of(token: &str) -> Option<Clip> {
 }
 
 fn ends_a_name(token: &str, kind: Kind) -> bool {
-    let marked_level = level_of(token).is_some() && (token.contains('+') || !token.chars().all(|glyph| glyph.is_ascii_digit()));
+    let marked_level = marked_level(token);
     let marked_percent = token.contains('%') && magnification_of(token).is_some();
 
     let level_word = matches!(lower(token).as_str(), "lv" | "lvl" | "level");
@@ -484,6 +501,7 @@ pub(crate) fn parse(text: &str, kind: Kind) -> Result<Request, String> {
 
     let want = match asked {
         Asked::Motion => Want::Motion(motion_of(rest)?),
+        Asked::Page(Page::Talents) => Want::Stats(Stats { page: Page::Talents, ..talented(rest)? }),
         Asked::Page(page) => Want::Stats(Stats { page, ..stats_of(rest, kind)? }),
     };
 
@@ -567,6 +585,37 @@ fn placed(tokens: &[&str], search: Option<u32>, kinds: &[Kind]) -> Result<Reques
     Ok(Request { unit, want: Want::Stats(Stats { mode, ..Stats::default() }), whole: None, form: None, crowns, search, tail: tokens[named.len()..].join(" ") })
 }
 
+fn talented(tokens: &[&str]) -> Result<Stats, String> {
+    let (typed, flags) = tokens.split_at(tokens.iter().position(|token| is_flag(token)).unwrap_or(tokens.len()));
+    let mut stats = stats_of(flags, Kind::Cat)?;
+    let mut words = Vec::new();
+    let mut level = None;
+    let mut at = 0;
+
+    while let Some(token) = typed.get(at) {
+        at += 1;
+
+        if marked_level(token) {
+            level = level_of(token);
+        } else if level_word(token) && typed.get(at).is_some_and(|next| level_of(next).is_some()) {
+            level = typed.get(at).and_then(|next| level_of(next));
+            at += 1;
+        } else {
+            words.push(*token);
+        }
+    }
+
+    if !words.is_empty() {
+        let flagged = stats.talents.take().unwrap_or_default();
+
+        stats.talents = Some(talents_of(&words).into_iter().chain(flagged).collect());
+    }
+
+    stats.level = stats.level.or(level);
+
+    Ok(stats)
+}
+
 fn stats_of(tokens: &[&str], kind: Kind) -> Result<Stats, String> {
     let mut stats = Stats::default();
     let mut at = 0;
@@ -582,7 +631,8 @@ fn stats_of(tokens: &[&str], kind: Kind) -> Result<Stats, String> {
                 at = end;
             }
             _ if mode_of(token).is_some() => stats.mode = mode_of(token),
-            _ if kind == Kind::Cat && stats.level.is_none() && level_of(token).is_some() => stats.level = level_of(token),
+            _ if kind == Kind::Cat && stats.level.is_none() && marked_level(token) => stats.level = level_of(token),
+            _ if kind == Kind::Cat && plain_number(token) => return Err(format!("`{token}` needs a mark to be a level, like `lv{token}`")),
             "lv" | "lvl" | "l" | "level" if kind == Kind::Cat => {
                 let level = tokens.get(at).and_then(|next| level_of(next)).ok_or_else(|| format!("`{token}` needs a level after it"))?;
 
@@ -985,8 +1035,9 @@ mod tests {
 
     #[test]
     fn a_name_runs_until_what_is_wanted() {
-        assert_eq!(parse("jamiera cat s 30", Kind::Cat).map(|request| request.unit), Ok(Unit::Name("jamiera cat".to_owned())));
-        assert_eq!(stats("jamiera cat s 30").level.as_deref(), Some("30"));
+        assert_eq!(parse("jamiera cat s lv30", Kind::Cat).map(|request| request.unit), Ok(Unit::Name("jamiera cat".to_owned())));
+        assert_eq!(stats("jamiera cat s lv30").level.as_deref(), Some("30"));
+        assert_eq!(parse("jamiera cat s 30", Kind::Cat).map(|request| request.unit), Err("`30` needs a mark to be a level, like `lv30`".to_owned()), "the name still ends at s, so the number gets its hint");
         assert_eq!(motion("crazed bahamut a attack").clip, Clip::Attack);
         assert_eq!(motion("25 attack").clip, Clip::Attack);
     }
@@ -1141,6 +1192,43 @@ mod tests {
         assert!(matches!(parse("akaza -i 400%", Kind::Enemy).map(|request| request.want), Ok(Want::Stats(Stats { mode: Some(Mode::Interactive), magnification: Some((400, 400)), .. }))));
         assert_eq!(parse("bahamut cat -i", Kind::Cat).map(|request| request.unit), Ok(Unit::Name("bahamut cat".to_owned())));
         assert!(parse("25 a walk -i", Kind::Cat).is_err(), "the flags belong to pictures, not animations");
+    }
+
+    // A plain number could be part of a name, a talent's level or the cat's, so the cat's always carries a mark.
+    #[test]
+    fn a_level_needs_its_mark() {
+        let refused = |text: &str| parse(text, Kind::Cat).map(|request| request.unit);
+
+        assert_eq!(refused("25 45"), Err("`45` needs a mark to be a level, like `lv45`".to_owned()));
+        assert_eq!(refused("25 s 45"), Err("`45` needs a mark to be a level, like `lv45`".to_owned()));
+        assert_eq!(refused("bahamut 45"), Ok(Unit::Name("bahamut 45".to_owned())), "after a name it is still part of the name");
+
+        for text in ["25 lv45", "25 l45", "25 level 45", "25 lv 45", "bahamut lv45", "bahamut s l45"] {
+            assert_eq!(stats(text).level.as_deref(), Some("45"), "{text}");
+        }
+
+        assert_eq!(stats("25 50+70").level.as_deref(), Some("50+70"), "a plus level is marked by its plus");
+    }
+
+    // After the page word everything is talents, so only a marked level still means the cat's own.
+    #[test]
+    fn the_talents_page_reads_talents_without_the_flag() {
+        assert_eq!(stats("25 t all").talents, Some(vec![Talent::All]));
+        assert_eq!(stats("25 t 10 10 5").talents, Some(vec![Talent::Level(10), Talent::Level(10), Talent::Level(5)]));
+        assert_eq!(stats("25 talents attack buff 5 none").talents, Some(vec![Talent::Named("attack buff".to_owned(), Some(5)), Talent::None]));
+
+        let leveled = stats("25 t 10 lv30 5");
+
+        assert_eq!((leveled.level.as_deref(), leveled.talents), (Some("30"), Some(vec![Talent::Level(10), Talent::Level(5)])));
+        assert_eq!(stats("25 t 50+70").level.as_deref(), Some("50+70"));
+        assert_eq!(stats("25 t level 30 all").level.as_deref(), Some("30"));
+        assert_eq!((stats("25 t 30").level, stats("25 t 30").talents), (None, Some(vec![Talent::Level(30)])), "a plain number is a talent's level here");
+        assert_eq!(stats("25 lv30").level.as_deref(), Some("30"));
+
+        let mixed = stats("25 t 10 -i -t ultra");
+
+        assert_eq!((mixed.mode, mixed.talents), (Some(Mode::Interactive), Some(vec![Talent::Level(10), Talent::Ultra])));
+        assert_eq!(parse("bahamut cat t all", Kind::Cat).map(|request| request.unit), Ok(Unit::Name("bahamut cat".to_owned())));
     }
 
     #[test]

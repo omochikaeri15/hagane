@@ -256,7 +256,7 @@ fn talent_icon(pictures: &Pictures, group: &TalentGroup) -> Element {
 }
 
 fn skill_name(pictures: &Pictures, globals: &Shared, group: &TalentGroup) -> Option<std::rc::Rc<str>> {
-    let image_id = if group.name_id > 0 { group.name_id } else { i16::from(group.ability_id) };
+    let image_id = group.name_image();
 
     if image_id <= 0 {
         return None;

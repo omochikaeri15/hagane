@@ -6,6 +6,7 @@ mod discord;
 mod encode;
 mod fuzzy;
 mod grammar;
+mod headers;
 mod library;
 mod lookup;
 mod prefs;

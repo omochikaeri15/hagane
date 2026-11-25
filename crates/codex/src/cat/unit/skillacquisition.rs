@@ -57,6 +57,10 @@ impl TalentGroup {
         if self.is_ultra() { Self::ULTRA_LEVEL } else { 0 }
     }
 
+    pub fn name_image(&self) -> i16 {
+        if self.name_id > 0 { self.name_id } else { i16::from(self.ability_id) }
+    }
+
     pub fn combo_line(&self) -> Option<usize> {
         (self.ability_id == Self::COMBO_TALENT).then_some(usize::from(self.min_1))
     }

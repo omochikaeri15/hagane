@@ -1415,7 +1415,7 @@ fn refresh_abilities(ui: &AppWindow, state: &Shared, context: &Rc<Context>, glob
 }
 
 fn skill_name(images: &Images, vault: &Arc<Vault>, group: &TalentGroup) -> Option<Image> {
-    let image_id = if group.name_id > 0 { group.name_id } else { i16::from(group.ability_id) };
+    let image_id = group.name_image();
 
     if image_id <= 0 {
         return None;

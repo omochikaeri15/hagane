@@ -117,7 +117,7 @@ pub fn talents(subject: Subject<'_>) -> Option<TalentsData> {
                 Some(AbilityIcon::None) | None => (None, CustomIcon::None),
             };
             let reading = talent_logic::calculate_linked_display(talent_data, levels, index, base_stats, scaling, &traits).unwrap_or_default();
-            let picture = if group.name_id > 0 { group.name_id } else { i16::from(group.ability_id) };
+            let picture = group.name_image();
 
             TalentCard {
                 item: AbilityItem { identity: known.map_or(Identity::Unknown, |def| def.identity), icon_id, text: name, custom_icon, border_id: None },
