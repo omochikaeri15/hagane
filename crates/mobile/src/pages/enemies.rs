@@ -685,11 +685,18 @@ fn export(ui: &AppWindow, state: &Shared, context: &Rc<Context>) {
         return;
     };
     let vault = context.engine.vault();
-    let magnification = state.borrow().magnification;
-    let data = enemy_statblock::build(Subject { enemy: &enemy, magnification, show_invalid: context.state.settings().show_invalid_enemies(), global: globals.context(&vault), vault: &vault });
+    let (magnification, tab) = (state.borrow().magnification, state.borrow().tab);
     let landing = Rc::clone(state);
+    let finished = move |_: &AppWindow| landing.borrow_mut().exporting = false;
 
     state.borrow_mut().exporting = true;
-    detail::export_statblock(ui, context, data, Rc::new(set_export_face), move |_| landing.borrow_mut().exporting = false);
+
+    if tab == Tab::Details {
+        return detail::export_details(ui, context, enemy_statblock::details(&enemy, globals.context(&vault)), Rc::new(set_export_face), finished);
+    }
+
+    let data = enemy_statblock::build(Subject { enemy: &enemy, magnification, show_invalid: context.state.settings().show_invalid_enemies(), global: globals.context(&vault), vault: &vault });
+
+    detail::export_statblock(ui, context, data, Rc::new(set_export_face), finished);
 }
 

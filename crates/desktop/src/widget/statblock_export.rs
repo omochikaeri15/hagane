@@ -9,7 +9,7 @@ use tracing::{error, warn};
 
 use foundry::common::formats::SpriteSheet as CoreSpriteSheet;
 use foundry::domains::settings::Settings;
-use foundry::systems::statblock::{self, StatblockData};
+use foundry::systems::statblock::{self, DetailsData, StatblockData, TalentsData};
 
 use crate::app::theme;
 use crate::common::feedback::Slot;
@@ -74,10 +74,62 @@ pub(crate) struct Work {
     pub(crate) save: Save,
 }
 
-pub(crate) struct Request<'a> {
-    pub(crate) data: StatblockData,
-    pub(crate) sheets: &'a [SpriteSheet],
-    pub(crate) settings: &'a Settings,
+pub(crate) struct Request {
+    ready: bool,
+    work: Work,
+}
+
+fn layers(sheets: &[SpriteSheet]) -> Vec<CoreSpriteSheet> {
+    sheets.iter().map(|sheet| sheet.core.clone()).collect()
+}
+
+fn settled(sheets: &[SpriteSheet]) -> bool {
+    sheets.iter().all(SpriteSheet::is_settled)
+}
+
+impl Request {
+    pub(crate) fn statblock(data: StatblockData, sheets: &[SpriteSheet], settings: &Settings) -> Self {
+        let is_cat = data.is_cat;
+        let id_str = data.id_str.clone();
+        let top_value = data.top_value.clone();
+        let layers = layers(sheets);
+        let priority = settings.general.language_priority.clone();
+
+        Self {
+            ready: settled(sheets),
+            work: Work {
+                draw: Box::new(move || statblock::build_statblock_image(&priority, &layers, data, &statblock::Fonts::embedded())),
+                save: Box::new(move |image| statblock::save_to_disk(image, is_cat, &id_str, &top_value).map(|_| ())),
+            },
+        }
+    }
+
+    pub(crate) fn talents(data: TalentsData, sheets: &[SpriteSheet], coins: &[SpriteSheet], settings: &Settings) -> Self {
+        let name = data.file_name();
+        let (layers, coin_layers) = (layers(sheets), layers(coins));
+        let priority = settings.general.language_priority.clone();
+
+        Self {
+            ready: settled(sheets) && settled(coins),
+            work: Work {
+                draw: Box::new(move || statblock::build_talents_image(&priority, &layers, &coin_layers, &data, &statblock::PageFonts::embedded())),
+                save: Box::new(move |image| statblock::save_page_to_disk(image, &name).map(|_| ())),
+            },
+        }
+    }
+
+    pub(crate) fn details(data: DetailsData, settings: &Settings) -> Self {
+        let name = data.file_name();
+        let priority = settings.general.language_priority.clone();
+
+        Self {
+            ready: true,
+            work: Work {
+                draw: Box::new(move || statblock::build_details_image(&priority, &data, &statblock::PageFonts::embedded())),
+                save: Box::new(move |image| statblock::save_page_to_disk(image, &name).map(|_| ())),
+            },
+        }
+    }
 }
 
 pub(crate) struct State {
@@ -99,7 +151,7 @@ impl State {
         }
     }
 
-    pub(crate) fn update<'a>(&mut self, message: Message, request: impl FnOnce() -> Option<Request<'a>>) -> Task<Message> {
+    pub(crate) fn update(&mut self, message: Message, request: impl FnOnce() -> Option<Request>) -> Task<Message> {
         self.handle(message, |held, action| request().map_or_else(Task::none, |request| held.start(action, request)))
     }
 
@@ -125,28 +177,17 @@ impl State {
         }
     }
 
-    fn start(&mut self, action: ExportAction, request: Request<'_>) -> Task<Message> {
+    fn start(&mut self, action: ExportAction, request: Request) -> Task<Message> {
         if self.pending.is_some() {
             return Task::none();
         }
 
-        if request.sheets.iter().any(|sheet| !sheet.is_settled()) {
-            warn!("{} statblock export blocked, sprite sheets are still loading", self.kind);
+        if !request.ready {
+            warn!("{} image export blocked, sprite sheets are still loading", self.kind);
             return self.reject(action);
         }
 
-        let data = request.data;
-        let is_cat = data.is_cat;
-        let id_str = data.id_str.clone();
-        let top_value = data.top_value.clone();
-
-        let layers: Vec<CoreSpriteSheet> = request.sheets.iter().map(|sheet| sheet.core.clone()).collect();
-        let priority = request.settings.general.language_priority.clone();
-
-        self.run(action, Work {
-            draw: Box::new(move || statblock::build_statblock_image(&priority, &layers, data, &statblock::Fonts::embedded())),
-            save: Box::new(move |image| statblock::save_to_disk(image, is_cat, &id_str, &top_value).map(|_| ())),
-        })
+        self.run(action, request.work)
     }
 
     fn run(&mut self, action: ExportAction, work: Work) -> Task<Message> {

@@ -1,13 +1,11 @@
 use std::collections::HashMap;
 
-use unicode_width::UnicodeWidthStr;
-
 use foundry::domains::cat::scanner::CatEntry;
 
 use super::fuzzy::Query;
 use super::grammar::Talent;
 use super::library::Library;
-use super::prose::{self, Prose, Trouble};
+use super::prose::Trouble;
 
 pub(crate) fn levels(library: &Library, cat: &CatEntry, words: &[Talent]) -> Result<HashMap<u8, u8>, Trouble> {
     let Some(data) = cat.talent_data.as_ref() else {
@@ -27,7 +25,6 @@ pub(crate) fn levels(library: &Library, cat: &CatEntry, words: &[Talent]) -> Res
                 levels.clear();
                 cursor = 0;
             }
-            Talent::Show => {}
             Talent::Level(level) => {
                 if cursor >= data.groups.len() {
                     return Err(Trouble::FewTalents(cat.display_name(0), data.groups.len()));
@@ -53,22 +50,6 @@ pub(crate) fn levels(library: &Library, cat: &CatEntry, words: &[Talent]) -> Res
     }
 
     Ok(levels)
-}
-
-pub(crate) fn shows(words: &[Talent]) -> bool {
-    words.contains(&Talent::Show)
-}
-
-pub(crate) fn overview(library: &Library, cat: &CatEntry, form: usize, prose: Prose) -> String {
-    let title = format!("**{}**", cat.display_name(form));
-    let Some(data) = cat.talent_data.as_ref() else {
-        return format!("{title}\n{}", prose::TALENTLESS.said(prose));
-    };
-    let rows: Vec<(String, u8)> = data.groups.iter().map(|group| (format!("{}{}", library.talent_name(group.ability_id), if group.is_ultra() { " (Ultra)" } else { "" }), group.max_level.max(1))).collect();
-    let width = rows.iter().map(|(name, _)| name.width()).max().unwrap_or(0);
-    let lines: Vec<String> = rows.iter().map(|(name, max)| format!("{name}{} : Max Lv{max}", " ".repeat(width - name.width()))).collect();
-
-    format!("{title}\n```\n{}\n```", lines.join("\n"))
 }
 
 pub(crate) fn encoded(levels: &HashMap<u8, u8>, count: usize) -> Option<String> {
@@ -111,12 +92,6 @@ mod tests {
     }
 
     // Every talent at level 0 is the same as having none, so the button reads plain "Talents".
-    #[test]
-    fn show_is_only_a_request_to_list() {
-        assert!(shows(&[Talent::All, Talent::Show]));
-        assert!(!shows(&[Talent::All]));
-    }
-
     #[test]
     fn all_zero_levels_mean_no_talents() {
         assert_eq!(encoded(&HashMap::new(), 4), None);

@@ -226,6 +226,15 @@ img { user-select: none; -webkit-user-select: none; }
 .tip-body.below { transform: translate(-50%, 0); }
 .talent-header { display: flex; flex-direction: column; gap: 5px; }
 .talent-header:has(+ .vrule) { margin-left: 13px; }
+.talent-header.packed { gap: 3px; }
+.talent-header.packed .np-row { height: 22px; }
+.talent-header.packed .np-total { font-size: 18px; }
+.talent-header.packed .talent-btn { height: 21px; min-height: 21px; }
+.more-actions { align-items: center; gap: 12px; }
+.more-actions > .rule { align-self: stretch; }
+.action-stack { display: flex; align-items: center; }
+.action-stack.packed { flex-direction: column; gap: 6px; }
+.action-stack.packed .appearances-btn { width: 100px; height: 24px; min-height: 24px; }
 .np-row { display: flex; align-items: center; gap: 6px; }
 .np-total { font-size: 20px; color: #fff; }
 .np-cost { font-size: 18px; }

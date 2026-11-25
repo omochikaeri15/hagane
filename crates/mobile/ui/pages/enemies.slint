@@ -230,7 +230,9 @@ component Header inherits VerticalLayout {
         }
         if Enemies.tab == 1: VerticalLayout {
             alignment: center;
+            spacing: 6px;
             Btn { width: 100px; height: 24px; text-size: 12px; label: "Appearances"; pad-y: 0px; clicked => { Enemies.appearances(); } }
+            Btn { width: 100px; height: 24px; text-size: 12px; tone: Enemies.export-tone; label: Enemies.export-label; pad-y: 0px; clicked => { Enemies.export-image(); } }
         }
         if Enemies.tab == 2: VerticalLayout {
             alignment: center;

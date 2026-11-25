@@ -1,8 +1,9 @@
 use crate::common::context::GlobalContext;
+use crate::domains::cat::files;
 use crate::systems::combat::abilities::collect_ability_data;
 use crate::systems::combat::registry::{format_stat, Magnification, StatContext, STAT_ATK_CYCLE, STAT_ATTACK, STAT_CASH_DROP, STAT_DPS, STAT_HITPOINTS, STAT_KNOCKBACKS, STAT_RANGE, STAT_SPEED};
 use crate::systems::combat::RenderContext;
-use crate::systems::statblock::{StatCell, StatblockData};
+use crate::systems::statblock::{DetailsData, SheetHead, StatCell, StatblockData};
 use crate::Vault;
 
 use super::scanner::{self, EnemyEntry};
@@ -13,6 +14,32 @@ pub struct Subject<'a> {
     pub show_invalid: bool,
     pub global: GlobalContext<'a>,
     pub vault: &'a Vault,
+}
+
+const NO_DESCRIPTION: &str = "No description available";
+
+pub fn details(enemy: &EnemyEntry, global: GlobalContext<'_>) -> DetailsData {
+    let mut description: Vec<String> = enemy.description.iter().map(|line| line.trim_end().to_owned()).collect();
+
+    while description.last().is_some_and(String::is_empty) {
+        description.pop();
+    }
+
+    if description.is_empty() {
+        description.push(NO_DESCRIPTION.to_owned());
+    }
+
+    DetailsData {
+        head: SheetHead {
+            id_str: enemy.id_str(),
+            name: enemy.display_name(),
+            icon: files::portrait(&global.vault.vfs, enemy.icon_path.as_ref()),
+            top: None,
+        },
+        description,
+        evolve: None,
+        combos: Vec::new(),
+    }
 }
 
 pub fn build(subject: Subject<'_>) -> StatblockData {
@@ -66,7 +93,7 @@ fn assemble(ctx: &RenderContext<'_>, enemy_entry: &EnemyEntry) -> StatblockData 
         is_cat: false,
         id_str: enemy_entry.id_str(),
         name: enemy_entry.display_name(),
-        icon: enemy_entry.icon_path.as_ref().map(|path| ctx.global.vault.vfs.source(path)),
+        icon: files::portrait(&ctx.global.vault.vfs, enemy_entry.icon_path.as_ref()),
         top_label: "Magnify:".to_string(),
         top_value: top_val_str,
         headers_1,

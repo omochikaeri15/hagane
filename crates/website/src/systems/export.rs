@@ -6,8 +6,9 @@ use dioxus::prelude::*;
 use image::{ImageFormat, RgbaImage};
 use tracing::error;
 
+use foundry::Source;
 use foundry::common::formats::SpriteSheet;
-use foundry::systems::statblock::{self, Fonts, StageFonts, StageSheet, StatblockData};
+use foundry::systems::statblock::{self, DetailsData, Fonts, PageFonts, StageFonts, StageSheet, StatblockData, TalentsData};
 
 use crate::platform::{Bytes, Fault, Platform, Script};
 use crate::systems::library::Library;
@@ -20,6 +21,47 @@ pub(crate) struct Statblock {
     pub(crate) data: StatblockData,
     pub(crate) sheets: Rc<Vec<SpriteSheet>>,
     pub(crate) priority: Vec<String>,
+}
+
+pub(crate) enum Shot {
+    Stats(Box<Statblock>),
+    Talents { data: TalentsData, sheets: Rc<Vec<SpriteSheet>>, coins: Rc<Vec<SpriteSheet>>, priority: Vec<String> },
+    Details { data: DetailsData, priority: Vec<String> },
+}
+
+impl Shot {
+    fn file_name(&self) -> String {
+        match self {
+            Shot::Stats(held) => file_name(&held.data),
+            Shot::Talents { data, .. } => data.file_name(),
+            Shot::Details { data, .. } => data.file_name(),
+        }
+    }
+
+    fn pictures(&self) -> Vec<&Source> {
+        match self {
+            Shot::Stats(held) => held.data.icon.iter().collect(),
+            Shot::Talents { data, .. } => data.head.icon.iter().chain(data.cards.iter().filter_map(|card| card.plate.as_ref())).collect(),
+            Shot::Details { data, .. } => {
+                let evolved = data.evolve.iter().flat_map(|held| held.items.iter().filter_map(|item| item.icon.as_ref()).chain(held.cost.iter().filter_map(|cost| cost.icon.as_ref())));
+                let seated = data.combos.iter().flat_map(|combo| combo.seats.iter().filter_map(|seat| seat.icon.as_ref()));
+
+                data.head.icon.iter().chain(evolved).chain(seated).collect()
+            }
+        }
+    }
+
+    fn bold(&self) -> bool {
+        !matches!(self, Shot::Stats(_))
+    }
+
+    fn draw(&self, fonts: Fonts<'_>, bold: &[u8]) -> Result<RgbaImage, String> {
+        match self {
+            Shot::Stats(held) => statblock::build_statblock_image(&held.priority, &held.sheets, held.data.clone(), &fonts),
+            Shot::Talents { data, sheets, coins, priority } => statblock::build_talents_image(priority, sheets, coins, data, &PageFonts { text: fonts, bold }),
+            Shot::Details { data, priority } => statblock::build_details_image(priority, data, &PageFonts { text: fonts, bold }),
+        }
+    }
 }
 
 struct FontSet {
@@ -138,7 +180,7 @@ pub(crate) async fn settle(platform: Platform, mut phase: Signal<Phase>, ok: boo
 }
 
 #[component]
-pub(crate) fn ExportButtons(request: Callback<(), Option<Statblock>>) -> Element {
+pub(crate) fn ExportButtons(request: Callback<(), Option<Shot>>) -> Element {
     let platform = use_context::<Platform>();
     let typefaces = use_context::<Typefaces>();
     let library = use_context::<Library>();
@@ -170,15 +212,25 @@ pub(crate) fn ExportButtons(request: Callback<(), Option<Statblock>>) -> Element
                 }
                 false => first,
             };
+            let asked = request.pictures().into_iter().filter(|picture| picture.read().is_err()).count();
+
+            if asked > 0 && library.waiting() {
+                arrived(&platform, library).await;
+            }
+
             let outcome = async {
                 let set = fonts(&platform, &typefaces).await?;
-                let image = statblock::build_statblock_image(&request.priority, &request.sheets, request.data.clone(), &set.fonts()).map_err(Fault)?;
+                let extra = match request.bold() {
+                    true => Some(stage_fonts(&platform, &typefaces).await?),
+                    false => None,
+                };
+                let image = request.draw(set.fonts(), extra.as_ref().map_or(&[][..], |extra| &extra.bold)).map_err(Fault)?;
                 let bytes = png(&image)?;
 
                 match action {
                     Action::Copy => platform.host().copy_image(bytes).await,
                     Action::Save => {
-                        platform.host().download(&file_name(&request.data), "image/png", bytes);
+                        platform.host().download(&request.file_name(), "image/png", bytes);
                         Ok(())
                     }
                 }
@@ -186,7 +238,7 @@ pub(crate) fn ExportButtons(request: Callback<(), Option<Statblock>>) -> Element
             .await;
 
             if let Err(fault) = &outcome {
-                error!("The statblock export failed: {fault}");
+                error!("The image export failed: {fault}");
             }
 
             settle(platform, phase, outcome.is_ok()).await;

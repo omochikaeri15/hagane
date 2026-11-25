@@ -23,7 +23,7 @@ use crate::domains::cat::{abilities, header_class};
 use crate::platform::Platform;
 use crate::systems::catalog::{self, Load};
 use crate::systems::context::{self, Shared};
-use crate::systems::export::{self, Statblock};
+use crate::systems::export::{self, Shot, Statblock};
 use crate::systems::images::{self, Pictures};
 use crate::systems::library::Library;
 use crate::systems::picture::Pic;
@@ -211,7 +211,8 @@ fn Detail(enemy: SelectedEnemy, globals: Shared) -> Element {
     let stats = use_memo(use_reactive!(|(id, shared, show_invalid)| scanner::scan_single(id, shared.0.vault(), show_invalid).map(|entry| entry.stats)));
     let warmer = use_context::<Platform>();
     let narrow = drawer::drawers();
-    let name_size = header((narrow.narrow)());
+    let packed = (narrow.narrow)();
+    let name_size = header(packed);
     let warm_for = Rc::clone(&enemy);
     let warm_with = globals.clone();
 
@@ -234,6 +235,7 @@ fn Detail(enemy: SelectedEnemy, globals: Shared) -> Element {
     let icon = icon_url(&pictures, &globals, &enemy);
     let name = enemy.display_name();
     let mag_input = (state.mag_input)();
+    let shot = shot_request(Rc::clone(&enemy), globals.clone(), settings, pictures.clone(), state);
 
     rsx! {
         Hold { stamp: format!("{id}:{tab:?}"),
@@ -267,7 +269,7 @@ fn Detail(enemy: SelectedEnemy, globals: Shared) -> Element {
                     }
                     if tab == DetailTab::Abilities {
                         div { class: "vrule tall" }
-                        export::ExportButtons { request: statblock_request(Rc::clone(&enemy), globals.clone(), settings, pictures.clone(), state) }
+                        export::ExportButtons { request: shot }
                     }
                     if tab == DetailTab::Animation {
                         div { class: "vrule tall" }
@@ -275,13 +277,19 @@ fn Detail(enemy: SelectedEnemy, globals: Shared) -> Element {
                     }
                     if tab == DetailTab::Details {
                         div { class: "vrule tall" }
-                        button {
-                            class: "btn btn-primary appearances-btn",
-                            onclick: move |_| {
-                                state.appearances.set(Some(id));
-                                navigator.push(Route::Stages { segments: Vec::new() });
-                            },
-                            "Appearances"
+                        div { class: if packed { "action-stack packed" } else { "action-stack" },
+                            button {
+                                class: "btn btn-primary appearances-btn",
+                                onclick: move |_| {
+                                    state.appearances.set(Some(id));
+                                    navigator.push(Route::Stages { segments: Vec::new() });
+                                },
+                                "Appearances"
+                            }
+                            if !packed {
+                                div { class: "vrule tall even" }
+                            }
+                            export::ExportButtons { request: shot }
                         }
                     }
                 }
@@ -304,8 +312,14 @@ fn Detail(enemy: SelectedEnemy, globals: Shared) -> Element {
     }
 }
 
-fn statblock_request(enemy: Rc<EnemyEntry>, globals: Shared, settings: Signal<Settings>, pictures: Pictures, state: EnemyState) -> Callback<(), Option<Statblock>> {
+fn shot_request(enemy: Rc<EnemyEntry>, globals: Shared, settings: Signal<Settings>, pictures: Pictures, state: EnemyState) -> Callback<(), Option<Shot>> {
     Callback::new(move |()| {
+        let priority = settings.peek().general.language_priority.clone();
+
+        if *state.tab.peek() == DetailTab::Details {
+            return Some(Shot::Details { data: enemy_statblock::details(&enemy, globals.0.context()), priority });
+        }
+
         let data = enemy_statblock::build(Subject {
             enemy: &enemy,
             magnification: *state.magnification.peek(),
@@ -314,7 +328,7 @@ fn statblock_request(enemy: Rc<EnemyEntry>, globals: Shared, settings: Signal<Se
             vault: globals.0.vault(),
         });
 
-        Some(Statblock { data, sheets: icons::sheets(&pictures, &globals, IMG015), priority: settings.peek().general.language_priority.clone() })
+        Some(Shot::Stats(Box::new(Statblock { data, sheets: icons::sheets(&pictures, &globals, IMG015), priority })))
     })
 }
 

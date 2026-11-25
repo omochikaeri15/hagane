@@ -6,7 +6,7 @@ import { HeaderToggle, RosterRow, OrbSlot, OrbPicture, Line, Lines } from "../wi
 import { Drawer, EdgeGrab } from "../widgets/drawer.slint";
 import { Shell } from "../shell.slint";
 import { StagesPage } from "stages.slint";
-import { Cats, FilterDialog, CatDetail } from "cats.slint";
+import { Cats, FilterDialog, CatDetail, MoreDialog } from "cats.slint";
 import { TreasureEditor, ArcRow, ChapterFold } from "settings.slint";
 
 export struct DeckCell { filled: bool, aimed: bool, flagged: bool, registered: bool, icon: image, has-icon: bool, fallback: string, level: string, cost: string, has-cost: bool, barred: bool, talented: bool, np: image, has-np: bool, orbs: [image] }
@@ -1159,7 +1159,10 @@ component UnitDialog inherits Dialog {
     title: Sandbox.unit-title;
     panel-width: 760px;
     body-height: 560px;
-    closed => { Sandbox.unit-closed(); }
+    closed => {
+        Cats.more-open = false;
+        Sandbox.unit-closed();
+    }
     VerticalLayout {
         padding: 10px;
         spacing: 6px;
@@ -1342,6 +1345,7 @@ export component SandboxPage inherits Rectangle {
     FilterDialog { open <=> Sandbox.filter-open; }
     JailBonusDialog { }
     UnitDialog { }
+    MoreDialog { shown: Sandbox.unit-open && Sandbox.tab == Sandbox.unit-tab && Cats.tab == 1; }
     OrbDialog { }
     AgreementDialog { }
 }

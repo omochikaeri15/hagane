@@ -5,6 +5,7 @@ use image::{Rgba, RgbaImage};
 use imageproc::drawing::{draw_filled_rect_mut, draw_text_mut, text_size, Canvas};
 use imageproc::rect::Rect;
 
+use crate::common::assets;
 use crate::common::formats::SpriteSheet;
 use crate::common::superscript::{self, Segment};
 use crate::systems::combat::{AbilityItem, CustomIcon};
@@ -129,6 +130,13 @@ pub(super) fn draw_bottom_rounded_rect_mut(img: &mut RgbaImage, rect: Rect, r: i
 
     imageproc::drawing::draw_filled_circle_mut(img, (x + r, y + h - 1 - r), r, color);
     imageproc::drawing::draw_filled_circle_mut(img, (x + w - 1 - r, y + h - 1 - r), r, color);
+}
+
+pub(super) fn custom_icons() -> HashMap<CustomIcon, RgbaImage> {
+    assets::CUSTOM_ICON_DATA
+        .iter()
+        .filter_map(|(variant, bytes)| Some((*variant, image::load_from_memory(bytes).ok()?.to_rgba8())))
+        .collect()
 }
 
 fn unknown_icon(custom_assets: &HashMap<CustomIcon, RgbaImage>, export_size: u32) -> RgbaImage {
@@ -342,7 +350,7 @@ pub(super) fn draw_centered_superscript(
     style.draw(&mut RoundedClip::new(img, inner, inner_radius), color, tx.max(inner.left()), ty, font, text);
 }
 
-fn safe_resize(mut img: RgbaImage, width: u32, height: u32) -> RgbaImage {
+pub(super) fn safe_resize(mut img: RgbaImage, width: u32, height: u32) -> RgbaImage {
     for p in img.pixels_mut() {
         let a = p[3] as u32;
         if a > 0 && a < 255 {

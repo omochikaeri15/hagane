@@ -83,6 +83,7 @@ export global Cats {
     in property <[ComboCard]> combos;
 
     in-out property <bool> filter-open;
+    in-out property <bool> more-open;
     in property <[bool]> filter-rarities;
     in property <[bool]> filter-forms;
     in property <int> filter-mode;
@@ -319,7 +320,7 @@ component Header inherits VerticalLayout {
         Rectangle { width: 16px; }
         VRule { height: 96px; }
         Rectangle { width: 10px; }
-        if Cats.tab == 0: VerticalLayout {
+        if Cats.tab == 0 || Cats.tab == 2: VerticalLayout {
             alignment: center;
             Btn { width: 100px; height: 24px; text-size: 12px; tone: Cats.export-tone; label: Cats.export-label; pad-y: 0px; clicked => { Cats.export-image(); } }
         }
@@ -335,20 +336,7 @@ component Header inherits VerticalLayout {
             }
             Btn { width: 100px; height: 21px; text-size: 12px; label: Cats.normal-label; enabled: !Cats.locked; pad-y: 0px; clicked => { Cats.toggle-talents(false); } }
             Btn { width: 100px; height: 21px; text-size: 12px; label: Cats.ultra-label; enabled: Cats.ultra-available && !Cats.locked; pad-y: 0px; clicked => { Cats.toggle-talents(true); } }
-            if Cats.has-orbs: HorizontalLayout {
-                spacing: 4px;
-                alignment: start;
-                Label { text: "Orb"; bold: true; font-size: 12px; vertical-alignment: center; }
-                for orb[index] in Cats.orb-slots: Rectangle {
-                    width: 21px;
-                    height: 21px;
-                    border-radius: Theme.radius-sm;
-                    background: press.pressed ? Theme.bg-strongest : Theme.bg-strong;
-                    OrbPicture { orb: orb; width: 19px; height: 19px; x: 1px; y: 1px; }
-                    if !orb.has-icon: Label { text: "+"; font-size: 13px; horizontal-alignment: center; vertical-alignment: center; width: parent.width; height: parent.height; }
-                    press := Tap { enabled: (!Cats.locked) && !Shell.swiping; tapped => { Cats.orb-tapped(index); } }
-                }
-            }
+            Btn { width: 100px; height: 21px; text-size: 12px; label: "More Actions"; pad-y: 0px; clicked => { Cats.more-open = true; } }
         }
         if Cats.tab == 3: VerticalLayout {
             alignment: center;
@@ -515,6 +503,39 @@ component Details inherits VerticalLayout {
     }
 }
 
+export component MoreDialog inherits Dialog {
+    open <=> Cats.more-open;
+    title: "More Actions";
+    panel-width: 240px;
+    VerticalLayout {
+        padding: 16px;
+        spacing: 12px;
+        alignment: center;
+        if Cats.has-orbs: VerticalLayout {
+            spacing: 6px;
+            Label { text: "Orbs"; bold: true; font-size: 18px; horizontal-alignment: center; }
+            HorizontalLayout {
+                spacing: 6px;
+                alignment: center;
+                for orb[index] in Cats.orb-slots: Rectangle {
+                    width: 48px;
+                    height: 48px;
+                    border-radius: Theme.radius-sm;
+                    background: press.pressed ? Theme.bg-strongest : Theme.bg-strong;
+                    OrbPicture { orb: orb; width: 44px; height: 44px; x: 2px; y: 2px; }
+                    if !orb.has-icon: Label { text: "+"; font-size: 20px; horizontal-alignment: center; vertical-alignment: center; width: parent.width; height: parent.height; }
+                    press := Tap { enabled: (!Cats.locked) && !Shell.swiping; tapped => { Cats.orb-tapped(index); } }
+                }
+            }
+        }
+        if Cats.has-orbs: Rule { }
+        HorizontalLayout {
+            alignment: center;
+            Btn { width: 130px; height: 32px; text-size: 13px; tone: Cats.export-tone; label: Cats.export-label; pad-y: 0px; clicked => { Cats.export-image(); } }
+        }
+    }
+}
+
 export component CatDetail inherits VerticalLayout {
     Header { vertical-stretch: 0; }
     if Cats.tab != 3: view := Flickable {
@@ -568,4 +589,6 @@ export component CatsPage inherits Rectangle {
         Roster { width: 100%; height: 100%; }
     }
     FilterDialog { open <=> Cats.filter-open; }
+    MoreDialog { shown: Cats.selected >= 0 && Cats.tab == 1; }
+    init => { Cats.more-open = false; }
 }

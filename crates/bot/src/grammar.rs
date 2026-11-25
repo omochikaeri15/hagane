@@ -3,6 +3,7 @@ use std::mem;
 use codex::chapter::Category;
 
 use super::fuzzy::CLOSENESS;
+use super::prefs::Mode;
 use super::render::{Clip, Format};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -49,13 +50,41 @@ pub(crate) enum Talent {
     Standard,
     Ultra,
     None,
-    Show,
     Level(u32),
     Named(String, Option<u32>),
 }
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) enum Page {
+    #[default]
+    Stats,
+    Talents,
+    Details,
+}
+
+impl Page {
+    pub(crate) fn tag(self) -> &'static str {
+        match self {
+            Page::Stats => "s",
+            Page::Talents => "t",
+            Page::Details => "d",
+        }
+    }
+
+    pub(crate) fn tagged(tag: &str) -> Option<Self> {
+        [Page::Stats, Page::Talents, Page::Details].into_iter().find(|page| page.tag() == tag)
+    }
+}
+
+enum Asked {
+    Page(Page),
+    Motion,
+}
+
 #[derive(Debug, Default, PartialEq)]
 pub(crate) struct Stats {
+    pub(crate) page: Page,
+    pub(crate) mode: Option<Mode>,
     pub(crate) level: Option<String>,
     pub(crate) magnification: Option<(i32, i32)>,
     pub(crate) talents: Option<Vec<Talent>>,
@@ -142,6 +171,16 @@ pub(crate) struct Request {
     pub(crate) tail: String,
 }
 
+impl Request {
+    pub(crate) fn mode(&self) -> Option<Mode> {
+        match &self.want {
+            Want::Stats(stats) => stats.mode,
+            Want::Motion(_) => None,
+        }
+    }
+}
+
+const MODE_HINT: &str = "`--dormant` and `--interactive` go with a cat, an enemy, a stage or a map, so leave them out here";
 const MAX_CULL: i32 = 100;
 const MAX_PERCENT: i64 = 100;
 const MAX_CLOSENESS: u32 = 100;
@@ -202,7 +241,15 @@ fn stats_tell(token: &str, kind: Kind) -> bool {
     let marked_level = level_of(token).is_some() && (token.contains('+') || !token.chars().all(|glyph| glyph.is_ascii_digit()));
     let marked_percent = kind == Kind::Enemy && token.contains('%') && magnification_of(token).is_some();
 
-    matches!(lower(token).as_str(), "--talents" | "-t" | "lv" | "lvl" | "level") || (kind == Kind::Cat && marked_level) || marked_percent
+    matches!(lower(token).as_str(), "--talents" | "-t" | "lv" | "lvl" | "level") || mode_of(token).is_some() || (kind == Kind::Cat && marked_level) || marked_percent
+}
+
+fn mode_of(token: &str) -> Option<Mode> {
+    match lower(token).as_str() {
+        "--dormant" | "-d" => Some(Mode::Dormant),
+        "--interactive" | "-i" => Some(Mode::Interactive),
+        _ => None,
+    }
 }
 
 fn inferred(rest: &[&str], kind: Kind) -> Result<bool, String> {
@@ -219,25 +266,27 @@ fn picks_a_form(rest: &[&str], kind: Kind) -> bool {
     kind == Kind::Cat && rest.first().is_some_and(|token| form_word(token)) && rest.get(1).is_some_and(|value| form_value(value).is_some())
 }
 
-fn bare_keyword(token: &str) -> bool {
-    matches!(lower(token).as_str(), "a" | "s")
+fn bare_keyword(token: &str, kind: Kind) -> bool {
+    matches!(lower(token).as_str(), "a" | "s") || matches!(want_of(token, kind), Some(Asked::Page(Page::Talents | Page::Details)))
 }
 
 fn carries_on(rest: &[&str], kind: Kind) -> bool {
     match rest.split_first() {
-        Some((keyword, after)) => match want_of(keyword) {
-            Some(true) => motion_of(after).is_ok(),
-            Some(false) => stats_of(after, kind).is_ok(),
+        Some((keyword, after)) => match want_of(keyword, kind) {
+            Some(Asked::Motion) => motion_of(after).is_ok(),
+            Some(Asked::Page(_)) => stats_of(after, kind).is_ok(),
             None => false,
         },
         None => false,
     }
 }
 
-fn want_of(token: &str) -> Option<bool> {
+fn want_of(token: &str, kind: Kind) -> Option<Asked> {
     match lower(token).as_str() {
-        "stats" | "stat" | "s" => Some(false),
-        "animation" | "anim" | "a" => Some(true),
+        "stats" | "stat" | "s" => Some(Asked::Page(Page::Stats)),
+        "talents" | "talent" | "t" if kind == Kind::Cat => Some(Asked::Page(Page::Talents)),
+        "details" | "detail" | "description" | "d" => Some(Asked::Page(Page::Details)),
+        "animation" | "anim" | "a" => Some(Asked::Motion),
         _ => None,
     }
 }
@@ -258,13 +307,13 @@ pub(crate) fn clip_of(token: &str) -> Option<Clip> {
     }
 }
 
-fn ends_a_name(token: &str) -> bool {
+fn ends_a_name(token: &str, kind: Kind) -> bool {
     let marked_level = level_of(token).is_some() && (token.contains('+') || !token.chars().all(|glyph| glyph.is_ascii_digit()));
     let marked_percent = token.contains('%') && magnification_of(token).is_some();
 
     let level_word = matches!(lower(token).as_str(), "lv" | "lvl" | "level");
 
-    want_of(token).is_some() || is_flag(token) || marked_level || marked_percent || level_word
+    want_of(token, kind).is_some() || is_flag(token) || marked_level || marked_percent || level_word
 }
 
 fn enemy_id(token: &str) -> Option<u32> {
@@ -305,7 +354,7 @@ fn percent_of(token: &str) -> Option<i32> {
     token.trim_end_matches('%').parse::<i32>().ok().filter(|percent| *percent > 0)
 }
 
-fn magnification_of(token: &str) -> Option<(i32, i32)> {
+pub(crate) fn magnification_of(token: &str) -> Option<(i32, i32)> {
     match token.split_once('/') {
         Some((hitpoints, attack)) => Some((percent_of(hitpoints)?, percent_of(attack)?)),
         None => percent_of(token).map(|percent| (percent, percent)),
@@ -342,7 +391,6 @@ pub(crate) fn talents_of(tokens: &[&str]) -> Vec<Talent> {
             "standard" | "s" => Some(Talent::Standard),
             "ultra" | "u" => Some(Talent::Ultra),
             "none" | "n" => Some(Talent::None),
-            "show" | "sh" => Some(Talent::Show),
             _ => None,
         };
 
@@ -392,7 +440,7 @@ pub(crate) fn parse(text: &str, kind: Kind) -> Result<Request, String> {
             while let Some(token) = tokens.get(at) {
                 let clip_ends = clip_word(token) && motion_of(&tokens[at..]).is_ok();
 
-                if picks_a_form(&tokens[at..], kind) || clip_ends || (ends_a_name(token) && !(bare_keyword(token) && !carries_on(&tokens[at..], kind))) {
+                if picks_a_form(&tokens[at..], kind) || clip_ends || (ends_a_name(token, kind) && !(bare_keyword(token, kind) && !carries_on(&tokens[at..], kind))) {
                     break;
                 }
 
@@ -403,7 +451,7 @@ pub(crate) fn parse(text: &str, kind: Kind) -> Result<Request, String> {
         }
     };
     let whole = match &unit {
-        Unit::Name(name) if !name.is_empty() && at + 1 == tokens.len() && (bare_keyword(tokens[at]) || clip_word(tokens[at])) => Some(tokens.join(" ")),
+        Unit::Name(name) if !name.is_empty() && at + 1 == tokens.len() && (bare_keyword(tokens[at], kind) || clip_word(tokens[at])) => Some(tokens.join(" ")),
         _ => None,
     };
 
@@ -424,16 +472,20 @@ pub(crate) fn parse(text: &str, kind: Kind) -> Result<Request, String> {
         at += 2;
     }
 
-    let animated = match tokens.get(at).and_then(|token| want_of(token)) {
-        Some(animated) => {
+    let asked = match tokens.get(at).and_then(|token| want_of(token, kind)) {
+        Some(asked) => {
             at += 1;
-            animated
+            asked
         }
-        None => inferred(&tokens[at..], kind)?,
+        None if inferred(&tokens[at..], kind)? => Asked::Motion,
+        None => Asked::Page(Page::Stats),
     };
     let rest = &tokens[at..];
 
-    let want = if animated { Want::Motion(motion_of(rest)?) } else { Want::Stats(stats_of(rest, kind)?) };
+    let want = match asked {
+        Asked::Motion => Want::Motion(motion_of(rest)?),
+        Asked::Page(page) => Want::Stats(Stats { page, ..stats_of(rest, kind)? }),
+    };
 
     Ok(Request { unit, want, whole, form, crowns: None, search, tail })
 }
@@ -478,20 +530,25 @@ pub(crate) fn place(text: &str) -> Result<Request, String> {
 }
 
 fn placed(tokens: &[&str], search: Option<u32>, kinds: &[Kind]) -> Result<Request, String> {
-    let flag = tokens.iter().position(|token| crown_flag(token));
+    let flag = tokens.iter().position(|token| crown_flag(token) || mode_of(token).is_some());
     let named = &tokens[..flag.unwrap_or(tokens.len())];
-    let crowns = match flag {
-        Some(at) => {
-            let crowns = tokens.get(at + 1).and_then(|next| next.parse::<u8>().ok()).filter(|crowns| (1..=MAX_CROWNS).contains(crowns)).ok_or(CROWN_HINT)?;
+    let mut crowns = None;
+    let mut mode = None;
+    let mut at = named.len();
 
-            if let Some(extra) = tokens.get(at + 2) {
-                return Err(format!("I don't understand `{extra}`"));
-            }
+    while let Some(token) = tokens.get(at) {
+        at += 1;
 
-            Some(crowns)
+        if crown_flag(token) {
+            crowns = Some(tokens.get(at).and_then(|next| next.parse::<u8>().ok()).filter(|crowns| (1..=MAX_CROWNS).contains(crowns)).ok_or(CROWN_HINT)?);
+            at += 1;
+        } else if mode_of(token).is_some() {
+            mode = mode_of(token);
+        } else {
+            return Err(format!("I don't understand `{token}`"));
         }
-        None => None,
-    };
+    }
+
     let unit = match (named, kinds.iter().find_map(|kind| code_of(named, *kind))) {
         ([], _) => return Err(match kinds {
             [Kind::Map] => "Name a map first",
@@ -507,7 +564,7 @@ fn placed(tokens: &[&str], search: Option<u32>, kinds: &[Kind]) -> Result<Reques
         return Err(SEARCH_HINT.to_owned());
     }
 
-    Ok(Request { unit, want: Want::Stats(Stats::default()), whole: None, form: None, crowns, search, tail: tokens[named.len()..].join(" ") })
+    Ok(Request { unit, want: Want::Stats(Stats { mode, ..Stats::default() }), whole: None, form: None, crowns, search, tail: tokens[named.len()..].join(" ") })
 }
 
 fn stats_of(tokens: &[&str], kind: Kind) -> Result<Stats, String> {
@@ -524,6 +581,7 @@ fn stats_of(tokens: &[&str], kind: Kind) -> Result<Stats, String> {
                 stats.talents = Some(talents_of(&tokens[at..end]));
                 at = end;
             }
+            _ if mode_of(token).is_some() => stats.mode = mode_of(token),
             _ if kind == Kind::Cat && stats.level.is_none() && level_of(token).is_some() => stats.level = level_of(token),
             "lv" | "lvl" | "l" | "level" if kind == Kind::Cat => {
                 let level = tokens.get(at).and_then(|next| level_of(next)).ok_or_else(|| format!("`{token}` needs a level after it"))?;
@@ -593,6 +651,10 @@ pub(crate) fn tune(text: &str) -> Result<Tune, String> {
     }
 
     let request = place(&tokens.join(" "))?;
+
+    if request.mode().is_some() {
+        return Err(MODE_HINT.to_owned());
+    }
 
     match request.crowns {
         Some(_) => Err("A stage plays the same music at every crown, so leave `--crowns` out".to_owned()),
@@ -948,8 +1010,6 @@ mod tests {
         assert_eq!(stats("25 s -t all").talents, Some(vec![Talent::All]));
         assert_eq!(stats("25 s -t none").talents, Some(vec![Talent::None]));
         assert_eq!(stats("25 s -t a n").talents, Some(vec![Talent::All, Talent::None]));
-        assert_eq!(stats("25 -t show").talents, Some(vec![Talent::Show]));
-        assert_eq!(stats("25 -t sh").talents, Some(vec![Talent::Show]));
         assert_eq!(stats("25 s --talents 10 10 5").talents, Some(vec![Talent::Level(10), Talent::Level(10), Talent::Level(5)]));
         assert_eq!(stats("25 s -t u Attack-Buff 5").talents, Some(vec![Talent::Ultra, Talent::Named("Attack Buff".to_owned(), Some(5))]));
         assert_eq!(
@@ -1057,6 +1117,70 @@ mod tests {
     }
 
     // A clip word inside a name only ends it when real animation options follow.
+    #[test]
+    fn a_page_word_opens_its_page() {
+        assert_eq!(stats("25 t").page, Page::Talents);
+        assert_eq!(stats("25 talents lv30").page, Page::Talents);
+        assert_eq!(stats("25 d").page, Page::Details, "d alone is the details page, not the dig animation");
+        assert_eq!(stats("25 details").page, Page::Details);
+        assert_eq!(stats("25 s").page, Page::Stats);
+        assert_eq!(stats("25 lv30").page, Page::Stats);
+        assert!(matches!(parse("akaza d", Kind::Enemy).map(|request| request.want), Ok(Want::Stats(Stats { page: Page::Details, .. }))));
+        assert!(matches!(parse("25 a d", Kind::Cat).map(|request| request.want), Ok(Want::Motion(Motion { clip: Clip::Dig, .. }))));
+        assert!(matches!(parse("25 dig", Kind::Cat).map(|request| request.want), Ok(Want::Motion(Motion { clip: Clip::Dig, .. }))));
+    }
+
+    // Either flag beats the Mode setting for one request, and the last one typed wins.
+    #[test]
+    fn a_mode_flag_overrides_the_setting() {
+        assert_eq!(stats("25").mode, None);
+        assert_eq!(stats("25 -i").mode, Some(Mode::Interactive));
+        assert_eq!(stats("25 t --interactive -t all").mode, Some(Mode::Interactive));
+        assert_eq!(stats("25 lv30 -d").mode, Some(Mode::Dormant));
+        assert_eq!(stats("25 -i --dormant").mode, Some(Mode::Dormant));
+        assert!(matches!(parse("akaza -i 400%", Kind::Enemy).map(|request| request.want), Ok(Want::Stats(Stats { mode: Some(Mode::Interactive), magnification: Some((400, 400)), .. }))));
+        assert_eq!(parse("bahamut cat -i", Kind::Cat).map(|request| request.unit), Ok(Unit::Name("bahamut cat".to_owned())));
+        assert!(parse("25 a walk -i", Kind::Cat).is_err(), "the flags belong to pictures, not animations");
+    }
+
+    #[test]
+    fn stages_and_maps_take_a_mode_flag_too() {
+        let read = |text: &str, kind: Kind| parse(text, kind).map(|request| {
+            let mode = request.mode();
+
+            (request.unit, request.crowns, mode, request.tail)
+        });
+
+        assert_eq!(read("earthshaker -i", Kind::Stage), Ok((Unit::Name("earthshaker".to_owned()), None, Some(Mode::Interactive), "-i".to_owned())));
+        assert_eq!(read("earthshaker -c 4 --dormant", Kind::Stage), Ok((Unit::Name("earthshaker".to_owned()), Some(4), Some(Mode::Dormant), "-c 4 --dormant".to_owned())));
+        assert_eq!(read("R 1 2 -i -c 2", Kind::Stage), Ok((Unit::Code("R001-02".to_owned()), Some(2), Some(Mode::Interactive), "-i -c 2".to_owned())));
+        assert_eq!(read("the legend begins -i", Kind::Map).map(|read| read.2), Ok(Some(Mode::Interactive)));
+        assert_eq!(read("earthshaker", Kind::Stage).map(|read| read.2), Ok(None));
+        assert!(read("earthshaker -i nonsense", Kind::Stage).is_err());
+        assert!(tune("earthshaker -i").is_err(), "music is not a block");
+    }
+
+    // The page and the flag are two things: one picks what to look at, the other what to apply.
+    #[test]
+    fn the_talents_page_and_the_talents_flag_work_apart_and_together() {
+        let both = stats("25 t -t all");
+
+        assert_eq!((both.page, both.talents), (Page::Talents, Some(vec![Talent::All])));
+        assert_eq!((stats("25 -t all").page, stats("25 -t all").talents), (Page::Stats, Some(vec![Talent::All])));
+        assert_eq!((stats("25 d -t 10 5").page, stats("25 d -t 10 5").talents), (Page::Details, Some(vec![Talent::Level(10), Talent::Level(5)])));
+        assert_eq!(stats("25 t").talents, None);
+    }
+
+    #[test]
+    fn a_page_word_only_ends_a_name_when_the_rest_reads() {
+        let named = |text: &str, kind: Kind| parse(text, kind).map(|request| (request.unit, request.whole));
+
+        assert_eq!(named("bahamut cat t", Kind::Cat), Ok((Unit::Name("bahamut cat".to_owned()), Some("bahamut cat t".to_owned()))));
+        assert_eq!(named("vitamin d cat", Kind::Cat), Ok((Unit::Name("vitamin d cat".to_owned()), None)));
+        assert_eq!(named("mr t", Kind::Enemy), Ok((Unit::Name("mr t".to_owned()), None)), "enemies have no talents page, so t is part of the name");
+        assert_eq!(named("the details man", Kind::Enemy), Ok((Unit::Name("the details man".to_owned()), None)));
+    }
+
     #[test]
     fn a_clip_word_ends_a_name_only_when_it_carries_on() {
         assert_eq!(parse("jamiera cat walk", Kind::Cat).map(|request| (request.unit, request.whole)), Ok((Unit::Name("jamiera cat".to_owned()), Some("jamiera cat walk".to_owned()))));

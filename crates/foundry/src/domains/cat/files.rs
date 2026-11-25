@@ -1,3 +1,7 @@
+use std::path::PathBuf;
+
+use crate::{Source, Vfs};
+
 pub const UNIT_BUY: &str = "unitbuy.csv";
 pub const UNIT_LEVEL: &str = "unitlevel.csv";
 pub const SKILL_ACQUISITION: &str = "SkillAcquisition.csv";
@@ -47,6 +51,10 @@ impl AnimType {
 }
 
 pub const FORM_COUNT: usize = 4;
+
+pub(crate) fn portrait(vfs: &Vfs, icon: Option<&PathBuf>) -> Option<Source> {
+    icon.map(|path| vfs.source(path)).or_else(|| vfs.find(EMPTY_ICON).map(|path| vfs.source(&path)))
+}
 
 pub fn form_name(form: usize) -> &'static str {
     match form {

@@ -515,6 +515,7 @@ impl EnemyState {
             Message::Export(msg) => {
                 let enemy = self.selected_enemy.and_then(|id| self.data.enemies.iter().find(|e| e.id == id));
                 let ctx = enemy.map(|enemy| export::Ctx {
+                    tab: self.selected_tab,
                     enemy,
                     magnification: self.magnification,
                     sheets: &self.img015_sheets,
@@ -729,6 +730,10 @@ impl EnemyState {
                 detail_row = detail_row.push(container(rule::vertical(1)).height(Length::Fixed(DETAIL_RULE_HEIGHT)));
                 detail_row = detail_row.push(Space::new().width(Length::Fixed(EXPORT_BUTTON_RULE_GAP)));
                 detail_row = detail_row.push(self.view_appearances_button(enemy.id));
+                detail_row = detail_row.push(Space::new().width(Length::Fixed(DETAIL_RULE_GAP)));
+                detail_row = detail_row.push(container(rule::vertical(1)).height(Length::Fixed(DETAIL_RULE_HEIGHT)));
+                detail_row = detail_row.push(Space::new().width(Length::Fixed(EXPORT_BUTTON_RULE_GAP)));
+                detail_row = detail_row.push(self.export.view().map(Message::Export));
             }
             DetailTab::Animation => {
                 detail_row = detail_row.push(Space::new().width(Length::Fixed(DETAIL_RULE_GAP)));

@@ -30,6 +30,7 @@ use super::fuzzy::{self, Query};
 use super::prefs::{ENGLISH, Prefs, Search};
 
 const ICONS: &str = "img015";
+const COINS: &str = "img022";
 const GRAFT_MARK: char = 'i';
 
 pub(crate) struct Catalog {
@@ -62,6 +63,8 @@ pub(crate) struct Library {
     filibusters: HashMap<GlobalMapId, GlobalStageId>,
     pub(crate) sheets: Vec<SpriteSheet>,
     pub(crate) icons: [u8; 32],
+    pub(crate) coins: Vec<SpriteSheet>,
+    pub(crate) coin_mark: [u8; 32],
     param: Param,
     localizable: Localizable,
     names: NameBook,
@@ -430,10 +433,12 @@ fn load(language: &str) -> Library {
     let treasure = Bonus::resolve(&catalog, &settings.general.treasures);
     let sheets = formats::sheets(&vault.vfs, ICONS);
     let icons = drawn_from(&sheets);
+    let coins = formats::sheets(&vault.vfs, COINS);
+    let coin_mark = drawn_from(&coins);
 
     info!(language, cats = cats.len(), enemies = enemies.len(), stages = stages.registry.stages.len(), ms = started.elapsed().as_millis(), "Game data loaded");
 
-    Library { language: language.to_owned(), vault, settings, cats, enemies, foes, stages, hosts, filibusters, sheets, icons, param, localizable, names, treasure }
+    Library { language: language.to_owned(), vault, settings, cats, enemies, foes, stages, hosts, filibusters, sheets, icons, coins, coin_mark, param, localizable, names, treasure }
 }
 
 fn drawn_from(sheets: &[SpriteSheet]) -> [u8; 32] {

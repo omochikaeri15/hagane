@@ -42,6 +42,31 @@ impl Search {
     }
 }
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub(crate) enum Mode {
+    #[default]
+    Dormant,
+    Interactive,
+}
+
+impl Mode {
+    pub(crate) const ALL: [Mode; 2] = [Mode::Dormant, Mode::Interactive];
+
+    pub(crate) fn label(self) -> &'static str {
+        match self {
+            Mode::Dormant => "Dormant",
+            Mode::Interactive => "Interactive",
+        }
+    }
+
+    pub(crate) fn slug(self) -> &'static str {
+        match self {
+            Mode::Dormant => "dormant",
+            Mode::Interactive => "interactive",
+        }
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub(crate) struct Prefs {
@@ -51,11 +76,12 @@ pub(crate) struct Prefs {
     pub(crate) search: Search,
     pub(crate) prefix: Option<String>,
     pub(crate) prose: Prose,
+    pub(crate) mode: Mode,
 }
 
 impl Default for Prefs {
     fn default() -> Self {
-        Self { language: ENGLISH.to_owned(), format: Format::Avif, form: TRUE_FORM, search: Search::Exact, prefix: None, prose: Prose::Human }
+        Self { language: ENGLISH.to_owned(), format: Format::Avif, form: TRUE_FORM, search: Search::Exact, prefix: None, prose: Prose::Human, mode: Mode::Dormant }
     }
 }
 
@@ -164,7 +190,7 @@ mod tests {
     fn older_settings_still_load() {
         let prefs: Prefs = serde_json::from_str(r#"{"language":"ja","format":"WebP","form":1,"search":"Preferred"}"#).unwrap();
 
-        assert_eq!((prefs.language.as_str(), prefs.form, prefs.search, prefs.prefix, prefs.prose), ("ja", 1, Search::Preferred, None, Prose::Human));
+        assert_eq!((prefs.language.as_str(), prefs.form, prefs.search, prefs.prefix, prefs.prose, prefs.mode), ("ja", 1, Search::Preferred, None, Prose::Human, Mode::Dormant));
     }
 
     // A missing form falls back to the next one down, never up.

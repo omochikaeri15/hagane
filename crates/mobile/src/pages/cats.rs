@@ -1763,23 +1763,45 @@ fn export(ui: &AppWindow, state: &Shared, context: &Rc<Context>) {
 
         (held.form, held.level, held.level_input.clone(), talents, held.conjure_expanded.get(&cat.id).copied().unwrap_or(context.state.settings().cat_data.expand_spirit_details), held.granted.clone(), held.treasure.unwrap_or(globals.treasure))
     };
-    let Some(data) = cat_statblock::build(Subject {
+    let tab = state.borrow().tab;
+    let landing = Rc::clone(state);
+    let finished = move |_: &AppWindow| landing.borrow_mut().exporting = false;
+    let face: detail::Face = Rc::new(set_export_face);
+    let global = GlobalContext { treasure: &treasure, ..globals.context(&vault) };
+
+    if tab == Tab::Details {
+        state.borrow_mut().exporting = true;
+        return detail::export_details(ui, context, cat_statblock::details(&cat, form, global), face, finished);
+    }
+
+    let subject = Subject {
         cat: &cat,
         form,
         current_level: level,
         level_input: &level_input,
         talent_levels: talent_levels.as_ref(),
         is_conjure_expanded: conjure,
-        global: GlobalContext { treasure: &treasure, ..globals.context(&vault) },
+        global,
         grants: granted.as_deref(),
-    }) else {
+    };
+
+    if tab == Tab::Talents {
+        let Some(data) = cat_statblock::talents(subject) else {
+            context.toast(ui, "The talents could not be built", true);
+            return;
+        };
+
+        state.borrow_mut().exporting = true;
+        return detail::export_talents(ui, context, data, face, finished);
+    }
+
+    let Some(data) = cat_statblock::build(subject) else {
         context.toast(ui, "The statblock could not be built", true);
         return;
     };
-    let landing = Rc::clone(state);
 
     state.borrow_mut().exporting = true;
-    detail::export_statblock(ui, context, data, Rc::new(set_export_face), move |_| landing.borrow_mut().exporting = false);
+    detail::export_statblock(ui, context, data, face, finished);
 }
 
 pub fn set_export_face(ui: &AppWindow, label: &str, tone: Tone) {

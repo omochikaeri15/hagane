@@ -959,6 +959,7 @@ impl State {
             Message::Export(msg) => {
                 let cat = self.selected_cat.and_then(|id| self.data.cats.iter().find(|c| c.id == id));
                 let ctx = cat.map(|cat| export::Ctx {
+                    tab: self.selected_tab,
                     cat,
                     form: self.selected_form,
                     current_level: self.current_level,
@@ -966,6 +967,7 @@ impl State {
                     talent_levels: self.talent_levels.get(&cat.id),
                     is_conjure_expanded: self.abilities.is_conjure_expanded(cat.id, settings),
                     sheets: &self.img015_sheets,
+                    coins: &self.img022_sheets,
                     global: global_ctx,
                     settings,
                     grants: self.granted.as_ref(),
@@ -1230,6 +1232,16 @@ impl State {
                 detail_row = detail_row.push(Space::new().width(Length::Fixed(15.0)));
                 detail_row = detail_row.push(extra);
             }
+
+            detail_row = detail_row.push(Space::new().width(Length::Fixed(15.0)));
+            detail_row = detail_row.push(container(rule::vertical(1)).height(Length::Fixed(96.0)));
+            detail_row = detail_row.push(Space::new().width(Length::Fixed(EXPORT_BUTTON_RULE_GAP)));
+            detail_row = detail_row.push(self.export.view().map(Message::Export));
+        } else if self.selected_tab == DetailTab::Details {
+            detail_row = detail_row.push(Space::new().width(Length::Fixed(15.0)));
+            detail_row = detail_row.push(container(rule::vertical(1)).height(Length::Fixed(96.0)));
+            detail_row = detail_row.push(Space::new().width(Length::Fixed(EXPORT_BUTTON_RULE_GAP)));
+            detail_row = detail_row.push(self.export.view().map(Message::Export));
         } else if self.selected_tab == DetailTab::Animation {
             detail_row = detail_row.push(Space::new().width(Length::Fixed(15.0)));
             detail_row = detail_row.push(container(rule::vertical(1)).height(Length::Fixed(96.0)));

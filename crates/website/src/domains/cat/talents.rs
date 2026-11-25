@@ -22,6 +22,7 @@ const HEADER_ICON_SIZE: f32 = 40.0 * HEADER_SCALE;
 const HEADER_NAME_HEIGHT: f32 = 35.0 * HEADER_SCALE;
 const NP_ICON_SIZE: f32 = 20.0;
 const HEADER_NP_ICON_SIZE: f32 = 24.0;
+const PACKED_NP_ICON_SIZE: f32 = 22.0;
 
 pub(crate) struct ToggleAvailability {
     pub(crate) has_normal_enabled: bool,
@@ -54,7 +55,7 @@ fn np_icon(pictures: &Pictures, size: f32) -> Element {
 }
 
 #[component]
-pub(crate) fn Header(cat: SelectedCat, globals: Shared) -> Element {
+pub(crate) fn Header(cat: SelectedCat, globals: Shared, #[props(default)] more: Option<Signal<bool>>) -> Element {
     let settings = context::settings();
     let mut state = state();
     let pictures = images::pictures();
@@ -71,9 +72,9 @@ pub(crate) fn Header(cat: SelectedCat, globals: Shared) -> Element {
     let for_ultra = cat.clone();
 
     rsx! {
-        div { class: "talent-header",
+        div { class: if more.is_some() { "talent-header packed" } else { "talent-header" },
             div { class: "np-row",
-                {np_icon(&pictures, HEADER_NP_ICON_SIZE)}
+                {np_icon(&pictures, if more.is_some() { PACKED_NP_ICON_SIZE } else { HEADER_NP_ICON_SIZE })}
                 span { class: "np-total bold", "{total}" }
             }
             button { class: "btn btn-primary talent-btn", onclick: move |_| state.toggle_talents(&for_normal.0, false, &settings.read()), "{normal_label}" }
@@ -82,6 +83,9 @@ pub(crate) fn Header(cat: SelectedCat, globals: Shared) -> Element {
                 disabled: !availability.has_ultra_talents,
                 onclick: move |_| state.toggle_talents(&for_ultra.0, true, &settings.read()),
                 "{ultra_label}"
+            }
+            if let Some(mut more) = more {
+                button { class: "btn btn-primary talent-btn", onclick: move |_| more.set(true), "More Actions" }
             }
         }
     }

@@ -29,11 +29,11 @@ use crate::app::{self, Route};
 use crate::platform::Platform;
 use crate::systems::catalog::{self, Load};
 use crate::systems::context::{self, Shared};
-use crate::systems::export::{self, Statblock};
+use crate::systems::export::{self, Shot, Statblock};
 use crate::systems::images::{self, Pictures};
 use crate::systems::library::Library;
 use crate::systems::picture::Pic;
-use crate::widget::{Drawer, Hold, NameBox, Settled, Status, drawer, header};
+use crate::widget::{Drawer, Hold, NameBox, Popup, Settled, Status, drawer, header};
 
 pub(crate) use filter::FilterPopup;
 
@@ -42,6 +42,7 @@ const LAST_CAT_KEY: &str = "last-cat";
 const EMPTY_CAT_ICON: &str = "uni.png";
 const TALENT_HISTORY_CAP: usize = 3;
 const ULTRA_BUMP: i32 = 60;
+const MORE_WIDTH: f32 = 260.0;
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
 pub(crate) enum DetailTab {
@@ -461,15 +462,22 @@ fn Browser(selected: Option<u32>, form: Option<usize>) -> Element {
     }
 }
 
-fn statblock_request(cat: Rc<CatEntry>, globals: Shared, settings: Signal<Settings>, pictures: Pictures, state: CatState) -> Callback<(), Option<Statblock>> {
+fn shot_request(cat: Rc<CatEntry>, globals: Shared, settings: Signal<Settings>, pictures: Pictures, state: CatState) -> Callback<(), Option<Shot>> {
     Callback::new(move |()| {
         let form = *state.form.peek();
+        let tab = *state.tab.peek();
+        let priority = settings.peek().general.language_priority.clone();
+
+        if tab == DetailTab::Details {
+            return Some(Shot::Details { data: cat_statblock::details(&cat, form, globals.0.context()), priority });
+        }
+
         let level_input = state.level_input.peek().clone();
         let granted = state.granted.peek().clone();
         let treasure = state.treasure.peek().unwrap_or(globals.0.treasure);
         let talent_levels = (granted.is_some() || form >= 2).then(|| state.levels_for(cat.id));
         let is_conjure_expanded = state.conjure_expanded.peek().get(&cat.id).copied().unwrap_or(settings.peek().cat_data.expand_spirit_details);
-        let data = cat_statblock::build(Subject {
+        let subject = Subject {
             cat: &cat,
             form,
             current_level: *state.level.peek(),
@@ -478,9 +486,13 @@ fn statblock_request(cat: Rc<CatEntry>, globals: Shared, settings: Signal<Settin
             is_conjure_expanded,
             global: GlobalContext { treasure: &treasure, ..globals.0.context() },
             grants: granted.as_deref(),
-        })?;
+        };
+        let sheets = icons::sheets(&pictures, &globals, icons::IMG015);
 
-        Some(Statblock { data, sheets: icons::sheets(&pictures, &globals, icons::IMG015), priority: settings.peek().general.language_priority.clone() })
+        match tab {
+            DetailTab::Talents => Some(Shot::Talents { data: cat_statblock::talents(subject)?, sheets, coins: icons::sheets(&pictures, &globals, icons::IMG022), priority }),
+            _ => Some(Shot::Stats(Box::new(Statblock { data: cat_statblock::build(subject)?, sheets, priority }))),
+        }
     })
 }
 
@@ -549,7 +561,10 @@ pub(crate) fn Detail(cat: SelectedCat, globals: Shared, #[props(default)] extra:
     });
     let icon = icon_url(&pictures, &globals, &cat, form);
     let name = cat.display_name(form);
-    let name_size = header((narrow.narrow)());
+    let packed = (narrow.narrow)();
+    let name_size = header(packed);
+    let more = use_signal(|| false);
+    let shot = shot_request(Rc::clone(&cat), globals.clone(), settings, pictures.clone(), state);
     let level_input = (state.level_input)();
     let caps = cat.unitbuy.level_caps();
 
@@ -595,20 +610,35 @@ pub(crate) fn Detail(cat: SelectedCat, globals: Shared, #[props(default)] extra:
                         div { class: "vrule tall" }
                         crate::systems::animation::DebugToggles {}
                     }
-                    if tab == DetailTab::Abilities {
+                    if tab == DetailTab::Abilities || tab == DetailTab::Details {
                         div { class: "vrule tall" }
-                        export::ExportButtons { request: statblock_request(Rc::clone(&cat), globals.clone(), settings, pictures.clone(), state) }
+                        export::ExportButtons { request: shot }
                     }
                     if tab == DetailTab::Talents && cat.talent_data.is_some() {
                         div { class: "vrule tall" }
-                        talents::Header { cat: SelectedCat(Rc::clone(&cat)), globals: globals.clone() }
-                        if let Some(extra) = extra {
+                        talents::Header { cat: SelectedCat(Rc::clone(&cat)), globals: globals.clone(), more: packed.then_some(more) }
+                        if !packed {
+                            if let Some(extra) = extra.clone() {
+                                div { class: "vrule tall even" }
+                                {extra}
+                            }
                             div { class: "vrule tall even" }
-                            {extra}
+                            export::ExportButtons { request: shot }
                         }
                     }
                 }
                 div { class: "rule" }
+            }
+            if packed && tab == DetailTab::Talents && cat.talent_data.is_some() {
+                Popup { title: "More Actions", open: more, width: MORE_WIDTH,
+                    div { class: "dialog-body more-actions",
+                        if let Some(extra) = extra {
+                            {extra}
+                            div { class: "rule" }
+                        }
+                        export::ExportButtons { request: shot }
+                    }
+                }
             }
             div { class: if tab == DetailTab::Animation { "detail-body viewing" } else { "detail-body" },
                     match tab {

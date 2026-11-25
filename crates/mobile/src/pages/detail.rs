@@ -7,7 +7,7 @@ use tracing::{error, info};
 
 use foundry::common::formats::SpriteSheet;
 use foundry::common::superscript::{Segment, segments};
-use foundry::systems::statblock::{self, Fonts, StatblockData};
+use foundry::systems::statblock::{self, DetailsData, Fonts, PageFonts, StatblockData, TalentsData};
 
 use crate::pages::Context;
 use crate::{AppWindow, Line, Seg, Tone, Word, bridge, delivery};
@@ -99,6 +99,23 @@ pub fn export_statblock(ui: &AppWindow, context: &Rc<Context>, data: StatblockDa
     let priority = context.state.settings().general.language_priority.clone();
 
     export_image(ui, context, "statblock", face, move || render_statblock(&priority, &sheets, data), finished);
+}
+
+pub fn export_talents(ui: &AppWindow, context: &Rc<Context>, data: TalentsData, face: Face, finished: impl FnOnce(&AppWindow) + 'static) {
+    let vault = context.engine.vault();
+    let sheets: Vec<SpriteSheet> = context.images.sheets(&vault, IMG015).iter().cloned().collect();
+    let coins: Vec<SpriteSheet> = context.images.sheets(&vault, IMG022).iter().cloned().collect();
+    let priority = context.state.settings().general.language_priority.clone();
+    let work = move || statblock::save_page_to_disk(&statblock::build_talents_image(&priority, &sheets, &coins, &data, &PageFonts::embedded())?, &data.file_name());
+
+    export_image(ui, context, "talents", face, work, finished);
+}
+
+pub fn export_details(ui: &AppWindow, context: &Rc<Context>, data: DetailsData, face: Face, finished: impl FnOnce(&AppWindow) + 'static) {
+    let priority = context.state.settings().general.language_priority.clone();
+    let work = move || statblock::save_page_to_disk(&statblock::build_details_image(&priority, &data, &PageFonts::embedded())?, &data.file_name());
+
+    export_image(ui, context, "details", face, work, finished);
 }
 
 pub fn export_image(ui: &AppWindow, context: &Rc<Context>, kind: &'static str, face: Face, work: impl FnOnce() -> Result<PathBuf, String> + Send + 'static, finished: impl FnOnce(&AppWindow) + 'static) {

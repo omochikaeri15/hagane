@@ -1,64 +1,28 @@
-use std::collections::HashMap;
 #[cfg(feature = "disk")]
 use std::fs;
 #[cfg(feature = "disk")]
 use std::path::{Path, PathBuf};
 
-use ab_glyph::{Font, FontRef, PxScale};
+use ab_glyph::FontRef;
 use image::{Rgba, RgbaImage};
-use imageproc::drawing::{draw_filled_rect_mut, draw_text_mut, text_size};
 use imageproc::rect::Rect;
 use codex::combat::Identity;
 use codex::files::img015;
 
-use crate::common::{assets, frames};
+#[cfg(feature = "disk")]
+use crate::common::assets;
+use crate::common::frames;
 use crate::common::formats::SpriteSheet;
 use crate::systems::combat::{AbilityItem, CustomIcon};
-use crate::common::gfx::{autocrop, open_image};
 
 use super::draw::*;
+use super::board::*;
 use super::{SpiritData, StatCell, StatblockData};
 
-const COLOR_BACKGROUND: Rgba<u8> = Rgba([33, 33, 33, 255]);
-const COLOR_TEXT: Rgba<u8> = Rgba([230, 230, 230, 255]);
-const COLOR_TEXT_WEAK: Rgba<u8> = Rgba([112, 112, 112, 255]);
-const COLOR_SUPERSCRIPT: Rgba<u8> = Rgba([171, 171, 171, 255]);
-const COLOR_RULE: Rgba<u8> = Rgba([71, 71, 71, 255]);
 const COLOR_CELL_HEADER: Rgba<u8> = Rgba([15, 15, 15, 255]);
 const COLOR_CELL_VALUE: Rgba<u8> = Rgba([58, 58, 58, 255]);
 const COLOR_CELL_BORDER: Rgba<u8> = Rgba([42, 42, 42, 255]);
-const COLOR_INPUT: Rgba<u8> = Rgba([17, 17, 17, 255]);
-const COLOR_INPUT_BORDER: Rgba<u8> = Rgba([71, 71, 71, 255]);
 const COLOR_CARD: Rgba<u8> = Rgba([7, 7, 7, 255]);
-const COLOR_FRAME: Rgba<u8> = Rgba([31, 106, 165, 255]);
-
-const RADIUS_SM: f32 = 4.0;
-const RADIUS_MD: f32 = 6.0;
-const RADIUS_LG: f32 = 8.0;
-
-const TEXT_SCALE: f32 = 1.5;
-const CONTENT_PADDING: f32 = 8.0;
-const SECTION_GAP: f32 = 8.0;
-const RULE_THICKNESS: f32 = 1.0;
-const BORDER_WIDTH: f32 = 1.0;
-
-const ICON_BOX_WIDTH: f32 = 110.0;
-const ICON_BOX_HEIGHT: f32 = 83.0;
-const HEADER_GAP_X: f32 = 12.0;
-
-const NAME_WRAP_WIDTH: f32 = 145.0;
-const NAME_MAX_FONT_SIZE: f32 = 22.0 * TEXT_SCALE;
-const NAME_MIN_FONT_SIZE: f32 = 8.0 * TEXT_SCALE;
-const NAME_LINE_GAP: f32 = -4.0;
-const NAME_TO_ID_GAP: f32 = -1.5;
-const NAME_FONT_STEP: f32 = 0.5;
-const NAME_MAX_LINES: usize = 2;
-
-const INFO_TEXT_SIZE: f32 = 11.0 * TEXT_SCALE;
-const LEVEL_ROW_GAP: f32 = 6.0;
-const LEVEL_INPUT_MIN_WIDTH: f32 = 28.0;
-const LEVEL_INPUT_PADDING_X: f32 = 7.0;
-const LEVEL_INPUT_PADDING_Y: f32 = 2.0;
 
 const CELL_WIDTH: f32 = 82.0;
 const CELL_HEIGHT: f32 = 28.0;
@@ -75,14 +39,10 @@ const ICON_GAP_X: f32 = 3.2;
 const ICON_GAP_Y: f32 = 5.5;
 const ICON_TRAIT_GAP_Y: f32 = 7.0;
 
+const CANVAS_ROWS: f32 = 4000.0;
+
 const CARD_PADDING: f32 = 8.0;
 const SPIRIT_PADDING_X: f32 = 8.0;
-
-const FRAME_THICKNESS: f32 = 7.0;
-const FRAME_PADDING: f32 = 4.0;
-const FRAME_RADIUS: f32 = RADIUS_MD;
-
-const RENDER_SCALE: i32 = 2;
 
 pub struct Fonts<'a> {
     pub jp: &'a [u8],
@@ -98,6 +58,18 @@ impl Fonts<'static> {
     }
 }
 
+pub struct PageFonts<'a> {
+    pub text: Fonts<'a>,
+    pub bold: &'a [u8],
+}
+
+#[cfg(feature = "disk")]
+impl PageFonts<'static> {
+    pub fn embedded() -> Self {
+        Self { text: Fonts::embedded(), bold: assets::FONT_JP_BOLD }
+    }
+}
+
 pub fn build_statblock_image(
     priority: &[String],
     layers: &[SpriteSheet],
@@ -106,7 +78,6 @@ pub fn build_statblock_image(
 ) -> Result<RgbaImage, String> {
     let scale = RENDER_SCALE;
     let scale_f = scale as f32;
-    let px = |value: f32| (value * scale_f).round() as i32;
 
     let padding = px(CONTENT_PADDING);
     let section_gap = px(SECTION_GAP);
@@ -122,78 +93,17 @@ pub fn build_statblock_image(
     let text_gap_x = px(ABILITY_TEXT_GAP);
     let card_padding = px(CARD_PADDING);
 
-    let icon_box_width = px(ICON_BOX_WIDTH);
-    let icon_box_height = px(ICON_BOX_HEIGHT);
-
-    let header_icon = data.icon.as_ref().and_then(open_image).map(|icon_img| {
-        let rgba = autocrop(icon_img.to_rgba8());
-        let (source_w, source_h) = (rgba.width() as f32, rgba.height() as f32);
-
-        let scale = (icon_box_width as f32 / source_w).min(icon_box_height as f32 / source_h);
-        let target_w = ((source_w * scale).round() as u32).max(1);
-        let target_h = ((source_h * scale).round() as u32).max(1);
-
-        if rgba.width() == target_w && rgba.height() == target_h {
-            return rgba;
-        }
-
-        image::imageops::resize(&rgba, target_w, target_h, image::imageops::FilterType::Lanczos3)
-    });
-
-    let icon_column_width = header_icon.as_ref().map_or(icon_box_width, |icon| icon_box_width.max(icon.width() as i32));
-    let header_height = icon_box_height;
+    let head = Head::load(data.icon.as_ref());
 
     let max_cols = data.headers_1.len().max(data.headers_2.len()) as f32;
     let base_grid_width =
         (CONTENT_PADDING * 2.0) + (CELL_WIDTH * max_cols) + (CELL_GAP * (max_cols - 1.0).max(0.0));
-    let header_width = (CONTENT_PADDING * 2.0) + HEADER_GAP_X + NAME_WRAP_WIDTH + (icon_column_width as f32 / scale_f);
+    let header_width = head.width();
 
-    let jp_font = FontRef::try_from_slice(fonts.jp)
-        .map_err(|err| format!("Failed to load JP font: {err}"))?;
-    let kr_font = FontRef::try_from_slice(fonts.kr)
-        .map_err(|err| format!("Failed to load KR font: {err}"))?;
-    let tc_font = FontRef::try_from_slice(fonts.tc)
-        .map_err(|err| format!("Failed to load TC font: {err}"))?;
-    let th_font = FontRef::try_from_slice(fonts.th)
-        .map_err(|err| format!("Failed to load TH font: {err}"))?;
-
-    let get_font = |lang: &str| -> &FontRef {
-        match lang {
-            "ko" | "kr" => &kr_font,
-            "tw" | "zh" | "zh-tw" => &tc_font,
-            "th" => &th_font,
-            _ => &jp_font,
-        }
-    };
-
-    let font_supports_string = |candidate_font: &FontRef, text: &str| -> bool {
-        for character in text.chars() {
-            if character.is_ascii() || character.is_whitespace() { continue; }
-            if candidate_font.glyph_id(character).0 == 0 {
-                return false;
-            }
-        }
-        true
-    };
-
-    let mut selected_font = &jp_font;
-    let mut found_match = false;
-
-    for lang in priority {
-        let candidate_font = get_font(lang);
-        if font_supports_string(candidate_font, &data.name) {
-            selected_font = candidate_font;
-            found_match = true;
-            break;
-        }
-    }
-
-    if !found_match {
-        selected_font = get_font(priority.first().map(|s| s.as_str()).unwrap_or("en"));
-    }
-
-    let font = selected_font;
-    let line_font = |line: &str| -> &FontRef { if font_supports_string(font, line) { font } else { &jp_font } };
+    let faces = Faces::load(fonts)?;
+    let jp_font = &faces.jp;
+    let font = faces.named(priority, &data.name);
+    let line_font = |line: &str| -> &FontRef { if covers(font, line) { font } else { jp_font } };
 
     let measure_style = SuperscriptStyle::new(ABILITY_TEXT_SIZE, 1.0, COLOR_SUPERSCRIPT);
     let ability_style = SuperscriptStyle::new(ABILITY_TEXT_SIZE, scale_f, COLOR_SUPERSCRIPT);
@@ -253,91 +163,12 @@ pub fn build_statblock_image(
     max_needed_width = max_needed_width.max(check_icon_row_width(&data.footer));
 
     let canvas_width = (max_needed_width.ceil() as i32) * scale;
-    let mut target_image = RgbaImage::from_pixel(canvas_width as u32, 4000 * scale as u32, COLOR_BACKGROUND);
+    let title = Title { name: &data.name, id: &data.id_str, top: Some((&data.top_label, &data.top_value)) };
+    let mut board = Board::open(max_needed_width, CANVAS_ROWS, &head, font, &title);
 
-    let mut custom_assets = HashMap::new();
-    for (variant, bytes) in assets::CUSTOM_ICON_DATA {
-        if let Ok(loaded_img) = image::load_from_memory(bytes) {
-            custom_assets.insert(*variant, loaded_img.to_rgba8());
-        }
-    }
-
-    let info_scale = PxScale::from(INFO_TEXT_SIZE * scale_f);
-    let info_line_height = px(INFO_TEXT_SIZE);
-    let input_padding_x = px(LEVEL_INPUT_PADDING_X);
-    let input_height = info_line_height + px(LEVEL_INPUT_PADDING_Y) * 2;
-    let level_row_height = input_height.max(info_line_height);
-
-    let name_to_id_gap = px(NAME_TO_ID_GAP);
-    let name_box_height = (header_height - name_to_id_gap - info_line_height - level_row_height)
-        .max(px(NAME_MIN_FONT_SIZE));
-
-    let mut name_size = NAME_MAX_FONT_SIZE;
-    let mut name_lines = wrap_text(&data.name, font, PxScale::from(name_size * scale_f), NAME_WRAP_WIDTH * scale_f);
-    let name_overflows = |lines: usize, size: f32| -> bool {
-        lines > NAME_MAX_LINES || lines as i32 * px(size + NAME_LINE_GAP) > name_box_height
-    };
-
-    while name_overflows(name_lines.len(), name_size) && name_size > NAME_MIN_FONT_SIZE {
-        name_size -= NAME_FONT_STEP;
-        name_lines = wrap_text(&data.name, font, PxScale::from(name_size * scale_f), NAME_WRAP_WIDTH * scale_f);
-    }
-
-    let name_scale = PxScale::from(name_size * scale_f);
-    let name_line_height = px(name_size + NAME_LINE_GAP);
-    let name_block_height = name_lines.len() as i32 * name_line_height;
-
-    let header_top = padding;
-
-    if let Some(icon) = &header_icon {
-        let x_offset = padding as i64 + ((icon_column_width - icon.width() as i32) / 2) as i64;
-        let seated = (header_height - icon.height() as i32).max(0);
-
-        image::imageops::overlay(&mut target_image, icon, x_offset, (header_top + seated) as i64);
-    }
-
-    let text_start_x = padding + icon_column_width + px(HEADER_GAP_X);
-    let info_top = header_top;
-
-    let mut name_y = info_top + (name_box_height - name_block_height).max(0) / 2;
-    let name_offset = line_offset(font, name_scale, name_line_height);
-    for line in &name_lines {
-        draw_text_mut(&mut target_image, COLOR_TEXT, text_start_x, name_y + name_offset, name_scale, font, line);
-        name_y += name_line_height;
-    }
-
-    let info_offset = line_offset(font, info_scale, info_line_height);
-    let id_top = info_top + name_box_height + name_to_id_gap;
-    draw_text_mut(
-        &mut target_image, COLOR_TEXT_WEAK, text_start_x, id_top + info_offset,
-        info_scale, font, &format!("ID: {}", data.id_str),
-    );
-
-    let level_top = id_top + info_line_height;
-    draw_text_mut(
-        &mut target_image, COLOR_TEXT, text_start_x,
-        level_top + (level_row_height - info_line_height) / 2 + info_offset,
-        info_scale, font, &data.top_label,
-    );
-
-    let (prefix_width, _) = text_size(info_scale, font, &data.top_label);
-    let (value_width, _) = text_size(info_scale, font, &data.top_value);
-    let input_width = (value_width as i32 + input_padding_x * 2).max(px(LEVEL_INPUT_MIN_WIDTH));
-    let input_x = text_start_x + prefix_width as i32 + px(LEVEL_ROW_GAP);
-    let input_y = level_top + (level_row_height - input_height) / 2;
-    let input_rect = Rect::at(input_x, input_y).of_size(input_width as u32, input_height as u32);
-
-    let input_cell = CellShape::new(input_rect, cell_radius, px(BORDER_WIDTH));
-    draw_bordered_rect_mut(&mut target_image, input_cell, COLOR_INPUT, COLOR_INPUT_BORDER);
-    draw_centered_text(&mut target_image, COLOR_TEXT, input_cell, info_scale, font, &data.top_value);
-
-    let mut current_y_global = header_top + header_height + section_gap;
-    draw_filled_rect_mut(
-        &mut target_image,
-        Rect::at(padding, current_y_global).of_size((canvas_width - padding * 2) as u32, px(RULE_THICKNESS) as u32),
-        COLOR_RULE,
-    );
-    current_y_global += px(RULE_THICKNESS) + section_gap;
+    let custom_assets = custom_icons();
+    let mut current_y_global = board.at;
+    let target_image = &mut board.image;
 
     let row_pitch = cell_height + cell_gap;
     let r1_hy = current_y_global;
@@ -365,8 +196,8 @@ pub fn build_statblock_image(
         }
     };
 
-    render_row(&mut target_image, &data.headers_1, &data.data_1, r1_hy, r1_dy);
-    render_row(&mut target_image, &data.headers_2, &data.data_2, r2_hy, r2_dy);
+    render_row(target_image, &data.headers_1, &data.data_1, r1_hy, r1_dy);
+    render_row(target_image, &data.headers_2, &data.data_2, r2_hy, r2_dy);
 
     current_y_global += row_pitch * 3 + cell_height + section_gap;
 
@@ -532,55 +363,32 @@ pub fn build_statblock_image(
     };
 
     if !data.traits.is_empty() {
-        current_y_global = draw_icon_row(&mut target_image, &data.traits, current_y_global, padding);
+        current_y_global = draw_icon_row(target_image, &data.traits, current_y_global, padding);
         previously_drew_section = true;
         last_main_section_was_trait = true;
     }
     if !data.h1.is_empty() {
         draw_section_gap(&mut current_y_global, &mut previously_drew_section, false, &mut last_main_section_was_trait);
-        current_y_global = draw_icon_row(&mut target_image, &data.h1, current_y_global, padding);
+        current_y_global = draw_icon_row(target_image, &data.h1, current_y_global, padding);
     }
     if !data.h2.is_empty() {
         draw_section_gap(&mut current_y_global, &mut previously_drew_section, false, &mut last_main_section_was_trait);
-        current_y_global = draw_icon_row(&mut target_image, &data.h2, current_y_global, padding);
+        current_y_global = draw_icon_row(target_image, &data.h2, current_y_global, padding);
     }
     if !data.b1.is_empty() || !data.b2.is_empty() {
         draw_section_gap(&mut current_y_global, &mut previously_drew_section, false, &mut last_main_section_was_trait);
-        if !data.b1.is_empty() { current_y_global = draw_list(&mut target_image, &data.b1, current_y_global); }
+        if !data.b1.is_empty() { current_y_global = draw_list(target_image, &data.b1, current_y_global); }
         if !data.b1.is_empty() && !data.b2.is_empty() { current_y_global += icon_gap_y; }
-        if !data.b2.is_empty() { current_y_global = draw_list(&mut target_image, &data.b2, current_y_global); }
+        if !data.b2.is_empty() { current_y_global = draw_list(target_image, &data.b2, current_y_global); }
     }
     if !data.footer.is_empty() {
         draw_section_gap(&mut current_y_global, &mut previously_drew_section, false, &mut last_main_section_was_trait);
-        current_y_global = draw_icon_row(&mut target_image, &data.footer, current_y_global, padding);
+        current_y_global = draw_icon_row(target_image, &data.footer, current_y_global, padding);
     }
 
-    let final_height = current_y_global + padding;
-    let final_cropped = image::imageops::crop_imm(&target_image, 0, 0, canvas_width as u32, final_height as u32).to_image();
+    board.at = current_y_global;
 
-    let border_thick = px(FRAME_THICKNESS);
-    let margin = border_thick + px(FRAME_PADDING);
-
-    let final_width_with_pad = canvas_width as u32 + (margin * 2) as u32;
-    let final_height_with_pad = final_height as u32 + (margin * 2) as u32;
-    let mut final_background_layer = RgbaImage::new(final_width_with_pad, final_height_with_pad);
-
-    let border_radius = px(FRAME_RADIUS);
-    let outer_rect = Rect::at(0, 0).of_size(final_width_with_pad, final_height_with_pad);
-
-    if border_thick > 0 {
-        draw_bordered_rect_mut(
-            &mut final_background_layer,
-            CellShape::new(outer_rect, border_radius + border_thick, border_thick),
-            COLOR_BACKGROUND, COLOR_FRAME,
-        );
-    } else {
-        draw_rounded_rect_mut(&mut final_background_layer, outer_rect, border_radius, COLOR_BACKGROUND);
-    }
-
-    image::imageops::overlay(&mut final_background_layer, &final_cropped, margin as i64, margin as i64);
-
-    Ok(final_background_layer)
+    Ok(board.close())
 }
 
 fn frame_text(count: i32) -> String {
@@ -588,14 +396,20 @@ fn frame_text(count: i32) -> String {
 }
 
 #[cfg(feature = "disk")]
-pub fn save_to_disk(image: &RgbaImage, is_cat: bool, id_str: &str, top_value: &str) -> Result<PathBuf, String> {
+pub fn save_page_to_disk(image: &RgbaImage, file_name: &str) -> Result<PathBuf, String> {
     let export_dir = Path::new("exports");
     fs::create_dir_all(export_dir).map_err(|err| err.to_string())?;
 
-    let safe_val_str = top_value.replace(|c: char| !c.is_alphanumeric() && c != '+', "");
-    let prefix = if is_cat { "Lv" } else { "Mag" };
-    let filename = export_dir.join(format!("{}.{}{}.statblock.png", id_str, prefix, safe_val_str));
+    let filename = export_dir.join(file_name);
 
     image.save(&filename).map_err(|err| err.to_string())?;
     Ok(filename)
+}
+
+#[cfg(feature = "disk")]
+pub fn save_to_disk(image: &RgbaImage, is_cat: bool, id_str: &str, top_value: &str) -> Result<PathBuf, String> {
+    let safe_val_str = top_value.replace(|c: char| !c.is_alphanumeric() && c != '+', "");
+    let prefix = if is_cat { "Lv" } else { "Mag" };
+
+    save_page_to_disk(image, &format!("{}.{}{}.statblock.png", id_str, prefix, safe_val_str))
 }

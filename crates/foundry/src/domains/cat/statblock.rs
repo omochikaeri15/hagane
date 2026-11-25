@@ -1,11 +1,17 @@
 use std::collections::HashMap;
 
-use crate::common::context::GlobalContext;
-use crate::systems::combat::abilities::collect_ability_data;
-use crate::systems::combat::registry::{format_stat, Magnification, StatContext, STAT_ATK_CYCLE, STAT_ATTACK, STAT_COOLDOWN, STAT_COST, STAT_DPS, STAT_HITPOINTS, STAT_KNOCKBACKS, STAT_RANGE, STAT_RARITY, STAT_SPEED};
-use crate::systems::combat::RenderContext;
-use crate::systems::statblock::{SpiritData, StatCell, StatblockData};
+use codex::combat::{Faction, Identity, get_talent};
 
+use crate::common::context::GlobalContext;
+use crate::common::io;
+use crate::domains::cat::combo;
+use crate::domains::cat::game::talents as talent_logic;
+use crate::systems::combat::abilities::collect_ability_data;
+use crate::systems::combat::registry::{get_display_def, AbilityIcon, format_stat, Magnification, StatContext, STAT_ATK_CYCLE, STAT_ATTACK, STAT_COOLDOWN, STAT_COST, STAT_DPS, STAT_HITPOINTS, STAT_KNOCKBACKS, STAT_RANGE, STAT_RARITY, STAT_SPEED};
+use crate::systems::combat::{AbilityItem, CustomIcon, RenderContext};
+use crate::systems::statblock::{ComboCard, ComboSeat, DetailsData, EvolveCost, EvolveData, EvolveItem, SheetHead, SpiritData, StatCell, StatblockData, TalentCard, TalentsData};
+
+use super::files;
 use super::game::stats::get_final_stats;
 use super::grants::Grants;
 use super::scanner::CatEntry;
@@ -20,6 +26,117 @@ pub struct Subject<'a> {
     pub is_conjure_expanded: bool,
     pub global: GlobalContext<'a>,
     pub grants: Option<&'a Grants>,
+}
+
+const NO_DESCRIPTION: &str = "No description available";
+const XP_ITEM: i32 = 6;
+const LEVEL_LABEL: &str = "Level:";
+
+fn head(cat: &CatEntry, form: usize, global: GlobalContext<'_>, top: Option<(String, String)>) -> SheetHead {
+    SheetHead {
+        id_str: cat.id_str(form),
+        name: cat.display_name(form),
+        icon: files::portrait(&global.vault.vfs, cat.deploy_icon_paths.get(form).and_then(Option::as_ref)),
+        top,
+    }
+}
+
+fn spoken(lines: Option<&Vec<String>>) -> Vec<String> {
+    let held: Vec<String> = lines.map_or_else(Vec::new, |lines| lines.iter().map(|line| line.trim_end().to_owned()).collect());
+    let last = held.iter().rposition(|line| !line.is_empty());
+
+    last.map_or_else(Vec::new, |last| held.into_iter().take(last + 1).collect())
+}
+
+fn evolve(cat: &CatEntry, form: usize, global: GlobalContext<'_>) -> Option<EvolveData> {
+    let vfs = &global.vault.vfs;
+    let (materials, cost) = match form {
+        2 => (cat.unitbuy.true_form_materials().collect::<Vec<_>>(), cat.unitbuy.true_form_xp_cost),
+        3 => (cat.unitbuy.ultra_form_materials().collect::<Vec<_>>(), cat.unitbuy.ultra_form_xp_cost),
+        _ => return None,
+    };
+    let lines = spoken(cat.evolve_text.texts.get(form).and_then(Option::as_ref));
+
+    if materials.is_empty() && lines.is_empty() && cost <= 0 {
+        return None;
+    }
+
+    let icon = |id: i32| io::gatya_item_icon(vfs, id).map(|path| vfs.source(&path));
+    let items = materials.iter().map(|material| EvolveItem { icon: icon(material.item_id), fallback: format!("ID {}", material.item_id), amount: material.quantity }).collect();
+
+    Some(EvolveData { lines, items, cost: (cost > 0).then(|| EvolveCost { icon: icon(XP_ITEM), amount: cost }) })
+}
+
+pub fn details(cat: &CatEntry, form: usize, global: GlobalContext<'_>) -> DetailsData {
+    let mut description = spoken(cat.description.get(form).and_then(Option::as_ref));
+
+    if description.is_empty() {
+        description.push(NO_DESCRIPTION.to_owned());
+    }
+
+    let combos = combo::combos(global, cat.id, form)
+        .into_iter()
+        .map(|held| ComboCard {
+            seats: held.members.iter().map(|member| ComboSeat { icon: member.icon.clone(), label: member.label() }).collect(),
+            name: held.name,
+            effect: held.effect,
+            note: held.restriction,
+        })
+        .collect();
+
+    DetailsData { head: head(cat, form, global, None), description, evolve: evolve(cat, form, global), combos }
+}
+
+pub fn talents(subject: Subject<'_>) -> Option<TalentsData> {
+    let cat = subject.cat;
+    let global = subject.global;
+    let vfs = &global.vault.vfs;
+    let talent_data = cat.talent_data.as_ref()?;
+    let dynamic_stats = unitid(vfs, cat.id as i32);
+    let base_stats = dynamic_stats.as_ref().and_then(|forms| forms.get(subject.form))?;
+    let none = HashMap::new();
+    let levels = subject.talent_levels.unwrap_or(&none);
+    let traits = get_final_stats(base_stats, cat.curve.as_ref(), subject.current_level, Some(talent_data), Some(levels), global.treasure);
+    let combo_names = global.vault.vds.cats.combo_names(vfs);
+    let scaling = talent_logic::Scaling { curve: cat.curve.as_ref(), level: subject.current_level, treasure: global.treasure };
+
+    let cards = talent_data
+        .groups
+        .iter()
+        .enumerate()
+        .map(|(index, group)| {
+            let level = levels.get(&(index as u8)).copied().unwrap_or(0);
+            let known = get_talent(group.ability_id);
+            let shown = known.map(|def| get_display_def(def.identity));
+            let name = global.names.talent(group.ability_id).map(str::to_owned).unwrap_or_else(|| {
+                known.map_or_else(|| format!("Unknown Skill (ID: {})", group.ability_id), |def| global.names.ability(def.identity, Faction::Cat).to_owned())
+            });
+            let (icon_id, custom_icon) = match shown.as_ref().map(|shown| &shown.icon) {
+                Some(AbilityIcon::Standard(id)) => (Some(*id), CustomIcon::None),
+                Some(AbilityIcon::Custom(custom)) => (None, *custom),
+                Some(AbilityIcon::None) | None => (None, CustomIcon::None),
+            };
+            let reading = talent_logic::calculate_linked_display(talent_data, levels, index, base_stats, scaling, &traits).unwrap_or_default();
+            let picture = if group.name_id > 0 { group.name_id } else { i16::from(group.ability_id) };
+
+            TalentCard {
+                item: AbilityItem { identity: known.map_or(Identity::Unknown, |def| def.identity), icon_id, text: name, custom_icon, border_id: None },
+                plate: (picture > 0).then(|| vfs.find(&format!("Skill_name_{picture:03}.png"))).flatten().map(|path| vfs.source(&path)),
+                description: talent_logic::describe(group, &cat.skill_descriptions, &combo_names),
+                ultra: group.is_ultra(),
+                level,
+                max_level: group.max_level.max(1),
+                cost: talent_logic::get_talent_np_cost(group.cost_id, level, &cat.talent_costs),
+                lines: reading.lines().map(str::to_owned).collect(),
+            }
+        })
+        .collect();
+
+    Some(TalentsData {
+        head: head(cat, subject.form, global, Some((LEVEL_LABEL.to_owned(), subject.level_input.to_owned()))),
+        cost: talent_logic::get_total_np_cost(talent_data, levels, &cat.talent_costs),
+        cards,
+    })
 }
 
 pub fn build(subject: Subject<'_>) -> Option<StatblockData> {
@@ -108,8 +225,8 @@ fn assemble(
         is_cat: true,
         id_str: cat_entry.id_str(current_form),
         name: cat_entry.display_name(current_form),
-        icon: cat_entry.deploy_icon_paths[current_form].as_ref().map(|path| ctx.global.vault.vfs.source(path)),
-        top_label: "Level:".to_string(),
+        icon: files::portrait(&ctx.global.vault.vfs, cat_entry.deploy_icon_paths[current_form].as_ref()),
+        top_label: LEVEL_LABEL.to_string(),
         top_value: level_input,
         headers_1,
         data_1,

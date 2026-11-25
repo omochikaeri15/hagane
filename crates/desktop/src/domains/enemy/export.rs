@@ -8,7 +8,10 @@ use foundry::Vault;
 use crate::common::SpriteSheet;
 use crate::widget::statblock_export::Request;
 
+use super::DetailTab;
+
 pub(super) struct Ctx<'a> {
+    pub(super) tab: DetailTab,
     pub(super) enemy: &'a EnemyEntry,
     pub(super) magnification: Magnification,
     pub(super) sheets: &'a [SpriteSheet],
@@ -17,14 +20,20 @@ pub(super) struct Ctx<'a> {
     pub(super) vault: &'a Vault,
 }
 
-pub(super) fn request(ctx: Ctx<'_>) -> Option<Request<'_>> {
-    let data = statblock::build(Subject {
-        enemy: ctx.enemy,
-        magnification: ctx.magnification,
-        show_invalid: ctx.settings.show_invalid_enemies(),
-        global: ctx.global,
-        vault: ctx.vault,
-    });
+pub(super) fn request(ctx: Ctx<'_>) -> Option<Request> {
+    match ctx.tab {
+        DetailTab::Abilities => {
+            let data = statblock::build(Subject {
+                enemy: ctx.enemy,
+                magnification: ctx.magnification,
+                show_invalid: ctx.settings.show_invalid_enemies(),
+                global: ctx.global,
+                vault: ctx.vault,
+            });
 
-    Some(Request { data, sheets: ctx.sheets, settings: ctx.settings })
+            Some(Request::statblock(data, ctx.sheets, ctx.settings))
+        }
+        DetailTab::Details => Some(Request::details(statblock::details(ctx.enemy, ctx.global), ctx.settings)),
+        DetailTab::Animation => None,
+    }
 }

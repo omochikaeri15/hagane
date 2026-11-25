@@ -12,6 +12,7 @@ use tracing::{debug, error, info, warn};
 use foundry::common::architecture;
 use foundry::domains::cat::animation as cat_animation;
 use foundry::domains::cat::level;
+use foundry::domains::cat::scanner::CatEntry;
 use foundry::domains::enemy::animation as enemy_animation;
 use foundry::domains::settings::lang;
 use foundry::domains::stage::{Stage, sheet};
@@ -24,10 +25,10 @@ use super::backdrop;
 use super::cache::Cache;
 use super::config::Config;
 use super::fuzzy;
-use super::grammar::{self, Backing, Kind, Motion, Request, Scenery, Tune, Unit, Want};
+use super::grammar::{self, Backing, Kind, Motion, Page, Request, Scenery, Tune, Unit, Want};
 use super::library::{self, Catalog, Library, Remote};
 use super::lookup::{self, CROWN_GLYPH, Found, Hit};
-use super::prefs::{self, Book, FORMS, Prefs, Search};
+use super::prefs::{self, Book, FORMS, Mode, Prefs, Search};
 use super::prose::{self, Line, Prose, Trouble};
 use super::render::{self, Format, Options, Planned, Progress};
 use super::stage;
@@ -48,7 +49,12 @@ const LICENSES: &str = concat!(
 );
 const LEGAL: &str = "Not affiliated with PONOS Corp.";
 const NOTICE_TRIES: usize = 5;
-const TALENT_HINT: &str = "all, standard, ultra, none, show, 10 10 5 or Attack Buff 5";
+const MAGNIFICATION_HINT: &str = "400% or 400%/200%";
+const LABEL: &str = "label";
+const CARD_PAGE: &str = "ep";
+const CARD_ASK: &str = "em";
+const CARD_SET: &str = "ev";
+const TALENT_HINT: &str = "all, standard, ultra, none, 10 10 5 or Attack Buff 5";
 const EMBED_COLOR: u32 = 0x2468A8;
 const OPEN_SETTINGS: &str = "set|open";
 const SET_PREFIX: &str = "set|prefix";
@@ -72,7 +78,7 @@ const OPTION_LIMIT: usize = 100;
 const SEARCH_SHOWN: usize = 24;
 const ABORT: &str = "abort";
 const SET_JUMP: &str = "set|jump|";
-const SETTINGS: [Setting; 6] = [Setting::Language, Setting::Format, Setting::Form, Setting::Search, Setting::Prose, Setting::Prefix];
+const SETTINGS: [Setting; 7] = [Setting::Language, Setting::Format, Setting::Form, Setting::Search, Setting::Mode, Setting::Prose, Setting::Prefix];
 const SETTINGS_ROWS: usize = 4;
 const SETTINGS_PAGES: usize = SETTINGS.len().div_ceil(SETTINGS_ROWS);
 const PAGE_DIGITS: u16 = 2;
@@ -813,7 +819,9 @@ async fn serve_map(voice: Voice<'_>, request: Request) -> Result<(), Error> {
         return voice.say(prose::WARMING.said(prefs.prose)).await;
     };
     let Some((_, code)) = sought(voice, &library, &prefs, &[Kind::Map], &request, None, &prose::NO_MAP).await? else { return Ok(()) };
-    let tail = request.crowns.map_or_else(String::new, |crowns| format!("-c {crowns}"));
+    let crowned = request.crowns.map(|crowns| format!("-c {crowns}"));
+    let moded = request.mode().map(|mode| format!("--{}", mode.slug()));
+    let tail = crowned.into_iter().chain(moded).collect::<Vec<_>>().join(" ");
 
     listed(voice, &library, &code, Kind::Stage.tag(), &tail).await
 }
@@ -864,7 +872,7 @@ fn crown_rows(owner: u64, code: &str, stage: &Stage, shown: u8) -> Vec<serenity:
     vec![serenity::CreateActionRow::Buttons(buttons)]
 }
 
-async fn send_stage(voice: Voice<'_>, library: Arc<Library>, code: String, asked: Option<u8>) -> Result<(), Error> {
+async fn send_stage(voice: Voice<'_>, library: Arc<Library>, code: String, asked: Option<u8>, mode: Mode) -> Result<(), Error> {
     let prose = voice.prose();
     let Some(found) = library.stage(&code) else {
         return voice.say(prose::NO_STAGE.said(prose)).await;
@@ -873,7 +881,7 @@ async fn send_stage(voice: Voice<'_>, library: Arc<Library>, code: String, asked
         Ok(crown) => crown,
         Err(trouble) => return voice.say(trouble.told(prose)).await,
     };
-    let rows = crown_rows(voice.user().get(), &code, found.stage, crown);
+    let rows = if mode == Mode::Interactive { crown_rows(voice.user().get(), &code, found.stage, crown) } else { Vec::new() };
     let drawn = {
         let (library, cache, code) = (Arc::clone(&library), Arc::clone(&voice.data().cache), code.clone());
 
@@ -927,7 +935,7 @@ async fn serve_stage(voice: Voice<'_>, request: Request) -> Result<(), Error> {
     };
     let Some((_, code)) = sought(voice, &library, &prefs, &[Kind::Stage], &request, None, &prose::NO_STAGE).await? else { return Ok(()) };
 
-    send_stage(voice, Arc::clone(&library), code, request.crowns.map(|crowns| crowns.saturating_sub(1))).await
+    send_stage(voice, Arc::clone(&library), code, request.crowns.map(|crowns| crowns.saturating_sub(1)), request.mode().unwrap_or(prefs.mode)).await
 }
 
 async fn on_crown(ctx: &serenity::Context, press: &serenity::ComponentInteraction, data: &Data, rest: &str) -> Result<(), Error> {
@@ -947,7 +955,7 @@ async fn on_crown(ctx: &serenity::Context, press: &serenity::ComponentInteractio
         return Ok(());
     };
 
-    send_stage(voice, library, code.to_owned(), Some(crown)).await
+    send_stage(voice, library, code.to_owned(), Some(crown), Mode::Interactive).await
 }
 
 async fn serve_any(voice: Voice<'_>, text: &str) -> Result<(), Error> {
@@ -1044,11 +1052,16 @@ struct Sheet {
     form: usize,
     level: Option<String>,
     talents: Option<String>,
+    page: Page,
 }
 
 impl Sheet {
     fn custom(&self, tag: &str, form: usize) -> String {
-        format!("{tag}|{}|{}|{}|{}|{}", self.owner, self.id, form, self.level.as_deref().unwrap_or_default(), self.talents.as_deref().unwrap_or("-"))
+        self.turned(tag, form, self.page)
+    }
+
+    fn turned(&self, tag: &str, form: usize, page: Page) -> String {
+        format!("{tag}|{}|{}|{}|{}|{}|{}", self.owner, self.id, form, self.level.as_deref().unwrap_or_default(), self.talents.as_deref().unwrap_or("-"), page.tag())
     }
 
     fn read(custom: &str) -> Option<(&str, Self)> {
@@ -1059,55 +1072,118 @@ impl Sheet {
         let form = parts.next()?.parse().ok()?;
         let level = Some(parts.next()?).filter(|level| !level.is_empty()).map(str::to_owned);
         let talents = parts.next().filter(|levels| *levels != "-").map(str::to_owned);
+        let page = parts.next().and_then(Page::tagged).unwrap_or_default();
 
-        Some((tag, Self { owner, id, form, level, talents }))
+        Some((tag, Self { owner, id, form, level, talents, page }))
     }
+}
+
+#[derive(Clone)]
+struct Card {
+    owner: u64,
+    id: u32,
+    page: Page,
+    magnification: Option<(i32, i32)>,
+}
+
+impl Card {
+    const TAGS: [&'static str; 3] = [CARD_PAGE, CARD_ASK, CARD_SET];
+
+    fn turned(&self, tag: &str, page: Page) -> String {
+        format!("{tag}|{}|{}|{}|{}", self.owner, self.id, page.tag(), self.magnification.map(percents).unwrap_or_default())
+    }
+
+    fn read(custom: &str) -> Option<(&str, Self)> {
+        let mut parts = custom.split('|');
+        let tag = parts.next().filter(|tag| Self::TAGS.contains(tag))?;
+        let owner = parts.next()?.parse().ok()?;
+        let id = parts.next()?.parse().ok()?;
+        let page = Page::tagged(parts.next()?)?;
+        let magnification = parts.next().and_then(grammar::magnification_of);
+
+        Some((tag, Self { owner, id, page, magnification }))
+    }
+}
+
+fn percents((hitpoints, attack): (i32, i32)) -> String {
+    if hitpoints == attack { format!("{hitpoints}%") } else { format!("{hitpoints}%/{attack}%") }
+}
+
+fn talented(cat: &CatEntry, form: usize) -> bool {
+    cat.talent_data.is_some() && form >= TRUE_FORM
 }
 
 fn sheet_png(library: &Library, cache: &Cache, sheet: &Sheet) -> Result<(Vec<u8>, String), Trouble> {
     let cat = library.cat(sheet.id).ok_or(Trouble::NoCat)?;
+    let id = cat.id_str(sheet.form);
+
+    if sheet.page == Page::Details {
+        return Ok((statblock::cat_details(library, cache, cat, sheet.form)?, format!("{id}.details.png")));
+    }
+
     let caps = cat.unitbuy.level_caps();
     let levels = sheet.talents.as_deref().and_then(talents::decoded);
     let shown = sheet.level.as_deref().map_or_else(|| library.level_for(cat, sheet.form, levels.as_ref()), |level| level::capped(level, caps));
-    let bytes = statblock::cat(library, cache, cat, sheet.form, level::total(&shown, caps), &shown, levels.as_ref())?;
+    let total = level::total(&shown, caps);
 
-    Ok((bytes, format!("{}.png", cat.id_str(sheet.form))))
+    match sheet.page {
+        Page::Talents => Ok((statblock::talents(library, cache, cat, sheet.form, total, &shown, levels.as_ref())?, format!("{id}.talents.png"))),
+        _ => Ok((statblock::cat(library, cache, cat, sheet.form, total, &shown, levels.as_ref())?, format!("{id}.png"))),
+    }
+}
+
+fn card_png(library: &Library, cache: &Cache, card: &Card) -> Result<(Vec<u8>, String), Trouble> {
+    let enemy = library.enemy(card.id).ok_or(Trouble::NoEnemy)?;
+    let id = enemy.id_str();
+
+    match card.page {
+        Page::Details => Ok((statblock::enemy_details(library, cache, enemy)?, format!("{id}.details.png"))),
+        _ => {
+            let plain = Magnification::default();
+            let (hitpoints, attack) = card.magnification.unwrap_or((plain.hitpoints, plain.attack));
+
+            Ok((statblock::enemy(library, cache, enemy, Magnification::pair(hitpoints, attack))?, format!("{id}.png")))
+        }
+    }
+}
+
+fn lit(on: bool) -> serenity::ButtonStyle {
+    if on { serenity::ButtonStyle::Success } else { serenity::ButtonStyle::Secondary }
+}
+
+fn card_rows(card: &Card) -> Vec<serenity::CreateActionRow> {
+    let turn = |page: Page, label: &str| pick(card.page == page, card.turned(CARD_PAGE, page), label);
+    let pages = vec![caption(format!("{LABEL}|0"), "Page"), turn(Page::Stats, "Stats"), turn(Page::Details, "Details")];
+    let tuning = vec![caption(format!("{LABEL}|1"), "Apply"), serenity::CreateButton::new(card.turned(CARD_ASK, card.page)).label("Magnification").style(lit(card.magnification.is_some()))];
+
+    vec![serenity::CreateActionRow::Buttons(pages), serenity::CreateActionRow::Buttons(tuning)]
 }
 
 fn sheet_rows(library: &Library, sheet: &Sheet) -> Vec<serenity::CreateActionRow> {
     let Some(cat) = library.cat(sheet.id) else {
         return Vec::new();
     };
-    let forms: Vec<serenity::CreateButton> = (0..FORMS.len())
-        .filter(|form| cat.forms[*form])
-        .map(|form| {
-            let current = form == sheet.form;
+    let mut forms = vec![caption(format!("{LABEL}|0"), "Form")];
 
-            serenity::CreateButton::new(sheet.custom("sb", form))
-                .label(FORMS[form])
-                .style(if current { serenity::ButtonStyle::Primary } else { serenity::ButtonStyle::Secondary })
-                .disabled(current)
-        })
-        .collect();
-    let mut rows = Vec::new();
+    forms.extend((0..FORMS.len()).map(|form| {
+        let page = if sheet.page == Page::Talents && !talented(cat, form) { Page::Stats } else { sheet.page };
 
-    if forms.len() > 1 {
-        rows.push(serenity::CreateActionRow::Buttons(forms));
-    }
+        pick(form == sheet.form, sheet.turned("sb", form, page), FORMS[form]).disabled(!cat.forms[form])
+    }));
 
-    let lit = |on: bool| if on { serenity::ButtonStyle::Success } else { serenity::ButtonStyle::Secondary };
-    let mut tuning = vec![serenity::CreateButton::new(sheet.custom("sl", sheet.form)).label("Level").style(lit(sheet.level.is_some()))];
+    let turn = |page: Page, label: &str| pick(sheet.page == page, sheet.turned("sp", sheet.form, page), label);
+    let gifted = talented(cat, sheet.form);
+    let pages = vec![caption(format!("{LABEL}|1"), "Page"), turn(Page::Stats, "Stats"), turn(Page::Talents, "Talents").disabled(!gifted), turn(Page::Details, "Details")];
+    let tuning = vec![
+        caption(format!("{LABEL}|2"), "Apply"),
+        serenity::CreateButton::new(sheet.custom("sl", sheet.form)).label("Level").style(lit(sheet.level.is_some())),
+        serenity::CreateButton::new(sheet.custom("st", sheet.form)).label("Talents").style(lit(sheet.talents.is_some())).disabled(!gifted),
+    ];
 
-    if cat.talent_data.is_some() && sheet.form >= TRUE_FORM {
-        tuning.push(serenity::CreateButton::new(sheet.custom("st", sheet.form)).label("Talents").style(lit(sheet.talents.is_some())));
-    }
-
-    rows.push(serenity::CreateActionRow::Buttons(tuning));
-
-    rows
+    vec![serenity::CreateActionRow::Buttons(forms), serenity::CreateActionRow::Buttons(pages), serenity::CreateActionRow::Buttons(tuning)]
 }
 
-async fn send_sheet(voice: Voice<'_>, library: Arc<Library>, sheet: Sheet) -> Result<(), Error> {
+async fn send_sheet(voice: Voice<'_>, library: Arc<Library>, sheet: Sheet, mode: Mode) -> Result<(), Error> {
     let rendered = {
         let (library, sheet) = (Arc::clone(&library), sheet.clone());
 
@@ -1117,7 +1193,22 @@ async fn send_sheet(voice: Voice<'_>, library: Arc<Library>, sheet: Sheet) -> Re
     };
 
     match rendered {
-        Ok((bytes, name)) => voice.post(Post::file(bytes, name).rows(sheet_rows(&library, &sheet))).await.map(|_| ())?,
+        Ok((bytes, name)) => voice.post(Post::file(bytes, name).rows(if mode == Mode::Interactive { sheet_rows(&library, &sheet) } else { Vec::new() })).await.map(|_| ())?,
+        Err(trouble) => voice.say(trouble.told(voice.prose())).await?,
+    };
+
+    Ok(())
+}
+
+async fn send_card(voice: Voice<'_>, library: Arc<Library>, card: Card, mode: Mode) -> Result<(), Error> {
+    let rendered = {
+        let (library, card, cache) = (Arc::clone(&library), card.clone(), Arc::clone(&voice.data().cache));
+
+        blocking(voice.data(), move || card_png(&library, &cache, &card)).await?
+    };
+
+    match rendered {
+        Ok((bytes, name)) => voice.post(Post::file(bytes, name).rows(if mode == Mode::Interactive { card_rows(&card) } else { Vec::new() })).await.map(|_| ())?,
         Err(trouble) => voice.say(trouble.told(voice.prose())).await?,
     };
 
@@ -1528,12 +1619,6 @@ async fn serve_cat(voice: Voice<'_>, request: Request) -> Result<(), Error> {
     }
 
     match request.want {
-        Want::Stats(stats) if stats.talents.as_deref().is_some_and(talents::shows) => {
-            let form = if form < TRUE_FORM && cat.forms[TRUE_FORM] { TRUE_FORM } else { form };
-
-            voice.say(talents::overview(&library, cat, form, prefs.prose)).await?;
-            Ok(())
-        }
         Want::Stats(stats) => {
             let talents = match stats.talents {
                 Some(words) => match talents::levels(&library, cat, &words) {
@@ -1545,10 +1630,17 @@ async fn serve_cat(voice: Voice<'_>, request: Request) -> Result<(), Error> {
                 },
                 None => None,
             };
-            let form = if talents.is_some() && form < TRUE_FORM && cat.forms[TRUE_FORM] { TRUE_FORM } else { form };
-            let sheet = Sheet { owner, id: cat.id, form, level: stats.level, talents };
+            let lifted = talents.is_some() || stats.page == Page::Talents;
+            let form = if lifted && form < TRUE_FORM && cat.forms[TRUE_FORM] { TRUE_FORM } else { form };
 
-            send_sheet(voice, Arc::clone(&library), sheet).await
+            if stats.page == Page::Talents && !talented(cat, form) {
+                voice.say(Trouble::NoTalents(cat.display_name(form)).told(prefs.prose)).await?;
+                return Ok(());
+            }
+
+            let sheet = Sheet { owner, id: cat.id, form, level: stats.level, talents, page: stats.page };
+
+            send_sheet(voice, Arc::clone(&library), sheet, stats.mode.unwrap_or(prefs.mode)).await
         }
         Want::Motion(motion) => {
             let set = cat_animation::motions(cat, form, &library.vault.vfs);
@@ -1598,28 +1690,9 @@ async fn serve_enemy(voice: Voice<'_>, request: Request) -> Result<(), Error> {
 
     match request.want {
         Want::Stats(stats) => {
-            let (hitpoints, attack) = stats.magnification.unwrap_or_else(|| {
-                let plain = Magnification::default();
+            let card = Card { owner: voice.user().get(), id: enemy.id, page: stats.page, magnification: stats.magnification };
 
-                (plain.hitpoints, plain.attack)
-            });
-            let id = enemy.id;
-            let rendered = {
-                let (library, cache) = (Arc::clone(&library), Arc::clone(&voice.data().cache));
-
-                blocking(voice.data(), move || {
-                    let enemy = library.enemy(id).ok_or(Trouble::NoEnemy)?;
-                    statblock::enemy(&library, &cache, enemy, Magnification::pair(hitpoints, attack)).map(|bytes| (bytes, format!("{}.png", enemy.id_str())))
-                })
-                .await?
-            };
-
-            match rendered {
-                Ok((bytes, name)) => voice.post(Post::file(bytes, name)).await.map(|_| ())?,
-                Err(trouble) => voice.say(trouble.told(prefs.prose)).await?,
-            };
-
-            Ok(())
+            send_card(voice, Arc::clone(&library), card, stats.mode.unwrap_or(prefs.mode)).await
         }
         Want::Motion(motion) => {
             let set = enemy_animation::motions(enemy, &library.vault.vfs);
@@ -1692,13 +1765,11 @@ const HOME: &str = "home";
 const PAGES: [(&str, &str); 12] = [(HOME, "Home"), ("cat", "Cat"), ("enemy", "Enemy"), ("stage", "Stage"), ("map", "Map"), ("background", "Background"), ("audio", "Audio"), ("settings", "Settings"), ("website", "Website"), ("invite", "Invite"), ("legal", "Legal"), ("help", "Help")];
 const HELP: &str = "help|";
 const GENERAL: &str = "general";
-const UNIT_SECTIONS: [(&str, &str); 4] = [(GENERAL, "General"), ("unit", "Unit"), ("stats", "Stats"), ("animation", "Animation")];
-const CAT_SECTIONS: [(&str, &str); 5] = [(GENERAL, "General"), ("unit", "Unit"), ("stats", "Stats"), ("animation", "Animation"), ("buttons", "Buttons")];
+const UNIT_SECTIONS: [(&str, &str); 5] = [(GENERAL, "General"), ("unit", "Unit"), ("stats", "Stats"), ("animation", "Animation"), ("buttons", "Buttons")];
 
 fn sections(page: &str) -> &'static [(&'static str, &'static str)] {
     match page {
-        "cat" => &CAT_SECTIONS,
-        "enemy" => &UNIT_SECTIONS,
+        "cat" | "enemy" => &UNIT_SECTIONS,
         _ => &[],
     }
 }
@@ -1784,34 +1855,43 @@ fn help_page(page_name: &str, section: &str, prefix: &str, prose: Prose) -> sere
             .field("Name", NAMES, false)
             .field("`--search` (`-s`)", SEARCHING, false)
             .field("`form` (`f`)", "After an ID or a name, picks a form: 1-4, n e t u, f c s u, or Normal, Evolved, True, Ultra", false),
-        ("cat", "stats") => Voiced::new(prefix, "hg!cat (c) • Stats", "`hg!cat <unit> [s | stat] ...`")
+        ("cat", "stats") => Voiced::new(prefix, "hg!cat (c) • Stats", "`hg!cat <unit> [s | t | d] ...`")
+            .field("Pages", "`stats` (`s`, `stat`): the statblock, and what you get without a page\n`talents` (`t`, `talent`): every talent with its description, its level and what it changes. True and Ultra forms only, so a Normal or Evolved form is lifted to True\n`details` (`d`, `detail`, `description`): the description, what evolving costs, and its cat combos\nA level and `--talents` go with any of them", false)
             .field("Level", "`lv50+70`, `lvl50`, `l50`, `level50` or just `50`. Without one, a typical level for its rarity, raised to the level its form or its ultra talents unlock at if that's higher.", false)
-            .field("`--talents` (`-t`)", "`all` (`a`), `standard` (`s`), `ultra` (`u`), `none` (`n`), `show` (`sh`) to list them with their max levels, levels in order like `10 10 5`, or names like `Attack Buff 5`. Talents lift a Normal or Evolved form to True.", false),
+            .field("`--talents` (`-t`)", "`all` (`a`), `standard` (`s`), `ultra` (`u`), `none` (`n`), levels in order like `10 10 5`, or names like `Attack Buff 5`. Talents lift a Normal or Evolved form to True. The talents page (`t`) lists every one with its max level.", false)
+            .field("`--interactive` (`-i`), `--dormant` (`-d`)", "With or without the buttons under the picture this time, whatever your Blocks setting says.", false),
         ("cat", "animation") => Voiced::new(prefix, "hg!cat (c) • Animation", "`hg!cat <unit> [a | anim] [type] ...`").field("Types", CLIPS, false).field("Flags", MOTION_FLAGS, false),
-        ("cat", "buttons") => Voiced::new(prefix, "hg!cat (c) • Buttons", "Statblocks get a button per form, Level, and Talents on True and Ultra forms. Level and Talents turn green when you've set them. Only the person who asked can press them."),
+        ("cat", "buttons") => Voiced::new(prefix, "hg!cat (c) • Buttons", "With your Blocks setting on Interactive, or `--interactive` (`-i`) after a request, three rows sit under the picture. Form picks a form, Page turns between Stats, Talents and Details, and Apply sets a Level or Talents. The one you're on is green, and so are Level and Talents once you've set them. A form the cat doesn't have is grayed out, and so is Talents below the True form or on a cat without any. Only the person who asked can press them."),
         ("cat", _) => Voiced::new(prefix, "hg!cat (c)", "`hg!cat <unit> [stats | animation] ...`")
-            .field("Stats or animation", "Worked out from what you type: an animation name or flag means animation, a level or `--talents` means stats. `s` or `a` still decides outright, and stats is the default.", false)
-            .field("Examples", "`hg!c 137_u lv50+70 -t all`\n`hg!c bahamut cat form normal`\n`hg!c jamiera cat a showcase -f webp`\n`hg!c 008 a walk -l -r 10~120`", false),
+            .field("Stats or animation", "Worked out from what you type: an animation name or flag means animation, a level or `--talents` means stats. `s` or `a` still decides outright, and stats is the default. `t` and `d` open the Talents and Details pages, so the dig animation is `dig` or `a d`.", false)
+            .field("Examples", "`hg!c 137_u lv50+70 -t all`\n`hg!c 44 t -t 10 5`\n`hg!c bahamut cat d`\n`hg!c bahamut cat form normal`\n`hg!c jamiera cat a showcase -f webp`\n`hg!c 008 a walk -l -r 10~120`", false),
         ("enemy", "unit") => Voiced::new(prefix, "hg!enemy (e) • Unit", "What goes where `<unit>` is in `hg!enemy <unit> ...`")
             .field("ID", "`763` or `0763`, and `763-e` or `763_E` the way its statblock writes it. Without a command, the `e` is what says enemy and not cat", false)
             .field("Name", NAMES, false)
             .field("`--search` (`-s`)", SEARCHING, false),
-        ("enemy", "stats") => Voiced::new(prefix, "hg!enemy (e) • Stats", "`hg!enemy <unit> [s | stat] ...`").field("Magnification", "`400%`, or `400%/200%` for hitpoints and attack. 100% without one.", false),
+        ("enemy", "stats") => Voiced::new(prefix, "hg!enemy (e) • Stats", "`hg!enemy <unit> [s | d] ...`")
+            .field("Pages", "`stats` (`s`, `stat`): the statblock, and what you get without a page\n`details` (`d`, `detail`, `description`): its description", false)
+            .field("Magnification", "`400%`, or `400%/200%` for hitpoints and attack. 100% without one.", false)
+            .field("`--interactive` (`-i`), `--dormant` (`-d`)", "With or without the buttons under the picture this time, whatever your Blocks setting says.", false),
         ("enemy", "animation") => Voiced::new(prefix, "hg!enemy (e) • Animation", "`hg!enemy <unit> [a | anim] [type] ...`").field("Types", CLIPS, false).field("Flags", MOTION_FLAGS, false),
+        ("enemy", "buttons") => Voiced::new(prefix, "hg!enemy (e) • Buttons", "With your Blocks setting on Interactive, or `--interactive` (`-i`) after a request, two rows sit under the picture. Page turns between Stats and Details, and Apply sets a Magnification. The page you're on is green, and so is Magnification once you've set one. Only the person who asked can press them."),
         ("enemy", _) => Voiced::new(prefix, "hg!enemy (e)", "`hg!enemy <unit> [stats | animation] ...`")
-            .field("Stats or animation", "Worked out from what you type: an animation name or flag means animation, a percentage means stats. `s` or `a` still decides outright, and stats is the default.", false)
-            .field("Examples", "`hg!e akaza 400%`, `hg!e akaza s 400`\n`hg!e 763 a attack -c -w`", false),
+            .field("Stats or animation", "Worked out from what you type: an animation name or flag means animation, a percentage means stats. `s` or `a` still decides outright, and stats is the default. `d` opens the Details page, so the dig animation is `dig` or `a d`.", false)
+            .field("Examples", "`hg!e akaza 400%`, `hg!e akaza s 400`\n`hg!e akaza d`\n`hg!e 763 a attack -c -w`", false),
         ("stage", _) => Voiced::new(prefix, "hg!stage (s)", "`hg!stage <name> ...`")
             .field("What you get", prose::PAGE_STAGE.said(prose), false)
             .field("Name", "Spaces are fine, and close spellings still match. A name several stages share gets a list to pick from.\n`--search` (`-s`) after it lists the closest matches, 24 to a page, and a number after that, 1 to 100, is how close a name has to be", false)
             .field("ID", "A category's prefix, the map and the stage: `R 001 02`, `R-1-2`, `r001_02` and `R1 2` are all the same stage. A file's prefix works too, so `RN 0 7` is `N 0 7` and `EX 70 9` is `RE 70 9`.", false)
-            .field("`--crowns 2` (`-c`)", "1 to 4, and the lowest one the stage is open at without it. A stage that doesn't have the one you ask for says so. A stage with more than one also gets a button each under the picture; only the person who asked can press them.", false)
+            .field("`--crowns 2` (`-c`)", "1 to 4, and the lowest one the stage is open at without it. A stage that doesn't have the one you ask for says so.", false)
+            .field("`--interactive` (`-i`), `--dormant` (`-d`)", "With or without the buttons under the picture this time, whatever your Blocks setting says.", false)
+            .field("Buttons", "With your Blocks setting on Interactive, or `--interactive` (`-i`) after a request, a stage with more than one crown gets a button for each under the picture. The one shown is green, and one the stage isn't open at is grayed out. Only the person who asked can press them.", false)
             .field("Examples", "`hg!stage earthshaker`\n`hg!s sleeping lion -c 4`\n`hg!s moon -s`", false),
         ("map", _) => Voiced::new(prefix, "hg!map (m)", "`hg!map <name | ID> ...`")
             .field("What you get", prose::PAGE_MAP.said(prose), false)
             .field("Name", "Spaces are fine, and close spellings still match. A name several maps share gets a list to pick from, each with its category and top crown.\n`--search` (`-s`) after it lists the closest matches, 24 to a page", false)
             .field("ID", "A category's prefix and the map: `R 100`, `R-100`, `r100`. A file's prefix works too, so `RN 0` is `N 0`.", false)
             .field("`--crowns 2` (`-c`)", "1 to 4. The stage you pick comes at that crown, and says so if it doesn't have it.", false)
+            .field("`--interactive` (`-i`), `--dormant` (`-d`)", "The stage you pick comes with or without its crown buttons, whatever your Blocks setting says.", false)
             .field("Stages", "The list holds 24 stages at a time. ◀ and ▶ under it turn its pages, and the page number between them opens a box to jump to one.", false)
             .field("Invasions", "An invasion is a map of its own, named after the map it invades and marked Invasion. So `hg!map laboratory of relics` offers the map and its invasion, and the Filibuster's is Cats of the Cosmos Ch. 3 with every stage invaded.", false)
             .field("Examples", "`hg!map the legend begins`\n`hg!m N 0 -c 4`\n`hg!m empire of cats ch. 1`", false),
@@ -1830,6 +1910,7 @@ fn help_page(page_name: &str, section: &str, prefix: &str, prose: Prose) -> sere
             .field("Format", "AVIF, WebP or GIF, for animations. AVIF to start, and the smallest by far. `--format` overrides it for one request.", false)
             .field("Default form", "The form a bare ID gets, or a name that matches several forms of one cat. True to start; a cat without it gets the next form down.", false)
             .field("Search", "Exact (to start): a form's exact name gets that form, anything else is a close search. Preferred: a found cat always gets your default form.", false)
+            .field("Blocks", "Dormant (to start): a cat's, an enemy's or a stage's picture comes alone. Interactive: it comes with buttons under it to change it. `--dormant` (`-d`) and `--interactive` (`-i`) override it for one request.", false)
             .field("Prefix", "What you type in front of a command, which is `hg!` for you right now. Up to 16 characters, no spaces; leave it empty to go back to `{default}`. Mentioning me and `/` always work.", false)
             .field("Prose", "Human (to start) or Tsundere: how I word what I say. What I tell you stays the same.", false),
         ("website", _) => Voiced::new(prefix, "hg!website (web, w)", prose::PAGE_WEBSITE.said(prose)),
@@ -1889,6 +1970,7 @@ enum Setting {
     Format,
     Form,
     Search,
+    Mode,
     Prose,
     Prefix,
 }
@@ -1900,6 +1982,7 @@ impl Setting {
             Setting::Format => "fmt",
             Setting::Form => "form",
             Setting::Search => "search",
+            Setting::Mode => "mode",
             Setting::Prose => "prose",
             Setting::Prefix => "prefix",
         }
@@ -1911,6 +1994,7 @@ impl Setting {
             Setting::Format => "Format",
             Setting::Form => "Form",
             Setting::Search => "Search",
+            Setting::Mode => "Blocks",
             Setting::Prose => "Prose",
             Setting::Prefix => "Prefix",
         }
@@ -1929,6 +2013,7 @@ impl Setting {
             Setting::Format => [Format::Avif, Format::WebP, Format::Gif].into_iter().map(|format| pick(format == prefs.format, format!("set|{owner}|{key}|{}", format.extension()), format.label())).collect(),
             Setting::Form => FORMS.iter().enumerate().map(|(form, label)| pick(form == prefs.form, format!("set|{owner}|{key}|{form}"), label)).collect(),
             Setting::Search => [Search::Exact, Search::Preferred].into_iter().map(|search| pick(search == prefs.search, format!("set|{owner}|{key}|{}", search.slug()), search.label())).collect(),
+            Setting::Mode => Mode::ALL.into_iter().map(|mode| pick(mode == prefs.mode, format!("set|{owner}|{key}|{}", mode.slug()), mode.label())).collect(),
             Setting::Prose => Prose::ALL.into_iter().map(|prose| pick(prose == prefs.prose, format!("set|{owner}|{key}|{}", prose.slug()), prose.label())).collect(),
             Setting::Prefix => vec![pick(prefs.prefix.is_some(), format!("set|{owner}|{key}"), "Change")],
         };
@@ -1952,6 +2037,7 @@ fn settings_view(owner: u64, prefs: &Prefs, shown: usize) -> (serenity::CreateEm
         .field("Format", prefs.format.label(), true)
         .field("Default form", form, true)
         .field("Search", prefs.search.label(), true)
+        .field("Blocks", prefs.mode.label(), true)
         .field("Prefix", prefs.prefix(), true)
         .field("Prose", prefs.prose.label(), true);
     let shown = shown.min(SETTINGS_PAGES - 1);
@@ -2097,6 +2183,33 @@ async fn on_press(ctx: &serenity::Context, press: &serenity::ComponentInteractio
         return Ok(());
     }
 
+    if let Some((tag, card)) = Card::read(custom) {
+        if press.user.id.get() != card.owner {
+            return refuse(ctx, press, data).await;
+        }
+
+        if tag == CARD_ASK {
+            let mut input = serenity::CreateInputText::new(serenity::InputTextStyle::Short, "Magnification (empty goes back to 100%)", "magnification").placeholder(MAGNIFICATION_HINT).max_length(LEVEL_LIMIT).required(false);
+
+            if let Some(held) = card.magnification {
+                input = input.value(percents(held));
+            }
+
+            let modal = serenity::CreateModal::new(card.turned(CARD_SET, card.page), "Magnification").components(vec![serenity::CreateActionRow::InputText(input)]);
+
+            press.create_response(ctx, serenity::CreateInteractionResponse::Modal(modal)).await?;
+            return Ok(());
+        }
+
+        press.create_response(ctx, serenity::CreateInteractionResponse::Acknowledge).await?;
+
+        if let Some(edit) = recarded(data, &card).await? {
+            press.edit_response(ctx, edit).await?;
+        }
+
+        return Ok(());
+    }
+
     let Some((tag, sheet)) = Sheet::read(custom) else { return Ok(()) };
 
     if press.user.id.get() != sheet.owner {
@@ -2104,7 +2217,7 @@ async fn on_press(ctx: &serenity::Context, press: &serenity::ComponentInteractio
     }
 
     match tag {
-        "sb" => {
+        "sb" | "sp" => {
             press.create_response(ctx, serenity::CreateInteractionResponse::Acknowledge).await?;
 
             if let Some(edit) = redrawn(data, &sheet).await? {
@@ -2244,6 +2357,27 @@ async fn on_modal(ctx: &serenity::Context, form: &serenity::ModalInteraction, da
         return Ok(());
     }
 
+    if let Some((_, mut card)) = Card::read(&form.data.custom_id).filter(|(tag, card)| *tag == CARD_SET && card.owner == form.user.id.get()) {
+        let typed: String = typed(form).split_whitespace().collect();
+        let asked = grammar::magnification_of(&typed);
+
+        if !typed.is_empty() && asked.is_none() {
+            let notice = serenity::CreateInteractionResponseMessage::new().content(prose::NOT_A_PERCENT.said(data.book.prose(card.owner))).ephemeral(true);
+
+            form.create_response(ctx, serenity::CreateInteractionResponse::Message(notice)).await?;
+            return Ok(());
+        }
+
+        form.create_response(ctx, serenity::CreateInteractionResponse::Acknowledge).await?;
+        card.magnification = asked;
+
+        if let Some(edit) = recarded(data, &card).await? {
+            form.edit_response(ctx, edit).await?;
+        }
+
+        return Ok(());
+    }
+
     let Some((tag, mut sheet)) = Sheet::read(&form.data.custom_id) else { return Ok(()) };
 
     if form.user.id.get() != sheet.owner {
@@ -2262,13 +2396,6 @@ async fn on_modal(ctx: &serenity::Context, form: &serenity::ModalInteraction, da
     let Some((_guard, library)) = open(data, &prefs.language).await? else { return Ok(()) };
     let Some(cat) = library.cat(sheet.id) else { return Ok(()) };
     let words: Vec<&str> = typed.split_whitespace().collect();
-
-    if talents::shows(&grammar::talents_of(&words)) {
-        let private = serenity::CreateInteractionResponseMessage::new().content(talents::overview(&library, cat, sheet.form, prefs.prose)).ephemeral(true);
-
-        form.create_response(ctx, serenity::CreateInteractionResponse::Message(private)).await?;
-        return Ok(());
-    }
 
     form.create_response(ctx, serenity::CreateInteractionResponse::Acknowledge).await?;
 
@@ -2317,6 +2444,28 @@ async fn redrawn(data: &Data, sheet: &Sheet) -> Result<Option<serenity::EditInte
     }
 }
 
+async fn recarded(data: &Data, card: &Card) -> Result<Option<serenity::EditInteractionResponse>, Error> {
+    let prefs = data.book.get(card.owner);
+    let Some((_guard, library)) = open(data, &prefs.language).await? else { return Ok(None) };
+    let rendered = {
+        let (library, card, cache) = (Arc::clone(&library), card.clone(), Arc::clone(&data.cache));
+
+        blocking(data, move || card_png(&library, &cache, &card)).await?
+    };
+
+    match rendered {
+        Ok((bytes, name)) => {
+            let attachments = serenity::EditAttachments::new().add(serenity::CreateAttachment::bytes(bytes, name));
+
+            Ok(Some(serenity::EditInteractionResponse::new().attachments(attachments).components(card_rows(card))))
+        }
+        Err(reason) => {
+            error!(enemy = card.id, "A statblock could not be redrawn: {}", reason.told(Prose::Human));
+            Ok(None)
+        }
+    }
+}
+
 async fn on_setting(ctx: &serenity::Context, press: &serenity::ComponentInteraction, data: &Data, rest: &str) -> Result<(), Error> {
     let mut parts = rest.split('|');
     let Some(owner) = parts.next().and_then(|owner| owner.parse::<u64>().ok()) else { return Ok(()) };
@@ -2359,6 +2508,7 @@ async fn on_setting(ctx: &serenity::Context, press: &serenity::ComponentInteract
         "fmt" => prefs.format = [Format::Avif, Format::WebP, Format::Gif].into_iter().find(|format| format.extension() == value).unwrap_or(prefs.format),
         "form" => prefs.form = value.parse::<usize>().ok().filter(|form| *form < FORMS.len()).unwrap_or(prefs.form),
         "search" => prefs.search = [Search::Exact, Search::Preferred].into_iter().find(|search| search.slug() == value).unwrap_or(prefs.search),
+        "mode" => prefs.mode = Mode::ALL.into_iter().find(|mode| mode.slug() == value).unwrap_or(prefs.mode),
         "prose" => prefs.prose = Prose::ALL.into_iter().find(|prose| prose.slug() == value).unwrap_or(prefs.prose),
         _ => {}
     });
@@ -2531,8 +2681,8 @@ mod tests {
             lists("cat", "stats"),
             [("help|1|".to_owned(), commands.clone(), vec!["Cat".to_owned()]), ("help|1|cat".to_owned(), ["General", "Unit", "Stats", "Animation", "Buttons"].map(str::to_owned).to_vec(), vec!["Stats".to_owned()])]
         );
-        assert_eq!(lists("enemy", GENERAL)[1], ("help|1|enemy".to_owned(), ["General", "Unit", "Stats", "Animation"].map(str::to_owned).to_vec(), vec!["General".to_owned()]));
-        assert_eq!((section_of("cat", ""), section_of("cat", "stats"), section_of("cat", "anim"), section_of("cat", "nonsense"), section_of("enemy", "buttons"), section_of("audio", "unit")), (GENERAL, "stats", "animation", GENERAL, GENERAL, ""));
+        assert_eq!(lists("enemy", GENERAL)[1], ("help|1|enemy".to_owned(), ["General", "Unit", "Stats", "Animation", "Buttons"].map(str::to_owned).to_vec(), vec!["General".to_owned()]));
+        assert_eq!((section_of("cat", ""), section_of("cat", "stats"), section_of("cat", "anim"), section_of("cat", "nonsense"), section_of("enemy", "buttons"), section_of("audio", "unit")), (GENERAL, "stats", "animation", GENERAL, "buttons", ""));
 
         for (page, _) in PAGES {
             for section in sections(page).iter().map(|(key, _)| *key).chain([""]) {
@@ -2645,17 +2795,62 @@ mod tests {
 
     #[test]
     fn a_sheet_survives_its_button_id() {
-        let sheet = Sheet { owner: 1, id: 25, form: 2, level: Some("50+70".to_owned()), talents: Some("10.0.5".to_owned()) };
+        let sheet = Sheet { owner: 1, id: 25, form: 2, level: Some("50+70".to_owned()), talents: Some("10.0.5".to_owned()), page: Page::Talents };
         let custom = sheet.custom("sb", 3);
         let (tag, read) = Sheet::read(&custom).unwrap();
 
         assert_eq!(tag, "sb");
-        assert_eq!((read.owner, read.id, read.form, read.level.as_deref(), read.talents.as_deref()), (1, 25, 3, Some("50+70"), Some("10.0.5")));
+        assert_eq!((read.owner, read.id, read.form, read.level.as_deref(), read.talents.as_deref(), read.page), (1, 25, 3, Some("50+70"), Some("10.0.5"), Page::Talents));
         assert!(custom.len() <= 100);
+
+        let widest = Sheet { owner: u64::MAX, id: 9999, level: Some("999+999".to_owned()), talents: Some("10.10.10.10.10.10.10.10.10.10".to_owned()), ..sheet.clone() };
+
+        assert!(widest.custom("sb", 3).len() <= 100);
 
         let automatic = Sheet { level: None, talents: None, ..sheet };
         let (_, read) = Sheet::read(&automatic.custom("sl", 3)).unwrap();
 
         assert_eq!((read.level, read.talents), (None, None), "no level means the automatic one, and it stays that way through a button");
+    }
+
+    // Buttons posted before pages existed carry no page, and they still have to answer.
+    #[test]
+    fn an_older_sheet_button_opens_the_stats_page() {
+        let (_, read) = Sheet::read("sb|1|25|2|50|-").unwrap();
+
+        assert_eq!(read.page, Page::Stats);
+    }
+
+    #[test]
+    fn a_card_survives_its_button_id() {
+        let card = Card { owner: u64::MAX, id: 763, page: Page::Details, magnification: Some((400, 200)) };
+        let custom = card.turned(CARD_SET, Page::Stats);
+        let (tag, read) = Card::read(&custom).unwrap();
+
+        assert_eq!((tag, read.owner, read.id, read.page, read.magnification), (CARD_SET, u64::MAX, 763, Page::Stats, Some((400, 200))));
+        assert!(custom.len() <= 100);
+        assert_eq!(Card::read(&Card { magnification: None, ..card }.turned(CARD_PAGE, Page::Details)).map(|(_, read)| read.magnification), Some(None));
+        assert!(Card::read("sb|1|25|2|50|-|s").is_none(), "a cat's button is never read as an enemy's");
+        assert!(Sheet::read(&custom).is_none(), "and an enemy's is never read as a cat's");
+    }
+
+    // Discord refuses a message whose buttons share an ID, so every button of a panel has its own.
+    #[test]
+    fn panel_button_ids_never_repeat() {
+        let card = Card { owner: 1, id: 2, page: Page::Stats, magnification: None };
+        let ids = [card.turned(CARD_PAGE, Page::Stats), card.turned(CARD_PAGE, Page::Details), card.turned(CARD_ASK, card.page), format!("{LABEL}|0"), format!("{LABEL}|1")];
+
+        for (at, id) in ids.iter().enumerate() {
+            assert!(!ids[..at].contains(id), "{id} is used twice");
+        }
+
+        let sheet = Sheet { owner: 1, id: 25, form: 2, level: None, talents: None, page: Page::Stats };
+        let forms = (0..FORMS.len()).map(|form| sheet.turned("sb", form, sheet.page));
+        let pages = [Page::Stats, Page::Talents, Page::Details].into_iter().map(|page| sheet.turned("sp", sheet.form, page));
+        let ids: Vec<String> = forms.chain(pages).chain([sheet.custom("sl", sheet.form), sheet.custom("st", sheet.form)]).collect();
+
+        for (at, id) in ids.iter().enumerate() {
+            assert!(!ids[..at].contains(id), "{id} is used twice");
+        }
     }
 }

@@ -186,8 +186,8 @@ pub(crate) const WEBSITE: Line = Line::new("https://hagane.app/", "Here, just ta
 pub(crate) const NO_TALENTS: Line = Line::new("{unit} has no talents", "{unit} doesn't have any talents! What were you expecting?!");
 pub(crate) const FEW_TALENTS: Line = Line::new("{unit} only has {count} talents", "{unit} only has {count} talents! Can't you count?!");
 pub(crate) const NO_TALENT_LIKE: Line = Line::new("{unit} has no talent like `{name}`", "{unit} has no talent like `{name}`! Where did you even get that from?!");
-pub(crate) const TALENTLESS: Line = Line::new("No talents", "No talents. None. Stop staring!");
 pub(crate) const NOT_A_LEVEL: Line = Line::new("A level looks like `50`, `50+70` or `lv30`", "That's not a level! It looks like `50`, `50+70` or `lv30`, got it?!");
+pub(crate) const NOT_A_PERCENT: Line = Line::new("A magnification looks like `400%` or `400%/200%`", "That's not a magnification! It looks like `400%` or `400%/200%`, got it?!");
 pub(crate) const PREFIX_SPACED: Line = Line::new("A prefix can't have spaces in it", "A prefix can't have spaces in it, dummy!");
 pub(crate) const PREFIX_LONG: Line = Line::new("A prefix can be {limit} characters at most", "{limit} characters at most! I'm not memorizing a whole speech just for you!");
 pub(crate) const HELP_HOME: Line = Line::new("Use `hg!`, mention me, reply to me, DM me, or use `/`.\nLeave out the command and I look through cats, enemies, stages and maps: `hg!bahamut`, `hg!cyclone a walk`.\nThe list below opens each command, or use `hg!help <command>`.", "Use `hg!`, mention me, reply to me, DM me, or use `/`. I-It's not like I'm happy when you do!\nLeave out the command and I'll look through cats, enemies, stages and maps, like `hg!bahamut` or `hg!cyclone a walk`. Honestly, how lazy can you get?!\nThe list below opens each command, or use `hg!help <command>`. Don't make me explain it twice!");
@@ -269,8 +269,8 @@ pub(crate) const LINES: [&Line; 75] = [
     &NO_TALENTS,
     &FEW_TALENTS,
     &NO_TALENT_LIKE,
-    &TALENTLESS,
     &NOT_A_LEVEL,
+    &NOT_A_PERCENT,
     &PREFIX_SPACED,
     &PREFIX_LONG,
     &HELP_HOME,
