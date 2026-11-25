@@ -17,7 +17,7 @@ fn literal(text: &str) -> String {
 
 fn known(group: &TalentGroup, english: bool, held: impl FnOnce() -> String) -> Vec<String> {
     match headers::name(group) {
-        Some(header) if english => vec![header.to_owned()],
+        Some(header) if english => vec![header.to_owned(), held()],
         Some(header) => vec![held(), header.to_owned()],
         None => vec![held()],
     }
@@ -139,7 +139,7 @@ mod tests {
         .to_owned()
     }
 
-    // The talents page shows the game's own name pictures, so a talent goes by that name and no other.
+    // The talents page shows the game's own name pictures, so that name comes first, and ours still finds it.
     #[test]
     fn a_talent_goes_by_the_name_on_its_picture() {
         let groups = [group(10, -1), group(34, -1), group(32, -1), group(31, -1), group(71, -1), group(3, 300), group(73, -1)];
@@ -152,8 +152,9 @@ mod tests {
         assert_eq!(pick("hp buff+"), Some(4));
         assert_eq!(pick("attack buff"), Some(3));
         assert_eq!(pick("slow relic"), Some(5));
-        assert_eq!(pick("strengthen"), None, "our own name for it is not what the picture says");
-        assert_eq!(pick("health buff"), None);
+        assert_eq!(pick("strengthen"), Some(0), "people look for Strengthen by that name, whatever its picture says");
+        assert_eq!(pick("health buff"), Some(2));
+        assert_eq!(pick("health buff +"), Some(4));
         assert_eq!(pick("warp blocker"), None);
         assert_eq!(pick("cat combo"), Some(6), "a talent with no name picture keeps our name");
     }
@@ -164,7 +165,7 @@ mod tests {
         let floating = group(34, -1);
 
         assert_eq!(known(&floating, false, || "\u{6d6e}\u{3044}\u{3066}\u{308b}\u{6575}".to_owned()), ["\u{6d6e}\u{3044}\u{3066}\u{308b}\u{6575}", "Target Floating"]);
-        assert_eq!(known(&floating, true, || "Floating".to_owned()), ["Target Floating"]);
+        assert_eq!(known(&floating, true, || "Floating".to_owned()), ["Target Floating", "Floating"]);
     }
 
     // Every talent at level 0 is the same as having none, so the button reads plain "Talents".
