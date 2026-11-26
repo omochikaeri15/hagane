@@ -9,7 +9,7 @@ use tracing::error;
 
 use codex::graphics::animate::resolve_frame;
 use codex::graphics::rig::Animation;
-use foundry::systems::animation::{alpha, loop_frame, name_prefix, paint};
+use foundry::systems::animation::{alpha, name_prefix, paint};
 
 use crate::platform::{Atlas, Bytes, Captured, Fault, Painted, Platform, Scene, Surface};
 use crate::systems::export::{Phase, png, settle};
@@ -142,7 +142,7 @@ fn exported_frame(active: Option<&Active>, anim: Option<&Animation>, raw: f32) -
     let (Some(active), Some(anim)) = (active, anim) else {
         return raw;
     };
-    if active.looping.native(Some(anim)) { raw } else { loop_frame(anim, raw) }
+    active.looping.exported(anim, raw)
 }
 
 fn straight(captured: Captured) -> Result<RgbaImage, Fault> {

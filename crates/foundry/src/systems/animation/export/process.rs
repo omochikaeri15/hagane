@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 use codex::graphics::rig::Animation;
 use tracing::info;
 
-use crate::systems::animation::loop_frame;
+use crate::systems::animation::{loop_frame, Loop};
 
 use super::{ExportConfig, ExportFormat, ExportMode, ExportRequest, FrameTiming};
 
@@ -96,6 +96,7 @@ pub fn build_config(request: &ExportRequest) -> ExportConfig {
 pub fn calculate_export_time(
     timing: &FrameTiming,
     animation_option: Option<&Animation>,
+    looping: Loop,
     current_time: f32,
     current_progress: i32,
 ) -> f32 {
@@ -113,11 +114,13 @@ pub fn calculate_export_time(
         (start + (current_progress * step)) as f32
     };
 
-    let natively_loops = if is_showcase {
-        animation.modifications.iter().any(|modification| modification.loop_count == -1)
-    } else {
-        timing.loop_supported
-    };
+    if !is_showcase || looping == Loop::Knockback {
+        return looping.exported(animation, raw_frame);
+    }
 
-    if natively_loops { raw_frame } else { loop_frame(animation, raw_frame) }
+    if animation.modifications.iter().any(|modification| modification.loop_count == -1) {
+        raw_frame
+    } else {
+        loop_frame(animation, raw_frame)
+    }
 }

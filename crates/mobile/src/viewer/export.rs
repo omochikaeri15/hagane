@@ -13,7 +13,7 @@ use foundry::Source;
 use foundry::common::job::ProgressCounter;
 use foundry::systems::animation::export::process::calculate_export_time;
 use foundry::systems::animation::export::{BACKGROUND, BoundsOutcome, EncoderMessage, EncoderStatus, ExportFormat, ExportMode, ExportRequest, FrameTiming, LoopStatus, ShowcaseLengths, find_bounds, find_loop, leader, process};
-use foundry::systems::animation::{Role, name_prefix, paint, playback_frames};
+use foundry::systems::animation::{Loop, Role, name_prefix, paint, playback_frames};
 
 use crate::pages::Context;
 use crate::{AppWindow, Export, Tone, bridge, delivery};
@@ -78,6 +78,7 @@ pub struct Form {
     frame_end_str: String,
     mode: ExportMode,
     loop_supported: bool,
+    loopable: bool,
     showcasable: bool,
     loop_tolerance: i32,
     loop_tolerance_str: String,
@@ -137,6 +138,7 @@ impl Default for Form {
             frame_end_str: String::new(),
             mode: ExportMode::Manual,
             loop_supported: false,
+            loopable: true,
             showcasable: false,
             loop_tolerance: 30,
             loop_tolerance_str: String::new(),
@@ -211,7 +213,26 @@ fn format_index(format: &ExportFormat) -> usize {
     FORMATS.iter().position(|held| held == format).unwrap_or(0)
 }
 
+fn mode_label(mode: &ExportMode) -> &'static str {
+    match mode {
+        ExportMode::Manual => "Manual",
+        ExportMode::Loop => "Loop",
+        ExportMode::Showcase => "Showcase",
+    }
+}
+
 impl Form {
+    fn offered(&self) -> Vec<ExportMode> {
+        [ExportMode::Manual, ExportMode::Loop, ExportMode::Showcase]
+            .into_iter()
+            .filter(|mode| match mode {
+                ExportMode::Manual => true,
+                ExportMode::Loop => self.loopable,
+                ExportMode::Showcase => self.showcasable,
+            })
+            .collect()
+    }
+
     fn with_settings(settings: &foundry::domains::settings::Settings, memory: &crate::memory::Remembered, previous: &Form) -> Self {
         let format = FORMATS.get(usize::from(memory.export_format)).cloned().unwrap_or(ExportFormat::Gif);
 
@@ -241,7 +262,7 @@ impl Form {
 
     fn to_request(&self) -> ExportRequest {
         ExportRequest {
-            timing: FrameTiming { mode: self.mode.clone(), frame_start: self.frame_start, frame_end: self.frame_end, loop_supported: self.loop_supported },
+            timing: FrameTiming { mode: self.mode.clone(), frame_start: self.frame_start, frame_end: self.frame_end },
             showcase: ShowcaseLengths { walk: self.showcase_walk_len, idle: self.showcase_idle_len, attack: self.showcase_attack_len, kb: self.showcase_kb_len },
             file_name: (!self.file_name.trim().is_empty()).then(|| self.file_name.clone()),
             name_prefix: self.name_prefix.clone(),
@@ -374,11 +395,7 @@ pub fn wire(window: &AppWindow, context: &Rc<Context>) {
 
         {
             let mut state = form(&ctx);
-            let mode = match index {
-                1 => ExportMode::Loop,
-                2 if state.export.showcasable => ExportMode::Showcase,
-                _ => ExportMode::Manual,
-            };
+            let mode = usize::try_from(index).ok().and_then(|at| state.export.offered().into_iter().nth(at)).unwrap_or(ExportMode::Manual);
 
             if mode == ExportMode::Showcase {
                 state.export.showcase_walk_str.clear();
@@ -716,9 +733,10 @@ pub fn synced(ui: &AppWindow, context: &Rc<Context>) {
             }
 
             state.export.loop_supported = state.loop_supported();
+            state.export.loopable = state.loopable();
             state.export.showcasable = state.set.as_ref().is_some_and(|set| set.motions.iter().any(|motion| motion.role.is_some() && motion.file.is_some()));
 
-            let unsupported = (state.export.mode == ExportMode::Loop && !state.export.loop_supported) || (state.export.mode == ExportMode::Showcase && !state.export.showcasable);
+            let unsupported = (state.export.mode == ExportMode::Loop && !(state.export.loop_supported && state.export.loopable)) || (state.export.mode == ExportMode::Showcase && !state.export.showcasable);
 
             if unsupported {
                 state.export.mode = ExportMode::Manual;
@@ -729,7 +747,7 @@ pub fn synced(ui: &AppWindow, context: &Rc<Context>) {
             }
 
             if state.export.mode != ExportMode::Showcase {
-                let max = state.anim().map_or(0, |anim| anim.declared_frames() - 1);
+                let max = state.anim().map_or(0, |anim| state.looping().frames(&anim) - 1);
 
                 state.export.max_frame = max;
                 state.export.frame_start = 0;
@@ -840,12 +858,9 @@ pub fn refresh(ui: &AppWindow, context: &Rc<Context>) {
     let locked = f.job_active();
     let loop_active = Form::search_active(f.loop_job.as_ref());
     let bounds_active = Form::search_active(f.bounds_job.as_ref());
-    let modes: Vec<SharedString> = if f.showcasable { vec!["Manual".into(), "Loop".into(), "Showcase".into()] } else { vec!["Manual".into(), "Loop".into()] };
-    let mode_index = match f.mode {
-        ExportMode::Manual => 0,
-        ExportMode::Loop => 1,
-        ExportMode::Showcase => 2,
-    };
+    let offered = f.offered();
+    let modes: Vec<SharedString> = offered.iter().map(|mode| SharedString::from(mode_label(mode))).collect();
+    let mode_index = offered.iter().position(|mode| *mode == f.mode).and_then(|at| i32::try_from(at).ok()).unwrap_or(0);
     let (display_start, display_end) = if f.mode == ExportMode::Showcase {
         let total = f.showcase_walk_len + f.showcase_idle_len + f.showcase_attack_len + f.showcase_kb_len;
 
@@ -979,6 +994,7 @@ pub fn refresh(ui: &AppWindow, context: &Rc<Context>) {
 struct RenderJob {
     rig: Arc<Rig>,
     animation: Option<Arc<Animation>>,
+    looping: Loop,
     roles: Vec<(Role, Source)>,
     offset: Option<usize>,
     timing: FrameTiming,
@@ -1030,7 +1046,7 @@ fn render(job: RenderJob) {
     let background = if job.background { BACKGROUND } else { CLEAR };
     let view_proj = paint::export_view_proj(job.width as f32, job.height as f32, job.region.0, job.region.1, job.zoom);
     let seat = |progress: i32| {
-        let (animation, local_time) = match &motions {
+        let (animation, looping, local_time) = match &motions {
             Some(motions) => {
                 let (role, time) = job.lengths.segment(progress);
                 let animation = motions.get(role);
@@ -1039,12 +1055,12 @@ fn render(job: RenderJob) {
                     _ => 0.0,
                 };
 
-                (animation, time)
+                (animation, role.looping(), time)
             }
-            None => (job.animation.as_deref(), 0.0),
+            None => (job.animation.as_deref(), job.looping, 0.0),
         };
 
-        (animation, calculate_export_time(&job.timing, animation, local_time, progress))
+        (animation, calculate_export_time(&job.timing, animation, looping, local_time, progress))
     };
 
     for progress in 0..frame_count {
@@ -1137,6 +1153,7 @@ fn begin(ui: &AppWindow, context: &Rc<Context>) {
         let job = RenderJob {
             rig,
             animation: state.anim(),
+            looping: state.looping(),
             roles: role_paths(&state),
             offset: state.offset(),
             timing,

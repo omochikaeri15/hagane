@@ -239,7 +239,7 @@ pub(crate) fn plan(library: &Library, cache: &Cache, set: &MotionSet, options: &
             (Clip::Showcase, Some(Role::Idle)) if playback_frames(anim) <= SHORT_LOOP => 0,
             (Clip::Showcase, Some(Role::Idle)) => defaults.default_showcase_idle,
             (Clip::Showcase, Some(Role::Knockback)) => defaults.default_showcase_kb,
-            _ => anim.declared_frames(),
+            _ => motion.looping.frames(anim),
         });
 
         recipe.add(format!("{:?}", (motion.role, motion.looping, &motion.combat, motion.slug())).as_bytes());
@@ -415,7 +415,7 @@ impl Job {
                 let anim = track.anim.as_ref()?;
                 let last = match span {
                     Span::Showcase(_) => track.length,
-                    Span::Range(..) => playback_frames(anim) - 1,
+                    Span::Range(..) => track.looping.period(anim) - 1,
                     Span::Loop(_, end) => end,
                     Span::Whole(length) => length - 1,
                 };
@@ -434,7 +434,7 @@ impl Job {
             Span::Loop(start, end) => (ExportMode::Loop, start, end),
             Span::Range(..) | Span::Whole(_) => (ExportMode::Manual, 0, frames - 1),
         };
-        let timing = FrameTiming { mode, frame_start, frame_end, loop_supported: first.looping.native(first.anim.as_ref()) };
+        let timing = FrameTiming { mode, frame_start, frame_end };
         let seat = |at: i32| -> (Option<&Track>, f32) {
             match span {
                 Span::Showcase(_) => {
@@ -443,19 +443,23 @@ impl Job {
                     let anim = track.and_then(|track| track.anim.as_ref());
                     let local = if anim.is_some_and(|anim| anim.declared_frames() > 1) { local } else { 0.0 };
 
-                    (track, calculate_export_time(&timing, anim, local, at))
+                    (track, calculate_export_time(&timing, anim, role.looping(), local, at))
                 }
                 Span::Range(from, to) => {
                     let raw = (from + if to >= from { at } else { -at }) as f32;
                     let time = first.anim.as_ref().map_or(0.0, |anim| {
                         let inside = raw >= 0.0 && raw < playback_frames(anim) as f32;
 
-                        if inside && first.looping.native(Some(anim)) { raw } else { loop_frame(anim, raw) }
+                        match first.looping {
+                            Loop::Knockback => first.looping.seat(anim, raw),
+                            looping if inside && looping.native(Some(anim)) => raw,
+                            _ => loop_frame(anim, raw),
+                        }
                     });
 
                     (Some(first), time)
                 }
-                Span::Loop(..) | Span::Whole(_) => (Some(first), calculate_export_time(&timing, first.anim.as_ref(), 0.0, at)),
+                Span::Loop(..) | Span::Whole(_) => (Some(first), calculate_export_time(&timing, first.anim.as_ref(), first.looping, 0.0, at)),
             }
         };
         let drawn = (sprite.min_x, sprite.max_x, sprite.max_y);

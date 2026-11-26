@@ -48,7 +48,7 @@ pub fn motions(enemy: &EnemyEntry, vfs: &Vfs) -> MotionSet {
             name: motion_name(&suffix).map(str::to_string),
             slot: named.map(|(_, slot, _)| slot),
             role: named.map(|(_, _, role)| role),
-            looping: if named.is_some_and(|(_, _, role)| role.loops()) { Loop::Exact } else { Loop::Frames },
+            looping: named.map_or(Loop::Frames, |(_, _, role)| role.looping()),
             rig: rig.clone(),
             file: Some(path),
             combat: None,

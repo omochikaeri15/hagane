@@ -19,7 +19,7 @@ pub use crate::domains::mods::patch_root;
 
 use crate::common::{architecture::{GAME, MODS, STUDIO}, io::filename};
 use crate::domains::settings::FrameCount;
-use crate::systems::animation::{self, Motion, MotionSet, Rigging};
+use crate::systems::animation::{self, Loop, Motion, MotionSet, Rigging, Role};
 use crate::Source;
 
 pub use blank::SEED_SUFFIX;
@@ -181,7 +181,10 @@ impl Set {
                     name: named.map(|(name, _, _)| name.to_owned()),
                     slot: named.map(|(_, slot, _)| slot),
                     role: named.map(|(_, _, role)| role),
-                    looping: frames.looping(),
+                    looping: match named {
+                        Some((_, _, Role::Knockback)) => Loop::Knockback,
+                        _ => frames.looping(),
+                    },
                     rig: Arc::clone(&rig),
                     file: Some(Source::disk(anim.clone())),
                     combat: None,

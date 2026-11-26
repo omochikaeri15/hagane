@@ -18,7 +18,7 @@ use foundry::domains::enemy::animation as enemy_animation;
 use foundry::domains::enemy::scanner::EnemyEntry;
 use foundry::domains::settings::{AnimSettings, CombatLook};
 use foundry::systems::animation::collision;
-use foundry::systems::animation::{Loop, MotionSet, NO_OFFSET, Placement, Rigging, cycle, loop_frame, restart, restart_frame};
+use foundry::systems::animation::{Loop, MotionSet, NO_OFFSET, Placement, Rigging, Role};
 
 use crate::host;
 use crate::pages::Context;
@@ -214,24 +214,11 @@ fn loop_bound(looping: Loop, model: bool, anim: Option<&Animation>) -> Option<i3
         return Some(0);
     }
 
-    anim.map_or(Some(0), |anim| match looping {
-        Loop::Exact => cycle(anim).map(|frames| frames - 1),
-        Loop::Frames => Some(anim.declared_frames() - 1),
-        Loop::Auto => restart(anim).map(|frames| frames - 1),
-        Loop::Continuous => None,
-    })
+    anim.map_or(Some(0), |anim| looping.bound(anim))
 }
 
 fn playback_frame(looping: Loop, anim: Option<&Animation>, frame: f32) -> f32 {
-    let Some(anim) = anim else {
-        return frame;
-    };
-
-    match looping {
-        Loop::Exact | Loop::Continuous => frame,
-        Loop::Frames => loop_frame(anim, frame),
-        Loop::Auto => restart_frame(anim, frame),
-    }
+    anim.map_or(frame, |anim| looping.seat(anim, frame))
 }
 
 impl State {
@@ -323,6 +310,10 @@ impl State {
 
     pub fn loop_supported(&self) -> bool {
         self.looping().native(self.anim().as_deref())
+    }
+
+    pub fn loopable(&self) -> bool {
+        self.motion().and_then(|motion| motion.role).is_none_or(Role::loops)
     }
 
     pub fn offset(&self) -> Option<usize> {

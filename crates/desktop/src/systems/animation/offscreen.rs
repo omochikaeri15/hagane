@@ -16,7 +16,7 @@ use codex::graphics::tools::part;
 use foundry::systems::animation::export::process::calculate_export_time;
 use foundry::systems::animation::export::{BACKGROUND, EncoderMessage, ExportMode, FrameTiming, ShowcaseLengths};
 use foundry::domains::settings::Scope;
-use foundry::systems::animation::{multiply_mat3, paint, playback_frames, Role};
+use foundry::systems::animation::{multiply_mat3, paint, Loop, Role};
 use foundry::Source;
 
 use crate::systems::animation;
@@ -393,6 +393,7 @@ struct Take<'a> {
 pub struct Job {
     pub unit: Arc<Rig>,
     pub animation: Option<Arc<Animation>>,
+    pub looping: Loop,
     pub role_paths: Vec<(Role, Source)>,
     pub offset: Option<usize>,
     pub timing: FrameTiming,
@@ -432,7 +433,7 @@ fn run(job: Job) {
     let trails = job.debug.as_ref().map_or_else(Vec::new, diagnostics::Shot::trails);
 
     let seat = |progress: i32| {
-        let (animation, local_time, attacking) = match &motions {
+        let (animation, looping, local_time, attacking) = match &motions {
             Some(motions) => {
                 let (role, time) = job.lengths.segment(progress);
                 let animation = motions.get(role);
@@ -440,16 +441,17 @@ fn run(job: Job) {
                     Some(anim) if anim.declared_frames() > 1 => time,
                     _ => 0.0,
                 };
-                (animation, time, role == Role::Attack)
+                (animation, role.looping(), time, role == Role::Attack)
             }
             None => (
                 job.animation.as_deref(),
+                job.looping,
                 0.0,
                 job.debug.as_ref().and_then(|shot| shot.combat.as_ref()).is_some_and(|staged| staged.combatant.attacking),
             ),
         };
 
-        (animation, calculate_export_time(&job.timing, animation, local_time, progress), attacking)
+        (animation, calculate_export_time(&job.timing, animation, looping, local_time, progress), attacking)
     };
 
     for progress in 0..frame_count {
@@ -462,7 +464,7 @@ fn run(job: Job) {
 
         let period = animation
             .filter(|_| motions.is_none() && job.timing.frame_start <= job.timing.frame_end)
-            .map(playback_frames)
+            .map(|anim| job.looping.period(anim))
             .filter(|period| job.timing.frame_start + progress >= *period);
 
         let ghosts: Vec<Ghost<'_>> = trails

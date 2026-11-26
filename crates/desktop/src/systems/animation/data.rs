@@ -10,7 +10,7 @@ use codex::graphics::tools::part;
 
 use foundry::common::preview::{self, Stamp};
 use foundry::Source;
-use foundry::systems::animation::{cycle, loop_frame, restart, restart_frame, Motion, MotionSet, Loop, Offset, Placement, Rigging, Role, NO_OFFSET};
+use foundry::systems::animation::{loop_frame, Motion, MotionSet, Loop, Offset, Placement, Rigging, Role, NO_OFFSET};
 
 pub(super) const COLUMNS: usize = 4;
 const DEFAULT_SLOTS: usize = 8;
@@ -214,12 +214,16 @@ impl State {
         self.current_motion().is_some_and(|motion| motion.file.is_none())
     }
 
-    fn looping(&self) -> Loop {
+    pub(super) fn looping(&self) -> Loop {
         self.current_motion().map_or(Loop::Frames, |motion| motion.looping)
     }
 
     pub fn loop_supported(&self) -> bool {
         self.looping().native(self.current_anim.as_deref())
+    }
+
+    pub fn loopable(&self) -> bool {
+        self.current_motion().and_then(|motion| motion.role).is_none_or(Role::loops)
     }
 
     pub fn showcasable(&self) -> bool {
@@ -241,22 +245,11 @@ impl State {
     }
 
     pub fn loop_bound(&self) -> Option<i32> {
-        self.current_anim.as_ref().map_or(Some(0), |anim| match self.looping() {
-            Loop::Exact => cycle(anim).map(|frames| frames - 1),
-            Loop::Frames => Some(anim.declared_frames() - 1),
-            Loop::Auto => restart(anim).map(|frames| frames - 1),
-            Loop::Continuous => None,
-        })
+        self.current_anim.as_ref().map_or(Some(0), |anim| self.looping().bound(anim))
     }
 
     pub fn playback_frame(&self, frame: f32) -> f32 {
-        let Some(anim) = self.current_anim.as_ref() else { return frame };
-
-        match self.looping() {
-            Loop::Exact | Loop::Continuous => frame,
-            Loop::Frames => loop_frame(anim, frame),
-            Loop::Auto => restart_frame(anim, frame),
-        }
+        self.current_anim.as_ref().map_or(frame, |anim| self.looping().seat(anim, frame))
     }
 
     pub fn trailed(&self, frame: f32) -> Option<f32> {

@@ -1,3 +1,3 @@
 Changes:
-- Trait icons now enter a new row when the total trait count is above 10.
-- Removed some redundant reasoning lines.
+- Removed "Loop" option from cat and enemy attack and knockback exports, as they already loop.
+- Knockback animation is now always 0~23 frames to match how it is authentically rendered.

@@ -11,7 +11,7 @@ use std::ffi::OsStr;
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use codex::graphics::rig::Animation;
+use codex::graphics::rig::{Animation, KNOCKBACK_LENGTH};
 use serde::{Deserialize, Serialize};
 
 use crate::{Source, Vfs};
@@ -37,8 +37,16 @@ pub enum Role {
 }
 
 impl Role {
-    pub(crate) fn loops(self) -> bool {
+    pub fn loops(self) -> bool {
         matches!(self, Role::Walk | Role::Idle)
+    }
+
+    pub fn looping(self) -> Loop {
+        match self {
+            Role::Walk | Role::Idle => Loop::Exact,
+            Role::Attack => Loop::Frames,
+            Role::Knockback => Loop::Knockback,
+        }
     }
 }
 
@@ -48,6 +56,7 @@ pub enum Loop {
     Frames,
     Auto,
     Continuous,
+    Knockback,
 }
 
 impl Loop {
@@ -55,7 +64,48 @@ impl Loop {
         match self {
             Loop::Exact => true,
             Loop::Auto => anim.is_some_and(|anim| cycle(anim).is_some()),
-            Loop::Frames | Loop::Continuous => false,
+            Loop::Frames | Loop::Continuous | Loop::Knockback => false,
+        }
+    }
+
+    pub fn bound(self, anim: &Animation) -> Option<i32> {
+        match self {
+            Loop::Exact => cycle(anim).map(|frames| frames - 1),
+            Loop::Frames => Some(anim.declared_frames() - 1),
+            Loop::Auto => restart(anim).map(|frames| frames - 1),
+            Loop::Continuous => None,
+            Loop::Knockback => Some(KNOCKBACK_LENGTH - 1),
+        }
+    }
+
+    pub fn seat(self, anim: &Animation, frame: f32) -> f32 {
+        match self {
+            Loop::Exact | Loop::Continuous => frame,
+            Loop::Frames => loop_frame(anim, frame),
+            Loop::Auto => restart_frame(anim, frame),
+            Loop::Knockback => seat(KNOCKBACK_LENGTH, frame),
+        }
+    }
+
+    pub fn frames(self, anim: &Animation) -> i32 {
+        match self {
+            Loop::Knockback => KNOCKBACK_LENGTH,
+            _ => anim.declared_frames(),
+        }
+    }
+
+    pub fn period(self, anim: &Animation) -> i32 {
+        match self {
+            Loop::Knockback => KNOCKBACK_LENGTH,
+            _ => playback_frames(anim),
+        }
+    }
+
+    pub fn exported(self, anim: &Animation, frame: f32) -> f32 {
+        match self {
+            Loop::Knockback => seat(KNOCKBACK_LENGTH, frame),
+            _ if self.native(Some(anim)) => frame,
+            _ => loop_frame(anim, frame),
         }
     }
 }
@@ -346,7 +396,7 @@ pub fn name_prefix(set_name: &str, slug: &str) -> String {
 mod tests {
     use codex::graphics::rig::{AnimModification, Animation, Keyframe};
 
-    use super::{cycle, owns, playback_frames, restart, restart_frame};
+    use super::{cycle, owns, playback_frames, restart, restart_frame, Loop};
 
     fn curve(loop_count: i32, first: i32, last: i32) -> AnimModification {
         AnimModification {
@@ -474,5 +524,19 @@ mod tests {
         assert!(owns("14"));
         assert!(owns("_zombie02"));
         assert!(owns(""));
+    }
+
+    #[test]
+    fn a_knockback_plays_exactly_24_frames_whatever_its_file_says() {
+        // A forever track beside a play-once one used to leave this unbounded, and a
+        // longer file used to run past the 24 frames a knockback ever shows.
+        let mixed = animation(vec![curve(-1, 0, 6), curve(1, 0, 60)]);
+
+        assert_eq!(Loop::Knockback.bound(&mixed), Some(23));
+        assert_eq!(Loop::Knockback.frames(&mixed), 24);
+        assert_eq!(Loop::Knockback.seat(&mixed, 23.0), 23.0);
+        assert_eq!(Loop::Knockback.seat(&mixed, 24.0), 0.0);
+        assert_eq!(Loop::Knockback.exported(&mixed, 30.0), 6.0);
+        assert!(!Loop::Knockback.native(Some(&mixed)));
     }
 }

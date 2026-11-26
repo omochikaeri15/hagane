@@ -20,7 +20,7 @@ use foundry::domains::enemy::animation as enemy_animation;
 use foundry::domains::settings::{CombatLayer, Settings};
 use foundry::Source;
 use foundry::systems::animation::collision::{self, Combatant};
-use foundry::systems::animation::{Loop, MotionSet, NO_OFFSET, Placement, Rigging, cycle, loop_frame, restart, restart_frame};
+use foundry::systems::animation::{Loop, MotionSet, NO_OFFSET, Placement, Rigging};
 
 use crate::app::remember_settings;
 use crate::domains::cat::{self, SelectedCat};
@@ -207,24 +207,11 @@ struct Active {
 
 impl Active {
     fn loop_bound(&self) -> Option<i32> {
-        self.anim.as_deref().map_or(Some(0), |anim| match self.looping {
-            Loop::Exact => cycle(anim).map(|frames| frames - 1),
-            Loop::Frames => Some(anim.declared_frames() - 1),
-            Loop::Auto => restart(anim).map(|frames| frames - 1),
-            Loop::Continuous => None,
-        })
+        self.anim.as_deref().map_or(Some(0), |anim| self.looping.bound(anim))
     }
 
     fn playback_frame(&self, frame: f32) -> f32 {
-        let Some(anim) = self.anim.as_deref() else {
-            return frame;
-        };
-
-        match self.looping {
-            Loop::Exact | Loop::Continuous => frame,
-            Loop::Frames => loop_frame(anim, frame),
-            Loop::Auto => restart_frame(anim, frame),
-        }
+        self.anim.as_deref().map_or(frame, |anim| self.looping.seat(anim, frame))
     }
 }
 

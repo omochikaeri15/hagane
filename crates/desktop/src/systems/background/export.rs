@@ -184,7 +184,7 @@ impl State {
 
         let Request { mut backdrop, seed, start, end, stem, format, quality, compression, camera, width, height } = request;
         let config = process::build_config(&ExportRequest {
-            timing: FrameTiming { mode: ExportMode::Manual, frame_start: start, frame_end: end, loop_supported: false },
+            timing: FrameTiming { mode: ExportMode::Manual, frame_start: start, frame_end: end },
             showcase: ShowcaseLengths { walk: 0, idle: 0, attack: 0, kb: 0 },
             file_name: (start == end).then(|| stem.clone()),
             name_prefix: stem,

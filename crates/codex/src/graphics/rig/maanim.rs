@@ -8,6 +8,8 @@ use super::RigError;
 
 const POWERED_VERSION: i32 = 1;
 
+pub const KNOCKBACK_LENGTH: i32 = 24;
+
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Serialize)]
 pub struct Keyframe {
     pub frame: i32,

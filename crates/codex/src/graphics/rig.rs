@@ -10,7 +10,7 @@ use super::tools::{boundary, periodicity};
 
 pub use boundary::{BoundingBox, Tolerance};
 pub use imgcut::{Opaque, SpriteCut, SpriteSheet};
-pub use maanim::{AnimModification, Animation, Keyframe};
+pub use maanim::{AnimModification, Animation, Keyframe, KNOCKBACK_LENGTH};
 pub use mamodel::{Alignment, Model, ModelPart};
 
 pub(crate) use mamodel::ALIGNED_VERSION;

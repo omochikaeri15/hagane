@@ -69,7 +69,6 @@ pub struct FrameTiming {
     pub mode: ExportMode,
     pub frame_start: i32,
     pub frame_end: i32,
-    pub loop_supported: bool,
 }
 
 #[derive(Clone, Debug)]

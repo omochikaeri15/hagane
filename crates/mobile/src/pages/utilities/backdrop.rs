@@ -776,7 +776,7 @@ fn export(ui: &AppWindow, state: &Shared, context: &Rc<Context>) {
 
     let (first, last) = (start.floor() as i32, end.floor() as i32);
     let request = ExportRequest {
-        timing: FrameTiming { mode: ExportMode::Manual, frame_start: first, frame_end: last, loop_supported: true },
+        timing: FrameTiming { mode: ExportMode::Manual, frame_start: first, frame_end: last },
         showcase: ShowcaseLengths { walk: 0, idle: 0, attack: 0, kb: 0 },
         file_name: None,
         name_prefix: format!("bg{stem}"),

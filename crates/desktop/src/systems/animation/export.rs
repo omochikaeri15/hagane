@@ -28,6 +28,7 @@ use super::overlay::Region;
 
 const MODE_OPTIONS: [&str; 3] = ["Manual", "Loop", "Showcase"];
 const PLAIN_MODE_OPTIONS: [&str; 2] = ["Manual", "Loop"];
+const ONCE_MODE_OPTIONS: [&str; 2] = ["Manual", "Showcase"];
 const FORMAT_OPTIONS: [&str; 9] = ["GIF", "WebP", "AVIF", "JXL", "PNG", "MP4", "MKV", "WebM", "ZIP"];
 
 const CONTENT_PADDING: f32 = 20.0;
@@ -105,6 +106,7 @@ struct ExportForm {
     frame_end_str: String,
     export_mode: ExportMode,
     loop_supported: bool,
+    loopable: bool,
     showcasable: bool,
     loop_tolerance: i32,
     loop_tolerance_str: String,
@@ -160,6 +162,7 @@ impl Default for ExportForm {
             frame_end_str: String::new(),
             export_mode: ExportMode::Manual,
             loop_supported: false,
+            loopable: true,
             showcasable: false,
             loop_tolerance: 30,
             loop_tolerance_str: String::new(),
@@ -227,7 +230,6 @@ impl ExportForm {
                 mode: self.export_mode.clone(),
                 frame_start: self.frame_start,
                 frame_end: self.frame_end,
-                loop_supported: self.loop_supported,
             },
             showcase: ShowcaseLengths {
                 walk: self.showcase_walk_len,
@@ -338,10 +340,11 @@ impl State {
             }
 
             self.exporter.loop_supported = data.loop_supported();
+            self.exporter.loopable = data.loopable();
             self.exporter.showcasable = data.showcasable();
 
             let unsupported = (self.exporter.export_mode == ExportMode::Loop
-                && !self.exporter.loop_supported)
+                && !(self.exporter.loop_supported && self.exporter.loopable))
                 || (self.exporter.export_mode == ExportMode::Showcase && !self.exporter.showcasable);
 
             if unsupported {
@@ -355,7 +358,7 @@ impl State {
             if self.exporter.export_mode != ExportMode::Showcase {
                 match &data.current_anim {
                     Some(anim) => {
-                        self.exporter.max_frame = anim.declared_frames() - 1;
+                        self.exporter.max_frame = data.looping().frames(anim) - 1;
                         self.exporter.frame_start = 0;
                         self.exporter.frame_end = self.exporter.max_frame;
                     }
@@ -765,6 +768,7 @@ impl State {
                 offscreen::spawn(offscreen::Job {
                     unit,
                     animation: data.current_anim.clone(),
+                    looping: data.looping(),
                     role_paths: data.role_paths(),
                     offset: data.offset(),
                     timing,
@@ -1121,8 +1125,12 @@ impl State {
             ExportMode::Showcase => "Showcase",
         };
 
-        let modes: &[&str] =
-            if self.exporter.showcasable { &MODE_OPTIONS[..] } else { &PLAIN_MODE_OPTIONS[..] };
+        let modes: &[&str] = match (self.exporter.showcasable, self.exporter.loopable) {
+            (true, true) => &MODE_OPTIONS[..],
+            (true, false) => &ONCE_MODE_OPTIONS[..],
+            (false, true) => &PLAIN_MODE_OPTIONS[..],
+            (false, false) => &PLAIN_MODE_OPTIONS[..1],
+        };
 
         let modes = pick_list(modes, Some(selected_mode), |selected: &str| {
             Message::SetMode(match selected {

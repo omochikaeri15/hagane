@@ -1708,6 +1708,7 @@ mod tests {
 
         assert_eq!((windowed.looping.map(|held| held.minimum), windowed.range), (Some(10), Some((30, 120))));
         assert!(parse("25 a attack -l", Kind::Cat).is_err());
+        assert!(parse("25 a knockback -l", Kind::Cat).is_err());
         assert!(parse("25 a walk -l -r 50~10", Kind::Cat).is_err());
     }
 }

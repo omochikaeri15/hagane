@@ -11,15 +11,15 @@ pub(crate) const HELD: usize = 50;
 pub(crate) const NAME_LIMIT: u16 = 32;
 pub(crate) const TARGET_LIMIT: u16 = 100;
 const NICKNAMES: [(&str, Kind, &str); 9] = [
-    ("Sgao", Kind::Cat, "333-2"),
-    ("Dmitama", Kind::Cat, "378-2"),
-    ("D'ark", Kind::Cat, "441-2"),
-    ("Dasli", Kind::Cat, "543-2"),
-    ("Dgaru", Kind::Cat, "609-2"),
-    ("Diz", Kind::Cat, "657-2"),
-    ("Dphono", Kind::Cat, "705-2"),
-    ("Dluna", Kind::Cat, "787-2"),
-    ("Dlunos", Kind::Cat, "859-2"),
+    ("Sgao", Kind::Cat, "333"),
+    ("Dmitama", Kind::Cat, "378"),
+    ("D'ark", Kind::Cat, "441"),
+    ("Dasli", Kind::Cat, "543"),
+    ("Dgaru", Kind::Cat, "609"),
+    ("Diz", Kind::Cat, "657"),
+    ("Dphono", Kind::Cat, "705"),
+    ("Dluna", Kind::Cat, "787"),
+    ("Dlunos", Kind::Cat, "859"),
 ];
 const ORIGINALS: [(&str, Kind, &str); 38] = [
     ("Yukimura", Kind::Cat, "71"),
@@ -36,7 +36,7 @@ const ORIGINALS: [(&str, Kind, &str); 38] = [
     ("Phono", Kind::Cat, "690"),
     ("Lunacia", Kind::Cat, "779"),
     ("Rin", Kind::Cat, "363"),
-    ("Asuka", Kind::Cat, "410"),
+    ("Asuka", Kind::Cat, "709"),
     ("Mari", Kind::Cat, "411"),
     ("Miku", Kind::Cat, "535"),
     ("Len", Kind::Cat, "537"),
