@@ -245,7 +245,7 @@ mod tests {
     fn built_in_aliases_keep_to_their_kind() {
         let aliases = Aliases::default();
 
-        assert_eq!(rerouted(&aliases, "dasli lv50", Kind::Cat), Some((Some(Kind::Cat), "543-2 lv50".to_owned())));
+        assert_eq!(rerouted(&aliases, "dasli lv50", Kind::Cat), Some((Some(Kind::Cat), "543 lv50".to_owned())));
         assert_eq!(rerouted(&aliases, "dasli", Kind::Enemy), None);
         assert_eq!(rerouted(&aliases, "Bun Bun 400%", Kind::Enemy), Some((Some(Kind::Enemy), "24 400%".to_owned())));
         assert_eq!(rerouted(&aliases, "bun bun", Kind::Cat), None);
@@ -255,7 +255,7 @@ mod tests {
 
         assert_eq!(aliases.reroute(&bare, &[Kind::Cat], false), None, "a name for the original waits for the search to say which kind it found");
         assert_eq!((aliases.original(&bare, Kind::Cat), aliases.original(&bare, Kind::Enemy)), (Some("72 a walk".to_owned()), None));
-        assert_eq!(aliases.reroute(&grammar::parse("dasli", Kind::Cat).unwrap(), &[Kind::Cat], false), Some((Some(Kind::Cat), "543-2".to_owned())), "a nickname never waits");
+        assert_eq!(aliases.reroute(&grammar::parse("dasli", Kind::Cat).unwrap(), &[Kind::Cat], false), Some((Some(Kind::Cat), "543".to_owned())), "a nickname never waits");
     }
 
     // Removing a built-in one hides it, your own one of the same name covers it, and the two bulk buttons undo all of that.
@@ -278,7 +278,7 @@ mod tests {
 
         aliases.reset();
         assert!(aliases.untouched());
-        assert_eq!(aliases.keyed("dasli"), Some(Target::Known(Kind::Cat, "543-2")));
+        assert_eq!(aliases.keyed("dasli"), Some(Target::Known(Kind::Cat, "543")));
     }
 
     // An alias that could never be typed as a name is turned away when it is added.

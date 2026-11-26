@@ -269,7 +269,7 @@ const TRAITS: [(Identity, &[&str]); 15] = [
     (Identity::TraitSage, &["sage"]),
 ];
 const SWITCH_HINT: &str = "`--on` and `--off` take crit, savage, wave, surge, explosion, strengthen or kills";
-const GAUGE_HINT: &str = "`--mode` (`-m`) takes min, avg or max";
+const GAUGE_HINT: &str = "`--mode` (`-m`) takes base, avg or max";
 const HITS_HINT: &str = "`--hits` (`-h`) takes 1, 2, 3, avg or all";
 const FORM_HINT: &str = "`form` (`f`) takes 1-4, n e t u, f c s u, or Normal, Evolved, True, Ultra";
 
@@ -302,7 +302,7 @@ fn switched(switches: Switches, words: &[&str], lit: bool) -> Result<Switches, S
 
 pub(crate) fn gauge_of(word: &str) -> Option<Gauge> {
     match lower(word).as_str() {
-        "min" | "minimum" => Some(Gauge::Minimum),
+        "base" => Some(Gauge::Base),
         "avg" | "average" => Some(Gauge::Average),
         "max" | "maximum" => Some(Gauge::Maximum),
         _ => None,
@@ -346,7 +346,7 @@ pub(crate) fn hits_word(hits: Hits) -> &'static str {
 
 pub(crate) fn gauge_word(mode: Gauge) -> &'static str {
     match mode {
-        Gauge::Minimum => "min",
+        Gauge::Base => "base",
         Gauge::Average => "avg",
         Gauge::Maximum => "max",
     }
@@ -354,7 +354,7 @@ pub(crate) fn gauge_word(mode: Gauge) -> &'static str {
 
 pub(crate) fn lens_tag(lens: Lens) -> String {
     let gauge = match lens.mode {
-        Gauge::Minimum => 'n',
+        Gauge::Base => 'b',
         Gauge::Average => 'a',
         Gauge::Maximum => 'x',
     };
@@ -372,25 +372,32 @@ pub(crate) fn lens_tag(lens: Lens) -> String {
     }
 }
 
-pub(crate) fn lens_tagged(tag: &str) -> Lens {
+pub(crate) fn lens_tagged(tag: &str) -> Option<Lens> {
     let mut chars = tag.chars();
-    let mode = match chars.next() {
-        Some('n') => Gauge::Minimum,
-        Some('x') => Gauge::Maximum,
-        _ => Gauge::Average,
+    let mode = match chars.next()? {
+        'b' => Gauge::Base,
+        'a' => Gauge::Average,
+        'x' => Gauge::Maximum,
+        _ => return None,
     };
-    let hits = match chars.next() {
-        Some('1') => Hits::Only(0),
-        Some('2') => Hits::Only(1),
-        Some('3') => Hits::Only(2),
-        Some('l') => Hits::All,
-        _ => Hits::Standing,
+    let hits = match chars.next()? {
+        '1' => Hits::Only(0),
+        '2' => Hits::Only(1),
+        '3' => Hits::Only(2),
+        's' => Hits::Standing,
+        'l' => Hits::All,
+        _ => return None,
+    };
+    let rest = chars.as_str();
+    let switches = if rest.is_empty() {
+        Switches::default()
+    } else {
+        let (on, off) = rest.split_once('.')?;
+
+        Switches::from_bits(u16::from_str_radix(on, 16).ok()?, u16::from_str_radix(off, 16).ok()?)
     };
 
-    let (on, off) = chars.as_str().split_once('.').unwrap_or_default();
-    let bits = |held: &str| u16::from_str_radix(held, 16).unwrap_or_default();
-
-    Lens { mode, hits, switches: Switches::from_bits(bits(on), bits(off)), switching: false }
+    Some(Lens { mode, hits, switches, switching: false })
 }
 
 fn trait_of(word: &str) -> Option<Identity> {
@@ -1154,18 +1161,18 @@ fn motion_of(tokens: &[&str]) -> Result<Motion, String> {
 mod tests {
     use super::*;
 
-    // The switches ride in a button with the hits and the mode, and a button from before them still reads.
+    // The switches ride in a button with the hits and the mode, and a lens with none set keeps the short tag.
     #[test]
     fn switches_travel_with_the_lens() {
         let lens = Lens { mode: Gauge::Maximum, hits: Hits::All, switches: Switches::default().set(Switch::Strengthen, true).set(Switch::Surge, false), switching: false };
 
-        assert_eq!(lens_tagged(&lens_tag(lens)), lens);
-        assert_eq!(lens_tagged("as"), Lens::default());
+        assert_eq!(lens_tagged(&lens_tag(lens)), Some(lens));
+        assert_eq!((lens_tag(Lens::default()).as_str(), lens_tagged("as")), ("as", Some(Lens::default())));
         assert_eq!(SWITCH_WORDS.iter().map(|(switch, word)| switch_of(word) == Some(*switch)).collect::<Vec<_>>(), [true; 7], "every word reads back as its switch");
 
-        let stats = stats_of(&["--on", "kills", "--off", "crits", "-m", "min"], Kind::Cat).unwrap();
+        let stats = stats_of(&["--on", "kills", "--off", "crits", "-m", "base"], Kind::Cat).unwrap();
 
-        assert_eq!((stats.switches.held(Switch::Kills), stats.switches.held(Switch::Critical), stats.gauge), (Some(true), Some(false), Some(Gauge::Minimum)));
+        assert_eq!((stats.switches.held(Switch::Kills), stats.switches.held(Switch::Critical), stats.gauge), (Some(true), Some(false), Some(Gauge::Base)));
         assert!(stats_of(&["--on", "toxic"], Kind::Enemy).is_err());
     }
 

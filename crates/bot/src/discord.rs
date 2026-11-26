@@ -65,7 +65,7 @@ const CARD_RESOLVE: &str = "er";
 const DIAL: &str = "rv|";
 const PANEL_LIFE: Duration = Duration::from_secs(14 * 60);
 const TALENT_HINT: &str = "all, standard, ultra, none, 10 10 5 or Attack Buff 5";
-const MODE_HELP: &str = "`--mode`: `min` for the plain numbers, `avg` for procs averaged in (the default), `max` for every proc landing plus Strengthen and the kill boost\n`--hits`: `1`, `2` or `3` for one hit, `avg` for the hits that reach standing range (the default), `all` for every hit";
+const MODE_HELP: &str = "`--mode`: `base` for the plain numbers, `avg` for procs averaged in (the default), `max` for every proc landing plus Strengthen and the kill boost\n`--hits`: `1`, `2` or `3` for one hit, `avg` for the hits that reach standing range (the default), `all` for every hit";
 const SWITCH_HELP: &str = "Counts an ability or leaves it out, whatever the mode says: crit, savage, wave, surge, explosion, strengthen, kills. `-m avg --on strengthen` is an average with Strengthen";
 const ENEMY_HINT: &str = "teacher bear, 12-e or an alias";
 const PANEL_PICKS: usize = 25;
@@ -1392,10 +1392,10 @@ impl Sheet {
         let id = parts.next()?.parse().ok()?;
         let form = parts.next()?.parse().ok()?;
         let level = Some(parts.next()?).filter(|level| !level.is_empty()).map(str::to_owned);
-        let talents = parts.next().filter(|levels| *levels != "-").map(str::to_owned);
-        let page = parts.next().and_then(Page::tagged).unwrap_or_default();
-        let versus = parts.next().and_then(|bits| u32::from_str_radix(bits, 16).ok()).map_or_else(Versus::default, Versus::from_bits);
-        let lens = parts.next().map_or_else(Lens::default, grammar::lens_tagged);
+        let talents = Some(parts.next()?).filter(|levels| *levels != "-").map(str::to_owned);
+        let page = Page::tagged(parts.next()?)?;
+        let versus = Versus::from_bits(u32::from_str_radix(parts.next()?, 16).ok()?);
+        let lens = grammar::lens_tagged(parts.next()?)?;
 
         Some((tag, Self { owner, id, form, level, talents, page, versus, lens }))
     }
@@ -1423,8 +1423,8 @@ impl Card {
         let owner = parts.next()?.parse().ok()?;
         let id = parts.next()?.parse().ok()?;
         let page = Page::tagged(parts.next()?)?;
-        let magnification = parts.next().and_then(grammar::magnification_of);
-        let lens = parts.next().map_or_else(Lens::default, grammar::lens_tagged);
+        let magnification = grammar::magnification_of(parts.next()?);
+        let lens = grammar::lens_tagged(parts.next()?)?;
 
         Some((tag, Self { owner, id, page, magnification, lens }))
     }
@@ -3439,7 +3439,7 @@ mod tests {
         assert_eq!(rerouted(&aliases, Scope::Only(Kind::Map), "SOL -c 3"), Some((Scope::Only(Kind::Map), "Stories of Legend -c 3".to_owned())));
         assert_eq!(rerouted(&aliases, Scope::Theme, "sol -b"), Some((Scope::Theme, "Stories of Legend --boss".to_owned())));
         assert_eq!(rerouted(&aliases, Scope::Backdrop, "sol -f gif -d 800x600"), Some((Scope::Backdrop, "Stories of Legend -f gif -d 800x600".to_owned())));
-        assert_eq!(rerouted(&aliases, Scope::Any, "dasli a walk"), Some((Scope::Only(Kind::Cat), "543-2 a walk".to_owned())), "a built-in one answers as the kind it points at");
+        assert_eq!(rerouted(&aliases, Scope::Any, "dasli a walk"), Some((Scope::Only(Kind::Cat), "543 a walk".to_owned())), "a built-in one answers as the kind it points at");
         assert_eq!(rerouted(&aliases, Scope::Any, "bun bun"), None, "without a command, a name for the original is settled after the search has picked a kind");
         assert_eq!(rerouted(&aliases, Scope::Only(Kind::Enemy), "bun bun 400%"), Some((Scope::Only(Kind::Enemy), "24 400%".to_owned())));
         assert_eq!(rerouted(&aliases, Scope::Only(Kind::Cat), "bun bun"), None);
@@ -3463,7 +3463,7 @@ mod tests {
 
         assert_eq!(chosen(&aliases, Scope::Theme, "sol", BOSS), Some((Scope::Theme, "Stories of Legend --boss".to_owned())));
         assert_eq!(chosen(&aliases, Scope::Theme, "sol", STANDARD), Some((Scope::Theme, "Stories of Legend".to_owned())));
-        assert_eq!(chosen(&aliases, Scope::Any, "dasli", "lv50"), Some((Scope::Only(Kind::Cat), "543-2 lv50".to_owned())));
+        assert_eq!(chosen(&aliases, Scope::Any, "dasli", "lv50"), Some((Scope::Only(Kind::Cat), "543 lv50".to_owned())));
         assert_eq!(chosen(&aliases, Scope::Any, "gone", ""), None);
     }
 
@@ -3692,19 +3692,9 @@ mod tests {
         assert_eq!((read.level, read.talents), (None, None), "no level means the automatic one, and it stays that way through a button");
     }
 
-    // Buttons posted before pages existed carry no page, and they still have to answer.
-    #[test]
-    fn an_older_sheet_button_opens_the_stats_page() {
-        let (_, read) = Sheet::read("sb|1|25|2|50|-").unwrap();
-
-        assert_eq!(read.page, Page::Stats);
-        assert!(read.versus.is_empty() && Sheet::read("sb|1|25|2|50|-|s").is_some_and(|(_, read)| read.versus.is_empty()), "and one from before Versus has no traits picked");
-        assert_eq!(read.lens, Lens::default(), "and the average of the hits at standing range");
-    }
-
     #[test]
     fn a_card_survives_its_button_id() {
-        let card = Card { owner: u64::MAX, id: 763, page: Page::Details, magnification: Some((400, 200)), lens: Lens { mode: Gauge::Minimum, hits: Hits::All, ..Lens::default() } };
+        let card = Card { owner: u64::MAX, id: 763, page: Page::Details, magnification: Some((400, 200)), lens: Lens { mode: Gauge::Base, hits: Hits::All, ..Lens::default() } };
         let custom = card.turned(CARD_SET, Page::Stats);
         let (tag, read) = Card::read(&custom).unwrap();
 

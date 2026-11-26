@@ -239,7 +239,7 @@ fn percent(share: f64) -> String {
 
 fn picked<T: Copy>(mode: Mode, shortest: T, longest: T) -> (T, T) {
     match mode {
-        Mode::Minimum => (shortest, shortest),
+        Mode::Base => (shortest, shortest),
         Mode::Average => (shortest, longest),
         Mode::Maximum => (longest, longest),
     }

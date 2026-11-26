@@ -217,12 +217,32 @@ mod tests {
         assert_eq!(Prefs { prefix: Some("hagane".to_owned()), ..Prefs::default() }.prefix(), "hagane");
     }
 
-    // Settings saved before the prefix existed still load.
+    // Any field can be missing from a saved file and any unknown one is skipped, so adding or dropping a
+    // setting never costs anyone the rest of theirs.
     #[test]
-    fn older_settings_still_load() {
-        let prefs: Prefs = serde_json::from_str(r#"{"language":"ja","format":"WebP","form":1,"search":"Preferred"}"#).unwrap();
+    fn a_file_missing_a_field_still_loads() {
+        let mut prefs = Prefs { language: "ja".to_owned(), form: 1, prose: Prose::Tsundere, ..Prefs::default() };
 
-        assert_eq!((prefs.language.as_str(), prefs.form, prefs.search, prefs.prefix, prefs.prose, prefs.mode), ("ja", 1, Search::Preferred, None, Prose::Human, Mode::Dormant));
+        prefs.aliases.add("Baha", "Bahamut Cat");
+
+        let saved = serde_json::to_value(&prefs).unwrap();
+        let fresh = serde_json::to_value(Prefs::default()).unwrap();
+
+        for key in saved.as_object().unwrap().keys() {
+            let mut trimmed = saved.clone();
+
+            trimmed.as_object_mut().unwrap().remove(key);
+
+            let loaded = serde_json::to_value(serde_json::from_value::<Prefs>(trimmed).unwrap()).unwrap();
+
+            assert!(saved.as_object().unwrap().keys().all(|held| &loaded[held] == if held == key { &fresh[held] } else { &saved[held] }), "only {key} goes back to its default");
+        }
+
+        let mut grown = saved.clone();
+
+        grown["retired"] = serde_json::json!(1);
+        grown["aliases"].as_object_mut().unwrap().remove("hidden");
+        assert_eq!(serde_json::from_value::<Prefs>(grown).unwrap(), prefs);
     }
 
     // Each user is a file of their own, so a change rewrites one file and a damaged one costs one user.

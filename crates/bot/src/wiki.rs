@@ -22,7 +22,6 @@ const FEWEST_ENEMIES: usize = 400;
 const ENEMY_MARK: &str = "E-";
 
 #[derive(Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(default)]
 pub(crate) struct Names {
     fetched: u64,
     cats: HashMap<u32, Vec<String>>,

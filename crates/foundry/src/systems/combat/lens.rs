@@ -8,7 +8,7 @@ use crate::systems::combat::{AbilityGroups, RenderContext};
 
 const FRAMES_PER_SECOND: f64 = 30.0;
 
-pub const MODES: [Mode; 3] = [Mode::Minimum, Mode::Average, Mode::Maximum];
+pub const MODES: [Mode; 3] = [Mode::Base, Mode::Average, Mode::Maximum];
 pub const ONE_HIT: &str = "This unit only has one hit!";
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
@@ -65,7 +65,7 @@ pub fn switch_key(identity: Identity) -> Option<usize> {
 
 pub fn mode_label(mode: Mode) -> &'static str {
     match mode {
-        Mode::Minimum => "Base Stats",
+        Mode::Base => "Base Stats",
         Mode::Average => "Avg Stats",
         Mode::Maximum => "Max Stats",
     }
@@ -168,7 +168,7 @@ mod tests {
         assert_eq!((settled(&single, Hits::All), shown_hits(&single, Hits::All)), (Hits::Only(0), Hits::Only(0)), "one hit is measured as the 1st Hit it shows");
         assert_eq!(settled(&Entity { time_until_attack_3: 0, ..triple.clone() }, Hits::Only(2)), Hits::Standing, "a picked hit the next unit lacks falls back");
         assert_eq!((mode_named("Max Stats"), hits_of("2nd Hit"), hits_of("Avg Hits")), (Mode::Maximum, Hits::Only(1), Hits::Standing));
-        assert_eq!((tag(&triple, Lens::default()), tag(&triple, Lens { mode: Mode::Maximum, hits: Hits::All, ..Lens::default() }), tag(&single, Lens { mode: Mode::Minimum, hits: Hits::All, ..Lens::default() })), ("Avg Hits\nAvg Stats".to_owned(), "All Hits\nMax Stats".to_owned(), "1st Hit\nBase Stats".to_owned()), "the tag reads in the order the two combos sit");
+        assert_eq!((tag(&triple, Lens::default()), tag(&triple, Lens { mode: Mode::Maximum, hits: Hits::All, ..Lens::default() }), tag(&single, Lens { mode: Mode::Base, hits: Hits::All, ..Lens::default() })), ("Avg Hits\nAvg Stats".to_owned(), "All Hits\nMax Stats".to_owned(), "1st Hit\nBase Stats".to_owned()), "the tag reads in the order the two combos sit");
     }
 
     // A unit that dies after its attack deals it once a deploy, so its DPS runs on its recharge; one that
@@ -179,14 +179,14 @@ mod tests {
         let bomber = Entity { attack_1_damage: 3000, time_until_attack_1: 10, attack_1_abilities: 1, standing_range: 100, cooldown: 600, attack_count_total: 1, attack_count_state: 2, ..Entity::default() };
         let stats = StatContext::cat(&bomber, 60, None, &treasure);
         let pace = Pace::of(&stats);
-        let measured = measure(&stats, &Rules::default(), Foe::default(), Terms::default(), Lens { mode: Mode::Minimum, ..Lens::default() });
+        let measured = measure(&stats, &Rules::default(), Foe::default(), Terms::default(), Lens { mode: Mode::Base, ..Lens::default() });
 
         assert!(pace.recharge > 0 && pace.recharge != pace.cycle);
         assert!((measured.dps - 3000.0 * 30.0 / f64::from(pace.recharge)).abs() < 1e-9);
 
         let spirit = Entity { cooldown: 0, ..bomber };
         let spirited = StatContext::cat(&spirit, 60, None, &treasure);
-        let measured = measure(&spirited, &Rules::default(), Foe::default(), Terms::default(), Lens { mode: Mode::Minimum, ..Lens::default() });
+        let measured = measure(&spirited, &Rules::default(), Foe::default(), Terms::default(), Lens { mode: Mode::Base, ..Lens::default() });
 
         assert!((measured.dps - 3000.0 * 30.0 / f64::from(Pace::of(&spirited).cycle)).abs() < 1e-9);
     }

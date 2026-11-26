@@ -20,7 +20,7 @@ const MOST_SWINGS: i32 = 256;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 pub enum Mode {
-    Minimum,
+    Base,
     #[default]
     Average,
     Maximum,
@@ -43,7 +43,7 @@ impl Switch {
     pub fn by_default(self, mode: Mode) -> bool {
         match self {
             Switch::Strengthen | Switch::Kills => mode == Mode::Maximum,
-            _ => mode != Mode::Minimum,
+            _ => mode != Mode::Base,
         }
     }
 
@@ -623,7 +623,7 @@ mod tests {
 
         assert_eq!(wave_steps(1, WAVE_STEP, WAVE_START, WAVE_END, 13), vec![(1, 6)]);
         assert_eq!(wave_steps(1, 2, 2, 5, 13), vec![(1, 3)]);
-        assert!(close(uptime(&wave(0), 100, 31, Mode::Minimum), 0.3));
+        assert!(close(uptime(&wave(0), 100, 31, Mode::Base), 0.3));
         assert!(close(uptime(&wave(0), 100, 31, Mode::Average), 0.36));
         assert!(close(uptime(&wave(1), 100, 31, Mode::Average), 0.33));
         assert!(close(uptime(&Entity { standing_range: 400, ..wave(0) }, 100, 31, Mode::Average), 0.3), "a level 1 wave stops short of 400");
@@ -660,7 +660,7 @@ mod tests {
         assert_eq!((dealt(Mode::Average, none), dealt(Mode::Maximum, none)), (1500.0, 4000.0));
         assert_eq!(dealt(Mode::Average, none.set(Switch::Strengthen, true)), 3000.0, "an average with Strengthen on");
         assert_eq!(dealt(Mode::Maximum, none.set(Switch::Wave, false)), 2000.0);
-        assert_eq!(dealt(Mode::Minimum, none.set(Switch::Wave, true)), 1500.0);
+        assert_eq!(dealt(Mode::Base, none.set(Switch::Wave, true)), 1500.0);
         assert!(close(exposure.uptime(100, 31, Mode::Average, none.set(Switch::Wave, false)).unwrap_or(-1.0), 0.3), "and its procs with it");
 
         let flipped = none.flipped(Switch::Strengthen, Mode::Average);
@@ -709,7 +709,7 @@ mod tests {
             long_distance_2_span: 900,
             ..freezer(100)
         };
-        let dealt = |hits: Hits| split.exposure(100, 0, hits, &RULES).damage(&split, [1000, 3000, 0], Foe::default(), Terms::default(), Mode::Minimum, Switches::default());
+        let dealt = |hits: Hits| split.exposure(100, 0, hits, &RULES).damage(&split, [1000, 3000, 0], Foe::default(), Terms::default(), Mode::Base, Switches::default());
 
         assert_eq!(dealt(Hits::Standing), 3000.0, "the first hit's band starts past standing range");
         assert_eq!(dealt(Hits::All), 4000.0);
@@ -725,7 +725,7 @@ mod tests {
         let mixed = Entity { attack_1_damage: 3000, attack_2_damage: 1000, time_until_attack_2: 20, attack_1_abilities: 1, attack_2_abilities: 0, critical_chance: 50, ..freezer(0) };
         let dealt = |unit: &Entity, mode: Mode| unit.exposure(100, 0, Hits::Standing, &RULES).damage(unit, [unit.attack_1_damage, unit.attack_2_damage, 0], metal, Terms::default(), mode, Switches::default());
 
-        assert_eq!((dealt(&mixed, Mode::Minimum), dealt(&mixed, Mode::Average), dealt(&mixed, Mode::Maximum)), (2.0, 3001.5, 6001.0));
+        assert_eq!((dealt(&mixed, Mode::Base), dealt(&mixed, Mode::Average), dealt(&mixed, Mode::Maximum)), (2.0, 3001.5, 6001.0));
 
         let savage = Entity { attack_1_damage: 1000, critical_chance: 20, savage_blow_chance: 30, savage_blow_boost: 200, ..freezer(0) };
 
@@ -740,6 +740,6 @@ mod tests {
         let mini = Entity { attack_1_damage: 1000, critical_chance: 50, wave_chance: 100, wave_level: 1, mini_wave_flag: 1, ..freezer(0) };
 
         assert!(close(dealt(&mini, Mode::Average), 1000.5 + 200.5));
-        assert_eq!((dealt(&mini, Mode::Minimum), dealt(&mini, Mode::Maximum)), (1.0, 2400.0));
+        assert_eq!((dealt(&mini, Mode::Base), dealt(&mini, Mode::Maximum)), (1.0, 2400.0));
     }
 }
