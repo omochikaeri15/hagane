@@ -84,10 +84,9 @@ const SET_JUMP: &str = "set|jump|";
 const SET_ALIAS: &str = "set|alias";
 const ALIAS_JUMP: &str = "set|aliasjump|";
 const ALIAS: &str = "a";
-const ALIAS_LINES: usize = 20;
+const ALIAS_LINES: usize = 24;
 const ALIAS_HINT: &str = "Dasli";
 const TARGET_HINT: &str = "Kasli the Bane";
-const BUILT_IN: &str = "built in";
 const SETTINGS: [Setting; 8] = [Setting::Language, Setting::Format, Setting::Form, Setting::Search, Setting::Mode, Setting::Prose, Setting::Prefix, Setting::Alias];
 const SETTINGS_ROWS: usize = 4;
 const SETTINGS_PAGES: usize = SETTINGS.len().div_ceil(SETTINGS_ROWS);
@@ -1046,15 +1045,15 @@ fn rerouted(aliases: &Aliases, scope: Scope, text: &str) -> Option<(Scope, Strin
     match scope {
         Scope::Any => Kind::ALL
             .into_iter()
-            .find_map(|kind| grammar::parse(text, kind).ok().and_then(|request| aliases.reroute(&request, &[kind])))
+            .find_map(|kind| grammar::parse(text, kind).ok().and_then(|request| aliases.reroute(&request, &[kind], false)))
             .map(|(kind, text)| (kind.map_or(Scope::Any, Scope::Only), text)),
-        Scope::Only(kind) => grammar::parse(text, kind).ok().and_then(|request| aliases.reroute(&request, &[kind])).map(|(_, text)| (scope, text)),
+        Scope::Only(kind) => grammar::parse(text, kind).ok().and_then(|request| aliases.reroute(&request, &[kind], true)).map(|(_, text)| (scope, text)),
         Scope::Theme => match grammar::tune(text).ok()? {
-            Tune::Place(request, boss) => aliases.reroute(&request, &Kind::PLACES).map(|(_, text)| (scope, if boss { format!("{text} --{BOSS}") } else { text })),
+            Tune::Place(request, boss) => aliases.reroute(&request, &Kind::PLACES, true).map(|(_, text)| (scope, if boss { format!("{text} --{BOSS}") } else { text })),
             Tune::Track(..) => None,
         },
         Scope::Backdrop => match grammar::scenery(text).ok()?.subject {
-            Backing::Place(request) => aliases.reroute(&request, &Kind::PLACES).map(|(_, text)| (scope, text)),
+            Backing::Place(request) => aliases.reroute(&request, &Kind::PLACES, true).map(|(_, text)| (scope, text)),
             Backing::Id(..) => None,
         },
     }
@@ -1063,7 +1062,7 @@ fn rerouted(aliases: &Aliases, scope: Scope, text: &str) -> Option<(Scope, Strin
 fn chosen(aliases: &Aliases, scope: Scope, key: &str, tail: &str) -> Option<(Scope, String)> {
     let (kind, target) = match aliases.keyed(key)? {
         Target::Typed(target) => (None, target),
-        Target::Known(kind, unit) => (Some(kind), unit),
+        Target::Known(kind, unit) | Target::Original(kind, unit) => (Some(kind), unit),
     };
     let text = match scope {
         Scope::Theme if tail == BOSS => format!("{target} --{BOSS}"),
@@ -1082,10 +1081,10 @@ fn clipped(text: &str) -> String {
 fn told(library: Option<&Library>, prefs: &Prefs, target: Target<'_>) -> String {
     match target {
         Target::Typed(typed) => typed.to_owned(),
-        Target::Known(kind, unit) => {
+        Target::Known(kind, unit) | Target::Original(kind, unit) => {
             let named = library.and_then(|library| grammar::parse(unit, kind).ok().and_then(|request| lookup::hits(library, kind, &request.unit, fuzzy::CLOSENESS, prefs).into_iter().next())).map(|hit| hit.label);
 
-            format!("{} • {BUILT_IN}", named.unwrap_or_else(|| format!("{} {unit}", kind.label())))
+            named.unwrap_or_else(|| format!("{} {unit}", kind.label()))
         }
     }
 }
@@ -1146,7 +1145,11 @@ async fn serve_any(voice: Voice<'_>, text: &str) -> Result<(), Error> {
         (Found::Unread(_) | Found::Nothing, Some((rows, asked))) => offer_choices(voice, prose::SEARCH_PICK.filled(prefs.prose, &[("name", &asked)]), rows).await,
         (Found::Unread(reason), None) => voice.say(prose::SEE_HELP.filled(prefs.prose, &[("reason", &reason), ("prefix", &prefix_of(voice.data(), owner))])).await,
         (Found::Nothing, None) => voice.say(prose::NO_UNIT.filled(prefs.prose, &[("word", text.split_whitespace().next().unwrap_or_default()), ("prefix", &prefix_of(voice.data(), owner))])).await,
-        (Found::One(kind, request), _) => serve(voice, kind, request).await,
+        (Found::One(kind, request), _) => match prefs.aliases.original(&request, kind).map(|text| grammar::parse(&text, kind)) {
+            Some(Ok(original)) => serve(voice, kind, original).await,
+            Some(Err(reason)) => voice.say(prose::SEE_HELP.filled(prefs.prose, &[("reason", &reason), ("prefix", &prefix_of(voice.data(), owner))])).await,
+            None => serve(voice, kind, request).await,
+        },
         (Found::Several { asked, searched, tails, hits }, wide) => {
             let line = if searched { &prose::SEARCH_PICK } else { &prose::EITHER_PICK };
 
@@ -3014,6 +3017,9 @@ mod tests {
         assert_eq!(rerouted(&aliases, Scope::Theme, "sol -b"), Some((Scope::Theme, "Stories of Legend --boss".to_owned())));
         assert_eq!(rerouted(&aliases, Scope::Backdrop, "sol -f gif -d 800x600"), Some((Scope::Backdrop, "Stories of Legend -f gif -d 800x600".to_owned())));
         assert_eq!(rerouted(&aliases, Scope::Any, "dasli a walk"), Some((Scope::Only(Kind::Cat), "543-2 a walk".to_owned())), "a built-in one answers as the kind it points at");
+        assert_eq!(rerouted(&aliases, Scope::Any, "bun bun"), None, "without a command, a name for the original is settled after the search has picked a kind");
+        assert_eq!(rerouted(&aliases, Scope::Only(Kind::Enemy), "bun bun 400%"), Some((Scope::Only(Kind::Enemy), "24 400%".to_owned())));
+        assert_eq!(rerouted(&aliases, Scope::Only(Kind::Cat), "bun bun"), None);
         assert_eq!(rerouted(&aliases, Scope::Any, "stories of legend"), None);
         assert_eq!(rerouted(&aliases, Scope::Backdrop, "12"), None);
     }
