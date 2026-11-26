@@ -1,3 +1,4 @@
+mod alias;
 mod audio;
 mod backdrop;
 mod cache;
@@ -17,6 +18,7 @@ mod statblock;
 mod talents;
 mod usage;
 mod whitelist;
+mod wiki;
 
 use std::io::{self, IsTerminal};
 use std::process::ExitCode;

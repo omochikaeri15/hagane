@@ -26,6 +26,13 @@ pub(crate) enum Found {
     Several { asked: String, searched: bool, tails: Vec<(Kind, String)>, hits: Vec<Hit> },
 }
 
+pub(crate) enum Landing {
+    Unread(String),
+    Nowhere,
+    One(String),
+    Several,
+}
+
 pub(crate) fn settled(request: Request, named: impl Fn(&str) -> bool) -> Request {
     match request.whole {
         Some(whole) if named(&whole) => Request { unit: Unit::Name(whole), want: Want::Stats(Stats::default()), whole: None, form: request.form, crowns: request.crowns, search: request.search, tail: String::new() },
@@ -151,4 +158,47 @@ pub(crate) fn across(library: &Library, prefs: &Prefs, text: &str) -> Found {
     hits.sort_by_key(|hit| Reverse(hit.score));
 
     Found::Several { asked, searched, tails, hits }
+}
+
+pub(crate) fn searching(text: &str) -> Option<(String, u32, String)> {
+    Kind::ALL.into_iter().filter_map(|kind| grammar::parse(text, kind).ok()).find_map(|request| match (request.unit, request.search) {
+        (Unit::Name(name), Some(closeness)) => Some((name, closeness, request.tail)),
+        _ => None,
+    })
+}
+
+fn landed(library: &Library, prefs: &Prefs, kind: Kind, request: &Request) -> Landing {
+    match (kind, &request.unit) {
+        (Kind::Cat, unit) => {
+            let found = match unit {
+                Unit::Id(id, form) => library.cat(*id).map(|cat| (cat, form.unwrap_or_else(|| prefs.form_from(&cat.forms)))),
+                Unit::Name(name) => library.find_cat(name, prefs),
+                Unit::Code(_) => None,
+            };
+
+            found.map(|(cat, form)| (cat, request.form.unwrap_or(form))).filter(|(cat, form)| cat.forms.get(*form).copied().unwrap_or(false)).map_or(Landing::Nowhere, |(cat, form)| Landing::One(cat.display_name(form)))
+        }
+        (Kind::Enemy, Unit::Id(id, _)) => library.enemy(*id).map_or(Landing::Nowhere, |enemy| Landing::One(enemy.display_name())),
+        (Kind::Enemy, Unit::Name(name)) => library.find_enemy(name).map_or(Landing::Nowhere, |enemy| Landing::One(enemy.display_name())),
+        _ => {
+            let found = hits(library, kind, &request.unit, fuzzy::CLOSENESS, prefs);
+            let best = found.first().map(|hit| hit.score);
+            let mut tied = found.into_iter().filter(|hit| Some(hit.score) == best);
+
+            match (tied.next(), tied.next()) {
+                (None, _) => Landing::Nowhere,
+                (Some(only), None) => Landing::One(if only.label.trim().is_empty() { only.value } else { only.label }),
+                (Some(_), Some(_)) => Landing::Several,
+            }
+        }
+    }
+}
+
+pub(crate) fn landing(library: &Library, prefs: &Prefs, text: &str) -> Landing {
+    match across(library, prefs, text) {
+        Found::Unread(reason) => Landing::Unread(reason),
+        Found::Nothing => Landing::Nowhere,
+        Found::One(kind, request) => landed(library, prefs, kind, &request),
+        Found::Several { .. } => Landing::Several,
+    }
 }

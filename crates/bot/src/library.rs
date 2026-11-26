@@ -28,6 +28,7 @@ use foundry::systems::treasure::Bonus;
 
 use super::fuzzy::{self, Query};
 use super::prefs::{ENGLISH, Prefs, Search};
+use super::wiki::Wiki;
 
 const ICONS: &str = "img015";
 const COINS: &str = "img022";
@@ -35,19 +36,20 @@ const GRAFT_MARK: char = 'i';
 
 pub(crate) struct Catalog {
     pub(crate) payload: String,
+    wiki: Arc<Wiki>,
     books: Mutex<HashMap<String, Arc<Library>>>,
 }
 
 impl Catalog {
-    pub(crate) fn new(payload: String) -> Self {
-        Self { payload, books: Mutex::new(HashMap::new()) }
+    pub(crate) fn new(payload: String, wiki: Arc<Wiki>) -> Self {
+        Self { payload, wiki, books: Mutex::new(HashMap::new()) }
     }
 
     pub(crate) fn book(&self, language: &str) -> Arc<Library> {
         let language = if lang::choices().any(|(code, _)| code == language) { language } else { ENGLISH };
         let mut books = self.books.lock().unwrap_or_else(PoisonError::into_inner);
 
-        Arc::clone(books.entry(language.to_owned()).or_insert_with(|| Arc::new(load(language))))
+        Arc::clone(books.entry(language.to_owned()).or_insert_with(|| Arc::new(load(language, Arc::clone(&self.wiki)))))
     }
 }
 
@@ -69,6 +71,15 @@ pub(crate) struct Library {
     localizable: Localizable,
     names: NameBook,
     treasure: Bonus,
+    wiki: Arc<Wiki>,
+}
+
+fn best<const HELD: usize>(query: &Query, closeness: u32, held: [Option<&str>; HELD]) -> Option<u32> {
+    held.into_iter().flatten().filter_map(|name| query.score_within(name, closeness)).max()
+}
+
+fn named<const HELD: usize>(wanted: &str, held: [Option<&str>; HELD]) -> bool {
+    held.into_iter().flatten().any(|name| fuzzy::normalized(name) == wanted)
 }
 
 impl Library {
@@ -94,10 +105,12 @@ impl Library {
     }
 
     fn scored_cats(&self, query: &Query, closeness: u32) -> Vec<(&CatEntry, usize, u32)> {
+        let wiki = self.wiki.names();
+
         self.cats
             .iter()
-            .flat_map(|cat| cat.names.iter().enumerate().filter(|(form, _)| cat.forms[*form]).filter_map(move |(form, held)| Some((cat, form, held.as_deref()?))))
-            .filter_map(|(cat, form, held)| Some((cat, form, query.score_within(held, closeness)?)))
+            .flat_map(|cat| cat.names.iter().enumerate().filter(|(form, _)| cat.forms[*form]).map(move |(form, held)| (cat, form, held.as_deref())))
+            .filter_map(|(cat, form, held)| Some((cat, form, best(query, closeness, [held, wiki.cat(cat.id, form)])?)))
             .collect()
     }
 
@@ -110,7 +123,8 @@ impl Library {
 
     pub(crate) fn search_enemies(&self, name: &str, closeness: u32) -> Vec<(&EnemyEntry, u32)> {
         let query = Query::new(name);
-        let mut scored: Vec<(&EnemyEntry, u32)> = self.enemies.iter().filter_map(|enemy| Some((enemy, query.score_within(&enemy.name, closeness)?))).collect();
+        let wiki = self.wiki.names();
+        let mut scored: Vec<(&EnemyEntry, u32)> = self.enemies.iter().filter_map(|enemy| Some((enemy, best(&query, closeness, [Some(enemy.name.as_str()), wiki.enemy(enemy.id)])?))).collect();
 
         scored.sort_by_key(|(enemy, score)| (Reverse(*score), enemy.id));
         scored
@@ -132,7 +146,8 @@ impl Library {
         }
 
         let wanted = fuzzy::normalized(name);
-        let exact: Vec<usize> = cat.names.iter().enumerate().filter(|(form, held)| cat.forms[*form] && held.as_deref().is_some_and(|held| fuzzy::normalized(held) == wanted)).map(|(form, _)| form).collect();
+        let wiki = self.wiki.names();
+        let exact: Vec<usize> = cat.names.iter().enumerate().filter(|(form, held)| cat.forms[*form] && named(&wanted, [held.as_deref(), wiki.cat(cat.id, *form)])).map(|(form, _)| form).collect();
 
         if let Some(only) = exact.first().filter(|_| exact.len() == 1) {
             return Some((cat, *only));
@@ -151,20 +166,23 @@ impl Library {
 
     pub(crate) fn names_cat(&self, name: &str) -> bool {
         let wanted = fuzzy::normalized(name);
+        let wiki = self.wiki.names();
 
-        self.cats.iter().any(|cat| cat.names.iter().flatten().any(|held| fuzzy::normalized(held) == wanted))
+        self.cats.iter().any(|cat| cat.names.iter().enumerate().any(|(form, held)| named(&wanted, [held.as_deref(), wiki.cat(cat.id, form)])))
     }
 
     pub(crate) fn names_enemy(&self, name: &str) -> bool {
         let wanted = fuzzy::normalized(name);
+        let wiki = self.wiki.names();
 
-        self.enemies.iter().any(|enemy| fuzzy::normalized(&enemy.name) == wanted)
+        self.enemies.iter().any(|enemy| named(&wanted, [Some(enemy.name.as_str()), wiki.enemy(enemy.id)]))
     }
 
     pub(crate) fn find_enemy(&self, name: &str) -> Option<&EnemyEntry> {
         let query = Query::new(name);
+        let wiki = self.wiki.names();
 
-        self.enemies.iter().filter_map(|enemy| Some((enemy, query.score(&enemy.name)?))).max_by_key(|(enemy, score)| (*score, Reverse(enemy.id))).map(|(enemy, _)| enemy)
+        self.enemies.iter().filter_map(|enemy| Some((enemy, best(&query, fuzzy::CLOSENESS, [Some(enemy.name.as_str()), wiki.enemy(enemy.id)])?))).max_by_key(|(enemy, score)| (*score, Reverse(enemy.id))).map(|(enemy, _)| enemy)
     }
 
     fn staged<'a>(&'a self, id: &'a GlobalStageId, stage: &'a Stage) -> Staged<'a> {
@@ -402,7 +420,7 @@ pub(crate) fn download(link: &str) -> Result<String, String> {
     Ok(stamp.id)
 }
 
-fn load(language: &str) -> Library {
+fn load(language: &str, wiki: Arc<Wiki>) -> Library {
     let started = Instant::now();
     let mut settings = Settings::default();
 
@@ -438,7 +456,7 @@ fn load(language: &str) -> Library {
 
     info!(language, cats = cats.len(), enemies = enemies.len(), stages = stages.registry.stages.len(), ms = started.elapsed().as_millis(), "Game data loaded");
 
-    Library { language: language.to_owned(), vault, settings, cats, enemies, foes, stages, hosts, filibusters, sheets, icons, coins, coin_mark, param, localizable, names, treasure }
+    Library { language: language.to_owned(), vault, settings, cats, enemies, foes, stages, hosts, filibusters, sheets, icons, coins, coin_mark, param, localizable, names, treasure, wiki }
 }
 
 fn drawn_from(sheets: &[SpriteSheet]) -> [u8; 32] {

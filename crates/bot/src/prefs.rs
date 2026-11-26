@@ -1,18 +1,21 @@
 use std::collections::HashMap;
 use std::fs;
-use std::path::PathBuf;
+use std::io;
+use std::path::{Path, PathBuf};
 use std::sync::{Mutex, PoisonError};
 
 use serde::{Deserialize, Serialize};
-use tracing::{error, warn};
+use tracing::error;
 
 use foundry::domains::settings::lang;
 
+use super::alias::Aliases;
 use super::prose::{self, Line, Prose};
 use super::render::Format;
 
-const FILE: &str = "users.json";
-const PARTIAL: &str = "users.json.partial";
+const FOLDER: &str = "users";
+const HELD: &str = "json";
+const PARTIAL: &str = "partial";
 pub(crate) const ENGLISH: &str = "en";
 pub(crate) const PREFIX: &str = "hg!";
 pub(crate) const PREFIX_LIMIT: usize = 16;
@@ -77,11 +80,12 @@ pub(crate) struct Prefs {
     pub(crate) prefix: Option<String>,
     pub(crate) prose: Prose,
     pub(crate) mode: Mode,
+    pub(crate) aliases: Aliases,
 }
 
 impl Default for Prefs {
     fn default() -> Self {
-        Self { language: ENGLISH.to_owned(), format: Format::Avif, form: TRUE_FORM, search: Search::Exact, prefix: None, prose: Prose::Human, mode: Mode::Dormant }
+        Self { language: ENGLISH.to_owned(), format: Format::Avif, form: TRUE_FORM, search: Search::Exact, prefix: None, prose: Prose::Human, mode: Mode::Dormant, aliases: Aliases::default() }
     }
 }
 
@@ -118,22 +122,43 @@ pub(crate) fn language_name(code: &str) -> &'static str {
 }
 
 pub(crate) struct Book {
-    path: PathBuf,
+    folder: PathBuf,
     users: Mutex<HashMap<u64, Prefs>>,
+}
+
+fn held(folder: &Path) -> io::Result<HashMap<u64, Prefs>> {
+    let mut users = HashMap::new();
+
+    fs::create_dir_all(folder)?;
+
+    for entry in fs::read_dir(folder)? {
+        let path = entry?.path();
+        let user = path.file_stem().filter(|_| path.extension().is_some_and(|extension| extension == HELD)).and_then(|stem| stem.to_str()).and_then(|stem| stem.parse::<u64>().ok());
+        let Some(user) = user else { continue };
+
+        match fs::read(&path).map_err(|err| err.to_string()).and_then(|bytes| serde_json::from_slice(&bytes).map_err(|err| err.to_string())) {
+            Ok(prefs) => {
+                users.insert(user, prefs);
+            }
+            Err(reason) => error!(user, "One user's settings could not be read, so they start over: {}", reason),
+        }
+    }
+
+    Ok(users)
 }
 
 impl Book {
     pub(crate) fn open() -> Self {
-        let path = PathBuf::from(FILE);
-        let users = match fs::read(&path) {
-            Ok(bytes) => serde_json::from_slice(&bytes).unwrap_or_else(|err| {
-                error!("The user settings could not be read, starting with none: {}", err);
-                HashMap::new()
-            }),
-            Err(_) => HashMap::new(),
-        };
+        Self::at(PathBuf::from(FOLDER))
+    }
 
-        Self { path, users: Mutex::new(users) }
+    fn at(folder: PathBuf) -> Self {
+        let users = held(&folder).unwrap_or_else(|err| {
+            error!("The user settings folder could not be read, starting with none: {}", err);
+            HashMap::new()
+        });
+
+        Self { folder, users: Mutex::new(users) }
     }
 
     pub(crate) fn get(&self, user: u64) -> Prefs {
@@ -148,24 +173,31 @@ impl Book {
         self.users.lock().unwrap_or_else(PoisonError::into_inner).get(&user).map_or(Prose::Human, |prefs| prefs.prose)
     }
 
+    pub(crate) fn aliases(&self, user: u64) -> Aliases {
+        self.users.lock().unwrap_or_else(PoisonError::into_inner).get(&user).map_or_else(Aliases::default, |prefs| prefs.aliases.clone())
+    }
+
+    fn save(&self, user: u64, prefs: &Prefs) -> io::Result<()> {
+        let partial = self.folder.join(format!("{user}.{PARTIAL}"));
+
+        fs::write(&partial, serde_json::to_vec(prefs)?)?;
+        fs::rename(&partial, self.folder.join(format!("{user}.{HELD}")))
+    }
+
     pub(crate) fn update(&self, user: u64, change: impl FnOnce(&mut Prefs)) -> Prefs {
         let mut users = self.users.lock().unwrap_or_else(PoisonError::into_inner);
         let prefs = users.entry(user).or_default();
+        let before = prefs.clone();
 
         change(prefs);
 
-        let changed = prefs.clone();
-
-        match serde_json::to_vec(&*users) {
-            Ok(bytes) => {
-                if let Err(err) = fs::write(PARTIAL, &bytes).and_then(|()| fs::rename(PARTIAL, &self.path)) {
-                    error!("The user settings could not be saved: {}", err);
-                }
-            }
-            Err(err) => warn!("The user settings could not be encoded: {}", err),
+        if *prefs != before
+            && let Err(err) = self.save(user, prefs)
+        {
+            error!(user, "One user's settings could not be saved: {}", err);
         }
 
-        changed
+        prefs.clone()
     }
 }
 
@@ -191,6 +223,33 @@ mod tests {
         let prefs: Prefs = serde_json::from_str(r#"{"language":"ja","format":"WebP","form":1,"search":"Preferred"}"#).unwrap();
 
         assert_eq!((prefs.language.as_str(), prefs.form, prefs.search, prefs.prefix, prefs.prose, prefs.mode), ("ja", 1, Search::Preferred, None, Prose::Human, Mode::Dormant));
+    }
+
+    // Each user is a file of their own, so a change rewrites one file and a damaged one costs one user.
+    #[test]
+    fn each_user_is_saved_alone() {
+        let folder = std::env::temp_dir().join(format!("hagane-users-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&folder);
+        let book = Book::at(folder.clone());
+
+        book.update(7, |prefs| prefs.form = 1);
+        book.update(8, |prefs| prefs.aliases.add("Baha", "Bahamut Cat"));
+        book.update(9, |_| {});
+
+        let mut files: Vec<String> = fs::read_dir(&folder).unwrap().map(|entry| entry.unwrap().file_name().into_string().unwrap()).collect();
+
+        files.sort();
+        assert_eq!(files, ["7.json", "8.json"], "someone who changed nothing is not written");
+
+        fs::write(folder.join("7.json"), "{ not json").unwrap();
+
+        let reopened = Book::at(folder.clone());
+
+        assert_eq!(reopened.get(7), Prefs::default());
+        assert_eq!(reopened.get(8), book.get(8));
+        assert_eq!(reopened.aliases(8).count(), book.aliases(9).count() + 1);
+
+        fs::remove_dir_all(&folder).unwrap();
     }
 
     // A missing form falls back to the next one down, never up.

@@ -197,7 +197,7 @@ pub(crate) const HOME_BACKGROUND: Line = Line::new("A background by ID, or a sta
 pub(crate) const HOME_AUDIO: Line = Line::new("A music track or sound effect by ID, or a stage's theme by its name", "A music track or sound effect by ID, or a stage's theme by its name. D-Don't play it too loud!");
 pub(crate) const PAGE_BACKGROUND: Line = Line::new("The background with that ID, as the game shows it on a 960 by 640 screen. One that moves comes as an animation, and one that doesn't comes as a single picture.", "The background with that ID, as the game shows it on a 960 by 640 screen. One that moves comes as an animation, and one that doesn't comes as a single picture. D-Don't just sit there staring at it!");
 pub(crate) const PAGE_AUDIO: Line = Line::new("The music track or sound effect with that ID, or the theme of the stage with that name. A map's name lists its stages to pick one from.", "The music track or sound effect with that ID, or the theme of the stage with that name. A map's name lists its stages to pick one from. I-It's not like I was humming along!");
-pub(crate) const HOME_SETTINGS: Line = Line::new("Your language, image format, default form and prefix", "Your language, image format, default form and prefix. Have it your way, see if I care");
+pub(crate) const HOME_SETTINGS: Line = Line::new("Your language, image format, default form, prefix and aliases", "Your language, image format, default form, prefix and aliases. Have it your way, see if I care");
 pub(crate) const HOME_WEBSITE: Line = Line::new("A link to the Hagane website", "A link to the Hagane website, if you really must");
 pub(crate) const HOME_INVITE: Line = Line::new("How to get me into a server", "How to get me into a server... n-not that I want to be invited!");
 pub(crate) const HOME_LEGAL: Line = Line::new("Licenses, and who I'm not affiliated with", "Licenses, and who I'm not affiliated with. The boring part");
@@ -209,9 +209,45 @@ pub(crate) const PAGE_LEGAL: Line = Line::new("The licenses for everything I'm b
 pub(crate) const PAGE_HELP: Line = Line::new("`hg!help` lists every command. `hg!help <command>` opens one, aliases included, like `hg!help c`. The list below switches between them.", "`hg!help` lists every command. `hg!help <command>` opens one, aliases included, like `hg!help c`. The list below switches between them, since you clearly need the help!");
 pub(crate) const PICK_LAPSED: Line = Line::new("Nothing was picked for {minutes} minutes, so I've dropped that request", "{minutes} whole minutes and you still couldn't pick?! Fine, I've dropped it... n-not that I was waiting on you or anything!");
 pub(crate) const DO_NOTHING: Line = Line::new("Okay! I will do nothing", "Fine! I'll do nothing! I-It's not like I wanted to do something for you anyway!");
+pub(crate) const ALIAS_TITLE: Line = Line::new("Your aliases", "Your aliases, I guess");
+pub(crate) const ALIAS_NONE: Line = Line::new("You have no aliases", "You don't have a single alias! Add one first, dummy!");
+pub(crate) const ALIAS_UNREADABLE: Line = Line::new("An alias needs at least one letter or number", "An alias needs at least one letter or number, dummy!");
+pub(crate) const ALIAS_IS_ID: Line = Line::new("`{alias}` reads as an ID, so it can't be an alias", "`{alias}` is an ID, dummy! It can't be an alias too!");
+pub(crate) const ALIAS_SPLIT: Line = Line::new("`{alias}` has a word or a flag in it that I read as something else, so it can't be an alias", "`{alias}` has a word or a flag in it that already means something else! Pick another alias, geez!");
+pub(crate) const ALIAS_FULL: Line = Line::new("You can keep {limit} aliases at most. Remove one first", "{limit} aliases is the limit! Remove one first, I'm not your notebook!");
+pub(crate) const ALIAS_NOWHERE: Line = Line::new("`{target}` doesn't find anything, so I didn't save `{alias}`", "`{target}` doesn't find anything, so I'm not saving `{alias}`! Check your spelling!");
+pub(crate) const ALIAS_UNREAD: Line = Line::new("I couldn't read `{target}`, so I didn't save `{alias}`: {reason}", "I can't even read `{target}`, so I'm not saving `{alias}`! {reason}");
+pub(crate) const ALIAS_ADDED: Line = Line::new("`{alias}` now opens {unit}", "Fine, `{alias}` opens {unit} now. I-It's not like I'll remember it for your sake!");
+pub(crate) const ALIAS_ADDED_LIST: Line = Line::new("`{alias}` now searches `{target}`, which gives a list to pick from", "`{alias}` searches `{target}` now, and that gives a whole list to pick from. Don't blame me for it!");
+pub(crate) const ALIAS_SHADOWED: Line = Line::new("`{prefix}{word}` is a command, so this alias only works after one, like `{prefix}cat {alias}`", "`{prefix}{word}` is a command, dummy, so this alias only works after one, like `{prefix}cat {alias}`!");
+pub(crate) const ALIAS_REMOVE_PROMPT: Line = Line::new("Pick an alias to remove it", "Pick the alias you want gone already!");
+pub(crate) const ALIAS_REMOVED: Line = Line::new("Removed `{alias}`", "`{alias}` is gone. Happy now?!");
+pub(crate) const ALIAS_GONE: Line = Line::new("That alias isn't there anymore", "That alias is already gone, dummy!");
+pub(crate) const ALIAS_CLEAR_ASK: Line = Line::new("Remove every alias, the built-in ones included?", "Remove every alias, even the built-in ones?! Are you sure about that?!");
+pub(crate) const ALIAS_RESET_ASK: Line = Line::new("Remove your own aliases and bring the built-in ones back?", "Throw out your own aliases and bring the built-in ones back?! Make up your mind!");
+pub(crate) const ALIAS_CLEARED: Line = Line::new("Every alias is removed", "They're all gone! Every last one!");
+pub(crate) const ALIAS_RESET: Line = Line::new("Your aliases are back to the built-in ones", "Your aliases are back to the built-in ones. D-Don't mess them up again!");
 
 #[cfg(test)]
-pub(crate) const LINES: [&Line; 75] = [
+pub(crate) const LINES: [&Line; 93] = [
+    &ALIAS_TITLE,
+    &ALIAS_NONE,
+    &ALIAS_UNREADABLE,
+    &ALIAS_IS_ID,
+    &ALIAS_SPLIT,
+    &ALIAS_FULL,
+    &ALIAS_NOWHERE,
+    &ALIAS_UNREAD,
+    &ALIAS_ADDED,
+    &ALIAS_ADDED_LIST,
+    &ALIAS_SHADOWED,
+    &ALIAS_REMOVE_PROMPT,
+    &ALIAS_REMOVED,
+    &ALIAS_GONE,
+    &ALIAS_CLEAR_ASK,
+    &ALIAS_RESET_ASK,
+    &ALIAS_CLEARED,
+    &ALIAS_RESET,
     &PICK_LAPSED,
     &LIST_GONE,
     &NO_PLACE,

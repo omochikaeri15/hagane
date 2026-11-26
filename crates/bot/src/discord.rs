@@ -19,7 +19,9 @@ use foundry::domains::stage::{Stage, sheet};
 use foundry::systems::animation::MotionSet;
 use foundry::systems::combat::registry::Magnification;
 
+use super::alias::{self, Aliases, Target};
 use super::whitelist;
+use super::wiki::Wiki;
 use super::audio;
 use super::backdrop;
 use super::cache::Cache;
@@ -27,7 +29,7 @@ use super::config::Config;
 use super::fuzzy;
 use super::grammar::{self, Backing, Kind, Motion, Page, Request, Scenery, Tune, Unit, Want};
 use super::library::{self, Catalog, Library, Remote};
-use super::lookup::{self, CROWN_GLYPH, Found, Hit};
+use super::lookup::{self, CROWN_GLYPH, Found, Hit, Landing};
 use super::prefs::{self, Book, FORMS, Mode, Prefs, Search};
 use super::prose::{self, Line, Prose, Trouble};
 use super::render::{self, Format, Options, Planned, Progress};
@@ -37,6 +39,7 @@ use super::talents;
 use super::usage::{self, Asker, Ledger, Tally};
 
 const REFRESH: Duration = Duration::from_secs(60 * 60);
+const WIKI_RETRY: Duration = Duration::from_secs(60 * 60);
 const PICK_WAIT: Duration = Duration::from_secs(5 * 60);
 const TICK: Duration = Duration::from_secs(1);
 const BAR: usize = 24;
@@ -78,7 +81,14 @@ const OPTION_LIMIT: usize = 100;
 const SEARCH_SHOWN: usize = 24;
 const ABORT: &str = "abort";
 const SET_JUMP: &str = "set|jump|";
-const SETTINGS: [Setting; 7] = [Setting::Language, Setting::Format, Setting::Form, Setting::Search, Setting::Mode, Setting::Prose, Setting::Prefix];
+const SET_ALIAS: &str = "set|alias";
+const ALIAS_JUMP: &str = "set|aliasjump|";
+const ALIAS: &str = "a";
+const ALIAS_LINES: usize = 20;
+const ALIAS_HINT: &str = "Dasli";
+const TARGET_HINT: &str = "Kasli the Bane";
+const BUILT_IN: &str = "built in";
+const SETTINGS: [Setting; 8] = [Setting::Language, Setting::Format, Setting::Form, Setting::Search, Setting::Mode, Setting::Prose, Setting::Prefix, Setting::Alias];
 const SETTINGS_ROWS: usize = 4;
 const SETTINGS_PAGES: usize = SETTINGS.len().div_ceil(SETTINGS_ROWS);
 const PAGE_DIGITS: u16 = 2;
@@ -113,6 +123,7 @@ pub(crate) struct Data {
     lists: Mutex<Lists>,
     usage: Mutex<Ledger>,
     waits: Waits,
+    commands: Vec<String>,
 }
 
 type Choice = (String, String, String);
@@ -152,6 +163,7 @@ fn lists(data: &Data) -> MutexGuard<'_, Lists> {
 pub(crate) async fn run(config: Config, cache: Cache) -> Result<(), Error> {
     let shelf: Shelf = Arc::new(RwLock::new(None));
     let born = SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |since| since.as_secs());
+    let commands = vec![cat(), enemy(), stage(), map(), background(), audio(), settings(), website(), help(), invite(), legal(), donothing()];
     let data = Data {
         shelf: Arc::clone(&shelf),
         cache: Arc::new(cache),
@@ -161,12 +173,16 @@ pub(crate) async fn run(config: Config, cache: Cache) -> Result<(), Error> {
         lists: Mutex::new(Lists::new(born)),
         usage: Mutex::new(Ledger::default()),
         waits: Arc::new(Mutex::new(HashMap::new())),
+        commands: commands.iter().flat_map(|command| std::iter::once(command.name.to_string()).chain(command.aliases.iter().map(|word| word.to_string()))).collect(),
     };
 
-    tokio::spawn(keep_fresh(config.source, shelf));
+    let wiki = Arc::new(Wiki::open());
+
+    tokio::spawn(keep_translated(Arc::clone(&wiki)));
+    tokio::spawn(keep_fresh(config.source, shelf, wiki));
 
     let options = poise::FrameworkOptions {
-        commands: vec![cat(), enemy(), stage(), map(), background(), audio(), settings(), website(), help(), invite(), legal(), donothing()],
+        commands,
         prefix_options: poise::PrefixFrameworkOptions {
             prefix: None,
             mention_as_prefix: false,
@@ -296,7 +312,7 @@ async fn on_error(failure: FrameworkError<'_, Data, Error>) {
 
             debug!(prefix, "A request came without a command");
 
-            if let Err(err) = serve_any(voice, text).await {
+            if let Err(err) = asked(voice, Scope::Any, text).await {
                 error!("A request without a command failed: {}", err);
 
                 if let Err(err) = voice.say(prose::FAILED.said(voice.prose())).await {
@@ -316,7 +332,23 @@ async fn on_error(failure: FrameworkError<'_, Data, Error>) {
     }
 }
 
-async fn keep_fresh(source: String, shelf: Shelf) {
+async fn keep_translated(wiki: Arc<Wiki>) {
+    loop {
+        tokio::time::sleep(wiki.wait()).await;
+
+        let held = Arc::clone(&wiki);
+        let whole = task::spawn_blocking(move || held.refresh()).await.unwrap_or_else(|err| {
+            error!("The wiki name refresh stopped: {}", err);
+            false
+        });
+
+        if !whole {
+            tokio::time::sleep(WIKI_RETRY).await;
+        }
+    }
+}
+
+async fn keep_fresh(source: String, shelf: Shelf, wiki: Arc<Wiki>) {
     loop {
         let held = shelf.read().await.as_ref().map(|catalog| catalog.payload.clone());
         let link = source.clone();
@@ -328,9 +360,10 @@ async fn keep_fresh(source: String, shelf: Shelf) {
                 info!(payload, "Game data changed, updating");
                 let mut slot = shelf.write().await;
                 let link = source.clone();
+                let names = Arc::clone(&wiki);
                 let loaded = task::spawn_blocking(move || {
                     library::download(&link).map(|payload| {
-                        let catalog = Catalog::new(payload);
+                        let catalog = Catalog::new(payload, names);
 
                         catalog.book(prefs::ENGLISH);
                         catalog
@@ -348,7 +381,7 @@ async fn keep_fresh(source: String, shelf: Shelf) {
                 warn!("The game data source could not be checked: {}", reason);
 
                 if shelf.read().await.is_none() && architecture::game_present() {
-                    *shelf.write().await = Some(Arc::new(Catalog::new(String::new())));
+                    *shelf.write().await = Some(Arc::new(Catalog::new(String::new(), Arc::clone(&wiki))));
                 }
             }
             Err(err) => error!("The game data check stopped: {}", err),
@@ -627,18 +660,22 @@ impl<'a> Voice<'a> {
     }
 }
 
-async fn offer(voice: Voice<'_>, prompt: String, labeled: bool, tails: &[(Kind, String)], found: Vec<Hit>) -> Result<(), Error> {
-    offer_as(voice, prompt, labeled, None, tails, found).await
+async fn offer(voice: Voice<'_>, prompt: String, labeled: bool, tails: &[(Kind, String)], leading: Vec<Choice>, found: Vec<Hit>) -> Result<(), Error> {
+    offer_as(voice, prompt, labeled, None, tails, leading, found).await
 }
 
-fn pager(shown: usize, pages: usize, turn: impl Fn(String) -> String) -> serenity::CreateActionRow {
+fn turns(shown: usize, pages: usize, turn: impl Fn(String) -> String) -> Vec<serenity::CreateButton> {
     let button = |to: Option<usize>, side: &str, label: &str| serenity::CreateButton::new(turn(to.map_or_else(|| side.to_owned(), |to| to.to_string()))).label(label).style(serenity::ButtonStyle::Secondary).disabled(to.is_none());
 
-    serenity::CreateActionRow::Buttons(vec![
+    vec![
         button(shown.checked_sub(1), "first", "◀"),
         serenity::CreateButton::new(turn(format!("{JUMP}{shown}"))).label(format!("{} / {pages}", shown + 1)).style(serenity::ButtonStyle::Secondary).disabled(pages <= 1),
         button(Some(shown + 1).filter(|next| *next < pages), "last", "▶"),
-    ])
+    ]
+}
+
+fn pager(shown: usize, pages: usize, turn: impl Fn(String) -> String) -> serenity::CreateActionRow {
+    serenity::CreateActionRow::Buttons(turns(shown, pages, turn))
 }
 
 fn page_box(id: String, shown: usize, pages: usize) -> serenity::CreateInteractionResponse {
@@ -666,10 +703,11 @@ fn list_rows(owner: u64, token: Option<u64>, choices: &[Choice], shown: usize) -
     vec![serenity::CreateActionRow::SelectMenu(menu), pager(shown, pages, |slot| format!("{SEEK}{owner}|{:x}|{slot}", token.unwrap_or_default()))]
 }
 
-async fn offer_as(voice: Voice<'_>, prompt: String, labeled: bool, route: Option<&str>, tails: &[(Kind, String)], found: Vec<Hit>) -> Result<(), Error> {
-    let mut choices = Vec::with_capacity(found.len().min(SEARCH_SHOWN * LIST_PAGES));
+async fn offer_as(voice: Voice<'_>, prompt: String, labeled: bool, route: Option<&str>, tails: &[(Kind, String)], leading: Vec<Choice>, found: Vec<Hit>) -> Result<(), Error> {
+    let room = (SEARCH_SHOWN * LIST_PAGES).saturating_sub(leading.len());
+    let mut choices = leading;
 
-    for hit in found.into_iter().take(SEARCH_SHOWN * LIST_PAGES) {
+    for hit in found.into_iter().take(room) {
         let tail = tails.iter().find(|(kind, _)| *kind == hit.kind).map_or("", |(_, tail)| tail.as_str());
         let value = match (route, hit.kind) {
             (Some(route), Kind::Map) => format!("{}{route}|{}|{tail}", Kind::Map.tag(), hit.value),
@@ -818,7 +856,7 @@ async fn serve_map(voice: Voice<'_>, request: Request) -> Result<(), Error> {
     let Some((_guard, library)) = open(voice.data(), &prefs.language).await? else {
         return voice.say(prose::WARMING.said(prefs.prose)).await;
     };
-    let Some((_, code)) = sought(voice, &library, &prefs, &[Kind::Map], &request, None, &prose::NO_MAP).await? else { return Ok(()) };
+    let Some((_, code)) = sought(voice, &library, &prefs, Scope::Only(Kind::Map), &request, &prose::NO_MAP).await? else { return Ok(()) };
     let crowned = request.crowns.map(|crowns| format!("-c {crowns}"));
     let moded = request.mode().map(|mode| format!("--{}", mode.slug()));
     let tail = crowned.into_iter().chain(moded).collect::<Vec<_>>().join(" ");
@@ -901,26 +939,28 @@ async fn send_stage(voice: Voice<'_>, library: Arc<Library>, code: String, asked
     }
 }
 
-async fn sought(voice: Voice<'_>, library: &Library, prefs: &Prefs, kinds: &[Kind], request: &Request, route: Option<&str>, missing: &Line) -> Result<Option<(Kind, String)>, Error> {
+async fn sought(voice: Voice<'_>, library: &Library, prefs: &Prefs, scope: Scope, request: &Request, missing: &Line) -> Result<Option<(Kind, String)>, Error> {
+    let kinds = scope.kinds();
     let asked = match &request.unit {
         Unit::Name(name) | Unit::Code(name) => name.clone(),
         Unit::Id(id, _) => id.to_string(),
     };
     let mut found = lookup::among(library, kinds, &request.unit, request.search.unwrap_or(fuzzy::CLOSENESS), prefs);
     let best = found.first().map(|hit| hit.score);
+    let leading = request.search.map_or_else(Vec::new, |closeness| alias_choices(library, prefs, scope, &asked, closeness, &request.tail));
 
     if request.search.is_none() {
         found.retain(|hit| Some(hit.score) == best);
     }
 
     match (request.search.is_some(), found.as_slice()) {
-        (_, []) => voice.say(missing.said(prefs.prose)).await.map(|()| None),
+        (_, []) if leading.is_empty() => voice.say(missing.said(prefs.prose)).await.map(|()| None),
         (false, [only]) => Ok(Some((only.kind, only.value.clone()))),
         (searched, _) => {
             let line = if searched { &prose::SEARCH_PICK } else { &prose::EITHER_PICK };
             let tails: Vec<(Kind, String)> = kinds.iter().map(|kind| (*kind, request.tail.clone())).collect();
 
-            offer_as(voice, line.filled(prefs.prose, &[("name", &asked)]), kinds.len() > 1, route, &tails, found).await.map(|()| None)
+            offer_as(voice, line.filled(prefs.prose, &[("name", &asked)]), kinds.len() > 1, scope.route(), &tails, leading, found).await.map(|()| None)
         }
     }
 }
@@ -933,7 +973,7 @@ async fn serve_stage(voice: Voice<'_>, request: Request) -> Result<(), Error> {
     let Some((_guard, library)) = open(voice.data(), &prefs.language).await? else {
         return voice.say(prose::WARMING.said(prefs.prose)).await;
     };
-    let Some((_, code)) = sought(voice, &library, &prefs, &[Kind::Stage], &request, None, &prose::NO_STAGE).await? else { return Ok(()) };
+    let Some((_, code)) = sought(voice, &library, &prefs, Scope::Only(Kind::Stage), &request, &prose::NO_STAGE).await? else { return Ok(()) };
 
     send_stage(voice, Arc::clone(&library), code, request.crowns.map(|crowns| crowns.saturating_sub(1)), request.mode().unwrap_or(prefs.mode)).await
 }
@@ -958,25 +998,159 @@ async fn on_crown(ctx: &serenity::Context, press: &serenity::ComponentInteractio
     send_stage(voice, library, code.to_owned(), Some(crown), Mode::Interactive).await
 }
 
+#[derive(Clone, Copy, Debug, PartialEq)]
+enum Scope {
+    Any,
+    Only(Kind),
+    Theme,
+    Backdrop,
+}
+
+impl Scope {
+    fn tag(self) -> &'static str {
+        match self {
+            Scope::Any => "",
+            Scope::Only(kind) => kind.tag(),
+            Scope::Theme => THEME,
+            Scope::Backdrop => BACKDROP,
+        }
+    }
+
+    fn tagged(tag: &str) -> Option<Self> {
+        match tag {
+            "" => Some(Scope::Any),
+            THEME => Some(Scope::Theme),
+            BACKDROP => Some(Scope::Backdrop),
+            _ => Kind::ALL.into_iter().find(|kind| kind.tag() == tag).map(Scope::Only),
+        }
+    }
+
+    fn kinds(&self) -> &[Kind] {
+        match self {
+            Scope::Any => &Kind::ALL,
+            Scope::Only(kind) => std::slice::from_ref(kind),
+            Scope::Theme | Scope::Backdrop => &Kind::PLACES,
+        }
+    }
+
+    fn route(self) -> Option<&'static str> {
+        match self {
+            Scope::Theme => Some(THEME),
+            Scope::Backdrop => Some(BACKDROP),
+            Scope::Any | Scope::Only(_) => None,
+        }
+    }
+}
+
+fn rerouted(aliases: &Aliases, scope: Scope, text: &str) -> Option<(Scope, String)> {
+    match scope {
+        Scope::Any => Kind::ALL
+            .into_iter()
+            .find_map(|kind| grammar::parse(text, kind).ok().and_then(|request| aliases.reroute(&request, &[kind])))
+            .map(|(kind, text)| (kind.map_or(Scope::Any, Scope::Only), text)),
+        Scope::Only(kind) => grammar::parse(text, kind).ok().and_then(|request| aliases.reroute(&request, &[kind])).map(|(_, text)| (scope, text)),
+        Scope::Theme => match grammar::tune(text).ok()? {
+            Tune::Place(request, boss) => aliases.reroute(&request, &Kind::PLACES).map(|(_, text)| (scope, if boss { format!("{text} --{BOSS}") } else { text })),
+            Tune::Track(..) => None,
+        },
+        Scope::Backdrop => match grammar::scenery(text).ok()?.subject {
+            Backing::Place(request) => aliases.reroute(&request, &Kind::PLACES).map(|(_, text)| (scope, text)),
+            Backing::Id(..) => None,
+        },
+    }
+}
+
+fn chosen(aliases: &Aliases, scope: Scope, key: &str, tail: &str) -> Option<(Scope, String)> {
+    let (kind, target) = match aliases.keyed(key)? {
+        Target::Typed(target) => (None, target),
+        Target::Known(kind, unit) => (Some(kind), unit),
+    };
+    let text = match scope {
+        Scope::Theme if tail == BOSS => format!("{target} --{BOSS}"),
+        Scope::Theme => target.to_owned(),
+        _ if tail.is_empty() => target.to_owned(),
+        _ => format!("{target} {tail}"),
+    };
+
+    Some((kind.filter(|_| scope == Scope::Any).map_or(scope, Scope::Only), text))
+}
+
+fn clipped(text: &str) -> String {
+    text.chars().take(OPTION_LIMIT).collect()
+}
+
+fn told(library: Option<&Library>, prefs: &Prefs, target: Target<'_>) -> String {
+    match target {
+        Target::Typed(typed) => typed.to_owned(),
+        Target::Known(kind, unit) => {
+            let named = library.and_then(|library| grammar::parse(unit, kind).ok().and_then(|request| lookup::hits(library, kind, &request.unit, fuzzy::CLOSENESS, prefs).into_iter().next())).map(|hit| hit.label);
+
+            format!("{} • {BUILT_IN}", named.unwrap_or_else(|| format!("{} {unit}", kind.label())))
+        }
+    }
+}
+
+fn alias_choices(library: &Library, prefs: &Prefs, scope: Scope, asked: &str, closeness: u32, tail: &str) -> Vec<Choice> {
+    prefs
+        .aliases
+        .close(asked, closeness, scope.kinds())
+        .into_iter()
+        .map(|row| (clipped(row.name), format!("{ALIAS}{}|{}|{tail}", scope.tag(), row.key), clipped(&format!("Alias • {}", told(Some(library), prefs, row.target)))))
+        .filter(|(_, value, _)| value.len() <= VALUE_LIMIT)
+        .collect()
+}
+
+async fn asked(voice: Voice<'_>, scope: Scope, text: &str) -> Result<(), Error> {
+    let aliases = voice.data().book.aliases(voice.user().get());
+
+    match rerouted(&aliases, scope, text) {
+        Some((scope, text)) => answer(voice, scope, &text).await,
+        None => answer(voice, scope, text).await,
+    }
+}
+
+async fn answer(voice: Voice<'_>, scope: Scope, text: &str) -> Result<(), Error> {
+    let unread = match scope {
+        Scope::Any => return serve_any(voice, text).await,
+        Scope::Only(kind) => match grammar::parse(text, kind) {
+            Ok(request) => return serve(voice, kind, request).await,
+            Err(reason) => reason,
+        },
+        Scope::Theme => match grammar::tune(text) {
+            Ok(Tune::Track(id, typed)) => return serve_audio(voice, id, typed).await,
+            Ok(Tune::Place(request, boss)) => return serve_theme(voice, request, boss, &prose::NO_PLACE).await,
+            Err(reason) => reason,
+        },
+        Scope::Backdrop => match grammar::scenery(text) {
+            Ok(scenery) => return serve_background(voice, scenery).await,
+            Err(reason) => reason,
+        },
+    };
+
+    voice.say(prose::SEE_HELP.filled(voice.prose(), &[("reason", &unread), ("prefix", &prefix_of(voice.data(), voice.user().get()))])).await
+}
+
 async fn serve_any(voice: Voice<'_>, text: &str) -> Result<(), Error> {
     let owner = voice.user().get();
     let prefs = voice.data().book.get(owner);
-    let found = {
+    let (found, wide) = {
         let Some((_guard, library)) = open(voice.data(), &prefs.language).await? else {
             return voice.say(prose::WARMING.said(prefs.prose)).await;
         };
+        let wide = lookup::searching(text).map(|(asked, closeness, tail)| (alias_choices(&library, &prefs, Scope::Any, &asked, closeness, &tail), asked)).filter(|(rows, _)| !rows.is_empty());
 
-        lookup::across(&library, &prefs, text)
+        (lookup::across(&library, &prefs, text), wide)
     };
 
-    match found {
-        Found::Unread(reason) => voice.say(prose::SEE_HELP.filled(prefs.prose, &[("reason", &reason), ("prefix", &prefix_of(voice.data(), owner))])).await,
-        Found::Nothing => voice.say(prose::NO_UNIT.filled(prefs.prose, &[("word", text.split_whitespace().next().unwrap_or_default()), ("prefix", &prefix_of(voice.data(), owner))])).await,
-        Found::One(kind, request) => serve(voice, kind, request).await,
-        Found::Several { asked, searched, tails, hits } => {
+    match (found, wide) {
+        (Found::Unread(_) | Found::Nothing, Some((rows, asked))) => offer_choices(voice, prose::SEARCH_PICK.filled(prefs.prose, &[("name", &asked)]), rows).await,
+        (Found::Unread(reason), None) => voice.say(prose::SEE_HELP.filled(prefs.prose, &[("reason", &reason), ("prefix", &prefix_of(voice.data(), owner))])).await,
+        (Found::Nothing, None) => voice.say(prose::NO_UNIT.filled(prefs.prose, &[("word", text.split_whitespace().next().unwrap_or_default()), ("prefix", &prefix_of(voice.data(), owner))])).await,
+        (Found::One(kind, request), _) => serve(voice, kind, request).await,
+        (Found::Several { asked, searched, tails, hits }, wide) => {
             let line = if searched { &prose::SEARCH_PICK } else { &prose::EITHER_PICK };
 
-            offer(voice, line.filled(prefs.prose, &[("name", &asked)]), true, &tails, hits).await
+            offer(voice, line.filled(prefs.prose, &[("name", &asked)]), true, &tails, wide.map_or_else(Vec::new, |(rows, _)| rows), hits).await
         }
     }
 }
@@ -1003,13 +1177,16 @@ async fn on_found(ctx: &serenity::Context, press: &serenity::ComponentInteractio
     let (Some(tag), Some(unit), Some(tail)) = (parts.next(), parts.next(), parts.next()) else { return Ok(()) };
     let kind = Kind::ALL.into_iter().find(|kind| kind.tag() == tag);
     let mapped = tag.strip_prefix(Kind::Map.tag()).filter(|route| [THEME, BACKDROP].contains(route));
-    let served = match (tag, mapped, kind.map(|kind| (kind, grammar::parse(&format!("{unit} {tail}"), kind)))) {
-        (_, Some(route), _) => charted(voice, data, owner, unit, route, tail).await,
-        (THEME, ..) => themed(voice, data, owner, unit, tail == BOSS).await,
-        (BACKDROP, ..) => backed(voice, data, owner, unit, tail).await,
-        (_, _, Some((kind, Ok(request)))) => serve(voice, kind, request).await,
-        (_, _, Some((_, Err(reason)))) => voice.say(prose::SEE_HELP.filled(voice.prose(), &[("reason", &reason), ("prefix", &prefix_of(data, owner))])).await,
-        (_, _, None) => return Ok(()),
+    let aliased = tag.strip_prefix(ALIAS).and_then(Scope::tagged).map(|scope| chosen(&data.book.aliases(owner), scope, unit, tail));
+    let served = match (aliased, tag, mapped, kind.map(|kind| (kind, grammar::parse(&format!("{unit} {tail}"), kind)))) {
+        (Some(Some((scope, text))), ..) => answer(voice, scope, &text).await,
+        (Some(None), ..) => voice.say(prose::ALIAS_GONE.said(voice.prose())).await,
+        (None, _, Some(route), _) => charted(voice, data, owner, unit, route, tail).await,
+        (None, THEME, ..) => themed(voice, data, owner, unit, tail == BOSS).await,
+        (None, BACKDROP, ..) => backed(voice, data, owner, unit, tail).await,
+        (None, _, _, Some((kind, Ok(request)))) => serve(voice, kind, request).await,
+        (None, _, _, Some((_, Err(reason)))) => voice.say(prose::SEE_HELP.filled(voice.prose(), &[("reason", &reason), ("prefix", &prefix_of(data, owner))])).await,
+        (None, _, _, None) => return Ok(()),
     };
 
     if let Err(err) = served {
@@ -1396,7 +1573,7 @@ async fn serve_background(voice: Voice<'_>, scenery: Scenery) -> Result<(), Erro
         (Backing::Id(id, _), None) => *id,
         (Backing::Place(request), _) | (_, Some((request, _))) => {
             let missing = numbered.as_ref().map_or(&prose::NO_PLACE, |(_, missing)| missing);
-            let Some((kind, code)) = sought(voice, &library, &prefs, &Kind::PLACES, request, Some(BACKDROP), missing).await? else { return Ok(()) };
+            let Some((kind, code)) = sought(voice, &library, &prefs, Scope::Backdrop, request, missing).await? else { return Ok(()) };
 
             if kind == Kind::Map {
                 return listed(voice, &library, &code, BACKDROP, &request.tail).await;
@@ -1486,7 +1663,7 @@ async fn serve_theme(voice: Voice<'_>, request: Request, boss: bool, missing: &L
         return voice.say(prose::WARMING.said(prefs.prose)).await;
     };
     let request = Request { tail: if boss { BOSS } else { STANDARD }.to_owned(), ..request };
-    let Some((kind, code)) = sought(voice, &library, &prefs, &Kind::PLACES, &request, Some(THEME), missing).await? else { return Ok(()) };
+    let Some((kind, code)) = sought(voice, &library, &prefs, Scope::Theme, &request, missing).await? else { return Ok(()) };
 
     match kind {
         Kind::Map => listed(voice, &library, &code, THEME, &request.tail).await,
@@ -1564,21 +1741,9 @@ fn prefix_of(data: &Data, user: u64) -> String {
     data.book.prefix(user).unwrap_or_else(|| prefs::PREFIX.to_owned())
 }
 
-async fn understood(ctx: Context<'_>, request: Option<String>, kind: Kind) -> Result<Option<Request>, Error> {
-    match grammar::parse(request.as_deref().unwrap_or_default(), kind) {
-        Ok(request) => Ok(Some(request)),
-        Err(reason) => {
-            refused(ctx, &reason).await?;
-            Ok(None)
-        }
-    }
-}
-
 #[poise::command(slash_command, prefix_command, install_context = "Guild|User", interaction_context = "Guild|BotDm|PrivateChannel", aliases("c"))]
 async fn cat(ctx: Context<'_>, #[description = "ID-form or name, then stats or anim"] #[rest] request: Option<String>) -> Result<(), Error> {
-    let Some(request) = understood(ctx, request, Kind::Cat).await? else { return Ok(()) };
-
-    serve_cat(Voice::Command(ctx), request).await
+    asked(Voice::Command(ctx), Scope::Only(Kind::Cat), request.as_deref().unwrap_or_default()).await
 }
 
 async fn serve_cat(voice: Voice<'_>, request: Request) -> Result<(), Error> {
@@ -1595,12 +1760,13 @@ async fn serve_cat(voice: Voice<'_>, request: Request) -> Result<(), Error> {
 
     if let (Some(closeness), Unit::Name(name)) = (request.search, &request.unit) {
         let found = lookup::hits(&library, Kind::Cat, &request.unit, closeness, &prefs);
+        let leading = alias_choices(&library, &prefs, Scope::Only(Kind::Cat), name, closeness, &request.tail);
 
-        if found.is_empty() {
+        if found.is_empty() && leading.is_empty() {
             return voice.say(prose::NO_CAT.said(prefs.prose)).await;
         }
 
-        return offer(voice, prose::SEARCH_PICK.filled(prefs.prose, &[("name", name)]), false, &[(Kind::Cat, request.tail)], found).await;
+        return offer(voice, prose::SEARCH_PICK.filled(prefs.prose, &[("name", name)]), false, &[(Kind::Cat, request.tail)], leading, found).await;
     }
     let found = match &request.unit {
         Unit::Id(id, form) => library.cat(*id).map(|cat| (cat, form.unwrap_or_else(|| prefs.form_from(&cat.forms)))),
@@ -1653,9 +1819,7 @@ async fn serve_cat(voice: Voice<'_>, request: Request) -> Result<(), Error> {
 
 #[poise::command(slash_command, prefix_command, install_context = "Guild|User", interaction_context = "Guild|BotDm|PrivateChannel", aliases("e"))]
 async fn enemy(ctx: Context<'_>, #[description = "ID or name, then stats or anim"] #[rest] request: Option<String>) -> Result<(), Error> {
-    let Some(request) = understood(ctx, request, Kind::Enemy).await? else { return Ok(()) };
-
-    serve_enemy(Voice::Command(ctx), request).await
+    asked(Voice::Command(ctx), Scope::Only(Kind::Enemy), request.as_deref().unwrap_or_default()).await
 }
 
 async fn serve_enemy(voice: Voice<'_>, request: Request) -> Result<(), Error> {
@@ -1671,12 +1835,13 @@ async fn serve_enemy(voice: Voice<'_>, request: Request) -> Result<(), Error> {
 
     if let (Some(closeness), Unit::Name(name)) = (request.search, &request.unit) {
         let found = lookup::hits(&library, Kind::Enemy, &request.unit, closeness, &prefs);
+        let leading = alias_choices(&library, &prefs, Scope::Only(Kind::Enemy), name, closeness, &request.tail);
 
-        if found.is_empty() {
+        if found.is_empty() && leading.is_empty() {
             return voice.say(prose::NO_ENEMY.said(prefs.prose)).await;
         }
 
-        return offer(voice, prose::SEARCH_PICK.filled(prefs.prose, &[("name", name)]), false, &[(Kind::Enemy, request.tail)], found).await;
+        return offer(voice, prose::SEARCH_PICK.filled(prefs.prose, &[("name", name)]), false, &[(Kind::Enemy, request.tail)], leading, found).await;
     }
     let found = match &request.unit {
         Unit::Id(id, _) => library.enemy(*id),
@@ -1703,40 +1868,24 @@ async fn serve_enemy(voice: Voice<'_>, request: Request) -> Result<(), Error> {
     }
 }
 
-async fn refused(ctx: Context<'_>, reason: &str) -> Result<(), Error> {
-    say(ctx, prose::SEE_HELP.filled(prose_of(ctx), &[("reason", reason), ("prefix", &prefix_of(ctx.data(), ctx.author().id.get()))])).await?;
-    Ok(())
-}
-
 #[poise::command(slash_command, prefix_command, install_context = "Guild|User", interaction_context = "Guild|BotDm|PrivateChannel", aliases("s"))]
 async fn stage(ctx: Context<'_>, #[description = "A stage's name or ID like R 1 2, then --crowns 1 to 4"] #[rest] request: Option<String>) -> Result<(), Error> {
-    let Some(request) = understood(ctx, request, Kind::Stage).await? else { return Ok(()) };
-
-    serve_stage(Voice::Command(ctx), request).await
+    asked(Voice::Command(ctx), Scope::Only(Kind::Stage), request.as_deref().unwrap_or_default()).await
 }
 
 #[poise::command(slash_command, prefix_command, install_context = "Guild|User", interaction_context = "Guild|BotDm|PrivateChannel", aliases("m"))]
 async fn map(ctx: Context<'_>, #[description = "A map's name or ID like R 100, then --crowns 1 to 4"] #[rest] request: Option<String>) -> Result<(), Error> {
-    let Some(request) = understood(ctx, request, Kind::Map).await? else { return Ok(()) };
-
-    serve_map(Voice::Command(ctx), request).await
+    asked(Voice::Command(ctx), Scope::Only(Kind::Map), request.as_deref().unwrap_or_default()).await
 }
 
 #[poise::command(slash_command, prefix_command, install_context = "Guild|User", interaction_context = "Guild|BotDm|PrivateChannel", aliases("bg", "b"))]
 async fn background(ctx: Context<'_>, #[description = "ID or stage name, then --seed, --range, --offset, --dimensions or --format"] #[rest] request: Option<String>) -> Result<(), Error> {
-    match grammar::scenery(request.as_deref().unwrap_or_default()) {
-        Ok(scenery) => serve_background(Voice::Command(ctx), scenery).await,
-        Err(reason) => refused(ctx, &reason).await,
-    }
+    asked(Voice::Command(ctx), Scope::Backdrop, request.as_deref().unwrap_or_default()).await
 }
 
 #[poise::command(slash_command, prefix_command, install_context = "Guild|User", interaction_context = "Guild|BotDm|PrivateChannel", aliases("a"))]
 async fn audio(ctx: Context<'_>, #[description = "A track's ID like 5, or a stage's name, then --boss"] #[rest] id: Option<String>) -> Result<(), Error> {
-    match grammar::tune(id.as_deref().unwrap_or_default()) {
-        Ok(Tune::Track(id, typed)) => serve_audio(Voice::Command(ctx), id, typed).await,
-        Ok(Tune::Place(request, boss)) => serve_theme(Voice::Command(ctx), request, boss, &prose::NO_PLACE).await,
-        Err(reason) => refused(ctx, &reason).await,
-    }
+    asked(Voice::Command(ctx), Scope::Theme, id.as_deref().unwrap_or_default()).await
 }
 
 #[poise::command(slash_command, prefix_command, install_context = "Guild|User", interaction_context = "Guild|BotDm|PrivateChannel", aliases("h"))]
@@ -1845,7 +1994,7 @@ impl<'a> Voiced<'a> {
     }
 }
 
-const NAMES: &str = "Spaces are fine, and close spellings still match";
+const NAMES: &str = "Spaces are fine, and close spellings still match. One the game has no English name for also answers to the name the Battle Cats Wiki gives it";
 const SEARCHING: &str = "After a name: lists the closest matches for you to pick from, 24 to a page. ◀ and ▶ under the list turn its pages, and the page number between them opens a box to jump to one. A number after it, 1 to 100, is how close a name has to be: 86 to start, lower finds more";
 
 fn help_page(page_name: &str, section: &str, prefix: &str, prose: Prose) -> serenity::CreateEmbed {
@@ -1913,7 +2062,8 @@ fn help_page(page_name: &str, section: &str, prefix: &str, prose: Prose) -> sere
             .field("Search", "Exact (to start): a form's exact name gets that form, anything else is a close search. Preferred: a found cat always gets your default form.", false)
             .field("Blocks", "Dormant (to start): a cat's, an enemy's or a stage's picture comes alone. Interactive: it comes with buttons under it to change it. `--dormant` (`-d`) and `--interactive` (`-i`) override it for one request.", false)
             .field("Prefix", "What you type in front of a command, which is `hg!` for you right now. Up to 16 characters, no spaces; leave it empty to go back to `{default}`. Mentioning me and `/` always work.", false)
-            .field("Prose", "Human (to start) or Tsundere: how I word what I say. What I tell you stays the same.", false),
+            .field("Prose", "Human (to start) or Tsundere: how I word what I say. What I tell you stays the same.", false)
+            .field("Aliases", "Your own names for things, 50 at most. Add takes an alias and what it goes to, like `Dasli` and `Kasli the Bane`. Typing the alias where a name goes then works as if you had typed that instead, and whatever comes after it carries over. An alias beats a real name, and `--search` lists the ones close to what you typed above everything else.\nShow lists them. Remove takes one out, and its Remove All and Set to Default buttons clear them or bring back the ones I come with.", false),
         ("website", _) => Voiced::new(prefix, "hg!website (web, w)", prose::PAGE_WEBSITE.said(prose)),
         ("invite", _) => Voiced::new(prefix, "hg!invite (inv, i)", prose::PAGE_INVITE.said(prose)),
         ("legal", _) => Voiced::new(prefix, "hg!legal (license, l)", prose::PAGE_LEGAL.said(prose)),
@@ -1974,6 +2124,7 @@ enum Setting {
     Mode,
     Prose,
     Prefix,
+    Alias,
 }
 
 impl Setting {
@@ -1986,6 +2137,7 @@ impl Setting {
             Setting::Mode => "mode",
             Setting::Prose => "prose",
             Setting::Prefix => "prefix",
+            Setting::Alias => "alias",
         }
     }
 
@@ -1998,6 +2150,7 @@ impl Setting {
             Setting::Mode => "Blocks",
             Setting::Prose => "Prose",
             Setting::Prefix => "Prefix",
+            Setting::Alias => "Aliases",
         }
     }
 
@@ -2017,6 +2170,7 @@ impl Setting {
             Setting::Mode => Mode::ALL.into_iter().map(|mode| pick(mode == prefs.mode, format!("set|{owner}|{key}|{}", mode.slug()), mode.label())).collect(),
             Setting::Prose => Prose::ALL.into_iter().map(|prose| pick(prose == prefs.prose, format!("set|{owner}|{key}|{}", prose.slug()), prose.label())).collect(),
             Setting::Prefix => vec![pick(prefs.prefix.is_some(), format!("set|{owner}|{key}"), "Change")],
+            Setting::Alias => [("add", "Add"), ("show", "Show"), ("remove", "Remove")].into_iter().map(|(act, label)| pick(false, format!("set|{owner}|{key}|{act}"), label)).collect(),
         };
 
         serenity::CreateActionRow::Buttons(std::iter::once(caption(format!("set|{owner}|caption|{key}"), self.label())).chain(choices).collect())
@@ -2040,7 +2194,8 @@ fn settings_view(owner: u64, prefs: &Prefs, shown: usize) -> (serenity::CreateEm
         .field("Search", prefs.search.label(), true)
         .field("Blocks", prefs.mode.label(), true)
         .field("Prefix", prefs.prefix(), true)
-        .field("Prose", prefs.prose.label(), true);
+        .field("Prose", prefs.prose.label(), true)
+        .field("Aliases", prefs.aliases.count().to_string(), true);
     let shown = shown.min(SETTINGS_PAGES - 1);
     let mut rows: Vec<serenity::CreateActionRow> = SETTINGS.chunks(SETTINGS_ROWS).nth(shown).unwrap_or_default().iter().map(|setting| setting.row(owner, prefs)).collect();
 
@@ -2059,6 +2214,207 @@ fn settings_view(owner: u64, prefs: &Prefs, shown: usize) -> (serenity::CreateEm
     ]));
 
     (embed, rows)
+}
+
+fn alias_list(library: Option<&Library>, prefs: &Prefs) -> Vec<Choice> {
+    prefs.aliases.rows().into_iter().map(|row| (clipped(row.name), row.key, clipped(&told(library, prefs, row.target)))).collect()
+}
+
+fn alias_pages(act: &str, held: usize) -> usize {
+    held.div_ceil(if act == "list" { ALIAS_LINES } else { SEARCH_SHOWN }).max(1)
+}
+
+fn alias_shown(owner: u64, list: &[Choice], shown: usize, prose: Prose) -> (serenity::CreateEmbed, Vec<serenity::CreateActionRow>) {
+    let pages = alias_pages("list", list.len());
+    let shown = shown.min(pages - 1);
+    let lines: Vec<String> = list.iter().skip(shown * ALIAS_LINES).take(ALIAS_LINES).map(|(name, _, goes)| format!("`{name}` → {goes}")).collect();
+    let text = if lines.is_empty() { prose::ALIAS_NONE.said(prose).to_owned() } else { lines.join("\n") };
+    let rows = if pages > 1 { vec![pager(shown, pages, |slot| format!("set|{owner}|alias|list|{slot}"))] } else { Vec::new() };
+
+    (page(prose::ALIAS_TITLE.said(prose), &text), rows)
+}
+
+fn alias_removal(owner: u64, aliases: &Aliases, list: &[Choice], shown: usize, note: Option<String>, prose: Prose) -> (String, Vec<serenity::CreateActionRow>) {
+    let pages = alias_pages("turn", list.len());
+    let shown = shown.min(pages - 1);
+    let options: Vec<serenity::CreateSelectMenuOption> = list.iter().skip(shown * SEARCH_SHOWN).take(SEARCH_SHOWN).map(|(name, key, goes)| serenity::CreateSelectMenuOption::new(name, key).description(goes)).collect();
+    let menu = (!options.is_empty()).then(|| serenity::CreateActionRow::SelectMenu(serenity::CreateSelectMenu::new(format!("set|{owner}|alias|pick|{shown}"), serenity::CreateSelectMenuKind::String { options }).placeholder("Pick one to remove")));
+    let bulk = |act: &str, label: &str, done: bool| serenity::CreateButton::new(format!("set|{owner}|alias|{act}")).label(label).style(serenity::ButtonStyle::Danger).disabled(done);
+    let buttons = turns(shown, pages, |slot| format!("set|{owner}|alias|turn|{slot}")).into_iter().chain([bulk("clear", "Remove All", aliases.cleared()), bulk("reset", "Set to Default", aliases.untouched())]).collect();
+    let text = note.unwrap_or_else(|| if list.is_empty() { &prose::ALIAS_NONE } else { &prose::ALIAS_REMOVE_PROMPT }.said(prose).to_owned());
+
+    (text, menu.into_iter().chain([serenity::CreateActionRow::Buttons(buttons)]).collect())
+}
+
+fn alias_confirm(owner: u64, act: &str, prose: Prose) -> (String, Vec<serenity::CreateActionRow>) {
+    let line = if act == "clear" { &prose::ALIAS_CLEAR_ASK } else { &prose::ALIAS_RESET_ASK };
+    let buttons = vec![
+        serenity::CreateButton::new(format!("set|{owner}|alias|sure|{act}")).label("Confirm").style(serenity::ButtonStyle::Danger),
+        serenity::CreateButton::new(format!("set|{owner}|alias|back")).label("Cancel").style(serenity::ButtonStyle::Secondary),
+    ];
+
+    (line.said(prose).to_owned(), vec![serenity::CreateActionRow::Buttons(buttons)])
+}
+
+async fn on_alias(ctx: &serenity::Context, press: &serenity::ComponentInteraction, data: &Data, owner: u64, act: &str, slot: &str) -> Result<(), Error> {
+    let prose = data.book.prose(owner);
+
+    if act == "add" {
+        let field = |label: &str, id: &str, hint: &str, limit: u16| serenity::CreateActionRow::InputText(serenity::CreateInputText::new(serenity::InputTextStyle::Short, label, id).placeholder(hint).max_length(limit).required(true));
+        let modal = serenity::CreateModal::new(SET_ALIAS, "Add an alias").components(vec![field("Alias", "alias", ALIAS_HINT, alias::NAME_LIMIT), field("Goes to", "target", TARGET_HINT, alias::TARGET_LIMIT)]);
+
+        press.create_response(ctx, serenity::CreateInteractionResponse::Modal(modal)).await?;
+        return Ok(());
+    }
+
+    if let Some(shown) = slot.strip_prefix(JUMP).and_then(|shown| shown.parse::<usize>().ok()) {
+        press.create_response(ctx, page_box(format!("{ALIAS_JUMP}{act}|{shown}"), shown, alias_pages(act, data.book.aliases(owner).count()))).await?;
+        return Ok(());
+    }
+
+    if matches!(act, "clear" | "reset") {
+        let (text, rows) = alias_confirm(owner, act, prose);
+
+        press.create_response(ctx, serenity::CreateInteractionResponse::UpdateMessage(serenity::CreateInteractionResponseMessage::new().content(text).components(rows))).await?;
+        return Ok(());
+    }
+
+    let opening = matches!(act, "show" | "remove");
+    let first = if opening { serenity::CreateInteractionResponse::Defer(serenity::CreateInteractionResponseMessage::new().ephemeral(true)) } else { serenity::CreateInteractionResponse::Acknowledge };
+
+    press.create_response(ctx, first).await?;
+
+    let mut note = None;
+    let prefs = match (act, slot) {
+        ("pick", _) => {
+            let serenity::ComponentInteractionDataKind::StringSelect { values } = &press.data.kind else { return Ok(()) };
+            let Some(key) = values.first() else { return Ok(()) };
+            let mut removed = None;
+            let prefs = data.book.update(owner, |prefs| removed = prefs.aliases.remove(key));
+
+            note = Some(removed.map_or_else(|| prose::ALIAS_GONE.said(prose).to_owned(), |name| prose::ALIAS_REMOVED.filled(prose, &[("alias", &name)])));
+            prefs
+        }
+        ("sure", "clear") => {
+            note = Some(prose::ALIAS_CLEARED.said(prose).to_owned());
+            data.book.update(owner, |prefs| prefs.aliases.clear())
+        }
+        ("sure", "reset") => {
+            note = Some(prose::ALIAS_RESET.said(prose).to_owned());
+            data.book.update(owner, |prefs| prefs.aliases.reset())
+        }
+        _ => data.book.get(owner),
+    };
+    let held = open(data, &prefs.language).await?;
+    let list = alias_list(held.as_ref().map(|(_, library)| library.as_ref()), &prefs);
+    let shown = slot.parse::<usize>().unwrap_or(0);
+    let edit = match act {
+        "show" | "list" => {
+            let (embed, rows) = alias_shown(owner, &list, shown, prose);
+
+            serenity::EditInteractionResponse::new().embed(embed).components(rows)
+        }
+        "remove" | "turn" | "pick" | "sure" | "back" => {
+            let (text, rows) = alias_removal(owner, &prefs.aliases, &list, shown, note, prose);
+
+            serenity::EditInteractionResponse::new().content(text).components(rows)
+        }
+        _ => return Ok(()),
+    };
+
+    press.edit_response(ctx, edit).await?;
+    Ok(())
+}
+
+fn field_of(form: &serenity::ModalInteraction, id: &str) -> String {
+    form.data
+        .components
+        .iter()
+        .flat_map(|row| row.components.iter())
+        .find_map(|component| match component {
+            serenity::ActionRowComponent::InputText(input) if input.custom_id == id => input.value.clone(),
+            _ => None,
+        })
+        .map(|value| value.split_whitespace().collect::<Vec<_>>().join(" "))
+        .unwrap_or_default()
+}
+
+async fn on_alias_add(ctx: &serenity::Context, form: &serenity::ModalInteraction, data: &Data) -> Result<(), Error> {
+    let owner = form.user.id.get();
+    let prefs = data.book.get(owner);
+    let prose = prefs.prose;
+    let (name, target) = (field_of(form, "alias"), field_of(form, "target"));
+    let whisper = |text: String| serenity::CreateInteractionResponseFollowup::new().content(text).ephemeral(true);
+
+    form.create_response(ctx, serenity::CreateInteractionResponse::Acknowledge).await?;
+
+    if let Err(line) = alias::readable(&name) {
+        form.create_followup(ctx, whisper(line.filled(prose, &[("alias", &name)]))).await?;
+        return Ok(());
+    }
+
+    if prefs.aliases.full(&name) {
+        form.create_followup(ctx, whisper(prose::ALIAS_FULL.filled(prose, &[("limit", &alias::HELD.to_string())]))).await?;
+        return Ok(());
+    }
+
+    let landing = {
+        let Some((_guard, library)) = open(data, &prefs.language).await? else {
+            form.create_followup(ctx, whisper(prose::WARMING.said(prose).to_owned())).await?;
+            return Ok(());
+        };
+
+        lookup::landing(&library, &prefs, &target)
+    };
+    let added = match landing {
+        Landing::Unread(reason) => Err(prose::ALIAS_UNREAD.filled(prose, &[("target", &target), ("alias", &name), ("reason", &reason)])),
+        Landing::Nowhere => Err(prose::ALIAS_NOWHERE.filled(prose, &[("target", &target), ("alias", &name)])),
+        Landing::One(unit) => Ok(prose::ALIAS_ADDED.filled(prose, &[("alias", &name), ("unit", &unit)])),
+        Landing::Several => Ok(prose::ALIAS_ADDED_LIST.filled(prose, &[("alias", &name), ("target", &target)])),
+    };
+    let told = match added {
+        Ok(told) => told,
+        Err(reason) => {
+            form.create_followup(ctx, whisper(reason)).await?;
+            return Ok(());
+        }
+    };
+    let prefs = data.book.update(owner, |prefs| prefs.aliases.add(&name, &target));
+    let (embed, rows) = settings_view(owner, &prefs, settings_page("alias"));
+    let word = name.split_whitespace().next().map(str::to_lowercase).filter(|word| data.commands.iter().any(|command| command == word));
+    let shadowed = word.map(|word| prose::ALIAS_SHADOWED.filled(prose, &[("prefix", prefs.prefix()), ("word", &word), ("alias", &name)]));
+
+    form.edit_response(ctx, serenity::EditInteractionResponse::new().embed(embed).components(rows)).await?;
+    form.create_followup(ctx, whisper(std::iter::once(told).chain(shadowed).collect::<Vec<_>>().join("\n"))).await?;
+    Ok(())
+}
+
+async fn on_alias_jump(ctx: &serenity::Context, form: &serenity::ModalInteraction, data: &Data, rest: &str) -> Result<(), Error> {
+    let owner = form.user.id.get();
+    let Some((act, shown)) = rest.split_once('|') else { return Ok(()) };
+    let prefs = data.book.get(owner);
+
+    form.create_response(ctx, serenity::CreateInteractionResponse::Acknowledge).await?;
+
+    let held = open(data, &prefs.language).await?;
+    let list = alias_list(held.as_ref().map(|(_, library)| library.as_ref()), &prefs);
+    let asked = typed(form).trim().parse::<usize>().ok().map_or_else(|| shown.parse().unwrap_or(0), |page| page.clamp(1, alias_pages(act, list.len())) - 1);
+    let edit = match act {
+        "list" => {
+            let (embed, rows) = alias_shown(owner, &list, asked, prefs.prose);
+
+            serenity::EditInteractionResponse::new().embed(embed).components(rows)
+        }
+        "turn" => {
+            let (text, rows) = alias_removal(owner, &prefs.aliases, &list, asked, None, prefs.prose);
+
+            serenity::EditInteractionResponse::new().content(text).components(rows)
+        }
+        _ => return Ok(()),
+    };
+
+    form.edit_response(ctx, edit).await?;
+    Ok(())
 }
 
 fn settings_page(what: &str) -> usize {
@@ -2312,6 +2668,14 @@ async fn on_modal(ctx: &serenity::Context, form: &serenity::ModalInteraction, da
         return on_prefix(ctx, form, data).await;
     }
 
+    if form.data.custom_id == SET_ALIAS {
+        return on_alias_add(ctx, form, data).await;
+    }
+
+    if let Some(rest) = form.data.custom_id.strip_prefix(ALIAS_JUMP) {
+        return on_alias_jump(ctx, form, data, rest).await;
+    }
+
     if let Some(rest) = form.data.custom_id.strip_prefix(SEEK_JUMP) {
         let owner = form.user.id.get();
         let (token, shown) = rest.split_once('|').map_or((None, None), |(token, shown)| (u64::from_str_radix(token, 16).ok(), shown.parse::<usize>().ok()));
@@ -2490,6 +2854,10 @@ async fn on_setting(ctx: &serenity::Context, press: &serenity::ComponentInteract
         return Ok(());
     }
 
+    if what == "alias" {
+        return on_alias(ctx, press, data, owner, parts.next().unwrap_or_default(), parts.next().unwrap_or_default()).await;
+    }
+
     if what == "jump" {
         let shown = parts.next().and_then(|page| page.parse::<usize>().ok()).unwrap_or(0);
         let input = serenity::CreateInputText::new(serenity::InputTextStyle::Short, format!("Page (1 to {SETTINGS_PAGES})"), "page").placeholder((shown + 1).to_string()).max_length(PAGE_DIGITS).required(false);
@@ -2632,6 +3000,86 @@ mod tests {
         }
 
         assert_eq!(settings_page("page"), 0, "anything that is not a setting opens the first page");
+    }
+
+    // An alias is swapped in before anything is searched, wherever a name can be typed.
+    #[test]
+    fn an_alias_is_read_wherever_a_name_goes() {
+        let mut aliases = Aliases::default();
+
+        aliases.add("sol", "Stories of Legend");
+
+        assert_eq!(rerouted(&aliases, Scope::Any, "sol"), Some((Scope::Any, "Stories of Legend".to_owned())));
+        assert_eq!(rerouted(&aliases, Scope::Only(Kind::Map), "SOL -c 3"), Some((Scope::Only(Kind::Map), "Stories of Legend -c 3".to_owned())));
+        assert_eq!(rerouted(&aliases, Scope::Theme, "sol -b"), Some((Scope::Theme, "Stories of Legend --boss".to_owned())));
+        assert_eq!(rerouted(&aliases, Scope::Backdrop, "sol -f gif -d 800x600"), Some((Scope::Backdrop, "Stories of Legend -f gif -d 800x600".to_owned())));
+        assert_eq!(rerouted(&aliases, Scope::Any, "dasli a walk"), Some((Scope::Only(Kind::Cat), "543-2 a walk".to_owned())), "a built-in one answers as the kind it points at");
+        assert_eq!(rerouted(&aliases, Scope::Any, "stories of legend"), None);
+        assert_eq!(rerouted(&aliases, Scope::Backdrop, "12"), None);
+    }
+
+    // A pick from a search list finds the alias again by its key, in the place the search was made.
+    #[test]
+    fn a_picked_alias_runs_where_it_was_listed() {
+        let mut aliases = Aliases::default();
+
+        aliases.add("sol", "Stories of Legend");
+
+        for scope in [Scope::Any, Scope::Only(Kind::Cat), Scope::Only(Kind::Enemy), Scope::Only(Kind::Stage), Scope::Only(Kind::Map), Scope::Theme, Scope::Backdrop] {
+            let tag = format!("{ALIAS}{}", scope.tag());
+
+            assert!(tag.strip_prefix(ALIAS).and_then(Scope::tagged) == Some(scope));
+            assert!(!Kind::ALL.iter().any(|kind| kind.tag() == tag) && ![THEME, BACKDROP].contains(&tag.as_str()), "{tag} is already a pick of another sort");
+        }
+
+        assert_eq!(chosen(&aliases, Scope::Theme, "sol", BOSS), Some((Scope::Theme, "Stories of Legend --boss".to_owned())));
+        assert_eq!(chosen(&aliases, Scope::Theme, "sol", STANDARD), Some((Scope::Theme, "Stories of Legend".to_owned())));
+        assert_eq!(chosen(&aliases, Scope::Any, "dasli", "lv50"), Some((Scope::Only(Kind::Cat), "543-2 lv50".to_owned())));
+        assert_eq!(chosen(&aliases, Scope::Any, "gone", ""), None);
+    }
+
+    // The remove list keeps Discord's limits at every size, and its two bulk buttons gray out once they have nothing left to do.
+    #[test]
+    fn the_alias_lists_fit_discord() {
+        let mut prefs = Prefs::default();
+
+        for slot in 0..alias::HELD {
+            prefs.aliases.add(&format!("{slot} {}", "n".repeat(usize::from(alias::NAME_LIMIT) - 3)), &"t".repeat(usize::from(alias::TARGET_LIMIT)));
+        }
+
+        let list = alias_list(None, &prefs);
+        let pages = alias_pages("turn", list.len());
+
+        assert_eq!(list.len(), prefs.aliases.count());
+
+        for page in 0..pages {
+            let rows = serde_json::to_value(alias_removal(u64::MAX, &prefs.aliases, &list, page, None, Prose::Human).1).unwrap();
+            let rows = rows.as_array().unwrap();
+            let options = rows[0]["components"][0]["options"].as_array().unwrap();
+
+            assert!(rows.len() == 2 && rows[1]["components"].as_array().unwrap().len() == 5 && (1..=25).contains(&options.len()), "page {page}");
+            assert!(options.iter().all(|option| ["label", "value", "description"].iter().all(|part| (1..=100).contains(&option[part].as_str().unwrap().chars().count()))));
+            assert!(rows.iter().flat_map(|row| row["components"].as_array().unwrap()).all(|part| part["custom_id"].as_str().unwrap().len() <= VALUE_LIMIT));
+        }
+
+        for page in 0..alias_pages("list", list.len()) {
+            let embed = serde_json::to_value(alias_shown(u64::MAX, &list, page, Prose::Human).0).unwrap();
+
+            assert!(embed["description"].as_str().unwrap().chars().count() <= 4096);
+        }
+
+        let bulk = |aliases: &Aliases| -> Vec<bool> {
+            let rows = serde_json::to_value(alias_removal(1, aliases, &alias_list(None, &Prefs { aliases: aliases.clone(), ..Prefs::default() }), 0, None, Prose::Human).1).unwrap();
+            let buttons = rows.as_array().unwrap().last().unwrap()["components"].as_array().unwrap().clone();
+
+            buttons[3..].iter().map(|button| button["disabled"].as_bool().unwrap_or(false)).collect()
+        };
+        let mut aliases = Aliases::default();
+
+        assert_eq!(bulk(&aliases), [false, true], "nothing to set back to yet");
+        aliases.clear();
+        assert_eq!(bulk(&aliases), [true, false]);
+        assert_eq!(serde_json::to_value(alias_removal(1, &aliases, &[], 0, None, Prose::Human).1).unwrap().as_array().unwrap().len(), 1, "an empty list has no menu, only its buttons");
     }
 
     // Help speaks in the reader's own prefix, and only names hg! where it means the default.
