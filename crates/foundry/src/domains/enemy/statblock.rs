@@ -100,6 +100,8 @@ fn assemble(ctx: &RenderContext<'_>, enemy_entry: &EnemyEntry) -> StatblockData 
         data_1,
         headers_2,
         data_2,
+        marks_1: Vec::new(),
+        marks_2: Vec::new(),
         traits, h1, h2, b1, b2, footer, spirit_data: None,
     }
 }

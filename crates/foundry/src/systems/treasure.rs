@@ -4,7 +4,7 @@ mod config;
 use codex::chapter::stage::CertificationPreset;
 use codex::chapter::treasure::{enemy_money, unit_recharge, TraitBonus, TreasureEffect, TreasureLevels, TreasureProgress, ARC_SLOTS, SLOTS, STAGES};
 use codex::chapter::Category;
-use codex::combat::{crowned, Entity, Faction};
+use codex::combat::{crowned, Entity, Faction, Foe, Identity};
 
 pub use catalog::Catalog;
 pub use config::{Config, ARCS, FULL_PERCENT};
@@ -20,6 +20,16 @@ const FRUITS: [TreasureEffect; 7] = [
     TreasureEffect::Metal,
     TreasureEffect::Zombie,
     TreasureEffect::Alien,
+];
+
+const FRUIT_LABELS: [Identity; 7] = [
+    Identity::TraitRed,
+    Identity::TraitFloating,
+    Identity::TraitDark,
+    Identity::TraitAngel,
+    Identity::TraitMetal,
+    Identity::TraitZombie,
+    Identity::TraitAlien,
 ];
 
 const WEAKENINGS: [TreasureEffect; 5] = [
@@ -39,6 +49,7 @@ pub struct Bonus {
     pub(crate) enemy_money: i32,
     pub(crate) cat_recharge: i32,
     fruits: [i32; FRUITS.len()],
+    pushes: [i32; FRUITS.len()],
     weakenings: [[i32; WEAKENINGS.len()]; SLOTS + 1],
 }
 
@@ -77,6 +88,7 @@ impl Bonus {
             enemy_money: value(TreasureEffect::EnemyMoney),
             cat_recharge: value(TreasureEffect::CatRecharge),
             fruits: FRUITS.map(|effect| treasures.capped_at(progress, effect, FRUIT_PERCENT, None)),
+            pushes: FRUITS.map(|effect| treasures.value_at(progress, effect, None)),
             weakenings,
         }
     }
@@ -96,21 +108,26 @@ impl Bonus {
     }
 
     pub fn fruit_span(&self, stats: &Entity) -> (TraitBonus, TraitBonus) {
-        let fruit_flags = [stats.trait_red, stats.trait_floating, stats.trait_dark, stats.trait_angel, stats.trait_metal, stats.trait_zombie, stats.trait_alien];
-        let bare_flags = [stats.trait_traitless, stats.trait_witch, stats.trait_eva, stats.trait_relic, stats.trait_aku];
-
-        let values: Vec<i32> = FRUITS
-            .iter()
-            .zip(fruit_flags)
-            .filter(|(_, flag)| *flag != 0)
-            .map(|(effect, _)| self.fruit(*effect).0)
-            .chain(bare_flags.into_iter().filter(|flag| *flag != 0).map(|_| 0))
-            .collect();
-
-        let low = values.iter().copied().min().unwrap_or(0);
-        let high = values.iter().copied().max().unwrap_or(0);
+        let (low, high) = spread(stats, &self.fruits);
 
         (TraitBonus(low), TraitBonus(high))
+    }
+
+    pub fn push_span(&self, stats: &Entity) -> (i32, i32) {
+        match stats.faction {
+            Faction::Cat => spread(stats, &self.pushes),
+            Faction::Enemy => (0, 0),
+        }
+    }
+
+    pub fn push_fruit(&self, foe: Foe) -> i32 {
+        self.pushes.iter().zip(FRUIT_LABELS).filter(|(_, label)| foe.has(*label)).map(|(value, _)| *value).max().unwrap_or(0).max(0)
+    }
+
+    pub fn fruit_against(&self, stats: &Entity, foe: Foe) -> TraitBonus {
+        let shared = FRUITS.iter().zip(FRUIT_LABELS).filter(|(_, label)| foe.has(*label) && stats.aims_at(*label));
+
+        TraitBonus(shared.map(|(effect, _)| self.fruit(*effect).0).max().unwrap_or(0).max(0))
     }
 
     pub fn fruit_frames(&self, stats: &Entity, frames: i32, raise: i32) -> (i32, i32) {
@@ -137,6 +154,14 @@ impl Bonus {
     pub fn recharge(&self, cooldown: i32) -> i32 {
         unit_recharge(cooldown, MAX_TECH, self.cat_recharge)
     }
+}
+
+fn spread(stats: &Entity, values: &[i32; FRUITS.len()]) -> (i32, i32) {
+    let fruit_flags = [stats.trait_red, stats.trait_floating, stats.trait_dark, stats.trait_angel, stats.trait_metal, stats.trait_zombie, stats.trait_alien];
+    let bare_flags = [stats.trait_traitless, stats.trait_witch, stats.trait_eva, stats.trait_relic, stats.trait_aku];
+    let held: Vec<i32> = values.iter().zip(fruit_flags).filter(|(_, flag)| *flag != 0).map(|(value, _)| *value).chain(bare_flags.into_iter().filter(|flag| *flag != 0).map(|_| 0)).collect();
+
+    (held.iter().copied().min().unwrap_or(0), held.iter().copied().max().unwrap_or(0))
 }
 
 pub fn recorded_levels(rows: &[Vec<i32>]) -> TreasureLevels {

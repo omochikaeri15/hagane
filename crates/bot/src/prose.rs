@@ -209,6 +209,7 @@ pub(crate) const PAGE_LEGAL: Line = Line::new("The licenses for everything I'm b
 pub(crate) const PAGE_HELP: Line = Line::new("`hg!help` lists every command. `hg!help <command>` opens one, aliases included, like `hg!help c`. The list below switches between them.", "`hg!help` lists every command. `hg!help <command>` opens one, aliases included, like `hg!help c`. The list below switches between them, since you clearly need the help!");
 pub(crate) const PICK_LAPSED: Line = Line::new("Nothing was picked for {minutes} minutes, so I've dropped that request", "{minutes} whole minutes and you still couldn't pick?! Fine, I've dropped it... n-not that I was waiting on you or anything!");
 pub(crate) const DO_NOTHING: Line = Line::new("Okay! I will do nothing", "Fine! I'll do nothing! I-It's not like I wanted to do something for you anyway!");
+pub(crate) const NOT_A_TRAIT: Line = Line::new("`{name}` isn't a trait or an enemy I know. Traits are red, floating, black, metal, angel, alien, zombie, relic, aku, traitless, witch, eva, colossus, behemoth and sage, or `targets`, `traits`, `subtraits` and `all`", "`{name}` isn't a trait or an enemy, dummy! Traits are red, floating, black, metal, angel, alien, zombie, relic, aku, traitless, witch, eva, colossus, behemoth and sage, or `targets`, `traits`, `subtraits` and `all`!");
 pub(crate) const ALIAS_TITLE: Line = Line::new("Your aliases", "Your aliases, I guess");
 pub(crate) const ALIAS_NONE: Line = Line::new("You have no aliases", "You don't have a single alias! Add one first, dummy!");
 pub(crate) const ALIAS_UNREADABLE: Line = Line::new("An alias needs at least one letter or number", "An alias needs at least one letter or number, dummy!");
@@ -229,7 +230,8 @@ pub(crate) const ALIAS_CLEARED: Line = Line::new("Every alias is removed", "They
 pub(crate) const ALIAS_RESET: Line = Line::new("Your aliases are back to the built-in ones", "Your aliases are back to the built-in ones. D-Don't mess them up again!");
 
 #[cfg(test)]
-pub(crate) const LINES: [&Line; 93] = [
+pub(crate) const LINES: [&Line; 94] = [
+    &NOT_A_TRAIT,
     &ALIAS_TITLE,
     &ALIAS_NONE,
     &ALIAS_UNREADABLE,

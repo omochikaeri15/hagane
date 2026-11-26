@@ -172,10 +172,14 @@ impl Library {
     }
 
     pub(crate) fn names_enemy(&self, name: &str) -> bool {
+        self.enemy_named(name).is_some()
+    }
+
+    pub(crate) fn enemy_named(&self, name: &str) -> Option<&EnemyEntry> {
         let wanted = fuzzy::normalized(name);
         let wiki = self.wiki.names();
 
-        self.enemies.iter().any(|enemy| named(&wanted, [Some(enemy.name.as_str()), wiki.enemy(enemy.id)]))
+        self.enemies.iter().find(|enemy| named(&wanted, [Some(enemy.name.as_str()), wiki.enemy(enemy.id)]))
     }
 
     pub(crate) fn find_enemy(&self, name: &str) -> Option<&EnemyEntry> {

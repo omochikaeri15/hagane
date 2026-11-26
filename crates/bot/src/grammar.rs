@@ -1,6 +1,7 @@
 use std::mem;
 
 use codex::chapter::Category;
+use codex::combat::{Entity, Foe, Identity};
 
 use super::fuzzy::CLOSENESS;
 use super::prefs::Mode;
@@ -88,6 +89,37 @@ pub(crate) struct Stats {
     pub(crate) level: Option<String>,
     pub(crate) magnification: Option<(i32, i32)>,
     pub(crate) talents: Option<Vec<Talent>>,
+    pub(crate) versus: Option<Vec<String>>,
+}
+
+pub(crate) enum Lookup<'a> {
+    Named(&'a str),
+    Close(&'a str),
+    Numbered(u32),
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) struct Versus {
+    pub(crate) foe: Foe,
+    pub(crate) aimed: bool,
+}
+
+impl Versus {
+    pub(crate) fn is_empty(self) -> bool {
+        self.foe.is_empty() && !self.aimed
+    }
+
+    pub(crate) fn against(self, stats: &Entity) -> Foe {
+        if self.aimed { self.foe.union(stats.answered().without(Identity::TraitMetal)) } else { self.foe }
+    }
+
+    pub(crate) fn bits(self) -> u32 {
+        u32::from(self.foe.bits()) | if self.aimed { AIMED } else { 0 }
+    }
+
+    pub(crate) fn from_bits(bits: u32) -> Self {
+        Self { foe: Foe::from_bits(u16::try_from(bits & u32::from(u16::MAX)).unwrap_or_default()), aimed: bits & AIMED != 0 }
+    }
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -206,7 +238,117 @@ const SIZE_HINT: &str = "`--dimensions` takes a width and a height, like `800x60
 const PAIR_MARKS: [char; 5] = ['x', 'X', '×', ',', '*'];
 const SEARCH_HINT: &str = "`--search` (`-s`) looks a name up, so give it a name instead of an ID";
 const ENEMY_MARK: &str = "e";
+const VERSUS_HINT: &str = "`--versus` (`-v`) takes trait names like `red metal`, an enemy's name, `targets`, `traits`, `subtraits` or `all`";
+const EVERY: &str = "all";
+const OWN: [&str; 3] = ["targets", "target", "targeted"];
+const PLAIN: [&str; 2] = ["traits", "trait"];
+const SUBTLE: [&str; 2] = ["subtraits", "subtrait"];
+const SUBTRAITS: [Identity; 5] = [Identity::TraitWitch, Identity::TraitEva, Identity::TraitColossus, Identity::TraitBehemoth, Identity::TraitSage];
+const AIMED: u32 = 1 << 16;
+const NO_TRAITS: &str = "none";
+const TRAITS: [(Identity, &[&str]); 15] = [
+    (Identity::TraitRed, &["red"]),
+    (Identity::TraitFloating, &["floating", "float"]),
+    (Identity::TraitDark, &["black", "dark"]),
+    (Identity::TraitMetal, &["metal"]),
+    (Identity::TraitAngel, &["angel"]),
+    (Identity::TraitAlien, &["alien"]),
+    (Identity::TraitZombie, &["zombie"]),
+    (Identity::TraitRelic, &["relic"]),
+    (Identity::TraitAku, &["aku"]),
+    (Identity::TraitTraitless, &["traitless", "white"]),
+    (Identity::TraitWitch, &["witch"]),
+    (Identity::TraitEva, &["eva"]),
+    (Identity::TraitColossus, &["colossus", "baron"]),
+    (Identity::TraitBehemoth, &["behemoth"]),
+    (Identity::TraitSage, &["sage"]),
+];
 const FORM_HINT: &str = "`form` (`f`) takes 1-4, n e t u, f c s u, or Normal, Evolved, True, Ultra";
+
+fn versus_flag(token: &str) -> bool {
+    matches!(lower(token).as_str(), "--versus" | "-v")
+}
+
+fn trait_of(word: &str) -> Option<Identity> {
+    let named = |test: &dyn Fn(&str) -> bool| -> Vec<Identity> { TRAITS.iter().filter(|(_, names)| names.iter().any(|name| test(name))).map(|(label, _)| *label).collect() };
+    let exact = named(&|name| name == word);
+    let begun = named(&|name| name.starts_with(word));
+
+    match (exact.as_slice(), begun.as_slice()) {
+        ([label], _) | ([], [label]) => Some(*label),
+        _ => None,
+    }
+}
+
+fn group(subtle: Option<bool>) -> Foe {
+    let kept = |label: &Identity| *label != Identity::TraitMetal && subtle.is_none_or(|subtle| SUBTRAITS.contains(label) == subtle);
+
+    Foe::LABELS.into_iter().filter(kept).fold(Foe::default(), Foe::with)
+}
+
+fn read_word(versus: Versus, word: &str) -> Option<Versus> {
+    let joined = |foe: Foe| Some(Versus { foe: versus.foe.union(foe), ..versus });
+
+    match word {
+        NO_TRAITS => Some(Versus::default()),
+        EVERY => joined(group(None)),
+        _ if PLAIN.contains(&word) => joined(group(Some(false))),
+        _ if SUBTLE.contains(&word) => joined(group(Some(true))),
+        _ if OWN.contains(&word) => Some(Versus { aimed: true, ..versus }),
+        _ => trait_of(word).and_then(|label| joined(Foe::default().with(label))),
+    }
+}
+
+fn settled(versus: Versus, pending: &mut Vec<&str>, enemy: &dyn Fn(Lookup<'_>) -> Option<Foe>) -> Result<Versus, String> {
+    if pending.is_empty() {
+        return Ok(versus);
+    }
+
+    let name = pending.join(" ");
+
+    pending.clear();
+    enemy(Lookup::Close(&name)).map(|foe| Versus { foe: versus.foe.union(foe), ..versus }).ok_or(name)
+}
+
+pub(crate) fn versus_of(tokens: &[&str], enemy: &dyn Fn(Lookup<'_>) -> Option<Foe>) -> Result<Versus, String> {
+    let words: Vec<String> = tokens.iter().flat_map(|token| token.split(',')).map(lower).filter(|word| !word.is_empty()).collect();
+    let mut versus = Versus::default();
+    let mut pending: Vec<&str> = Vec::new();
+    let mut at = 0;
+
+    while let Some(word) = words.get(at).map(String::as_str) {
+        let spanned = (at + 2..=words.len()).rev().find_map(|end| enemy(Lookup::Named(&words[at..end].join(" "))).map(|foe| (Some(foe), end - at)));
+        let single = || enemy_id(word).and_then(|id| enemy(Lookup::Numbered(id))).or_else(|| enemy(Lookup::Named(word)));
+        let (foe, step) = match spanned {
+            Some(found) => found,
+            None if read_word(Versus::default(), word).is_some() => (None, 1),
+            None => match single() {
+                Some(foe) => (Some(foe), 1),
+                None => {
+                    pending.push(word);
+                    at += 1;
+                    continue;
+                }
+            },
+        };
+
+        versus = settled(versus, &mut pending, enemy)?;
+        versus = match foe {
+            Some(foe) => Versus { foe: versus.foe.union(foe), ..versus },
+            None => read_word(versus, word).unwrap_or(versus),
+        };
+        at += step;
+    }
+
+    settled(versus, &mut pending, enemy)
+}
+
+pub(crate) fn versus_names(versus: Versus) -> String {
+    let named = TRAITS.iter().filter(|(label, _)| versus.foe.has(*label)).filter_map(|(_, names)| names.first().copied());
+    let named: Vec<&str> = OWN.iter().copied().take(usize::from(versus.aimed)).chain(named).collect();
+
+    named.join(" ")
+}
 
 fn search_flag(token: &str) -> bool {
     matches!(lower(token).as_str(), "--search" | "-s")
@@ -253,7 +395,7 @@ fn stats_tell(token: &str, kind: Kind) -> bool {
     let marked_level = marked_level(token);
     let marked_percent = kind == Kind::Enemy && token.contains('%') && magnification_of(token).is_some();
 
-    matches!(lower(token).as_str(), "--talents" | "-t" | "lv" | "lvl" | "level") || mode_of(token).is_some() || (kind == Kind::Cat && marked_level) || marked_percent
+    matches!(lower(token).as_str(), "--talents" | "-t" | "lv" | "lvl" | "level") || mode_of(token).is_some() || (kind == Kind::Cat && versus_flag(token)) || (kind == Kind::Cat && marked_level) || marked_percent
 }
 
 fn mode_of(token: &str) -> Option<Mode> {
@@ -628,6 +770,16 @@ fn stats_of(tokens: &[&str], kind: Kind) -> Result<Stats, String> {
                 let end = tokens[at..].iter().position(|next| is_flag(next)).map_or(tokens.len(), |offset| at + offset);
 
                 stats.talents = Some(talents_of(&tokens[at..end]));
+                at = end;
+            }
+            "--versus" | "-v" if kind == Kind::Cat => {
+                let end = tokens[at..].iter().position(|next| is_flag(next)).map_or(tokens.len(), |offset| at + offset);
+
+                if at == end {
+                    return Err(VERSUS_HINT.to_owned());
+                }
+
+                stats.versus = Some(tokens[at..end].iter().map(|token| (*token).to_owned()).collect());
                 at = end;
             }
             _ if mode_of(token).is_some() => stats.mode = mode_of(token),
@@ -1086,6 +1238,88 @@ mod tests {
         assert_eq!(scenery("12 -r 40 -f gif").unwrap().range, Some((40, 40)));
         assert!(parse("25 a walk -l -r 30", Kind::Cat).is_ok(), "a loop search still reads it, as a window of one frame");
         assert!(parse("25 a attack -r", Kind::Cat).is_err() && parse("25 a attack -r soon", Kind::Cat).is_err());
+    }
+
+    fn known(lookup: Lookup<'_>) -> Option<Foe> {
+        let carrying = |labels: &[Identity]| Some(labels.iter().fold(Foe::default(), |foe, label| foe.with(*label)));
+
+        match lookup {
+            Lookup::Named("teacher bear") | Lookup::Numbered(12) => carrying(&[Identity::TraitRed, Identity::TraitWitch]),
+            Lookup::Named("red cyclone") => carrying(&[Identity::TraitFloating]),
+            Lookup::Close("cyclon") => carrying(&[Identity::TraitAngel]),
+            _ => None,
+        }
+    }
+
+    fn picked(text: &str) -> Result<Versus, String> {
+        versus_of(&text.split_whitespace().collect::<Vec<_>>(), &known)
+    }
+
+    fn labels(text: &str) -> Result<Vec<Identity>, String> {
+        picked(text).map(|held| held.foe.labels().collect())
+    }
+
+    // Traits are read by name or by the start of one, and Metal is never part of a group word.
+    #[test]
+    fn versus_reads_trait_names() {
+        assert_eq!(labels("red Metal"), Ok(vec![Identity::TraitRed, Identity::TraitMetal]));
+        assert_eq!(labels("flo, zom,dark white baron"), Ok(vec![Identity::TraitFloating, Identity::TraitDark, Identity::TraitZombie, Identity::TraitTraitless, Identity::TraitColossus]));
+        assert_eq!(labels("all").map(|held| (held.len(), held.contains(&Identity::TraitMetal))), Ok((Foe::LABELS.len() - 1, false)));
+        assert_eq!(labels("all metal").map(|held| held.len()), Ok(Foe::LABELS.len()));
+        assert_eq!(labels("traits").map(|held| (held.len(), held.contains(&Identity::TraitTraitless), held.contains(&Identity::TraitWitch))), Ok((9, true, false)));
+        assert_eq!(labels("subtrait"), Ok(vec![Identity::TraitWitch, Identity::TraitEva, Identity::TraitColossus, Identity::TraitBehemoth, Identity::TraitSage]));
+        assert_eq!(labels("traits subtraits"), labels("all"), "the two halves make all");
+        assert_eq!(labels("red none"), Ok(Vec::new()));
+        assert_eq!(labels(""), Ok(Vec::new()));
+        assert_eq!(picked("a"), Err("a".to_owned()), "angel, alien and aku all start that way");
+        assert_eq!(versus_names(picked("dark flo metal").unwrap()), "floating black metal");
+
+        let every = Versus { foe: Foe::from_bits(u16::MAX), aimed: true };
+
+        assert_eq!(picked(&versus_names(every)), Ok(every), "what the box shows can be typed back");
+        assert_eq!(Versus::from_bits(every.bits()), every);
+    }
+
+    // An enemy brings all of its traits. A whole name wins over a trait word inside it, and words
+    // that are neither are looked up together as one close name.
+    #[test]
+    fn versus_reads_enemies() {
+        assert_eq!(labels("Teacher Bear metal"), Ok(vec![Identity::TraitRed, Identity::TraitMetal, Identity::TraitWitch]));
+        assert_eq!(labels("red cyclone"), Ok(vec![Identity::TraitFloating]), "not Red and then something called cyclone");
+        assert_eq!(labels("cyclon red"), Ok(vec![Identity::TraitRed, Identity::TraitAngel]));
+        assert_eq!(labels("12-e"), Ok(vec![Identity::TraitRed, Identity::TraitWitch]));
+        assert_eq!(picked("red purple haze"), Err("purple haze".to_owned()));
+        assert_eq!(picked("purple red"), Err("purple".to_owned()));
+    }
+
+    // "targets" stands for whatever the cat has something for, worked out from the stats being drawn, never Metal.
+    #[test]
+    fn targets_follow_the_cat() {
+        let chosen = picked("Targets red").unwrap();
+        let cat = Entity { trait_dark: 1, trait_metal: 1, witch_killer: 1, ..Entity::default() };
+
+        assert_eq!(chosen, Versus { foe: Foe::default().with(Identity::TraitRed), aimed: true });
+        assert_eq!(chosen.against(&cat).labels().collect::<Vec<_>>(), [Identity::TraitRed, Identity::TraitDark, Identity::TraitWitch]);
+        assert_eq!(picked("target").map(|held| held.against(&Entity::default()).is_empty()), Ok(true), "a cat with nothing to target is drawn as it is");
+        assert_eq!(picked("targets none"), Ok(Versus::default()));
+        assert!(!picked("targeted").unwrap().is_empty());
+        assert_eq!(versus_names(chosen), "targets red");
+    }
+
+    // The flag says stats, so it never turns a request into an animation, and it takes everything up to the next flag;
+    // what the words mean waits for the game data.
+    #[test]
+    fn versus_is_a_stats_flag() {
+        let versus = |text: &str| parse(text, Kind::Cat).map(|request| match request.want {
+            Want::Stats(stats) => stats.versus,
+            Want::Motion(_) => None,
+        });
+
+        assert_eq!(versus("bahamut cat -v red metal"), Ok(Some(vec!["red".to_owned(), "metal".to_owned()])));
+        assert_eq!(versus("25 lv50 --versus teacher bear -i"), Ok(Some(vec!["teacher".to_owned(), "bear".to_owned()])));
+        assert_eq!(versus("25"), Ok(None));
+        assert!(versus("25 -v").is_err_and(|reason| reason == VERSUS_HINT));
+        assert!(parse("akaza -v red", Kind::Enemy).is_err(), "enemies have no traits to be measured against");
     }
 
     #[test]

@@ -32,6 +32,16 @@ pub enum CustomIcon {
     Unknown,
 }
 
+#[derive(Clone, Copy, PartialEq, Eq, Default, Debug)]
+pub enum Mark {
+    #[default] None,
+    Hit,
+    Miss,
+    Inert,
+    Mixed,
+    Glancing,
+}
+
 #[derive(Clone, Debug)]
 pub struct AbilityItem {
     pub identity: Identity,
@@ -39,6 +49,8 @@ pub struct AbilityItem {
     pub text: String,
     pub custom_icon: CustomIcon,
     pub border_id: Option<usize>,
+    pub mark: Mark,
+    pub added: bool,
 }
 
 pub type AbilityGroups = (Vec<AbilityItem>, Vec<AbilityItem>, Vec<AbilityItem>, Vec<AbilityItem>, Vec<AbilityItem>, Vec<AbilityItem>);

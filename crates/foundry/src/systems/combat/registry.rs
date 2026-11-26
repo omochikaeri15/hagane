@@ -3,7 +3,7 @@ use std::collections::HashMap;
 
 use codex::cat::unit::UnitBuy;
 use codex::chapter::stage::BattlegroundEntry;
-use codex::combat::{crowned, deploy_cost, magnified, AttrValue, Entity, Faction, Identity, REGISTRY};
+use codex::combat::{crowned, deploy_cost, knockback_reach, magnified, resisted, AttrValue, Entity, Faction, Identity, KNOCKBACK_FRAMES, REGISTRY};
 use codex::chapter::treasure::TraitBonus;
 use codex::files::{img015, Param};
 use serde::{Deserialize, Serialize};
@@ -122,6 +122,14 @@ pub struct FormatContext<'a> {
     pub param: &'a Param,
     pub treasure: &'a Bonus,
     pub names: &'a NameBook,
+    pub against: Option<Against>,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Against {
+    pub fruit: TraitBonus,
+    pub push: i32,
+    pub sage: bool,
 }
 
 pub struct AbilityDisplayDef {
@@ -182,10 +190,46 @@ fn fruit(ctx: &FormatContext<'_>, multiplier: impl Fn(TraitBonus) -> f64, recipr
     if low == high { label(low) } else { format!("{}~{}", label(low), label(high)) }
 }
 
-fn fruit_time(ctx: &FormatContext<'_>, identity: Identity) -> String {
-    let (shortest, longest) = ctx.treasure.fruit_frames(ctx.stats, ctx.duration, ctx.stats.effect_up(identity));
+fn sage_resist(ctx: &FormatContext<'_>, against: Against, identity: Identity) -> i32 {
+    if !against.sage {
+        return 0;
+    }
 
-    frames::span(shortest, longest)
+    match identity {
+        Identity::Freeze => ctx.param.sage_type_resist_freeze,
+        Identity::Slow => ctx.param.sage_type_resist_slow,
+        Identity::Weaken => ctx.param.sage_type_resist_weaken,
+        Identity::Curse => ctx.param.sage_type_resist_curse,
+        Identity::Knockback => ctx.param.sage_type_resist_knockback,
+        _ => 0,
+    }
+}
+
+fn fruit_time(ctx: &FormatContext<'_>, identity: Identity) -> String {
+    let raise = ctx.stats.effect_up(identity);
+
+    match ctx.against {
+        Some(against) => frames::label(resisted(against.fruit.scale_duration(ctx.duration, raise), sage_resist(ctx, against, identity))),
+        None => {
+            let (shortest, longest) = ctx.treasure.fruit_frames(ctx.stats, ctx.duration, raise);
+
+            frames::span(shortest, longest)
+        }
+    }
+}
+
+fn knockback_distance(ctx: &FormatContext<'_>) -> String {
+    let raise = ctx.stats.effect_up(Identity::Knockback);
+    let shown = |fruit: i32, resist: i32| trimmed(f64::from(knockback_reach(fruit, raise, resist)));
+
+    match ctx.against {
+        Some(against) => shown(against.push, sage_resist(ctx, against, Identity::Knockback)),
+        None => {
+            let (near, far) = ctx.treasure.push_span(ctx.stats);
+
+            if near == far { shown(near, 0) } else { format!("{}~{}", shown(near, 0), shown(far, 0)) }
+        }
+    }
 }
 
 fn finite(value: AttrValue) -> i32 {
@@ -1165,7 +1209,7 @@ pub fn get_display_def(identity: Identity) -> AbilityDisplayDef {
             icon: AbilityIcon::Standard(img015::ICON_KNOCKBACK),
             group: DisplayGroup::Body2,
             formatter: |ctx| {
-                let chance = format!("{}% Chance to {} {}", finite(ctx.value), named(ctx, Identity::Knockback), ctx.target);
+                let chance = format!("{}% Chance to {} {}\n{} Range for {}", finite(ctx.value), named(ctx, Identity::Knockback), ctx.target, knockback_distance(ctx), fmt_time(KNOCKBACK_FRAMES));
 
                 match ctx.stats.effect_up(Identity::Knockback) {
                     0 => chance,
@@ -1635,6 +1679,46 @@ pub(crate) const ENEMY_STATS_REGISTRY: &[StatsDef] = &[
 
 pub fn format_stat(definition: &StatsDef, ctx: &StatContext<'_>) -> String {
     (definition.formatter)((definition.get_value)(ctx))
+}
+
+#[cfg(test)]
+mod control_tests {
+    use codex::chapter::treasure::TraitBonus;
+    use codex::combat::{AttrValue, Entity, Identity};
+    use codex::files::Param;
+
+    use super::{get_display_def, Against, FormatContext, Magnification};
+    use crate::systems::combat::NameBook;
+    use crate::systems::treasure::Bonus;
+
+    fn said(identity: Identity, stats: &Entity, against: Option<Against>) -> String {
+        let param = Param { sage_type_resist_freeze: 50, sage_type_resist_knockback: 50, ..Param::default() };
+        let (treasure, names) = (Bonus::default(), NameBook::default());
+        let duration = stats.freeze_duration;
+        let ctx = FormatContext { value: AttrValue::Finite(100), stats, target: "Red", duration, magnification: Magnification::default(), param: &param, treasure: &treasure, names: &names, against };
+
+        (get_display_def(identity).formatter)(&ctx)
+    }
+
+    // Knockback says how far and how long; a Sage cuts how far unless the cat has Sage Slayer.
+    #[test]
+    fn knockback_says_how_far_and_how_long() {
+        let cat = Entity { knockback_chance: 100, ..Entity::default() };
+        let sage = Against { fruit: TraitBonus(0), push: 0, sage: true };
+
+        assert!(said(Identity::Knockback, &cat, None).ends_with("Red\n165 Range for 0.40s^12f"), "laid out like Warp");
+        assert!(said(Identity::Knockback, &cat, Some(sage)).ends_with("Red\n82.5 Range for 0.40s^12f"));
+        assert!(said(Identity::Knockback, &cat, Some(Against { push: 300, ..sage })).contains("106.5 Range"));
+    }
+
+    // Against one enemy a status lasts exactly one time: its fruit, then the Sage's cut.
+    #[test]
+    fn a_status_against_one_enemy_lasts_one_time() {
+        let cat = Entity { freeze_chance: 100, freeze_duration: 90, ..Entity::default() };
+
+        assert!(said(Identity::Freeze, &cat, Some(Against { fruit: TraitBonus(300), push: 0, sage: false })).ends_with("for 3.60s^108f"));
+        assert!(said(Identity::Freeze, &cat, Some(Against { fruit: TraitBonus(300), push: 0, sage: true })).ends_with("for 1.80s^54f"));
+    }
 }
 
 #[cfg(test)]

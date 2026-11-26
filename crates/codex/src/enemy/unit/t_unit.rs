@@ -72,7 +72,7 @@ pub const COLUMNS: &[Column] = columns::columns! {
     attack_3_damage: 56;
     time_until_attack_2: 57;
     time_until_attack_3: 58;
-    attack_1_abilities: 59;
+    attack_1_abilities: 59, Raw, 1;
     attack_2_abilities: 60;
     attack_3_abilities: 61;
     spawn_animation_flag: 62;

@@ -15,24 +15,39 @@ use foundry::systems::combat::registry::Magnification;
 use foundry::systems::statblock::{DetailsData, Fonts, PageFonts, StatblockData, build_details_image, build_statblock_image, build_talents_image};
 
 use super::cache::{Cache, Key};
+use super::grammar::Versus;
 use super::library::Library;
 use super::prose::Trouble;
 
 const STAMP: &str = env!("HAGANE_STATBLOCK_STAMP");
 const EXTENSION: &str = "png";
 
-pub(crate) fn cat(library: &Library, cache: &Cache, cat: &CatEntry, form: usize, level: i32, level_input: &str, talents: Option<&HashMap<u8, u8>>) -> Result<Vec<u8>, Trouble> {
-    let subject = CatSubject {
-        cat,
-        form,
-        current_level: level,
-        level_input,
-        talent_levels: talents,
-        is_conjure_expanded: true,
-        global: library.context(),
-        grants: None,
-    };
-    let data = cat_statblock::build(subject).ok_or_else(|| Trouble::NoStats(cat.display_name(form)))?;
+#[derive(Clone, Copy)]
+pub(crate) struct Shown<'a> {
+    pub(crate) cat: &'a CatEntry,
+    pub(crate) form: usize,
+    pub(crate) level: i32,
+    pub(crate) level_input: &'a str,
+    pub(crate) talents: Option<&'a HashMap<u8, u8>>,
+}
+
+impl<'a> Shown<'a> {
+    fn subject(self, library: &'a Library) -> CatSubject<'a> {
+        CatSubject {
+            cat: self.cat,
+            form: self.form,
+            current_level: self.level,
+            level_input: self.level_input,
+            talent_levels: self.talents,
+            is_conjure_expanded: true,
+            global: library.context(),
+            grants: None,
+        }
+    }
+}
+
+pub(crate) fn cat(library: &Library, cache: &Cache, shown: Shown<'_>, versus: Versus) -> Result<Vec<u8>, Trouble> {
+    let data = cat_statblock::build_against(shown.subject(library), |stats| versus.against(stats)).ok_or_else(|| Trouble::NoStats(shown.cat.display_name(shown.form)))?;
 
     drawn(library, cache, data)
 }
@@ -43,18 +58,8 @@ pub(crate) fn enemy(library: &Library, cache: &Cache, enemy: &EnemyEntry, magnif
     drawn(library, cache, enemy_statblock::build(subject))
 }
 
-pub(crate) fn talents(library: &Library, cache: &Cache, cat: &CatEntry, form: usize, level: i32, level_input: &str, talents: Option<&HashMap<u8, u8>>) -> Result<Vec<u8>, Trouble> {
-    let subject = CatSubject {
-        cat,
-        form,
-        current_level: level,
-        level_input,
-        talent_levels: talents,
-        is_conjure_expanded: true,
-        global: library.context(),
-        grants: None,
-    };
-    let data = cat_statblock::talents(subject).ok_or_else(|| Trouble::NoTalents(cat.display_name(form)))?;
+pub(crate) fn talents(library: &Library, cache: &Cache, shown: Shown<'_>) -> Result<Vec<u8>, Trouble> {
+    let data = cat_statblock::talents(shown.subject(library)).ok_or_else(|| Trouble::NoTalents(shown.cat.display_name(shown.form)))?;
     let pictures = data.head.icon.iter().chain(data.cards.iter().filter_map(|card| card.plate.as_ref()));
     let key = keyed(library, cache, &format!("{data:?}"), pictures, &[&library.icons, &library.coin_mark]);
 

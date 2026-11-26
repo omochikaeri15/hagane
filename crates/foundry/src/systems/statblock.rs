@@ -12,7 +12,7 @@ mod stage;
 mod talents;
 
 use crate::Source;
-use crate::systems::combat::AbilityItem;
+use crate::systems::combat::{AbilityItem, Mark};
 
 #[cfg(feature = "statblock")]
 pub use details::build_details_image;
@@ -56,6 +56,8 @@ pub struct StatblockData {
     pub data_1: Vec<StatCell>,
     pub headers_2: Vec<String>,
     pub data_2: Vec<StatCell>,
+    pub marks_1: Vec<Mark>,
+    pub marks_2: Vec<Mark>,
     pub traits: Vec<AbilityItem>,
     pub h1: Vec<AbilityItem>,
     pub h2: Vec<AbilityItem>,

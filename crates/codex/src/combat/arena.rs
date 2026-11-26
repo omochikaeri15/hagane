@@ -4,6 +4,9 @@ const RANGE_STEPS: f32 = 4.0;
 const STEPS_PER_PIXEL: f32 = 10.0;
 const WAVE_STRIDE: i32 = 800;
 const WAVE_LEAD: i32 = 270;
+const KNOCKBACK_STEP: i32 = 10;
+
+pub const KNOCKBACK_FRAMES: i32 = 12;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Span {
@@ -69,6 +72,22 @@ pub fn range_of(position: i32) -> f32 {
     position as f32 / RANGE_STEPS
 }
 
+pub fn knockback_push(fruit: i32, raise: i32, resist: i32) -> i32 {
+    (1..KNOCKBACK_FRAMES)
+        .map(|frame| {
+            let phase = (KNOCKBACK_FRAMES - frame) % KNOCKBACK_FRAMES * KNOCKBACK_STEP;
+            let fruited = fruit * phase / 1000 + phase;
+            let raised = (100 + raise) * fruited / 100;
+
+            (100 - resist) * raised / 100
+        })
+        .sum()
+}
+
+pub fn knockback_reach(fruit: i32, raise: i32, resist: i32) -> f32 {
+    range_of(knockback_push(fruit, raise, resist))
+}
+
 fn pixels(range: i32) -> f32 {
     range as f32 * RANGE_STEPS / STEPS_PER_PIXEL
 }
@@ -128,6 +147,15 @@ mod tests {
         assert_eq!(cat(3).wave_reach(), 732.5);
         assert_eq!(enemy(1).wave_reach(), 467.5);
         assert_eq!(enemy(2).wave_reach(), 667.5);
+    }
+
+    #[test]
+    fn knockback_rounds_every_frame_of_its_push() {
+        assert_eq!(knockback_reach(0, 0, 0), 165.0);
+        assert_eq!(knockback_reach(300, 0, 0), 214.5);
+        assert_eq!(knockback_reach(0, 0, 50), 82.5);
+        assert_eq!(knockback_reach(300, 0, 50), 106.5, "halving 13 per step drops a half on every odd frame");
+        assert_eq!(knockback_reach(0, 20, 0), 198.0);
     }
 
     #[test]

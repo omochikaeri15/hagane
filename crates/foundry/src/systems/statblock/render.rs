@@ -13,7 +13,7 @@ use codex::files::img015;
 use crate::common::assets;
 use crate::common::frames;
 use crate::common::formats::SpriteSheet;
-use crate::systems::combat::{AbilityItem, CustomIcon};
+use crate::systems::combat::{AbilityItem, CustomIcon, Mark};
 
 use super::draw::*;
 use super::board::*;
@@ -109,10 +109,12 @@ pub fn build_statblock_image(
     let ability_style = SuperscriptStyle::new(ABILITY_TEXT_SIZE, scale_f, COLOR_SUPERSCRIPT);
     let cell_style = SuperscriptStyle::new(CELL_TEXT_SIZE, scale_f, COLOR_SUPERSCRIPT);
 
-    let check_icon_row_width = |items: &Vec<AbilityItem>| -> f32 {
-        if items.is_empty() { return 0.0; }
-        (CONTENT_PADDING * 2.0) + (items.len() as f32 * (ABILITY_ICON_SIZE + ICON_GAP_X)) - ICON_GAP_X
+    let icon_row_width = |held: usize| -> f32 {
+        if held == 0 { return 0.0; }
+        (CONTENT_PADDING * 2.0) + (held as f32 * (ABILITY_ICON_SIZE + ICON_GAP_X)) - ICON_GAP_X
     };
+    let check_icon_row_width = |items: &Vec<AbilityItem>| -> f32 { icon_row_width(items.len()) };
+    let own_traits = data.traits.iter().filter(|item| !item.added).count();
 
     let calc_spirit_width = |spirit: &SpiritData| -> f32 {
         let mut spirit_max = 0.0_f32;
@@ -157,7 +159,7 @@ pub fn build_statblock_image(
     let mut max_needed_width = base_grid_width;
     max_needed_width = max_needed_width.max(header_width);
     max_needed_width = max_needed_width.max(list_max_width);
-    max_needed_width = max_needed_width.max(check_icon_row_width(&data.traits));
+    max_needed_width = max_needed_width.max(icon_row_width(own_traits));
     max_needed_width = max_needed_width.max(check_icon_row_width(&data.h1));
     max_needed_width = max_needed_width.max(check_icon_row_width(&data.h2));
     max_needed_width = max_needed_width.max(check_icon_row_width(&data.footer));
@@ -176,7 +178,7 @@ pub fn build_statblock_image(
     let r2_hy = current_y_global + row_pitch * 2;
     let r2_dy = current_y_global + row_pitch * 3;
 
-    let render_row = |ui_img: &mut RgbaImage, headers: &[String], row_data: &[StatCell], h_y: i32, d_y: i32| {
+    let render_row = |ui_img: &mut RgbaImage, headers: &[String], row_data: &[StatCell], marks: &[Mark], h_y: i32, d_y: i32| {
         for col in 0..headers.len() {
             let current_x = padding + ((col as i32) * (cell_width + cell_gap));
 
@@ -193,11 +195,17 @@ pub fn build_statblock_image(
                 ),
                 StatCell::Text(text) => draw_centered_text(ui_img, COLOR_TEXT, d_cell, cell_style.base, font, text),
             }
+
+            if let Some(colors) = marks.get(col).copied().and_then(mark_colors) {
+                let pair = ring(cell_width as u32, (d_y + cell_height - h_y) as u32, cell_radius, px(MARK_WIDTH), colors);
+
+                image::imageops::overlay(ui_img, &pair, current_x as i64, h_y as i64);
+            }
         }
     };
 
-    render_row(target_image, &data.headers_1, &data.data_1, r1_hy, r1_dy);
-    render_row(target_image, &data.headers_2, &data.data_2, r2_hy, r2_dy);
+    render_row(target_image, &data.headers_1, &data.data_1, &data.marks_1, r1_hy, r1_dy);
+    render_row(target_image, &data.headers_2, &data.data_2, &data.marks_2, r2_hy, r2_dy);
 
     current_y_global += row_pitch * 3 + cell_height + section_gap;
 
@@ -305,7 +313,7 @@ pub fn build_statblock_image(
         draw_bottom_rounded_rect_mut(canvas_image, spirit_rect, px(RADIUS_LG), COLOR_CARD);
 
         let mut current_y_offset = card_inner_y + card_padding;
-        let area_item = AbilityItem { identity: Identity::AreaAttack, icon_id: Some(img015::ICON_AREA_ATTACK), border_id: None, custom_icon: CustomIcon::None, text: String::new() };
+        let area_item = AbilityItem { identity: Identity::AreaAttack, icon_id: Some(img015::ICON_AREA_ATTACK), border_id: None, custom_icon: CustomIcon::None, text: String::new(), mark: Mark::None, added: false };
         let area_icon = get_icon_image(&area_item, layers, &custom_assets, icon_size as u32);
         let area_icon_y = current_y_offset + overflow_padding(&spirit.dmg_text);
         image::imageops::overlay(canvas_image, &area_icon, start_x_absolute as i64, area_icon_y as i64);

@@ -8,7 +8,15 @@ use imageproc::rect::Rect;
 use crate::common::assets;
 use crate::common::formats::SpriteSheet;
 use crate::common::superscript::{self, Segment};
-use crate::systems::combat::{AbilityItem, CustomIcon};
+use crate::systems::combat::{AbilityItem, CustomIcon, Mark};
+
+use super::board::{px, RADIUS_SM};
+
+const COLOR_MARK_HIT: Rgba<u8> = Rgba([76, 196, 100, 255]);
+const COLOR_MARK_MISS: Rgba<u8> = Rgba([222, 76, 76, 255]);
+const COLOR_MARK_INERT: Rgba<u8> = Rgba([236, 164, 44, 255]);
+const COLOR_CLEAR: Rgba<u8> = Rgba([0, 0, 0, 0]);
+pub(super) const MARK_WIDTH: f32 = 2.0;
 
 const SUPERSCRIPT_SHRINK: f32 = 3.0;
 const SUPERSCRIPT_GAP: f32 = 1.25;
@@ -115,6 +123,34 @@ pub(super) fn draw_bordered_rect_mut(img: &mut RgbaImage, cell: CellShape, fill:
     draw_rounded_rect_mut(img, inner, inner_radius, fill);
 }
 
+pub(super) fn mark_colors(mark: Mark) -> Option<(Rgba<u8>, Rgba<u8>)> {
+    match mark {
+        Mark::None => None,
+        Mark::Hit => Some((COLOR_MARK_HIT, COLOR_MARK_HIT)),
+        Mark::Miss => Some((COLOR_MARK_MISS, COLOR_MARK_MISS)),
+        Mark::Inert => Some((COLOR_MARK_INERT, COLOR_MARK_INERT)),
+        Mark::Mixed => Some((COLOR_MARK_MISS, COLOR_MARK_HIT)),
+        Mark::Glancing => Some((COLOR_MARK_HIT, COLOR_MARK_INERT)),
+    }
+}
+
+pub(super) fn ring(width: u32, height: u32, radius: i32, border: i32, (upper, lower): (Rgba<u8>, Rgba<u8>)) -> RgbaImage {
+    let mut layer = RgbaImage::new(width, height);
+    let whole = Rect::at(0, 0).of_size(width.max(1), height.max(1));
+    let (inner, inner_radius) = CellShape::new(whole, radius, border).inner();
+
+    draw_rounded_rect_mut(&mut layer, whole, radius, lower);
+    draw_rounded_rect_mut(&mut layer, inner, inner_radius, COLOR_CLEAR);
+
+    for (x, y, pixel) in layer.enumerate_pixels_mut() {
+        if pixel[3] > 0 && u64::from(y) * u64::from(width) < u64::from(x) * u64::from(height) {
+            *pixel = Rgba([upper[0], upper[1], upper[2], pixel[3]]);
+        }
+    }
+
+    layer
+}
+
 pub(super) fn draw_bottom_rounded_rect_mut(img: &mut RgbaImage, rect: Rect, r: i32, color: Rgba<u8>) {
     if r <= 0 { draw_filled_rect_mut(img, rect, color); return; }
 
@@ -168,6 +204,10 @@ pub(super) fn get_icon_image(
             border = safe_resize(border, export_size, export_size);
         }
         image::imageops::overlay(&mut icon, &border, 0, 0);
+    }
+
+    if let Some(colors) = mark_colors(item.mark) {
+        image::imageops::overlay(&mut icon, &ring(export_size, export_size, px(RADIUS_SM), px(MARK_WIDTH), colors), 0, 0);
     }
     icon
 }

@@ -9,10 +9,12 @@ use tokio::sync::{OwnedRwLockReadGuard, RwLock, Semaphore};
 use tokio::task;
 use tracing::{debug, error, info, warn};
 
+use codex::combat::Foe;
 use foundry::common::architecture;
 use foundry::domains::cat::animation as cat_animation;
 use foundry::domains::cat::level;
 use foundry::domains::cat::scanner::CatEntry;
+use foundry::domains::enemy::scanner::EnemyEntry;
 use foundry::domains::enemy::animation as enemy_animation;
 use foundry::domains::settings::lang;
 use foundry::domains::stage::{Stage, sheet};
@@ -27,7 +29,7 @@ use super::backdrop;
 use super::cache::Cache;
 use super::config::Config;
 use super::fuzzy;
-use super::grammar::{self, Backing, Kind, Motion, Page, Request, Scenery, Tune, Unit, Want};
+use super::grammar::{self, Backing, Kind, Lookup, Motion, Page, Request, Scenery, Tune, Unit, Versus, Want};
 use super::library::{self, Catalog, Library, Remote};
 use super::lookup::{self, CROWN_GLYPH, Found, Hit, Landing};
 use super::prefs::{self, Book, FORMS, Mode, Prefs, Search};
@@ -58,6 +60,7 @@ const CARD_PAGE: &str = "ep";
 const CARD_ASK: &str = "em";
 const CARD_SET: &str = "ev";
 const TALENT_HINT: &str = "all, standard, ultra, none, 10 10 5 or Attack Buff 5";
+const VERSUS_HINT: &str = "red metal, an enemy, targets, traits, subtraits or all";
 const EMBED_COLOR: u32 = 0x2468A8;
 const OPEN_SETTINGS: &str = "set|open";
 const SET_PREFIX: &str = "set|prefix";
@@ -1233,6 +1236,7 @@ struct Sheet {
     level: Option<String>,
     talents: Option<String>,
     page: Page,
+    versus: Versus,
 }
 
 impl Sheet {
@@ -1241,7 +1245,7 @@ impl Sheet {
     }
 
     fn turned(&self, tag: &str, form: usize, page: Page) -> String {
-        format!("{tag}|{}|{}|{}|{}|{}|{}", self.owner, self.id, form, self.level.as_deref().unwrap_or_default(), self.talents.as_deref().unwrap_or("-"), page.tag())
+        format!("{tag}|{}|{}|{}|{}|{}|{}|{:x}", self.owner, self.id, form, self.level.as_deref().unwrap_or_default(), self.talents.as_deref().unwrap_or("-"), page.tag(), self.versus.bits())
     }
 
     fn read(custom: &str) -> Option<(&str, Self)> {
@@ -1253,8 +1257,9 @@ impl Sheet {
         let level = Some(parts.next()?).filter(|level| !level.is_empty()).map(str::to_owned);
         let talents = parts.next().filter(|levels| *levels != "-").map(str::to_owned);
         let page = parts.next().and_then(Page::tagged).unwrap_or_default();
+        let versus = parts.next().and_then(|bits| u32::from_str_radix(bits, 16).ok()).map_or_else(Versus::default, Versus::from_bits);
 
-        Some((tag, Self { owner, id, form, level, talents, page }))
+        Some((tag, Self { owner, id, form, level, talents, page, versus }))
     }
 }
 
@@ -1306,9 +1311,11 @@ fn sheet_png(library: &Library, cache: &Cache, sheet: &Sheet) -> Result<(Vec<u8>
     let shown = sheet.level.as_deref().map_or_else(|| library.level_for(cat, sheet.form, levels.as_ref()), |level| level::capped(level, caps));
     let total = level::total(&shown, caps);
 
+    let asked = statblock::Shown { cat, form: sheet.form, level: total, level_input: &shown, talents: levels.as_ref() };
+
     match sheet.page {
-        Page::Talents => Ok((statblock::talents(library, cache, cat, sheet.form, total, &shown, levels.as_ref())?, format!("{id}.talents.png"))),
-        _ => Ok((statblock::cat(library, cache, cat, sheet.form, total, &shown, levels.as_ref())?, format!("{id}.png"))),
+        Page::Talents => Ok((statblock::talents(library, cache, asked)?, format!("{id}.talents.png"))),
+        _ => Ok((statblock::cat(library, cache, asked, sheet.versus)?, format!("{id}.png"))),
     }
 }
 
@@ -1358,6 +1365,7 @@ fn sheet_rows(library: &Library, sheet: &Sheet) -> Vec<serenity::CreateActionRow
         caption(format!("{LABEL}|2"), "Apply"),
         serenity::CreateButton::new(sheet.custom("sl", sheet.form)).label("Level").style(lit(sheet.level.is_some())),
         serenity::CreateButton::new(sheet.custom("st", sheet.form)).label("Talents").style(lit(sheet.talents.is_some())).disabled(!gifted),
+        serenity::CreateButton::new(sheet.custom("sx", sheet.form)).label("Versus").style(lit(!sheet.versus.is_empty())),
     ];
 
     vec![serenity::CreateActionRow::Buttons(forms), serenity::CreateActionRow::Buttons(pages), serenity::CreateActionRow::Buttons(tuning)]
@@ -1789,6 +1797,11 @@ async fn serve_cat(voice: Voice<'_>, request: Request) -> Result<(), Error> {
 
     match request.want {
         Want::Stats(stats) => {
+            let words: Vec<&str> = stats.versus.iter().flatten().map(String::as_str).collect();
+            let versus = match grammar::versus_of(&words, &foes(&library, &prefs.aliases)) {
+                Ok(versus) => versus,
+                Err(word) => return voice.say(prose::NOT_A_TRAIT.filled(prefs.prose, &[("name", &word)])).await,
+            };
             let talents = match stats.talents {
                 Some(words) => match talents::levels(&library, cat, &words) {
                     Ok(levels) => talents::encoded(&levels, cat.talent_data.as_ref().map_or(0, |data| data.groups.len())),
@@ -1807,7 +1820,7 @@ async fn serve_cat(voice: Voice<'_>, request: Request) -> Result<(), Error> {
                 return Ok(());
             }
 
-            let sheet = Sheet { owner, id: cat.id, form, level: stats.level, talents, page: stats.page };
+            let sheet = Sheet { owner, id: cat.id, form, level: stats.level, talents, page: stats.page, versus };
 
             send_sheet(voice, Arc::clone(&library), sheet, stats.mode.unwrap_or(prefs.mode)).await
         }
@@ -2012,9 +2025,10 @@ fn help_page(page_name: &str, section: &str, prefix: &str, prose: Prose) -> sere
             .field("A level after `talents`", "A plain number there is a talent's level, so `t 30` sets the first talent to 30. The cat's own level keeps its mark, as everywhere: `t lv30`, `t level 30` or `t 50+70`.", false)
             .field("Level", "`lv50`, `lvl50`, `l50`, `level 50` or `50+70`. A plain `50` isn't read as a level, so give it its mark. Without one, a typical level for its rarity, raised to the level its form or its ultra talents unlock at if that's higher.", false)
             .field("`--talents` (`-t`)", "`all` (`a`), `standard` (`s`), `ultra` (`u`), `none` (`n`), levels in order like `10 10 5`, or names like `Attack Buff 5`, written the way the talents page shows them. Talents lift a Normal or Evolved form to True. The talents page (`t`) lists every one with its max level.", false)
+            .field("`--versus` (`-v`)", "Trait names like `-v red` or `-v black metal`, or an enemy's name like `-v teacher bear` for all of its traits: the stats against one enemy with every one of them, by the game's own math. `targets` is every trait the cat has something for, `traits` every trait, `subtraits` every subtrait and `all` both, Metal aside in each; `none` clears them.\nAttack, DPS and Hitpoints change where the cat has something against it, and Hitpoints become the damage it takes to kill it. Against Metal a hit that isn't critical deals 1. A Sage shortens a cat's crowd control and its knockbacks unless the cat has Sage Slayer.\nOutlines: green does something, red does nothing or holds the cat back, orange is a picked trait the cat has nothing for. Half red, half green works only partly, and half green, half orange helps without being the whole story.", false)
             .field("`--interactive` (`-i`), `--dormant` (`-d`)", "With or without the buttons under the picture this time, whatever your Blocks setting says.", false),
         ("cat", "animation") => Voiced::new(prefix, "hg!cat (c) • Animation", "`hg!cat <unit> [a | anim] [type] ...`").field("Types", CLIPS, false).field("Flags", MOTION_FLAGS, false),
-        ("cat", "buttons") => Voiced::new(prefix, "hg!cat (c) • Buttons", "With your Blocks setting on Interactive, or `--interactive` (`-i`) after a request, three rows sit under the picture. Form picks a form, Page turns between Stats, Talents and Details, and Apply sets a Level or Talents. The one you're on is green, and so are Level and Talents once you've set them. A form the cat doesn't have is grayed out, and so is Talents below the True form or on a cat without any. Only the person who asked can press them."),
+        ("cat", "buttons") => Voiced::new(prefix, "hg!cat (c) • Buttons", "With your Blocks setting on Interactive, or `--interactive` (`-i`) after a request, three rows sit under the picture. Form picks a form, Page turns between Stats, Talents and Details, and Apply sets a Level, Talents or the traits to show the stats Versus. The one you're on is green, and so are Level, Talents and Versus once you've set them. A form the cat doesn't have is grayed out, and so is Talents below the True form or on a cat without any. Only the person who asked can press them."),
         ("cat", _) => Voiced::new(prefix, "hg!cat (c)", "`hg!cat <unit> [stats | animation] ...`")
             .field("Stats or animation", "Worked out from what you type: an animation name or flag means animation, a level or `--talents` means stats. `s` or `a` still decides outright, and stats is the default. `t` and `d` open the Talents and Details pages, so the dig animation is `dig` or `a d`.", false)
             .field("Examples", "`hg!c 137_u lv50+70 -t all`\n`hg!c 44 t 10 5 lv40`\n`hg!c bahamut cat d`\n`hg!c bahamut cat form normal`\n`hg!c jamiera cat a showcase -f webp`\n`hg!c 008 a walk -l -r 10~120`", false),
@@ -2594,6 +2608,13 @@ async fn on_press(ctx: &serenity::Context, press: &serenity::ComponentInteractio
             press.create_response(ctx, serenity::CreateInteractionResponse::Modal(modal)).await?;
             Ok(())
         }
+        "sx" => {
+            let input = serenity::CreateInputText::new(serenity::InputTextStyle::Short, "Traits (none or empty turns them off)", "traits").placeholder(VERSUS_HINT).value(grammar::versus_names(sheet.versus)).required(false);
+            let modal = serenity::CreateModal::new(sheet.custom("sw", sheet.form), "Versus").components(vec![serenity::CreateActionRow::InputText(input)]);
+
+            press.create_response(ctx, serenity::CreateInteractionResponse::Modal(modal)).await?;
+            Ok(())
+        }
         "sl" => {
             let prefs = data.book.get(sheet.owner);
             let Some((_guard, library)) = open(data, &prefs.language).await? else { return Ok(()) };
@@ -2658,6 +2679,59 @@ async fn on_level(ctx: &serenity::Context, form: &serenity::ModalInteraction, da
 
     form.create_response(ctx, serenity::CreateInteractionResponse::Acknowledge).await?;
     sheet.level = level;
+
+    if let Some(edit) = redrawn(data, &sheet).await? {
+        form.edit_response(ctx, edit).await?;
+    }
+
+    Ok(())
+}
+
+fn aliased<'a>(library: &'a Library, aliases: &Aliases, name: &str) -> Option<&'a EnemyEntry> {
+    match aliases.keyed(&fuzzy::normalized(name))? {
+        Target::Typed(target) => library.enemy_named(target),
+        Target::Known(Kind::Enemy, unit) | Target::Original(Kind::Enemy, unit) => unit.parse().ok().and_then(|id| library.enemy(id)),
+        Target::Known(..) | Target::Original(..) => None,
+    }
+}
+
+fn foes<'a>(library: &'a Library, aliases: &'a Aliases) -> impl Fn(Lookup<'_>) -> Option<Foe> + 'a {
+    move |lookup| {
+        let found = match lookup {
+            Lookup::Numbered(id) => library.enemy(id),
+            Lookup::Named(name) => aliased(library, aliases, name).or_else(|| library.enemy_named(name)),
+            Lookup::Close(name) => aliased(library, aliases, name).or_else(|| library.find_enemy(name)),
+        };
+
+        found.map(|enemy| Foe::of(&enemy.stats))
+    }
+}
+
+async fn on_versus(ctx: &serenity::Context, form: &serenity::ModalInteraction, data: &Data, mut sheet: Sheet, typed: &str) -> Result<(), Error> {
+    let words: Vec<&str> = typed.split_whitespace().collect();
+    let prefs = data.book.get(sheet.owner);
+    let read = {
+        let Some((_guard, library)) = open(data, &prefs.language).await? else {
+            let notice = serenity::CreateInteractionResponseMessage::new().content(prose::WARMING.said(prefs.prose)).ephemeral(true);
+
+            form.create_response(ctx, serenity::CreateInteractionResponse::Message(notice)).await?;
+            return Ok(());
+        };
+
+        grammar::versus_of(&words, &foes(&library, &prefs.aliases))
+    };
+
+    sheet.versus = match read {
+        Ok(versus) => versus,
+        Err(word) => {
+            let notice = serenity::CreateInteractionResponseMessage::new().content(prose::NOT_A_TRAIT.filled(data.book.prose(sheet.owner), &[("name", &word)])).ephemeral(true);
+
+            form.create_response(ctx, serenity::CreateInteractionResponse::Message(notice)).await?;
+            return Ok(());
+        }
+    };
+
+    form.create_response(ctx, serenity::CreateInteractionResponse::Acknowledge).await?;
 
     if let Some(edit) = redrawn(data, &sheet).await? {
         form.edit_response(ctx, edit).await?;
@@ -2756,6 +2830,7 @@ async fn on_modal(ctx: &serenity::Context, form: &serenity::ModalInteraction, da
 
     match tag {
         "sv" => return on_level(ctx, form, data, sheet, &typed).await,
+        "sw" => return on_versus(ctx, form, data, sheet, &typed).await,
         "sm" => {}
         _ => return Ok(()),
     }
@@ -3250,15 +3325,16 @@ mod tests {
 
     #[test]
     fn a_sheet_survives_its_button_id() {
-        let sheet = Sheet { owner: 1, id: 25, form: 2, level: Some("50+70".to_owned()), talents: Some("10.0.5".to_owned()), page: Page::Talents };
+        let sheet = Sheet { owner: 1, id: 25, form: 2, level: Some("50+70".to_owned()), talents: Some("10.0.5".to_owned()), page: Page::Talents, versus: Versus { foe: Foe::from_bits(0b1001), aimed: true } };
         let custom = sheet.custom("sb", 3);
         let (tag, read) = Sheet::read(&custom).unwrap();
 
         assert_eq!(tag, "sb");
         assert_eq!((read.owner, read.id, read.form, read.level.as_deref(), read.talents.as_deref(), read.page), (1, 25, 3, Some("50+70"), Some("10.0.5"), Page::Talents));
+        assert_eq!(read.versus, sheet.versus);
         assert!(custom.len() <= 100);
 
-        let widest = Sheet { owner: u64::MAX, id: 9999, level: Some("999+999".to_owned()), talents: Some("10.10.10.10.10.10.10.10.10.10".to_owned()), ..sheet.clone() };
+        let widest = Sheet { owner: u64::MAX, id: 9999, level: Some("999+999".to_owned()), talents: Some("10.10.10.10.10.10.10.10.10.10".to_owned()), versus: Versus { foe: Foe::from_bits(u16::MAX), aimed: true }, ..sheet.clone() };
 
         assert!(widest.custom("sb", 3).len() <= 100);
 
@@ -3274,6 +3350,7 @@ mod tests {
         let (_, read) = Sheet::read("sb|1|25|2|50|-").unwrap();
 
         assert_eq!(read.page, Page::Stats);
+        assert!(read.versus.is_empty() && Sheet::read("sb|1|25|2|50|-|s").is_some_and(|(_, read)| read.versus.is_empty()), "and one from before Versus has no traits picked");
     }
 
     #[test]
@@ -3299,7 +3376,7 @@ mod tests {
             assert!(!ids[..at].contains(id), "{id} is used twice");
         }
 
-        let sheet = Sheet { owner: 1, id: 25, form: 2, level: None, talents: None, page: Page::Stats };
+        let sheet = Sheet { owner: 1, id: 25, form: 2, level: None, talents: None, page: Page::Stats, versus: Versus::default() };
         let forms = (0..FORMS.len()).map(|form| sheet.turned("sb", form, sheet.page));
         let pages = [Page::Stats, Page::Talents, Page::Details].into_iter().map(|page| sheet.turned("sp", sheet.form, page));
         let ids: Vec<String> = forms.chain(pages).chain([sheet.custom("sl", sheet.form), sheet.custom("st", sheet.form)]).collect();
