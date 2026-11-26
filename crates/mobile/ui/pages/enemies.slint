@@ -1,6 +1,6 @@
 import { ListView } from "std-widgets.slint";
 import { Theme } from "../theme.slint";
-import { Btn, Tone, Input, Combo, Label, Status, Dialog, Panel, Rule, VRule } from "../widgets/basics.slint";
+import { Btn, Tone, Input, Combo, Label, Status, Dialog, Panel, Rule, VRule, TapTip } from "../widgets/basics.slint";
 import { Drawer, EdgeGrab } from "../widgets/drawer.slint";
 import { Line, AbilityIcon, AbilityLine, StatCell, HeaderBtn, RosterRow, Lines, IconRow, AbilityRows, StatGrid, HeaderToggle } from "../widgets/detail.slint";
 import { FilterIcon, FilterLabeled, RangeField, FilterIconsWrap, FilterLabeledList, RangeRows } from "../widgets/filter.slint";
@@ -44,6 +44,13 @@ export global Enemies {
     in property <[Line]> description;
 
     in-out property <bool> filter-open;
+    in-out property <bool> more-open;
+    in property <[string]> hit-options;
+    in-out property <int> hit-index;
+    in property <bool> picks-hits;
+    in property <string> hit-hint;
+    in property <[string]> mode-options;
+    in-out property <int> mode-index;
     in property <int> filter-mode;
     in property <string> filter-mag;
     in property <[RangeField]> filter-stats;
@@ -61,6 +68,8 @@ export global Enemies {
     callback set-tab(int);
     callback mag-edited(string);
     callback export-image();
+    callback hits-picked(int);
+    callback mode-picked(int);
     callback appearances();
     callback filter-mode-set(int);
     callback filter-mag-edited(string);
@@ -70,6 +79,31 @@ export global Enemies {
     callback filter-range-min(int, int, string);
     callback filter-range-max(int, int, string);
     callback filter-clear();
+}
+
+component MoreDialog inherits Dialog {
+    open <=> Enemies.more-open;
+    title: "More Actions";
+    panel-width: 240px;
+    VerticalLayout {
+        padding: 16px;
+        spacing: 6px;
+        alignment: center;
+        HorizontalLayout {
+            alignment: center;
+            if Enemies.picks-hits: Combo { width: 130px; height: 32px; text-size: 13px; options: Enemies.hit-options; current <=> Enemies.hit-index; selected(index) => { Enemies.hits-picked(index); } }
+            if !Enemies.picks-hits: Rectangle {
+                width: 130px;
+                height: 32px;
+                Combo { width: 100%; height: 100%; text-size: 13px; enabled: false; options: Enemies.hit-options; current: 0; }
+                TapTip { text: Enemies.hit-hint; width: 100%; height: 100%; }
+            }
+        }
+        HorizontalLayout {
+            alignment: center;
+            Combo { width: 130px; height: 32px; text-size: 13px; options: Enemies.mode-options; current <=> Enemies.mode-index; selected(index) => { Enemies.mode-picked(index); } }
+        }
+    }
 }
 
 component FilterDialog inherits Dialog {
@@ -226,7 +260,9 @@ component Header inherits VerticalLayout {
         Rectangle { width: 10px; }
         if Enemies.tab == 0: VerticalLayout {
             alignment: center;
+            spacing: 6px;
             Btn { width: 100px; height: 24px; text-size: 12px; tone: Enemies.export-tone; label: Enemies.export-label; pad-y: 0px; clicked => { Enemies.export-image(); } }
+            Btn { width: 100px; height: 24px; text-size: 12px; label: "More Actions"; pad-y: 0px; clicked => { Enemies.more-open = true; } }
         }
         if Enemies.tab == 1: VerticalLayout {
             alignment: center;
@@ -310,4 +346,6 @@ export component EnemiesPage inherits Rectangle {
         Roster { width: 100%; height: 100%; }
     }
     FilterDialog { }
+    MoreDialog { shown: Enemies.selected >= 0 && Enemies.tab == 0; }
+    init => { Enemies.more-open = false; }
 }

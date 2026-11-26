@@ -16,15 +16,15 @@ use iced::widget::{
     text, text_input, Id, Space,
 };
 use iced::{Color, Element, Length, Size, Subscription, Task, Theme};
-use codex::combat::{Entity, Identity};
+use codex::combat::{Entity, Foe, Identity, Terms};
 use tracing::info;
 
 use foundry::common::context::GlobalContext;
 use codex::combat::Faction;
 use foundry::systems::combat::NameBook;
 use foundry::common::formats::SpriteSheet as CoreSpriteSheet;
+use foundry::systems::combat::lens::{self, Pace};
 use foundry::systems::combat::registry::{format_stat, Magnification, StatContext, STAT_ATK_CYCLE, STAT_ATTACK, STAT_CASH_DROP, STAT_DPS, STAT_HITPOINTS, STAT_KNOCKBACKS, STAT_RANGE, STAT_SPEED};
-use foundry::systems::combat::abilities::collect_ability_data;
 use foundry::systems::combat::RenderContext;
 use foundry::domains::enemy::animation as enemy_animation;
 use foundry::domains::enemy::scanner::{self, EnemyEntry};
@@ -35,6 +35,7 @@ use foundry::{Vfs, Vault};
 
 use crate::systems::animation;
 use crate::systems::combat::abilities as combat_abilities;
+use crate::systems::combat::dials;
 use crate::app::state::{AnimState, AppState, EnemyListState};
 use crate::app::theme;
 use crate::common::CustomAssets;
@@ -50,6 +51,7 @@ const HEADER_BUTTON_TOP_PADDING: f32 = 5.0;
 const EXPORT_BUTTON_RULE_GAP: f32 = 2.0;
 const DETAIL_RULE_GAP: f32 = 15.0;
 const DETAIL_RULE_HEIGHT: f32 = 96.0;
+const DIALS_GAP: f32 = 6.0;
 const ICON_BOX_WIDTH: f32 = 110.0;
 const ICON_BOX_HEIGHT: f32 = 96.0;
 const APPEARANCES_TEXT_SIZE: f32 = 12.0;
@@ -89,6 +91,7 @@ pub enum Message {
     Filter(filter::Message),
     Export(statblock_export::Message),
     Animation(animation::Message),
+    Dials(dials::Message),
 }
 
 impl std::fmt::Debug for Message {
@@ -113,6 +116,7 @@ impl std::fmt::Debug for Message {
             Self::Filter(msg) => write!(f, "Filter({:?})", msg),
             Self::Export(msg) => write!(f, "Export({:?})", msg),
             Self::Animation(msg) => write!(f, "Animation({:?})", msg),
+            Self::Dials(msg) => write!(f, "Dials({:?})", msg),
         }
     }
 }
@@ -142,6 +146,7 @@ pub struct EnemyState {
     list: list::State,
     filter: filter::State,
     abilities: combat_abilities::State,
+    dials: dials::State,
     export: statblock_export::State,
     animation: animation::State,
 }
@@ -174,6 +179,7 @@ impl Default for EnemyState {
             list: list::State::default(),
             filter: filter::State::default(),
             abilities: combat_abilities::State::default(),
+            dials: dials::State::default(),
             export: statblock_export::State::new("Enemy"),
             animation: animation::State::with_popup(popup::Kind::EnemyAnimationExport),
         }
@@ -523,11 +529,16 @@ impl EnemyState {
                     global: global_ctx,
                     settings,
                     vault: global_ctx.vault,
+                    lens: self.dials.lens(&enemy.stats),
                 });
 
                 self.export.update(msg, || ctx.and_then(export::request)).map(Message::Export)
             }
             Message::Animation(msg) => self.animation.update(msg, settings, &mut app_state.animation).map(Message::Animation),
+            Message::Dials(msg) => {
+                self.dials.update(msg);
+                Task::none()
+            }
         }
     }
 
@@ -724,6 +735,10 @@ impl EnemyState {
                 detail_row = detail_row.push(Space::new().width(Length::Fixed(DETAIL_RULE_GAP)));
                 detail_row = detail_row.push(container(rule::vertical(1)).height(Length::Fixed(DETAIL_RULE_HEIGHT)));
                 detail_row = detail_row.push(Space::new().width(Length::Fixed(EXPORT_BUTTON_RULE_GAP)));
+                detail_row = detail_row.push(Element::from(column![self.dials.hits_card(&enemy.stats), self.dials.mode_card()].spacing(DIALS_GAP)).map(Message::Dials));
+                detail_row = detail_row.push(Space::new().width(Length::Fixed(EXPORT_BUTTON_RULE_GAP)));
+                detail_row = detail_row.push(container(rule::vertical(1)).height(Length::Fixed(DETAIL_RULE_HEIGHT)));
+                detail_row = detail_row.push(Space::new().width(Length::Fixed(EXPORT_BUTTON_RULE_GAP)));
                 detail_row = detail_row.push(self.export.view().map(Message::Export));
             }
             DetailTab::Details => {
@@ -830,12 +845,14 @@ impl EnemyState {
         let stats = dynamic_entry.as_ref().unwrap_or(&enemy.stats);
 
         let enemy_ctx = RenderContext::enemy(global_ctx, stats, self.magnification);
+        let stat_ctx = StatContext::enemy(stats, enemy.atk_anim_frames, self.magnification, global_ctx.treasure);
+        let groups = lens::plain(&enemy_ctx, Pace::of(&stat_ctx), self.dials.lens(stats));
 
         editor::target(
             column![
-                self.view_stats(enemy, stats, global_ctx.treasure),
+                self.view_stats(enemy, stats, global_ctx),
                 Space::new().height(Length::Fixed(8.0)),
-                self.abilities.view(collect_ability_data(&enemy_ctx), Faction::Enemy, None, &self.img015_sheets, &self.custom_assets, |items, layout| {
+                self.abilities.view(groups, Faction::Enemy, None, &self.img015_sheets, &self.custom_assets, |items, layout| {
                     self.abilities.ability_list(items, &self.img015_sheets, &self.custom_assets, layout, Faction::Enemy)
                 })
             ]
@@ -845,11 +862,12 @@ impl EnemyState {
         )
     }
 
-    fn view_stats(&self, enemy: &EnemyEntry, stats: &Entity, treasure: &Bonus) -> Element<'_, Message> {
-        let stat_ctx = StatContext::enemy(stats, enemy.atk_anim_frames, self.magnification, treasure);
+    fn view_stats(&self, enemy: &EnemyEntry, stats: &Entity, global_ctx: GlobalContext<'_>) -> Element<'_, Message> {
+        let stat_ctx = StatContext::enemy(stats, enemy.atk_anim_frames, self.magnification, global_ctx.treasure);
+        let measured = lens::measure(&stat_ctx, &lens::rules(&global_ctx), Foe::default(), Terms::default(), self.dials.lens(stats));
 
-        let atk_str = format_stat(&STAT_ATTACK, &stat_ctx);
-        let dps_str = format_stat(&STAT_DPS, &stat_ctx);
+        let atk_str = lens::rate(measured.attack);
+        let dps_str = lens::rate(measured.dps);
         let range_str = format_stat(&STAT_RANGE, &stat_ctx);
         let cash_str = format_stat(&STAT_CASH_DROP, &stat_ctx);
         let hp_str = format_stat(&STAT_HITPOINTS, &stat_ctx);

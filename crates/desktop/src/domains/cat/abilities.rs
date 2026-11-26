@@ -6,25 +6,29 @@ use codex::cat::unit::LevelCurve;
 use codex::files::img015;
 
 use foundry::common::context::GlobalContext;
-use codex::combat::{Faction, Foe, Identity};
-use foundry::domains::cat::versus::{self, Pace};
+use codex::combat::{Entity, Faction, Foe, Identity};
+use foundry::domains::cat::versus;
+use foundry::systems::combat::lens::{self, Lens, Pace};
 use foundry::domains::settings::Settings;
 use foundry::systems::combat::{AbilityItem, CustomIcon, RenderContext, ABILITY_Y};
 
 use crate::app::theme;
 use crate::common::{CustomAssets, SpriteSheet};
 use crate::systems::combat::abilities::{self as shared, ListLayout};
+use crate::systems::combat::dials;
 use crate::widget::ability_spacer;
 
 const VERSUS_WIDTH: f32 = 100.0;
 const VERSUS_HEIGHT: f32 = 24.0;
 const VERSUS_TEXT_SIZE: f32 = 12.0;
+const HEADER_GAP: f32 = 6.0;
 
 #[derive(Debug, Clone)]
 pub enum Message {
     ToggleConjureExpand(u32),
     ToggleVersus,
     Pick(Identity),
+    Dials(dials::Message),
 }
 
 #[derive(Clone, Copy)]
@@ -43,6 +47,7 @@ pub struct State {
     conjure_overrides: HashMap<u32, bool>,
     versus: bool,
     foe: Foe,
+    dials: dials::State,
 }
 
 
@@ -59,7 +64,22 @@ impl State {
             }
             Message::ToggleVersus => self.versus = !self.versus,
             Message::Pick(label) => self.foe = if self.foe.has(label) { self.foe.without(label) } else { self.foe.with(label) },
+            Message::Dials(message) => self.dials.update(message),
         }
+    }
+
+    pub(super) fn lens(&self, stats: &Entity) -> Lens {
+        self.dials.lens(stats)
+    }
+
+    pub(super) fn header(&self, stats: &Entity) -> Element<'_, Message> {
+        column![
+            self.dials.hits_card(stats).map(Message::Dials),
+            self.dials.mode_card().map(Message::Dials),
+            self.versus_card(),
+        ]
+        .spacing(HEADER_GAP)
+        .into()
     }
 
     pub(super) fn versus(&self) -> Option<Foe> {
@@ -86,9 +106,10 @@ impl State {
         assets: &'a CustomAssets,
         settings: &'a Settings,
     ) -> Element<'a, Message> {
+        let lens = self.lens(ctx.final_stats);
         let groups = match spirit.foe {
-            Some(foe) => versus::palette(ctx, foe, versus::spirit_controls(ctx), pace),
-            None => versus::plain(ctx, pace),
+            Some(foe) => versus::palette(ctx, foe, versus::spirit_controls(ctx), pace, lens),
+            None => lens::plain(ctx, pace, lens),
         };
         let pick: Option<fn(Identity) -> Message> = spirit.foe.map(|_| Message::Pick as fn(Identity) -> Message);
 

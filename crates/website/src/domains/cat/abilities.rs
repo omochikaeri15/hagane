@@ -4,9 +4,10 @@ use codex::combat::Foe;
 use codex::files::img015;
 use foundry::common::context::GlobalContext;
 use foundry::domains::cat::game::stats::get_final_stats;
-use foundry::domains::cat::versus::{self, Felt, Pace};
+use foundry::domains::cat::versus::{self, Felt};
 use foundry::domains::cat::waiter::unitid;
 use foundry::systems::combat::abilities::collect_ability_data;
+use foundry::systems::combat::lens::{self, Pace};
 use foundry::systems::combat::registry::{
     Magnification, STAT_ATK_CYCLE, STAT_ATTACK, STAT_COOLDOWN, STAT_COST, STAT_DPS, STAT_HITPOINTS, STAT_KNOCKBACKS, STAT_RANGE, STAT_RARITY, STAT_SPEED,
     StatContext, format_stat,
@@ -57,12 +58,13 @@ pub(crate) fn Abilities(selected: Picked, globals: Shared) -> Element {
     };
     let versus = (state.versus)().then(|| (state.foe)());
     let stat_ctx = StatContext::cat(&final_stats, cat.atk_anim_frames[form], Some(&cat.unitbuy), &treasure);
-    let cycle = (STAT_ATK_CYCLE.get_value)(&stat_ctx);
+    let held = (state.lens)();
+    let lens = lens::Lens { hits: lens::settled(&final_stats, held.hits), ..held };
     let (traits, headline_1, headline_2, body_1, body_2, footer) = match versus {
-        Some(foe) => versus::palette(&ctx, foe, versus::spirit_controls(&ctx), Pace::of(&stat_ctx)),
-        None => versus::plain(&ctx, Pace::of(&stat_ctx)),
+        Some(foe) => versus::palette(&ctx, foe, versus::spirit_controls(&ctx), Pace::of(&stat_ctx), lens),
+        None => lens::plain(&ctx, Pace::of(&stat_ctx), lens),
     };
-    let felt = versus.map(|foe| versus::felt(&ctx, cycle, foe)).unwrap_or_default();
+    let felt = versus::felt(&ctx, &stat_ctx, versus.unwrap_or_default(), lens);
     let conjure_id = base.conjure_unit_id;
     let conjure_open = state.conjure_expanded.read().get(&cat.id).copied().unwrap_or(settings.read().cat_data.expand_spirit_details);
     let cat_id = cat.id;

@@ -19,6 +19,7 @@ use foundry::domains::enemy::animation as enemy_animation;
 use foundry::domains::settings::lang;
 use foundry::domains::stage::{Stage, sheet};
 use foundry::systems::animation::MotionSet;
+use foundry::systems::combat::lens::Lens;
 use foundry::systems::combat::registry::Magnification;
 
 use super::alias::{self, Aliases, Target};
@@ -60,6 +61,7 @@ const CARD_PAGE: &str = "ep";
 const CARD_ASK: &str = "em";
 const CARD_SET: &str = "ev";
 const TALENT_HINT: &str = "all, standard, ultra, none, 10 10 5 or Attack Buff 5";
+const MODE_HELP: &str = "`--mode` is `min` for the plain numbers, `avg` for what the procs average out to (the default) and `max` for every proc landing: crits, savage blows, waves, surges and explosions count toward Attack and DPS outside `min`, and `max` also counts Strengthen and the attack boost from kills.\n`--hits` is `1`, `2` or `3` for one hit alone, `avg` for the hits that reach a foe at standing range (the default) and `all` for every hit.";
 const VERSUS_HINT: &str = "red metal, an enemy, targets, traits, subtraits or all";
 const EMBED_COLOR: u32 = 0x2468A8;
 const OPEN_SETTINGS: &str = "set|open";
@@ -1237,6 +1239,7 @@ struct Sheet {
     talents: Option<String>,
     page: Page,
     versus: Versus,
+    lens: Lens,
 }
 
 impl Sheet {
@@ -1245,7 +1248,7 @@ impl Sheet {
     }
 
     fn turned(&self, tag: &str, form: usize, page: Page) -> String {
-        format!("{tag}|{}|{}|{}|{}|{}|{}|{:x}", self.owner, self.id, form, self.level.as_deref().unwrap_or_default(), self.talents.as_deref().unwrap_or("-"), page.tag(), self.versus.bits())
+        format!("{tag}|{}|{}|{}|{}|{}|{}|{:x}|{}", self.owner, self.id, form, self.level.as_deref().unwrap_or_default(), self.talents.as_deref().unwrap_or("-"), page.tag(), self.versus.bits(), grammar::lens_tag(self.lens))
     }
 
     fn read(custom: &str) -> Option<(&str, Self)> {
@@ -1258,8 +1261,9 @@ impl Sheet {
         let talents = parts.next().filter(|levels| *levels != "-").map(str::to_owned);
         let page = parts.next().and_then(Page::tagged).unwrap_or_default();
         let versus = parts.next().and_then(|bits| u32::from_str_radix(bits, 16).ok()).map_or_else(Versus::default, Versus::from_bits);
+        let lens = parts.next().map_or_else(Lens::default, grammar::lens_tagged);
 
-        Some((tag, Self { owner, id, form, level, talents, page, versus }))
+        Some((tag, Self { owner, id, form, level, talents, page, versus, lens }))
     }
 }
 
@@ -1269,13 +1273,14 @@ struct Card {
     id: u32,
     page: Page,
     magnification: Option<(i32, i32)>,
+    lens: Lens,
 }
 
 impl Card {
     const TAGS: [&'static str; 3] = [CARD_PAGE, CARD_ASK, CARD_SET];
 
     fn turned(&self, tag: &str, page: Page) -> String {
-        format!("{tag}|{}|{}|{}|{}", self.owner, self.id, page.tag(), self.magnification.map(percents).unwrap_or_default())
+        format!("{tag}|{}|{}|{}|{}|{}", self.owner, self.id, page.tag(), self.magnification.map(percents).unwrap_or_default(), grammar::lens_tag(self.lens))
     }
 
     fn read(custom: &str) -> Option<(&str, Self)> {
@@ -1285,8 +1290,9 @@ impl Card {
         let id = parts.next()?.parse().ok()?;
         let page = Page::tagged(parts.next()?)?;
         let magnification = parts.next().and_then(grammar::magnification_of);
+        let lens = parts.next().map_or_else(Lens::default, grammar::lens_tagged);
 
-        Some((tag, Self { owner, id, page, magnification }))
+        Some((tag, Self { owner, id, page, magnification, lens }))
     }
 }
 
@@ -1315,7 +1321,7 @@ fn sheet_png(library: &Library, cache: &Cache, sheet: &Sheet) -> Result<(Vec<u8>
 
     match sheet.page {
         Page::Talents => Ok((statblock::talents(library, cache, asked)?, format!("{id}.talents.png"))),
-        _ => Ok((statblock::cat(library, cache, asked, sheet.versus)?, format!("{id}.png"))),
+        _ => Ok((statblock::cat(library, cache, asked, sheet.versus, sheet.lens)?, format!("{id}.png"))),
     }
 }
 
@@ -1329,7 +1335,7 @@ fn card_png(library: &Library, cache: &Cache, card: &Card) -> Result<(Vec<u8>, S
             let plain = Magnification::default();
             let (hitpoints, attack) = card.magnification.unwrap_or((plain.hitpoints, plain.attack));
 
-            Ok((statblock::enemy(library, cache, enemy, Magnification::pair(hitpoints, attack))?, format!("{id}.png")))
+            Ok((statblock::enemy(library, cache, enemy, Magnification::pair(hitpoints, attack), card.lens)?, format!("{id}.png")))
         }
     }
 }
@@ -1820,7 +1826,8 @@ async fn serve_cat(voice: Voice<'_>, request: Request) -> Result<(), Error> {
                 return Ok(());
             }
 
-            let sheet = Sheet { owner, id: cat.id, form, level: stats.level, talents, page: stats.page, versus };
+            let lens = Lens { mode: stats.gauge.unwrap_or_default(), hits: stats.hits.unwrap_or_default() };
+            let sheet = Sheet { owner, id: cat.id, form, level: stats.level, talents, page: stats.page, versus, lens };
 
             send_sheet(voice, Arc::clone(&library), sheet, stats.mode.unwrap_or(prefs.mode)).await
         }
@@ -1871,7 +1878,8 @@ async fn serve_enemy(voice: Voice<'_>, request: Request) -> Result<(), Error> {
 
     match request.want {
         Want::Stats(stats) => {
-            let card = Card { owner: voice.user().get(), id: enemy.id, page: stats.page, magnification: stats.magnification };
+            let lens = Lens { mode: stats.gauge.unwrap_or_default(), hits: stats.hits.unwrap_or_default() };
+            let card = Card { owner: voice.user().get(), id: enemy.id, page: stats.page, magnification: stats.magnification, lens };
 
             send_card(voice, Arc::clone(&library), card, stats.mode.unwrap_or(prefs.mode)).await
         }
@@ -2026,6 +2034,7 @@ fn help_page(page_name: &str, section: &str, prefix: &str, prose: Prose) -> sere
             .field("Level", "`lv50`, `lvl50`, `l50`, `level 50` or `50+70`. A plain `50` isn't read as a level, so give it its mark. Without one, a typical level for its rarity, raised to the level its form or its ultra talents unlock at if that's higher.", false)
             .field("`--talents` (`-t`)", "`all` (`a`), `standard` (`s`), `ultra` (`u`), `none` (`n`), levels in order like `10 10 5`, or names like `Attack Buff 5`, written the way the talents page shows them. Talents lift a Normal or Evolved form to True. The talents page (`t`) lists every one with its max level.", false)
             .field("`--versus` (`-v`)", "Trait names like `-v red` or `-v black metal`, or an enemy's name like `-v teacher bear` for all of its traits: the stats against one enemy with every one of them, by the game's own math. `targets` is every trait the cat has something for, `traits` every trait, `subtraits` every subtrait and `all` both, Metal aside in each; `none` clears them.\nAttack, DPS and Hitpoints change where the cat has something against it, and Hitpoints become the damage it takes to kill it. Against Metal a hit that isn't critical deals 1. A Sage shortens a cat's crowd control and its knockbacks unless the cat has Sage Slayer.\nOutlines: green does something, red does nothing or holds the cat back, orange is a picked trait the cat has nothing for. Half red, half green works only partly, and half green, half orange helps without being the whole story.", false)
+            .field("`--mode` (`-m`), `--hits` (`-h`)", MODE_HELP, false)
             .field("Uptime", "Freeze, Slow, Weaken and Curse say how much of the time they keep a target under. The low end is the hits alone with the shortest time, since some enemies shrug off waves, surges and explosions; the high end adds them with the longest time. With `--versus` the time is that enemy's. A cat that dies after attacking goes by its recharge.", false)
             .field("`--interactive` (`-i`), `--dormant` (`-d`)", "With or without the buttons under the picture this time, whatever your Blocks setting says.", false),
         ("cat", "animation") => Voiced::new(prefix, "hg!cat (c) • Animation", "`hg!cat <unit> [a | anim] [type] ...`").field("Types", CLIPS, false).field("Flags", MOTION_FLAGS, false),
@@ -2040,6 +2049,7 @@ fn help_page(page_name: &str, section: &str, prefix: &str, prose: Prose) -> sere
         ("enemy", "stats") => Voiced::new(prefix, "hg!enemy (e) • Stats", "`hg!enemy <unit> [s | d] ...`")
             .field("Pages", "`stats` (`s`, `stat`): the statblock, and what you get without a page\n`details` (`d`, `detail`, `description`): its description", false)
             .field("Magnification", "`400%`, or `400%/200%` for hitpoints and attack. 100% without one.", false)
+            .field("`--mode` (`-m`), `--hits` (`-h`)", MODE_HELP, false)
             .field("`--interactive` (`-i`), `--dormant` (`-d`)", "With or without the buttons under the picture this time, whatever your Blocks setting says.", false),
         ("enemy", "animation") => Voiced::new(prefix, "hg!enemy (e) • Animation", "`hg!enemy <unit> [a | anim] [type] ...`").field("Types", CLIPS, false).field("Flags", MOTION_FLAGS, false),
         ("enemy", "buttons") => Voiced::new(prefix, "hg!enemy (e) • Buttons", "With your Blocks setting on Interactive, or `--interactive` (`-i`) after a request, two rows sit under the picture. Page turns between Stats and Details, and Apply sets a Magnification. The page you're on is green, and so is Magnification once you've set one. Only the person who asked can press them."),
@@ -2970,6 +2980,7 @@ async fn on_setting(ctx: &serenity::Context, press: &serenity::ComponentInteract
 #[cfg(test)]
 mod tests {
     use super::*;
+    use codex::combat::{Hits, Mode as Gauge};
 
     const ME: serenity::UserId = serenity::UserId::new(42);
 
@@ -3326,13 +3337,13 @@ mod tests {
 
     #[test]
     fn a_sheet_survives_its_button_id() {
-        let sheet = Sheet { owner: 1, id: 25, form: 2, level: Some("50+70".to_owned()), talents: Some("10.0.5".to_owned()), page: Page::Talents, versus: Versus { foe: Foe::from_bits(0b1001), aimed: true } };
+        let sheet = Sheet { owner: 1, id: 25, form: 2, level: Some("50+70".to_owned()), talents: Some("10.0.5".to_owned()), page: Page::Talents, versus: Versus { foe: Foe::from_bits(0b1001), aimed: true }, lens: Lens { mode: Gauge::Maximum, hits: Hits::Only(1) } };
         let custom = sheet.custom("sb", 3);
         let (tag, read) = Sheet::read(&custom).unwrap();
 
         assert_eq!(tag, "sb");
         assert_eq!((read.owner, read.id, read.form, read.level.as_deref(), read.talents.as_deref(), read.page), (1, 25, 3, Some("50+70"), Some("10.0.5"), Page::Talents));
-        assert_eq!(read.versus, sheet.versus);
+        assert_eq!((read.versus, read.lens), (sheet.versus, sheet.lens));
         assert!(custom.len() <= 100);
 
         let widest = Sheet { owner: u64::MAX, id: 9999, level: Some("999+999".to_owned()), talents: Some("10.10.10.10.10.10.10.10.10.10".to_owned()), versus: Versus { foe: Foe::from_bits(u16::MAX), aimed: true }, ..sheet.clone() };
@@ -3352,15 +3363,16 @@ mod tests {
 
         assert_eq!(read.page, Page::Stats);
         assert!(read.versus.is_empty() && Sheet::read("sb|1|25|2|50|-|s").is_some_and(|(_, read)| read.versus.is_empty()), "and one from before Versus has no traits picked");
+        assert_eq!(read.lens, Lens::default(), "and the average of the hits at standing range");
     }
 
     #[test]
     fn a_card_survives_its_button_id() {
-        let card = Card { owner: u64::MAX, id: 763, page: Page::Details, magnification: Some((400, 200)) };
+        let card = Card { owner: u64::MAX, id: 763, page: Page::Details, magnification: Some((400, 200)), lens: Lens { mode: Gauge::Minimum, hits: Hits::All } };
         let custom = card.turned(CARD_SET, Page::Stats);
         let (tag, read) = Card::read(&custom).unwrap();
 
-        assert_eq!((tag, read.owner, read.id, read.page, read.magnification), (CARD_SET, u64::MAX, 763, Page::Stats, Some((400, 200))));
+        assert_eq!((tag, read.owner, read.id, read.page, read.magnification, read.lens), (CARD_SET, u64::MAX, 763, Page::Stats, Some((400, 200)), card.lens));
         assert!(custom.len() <= 100);
         assert_eq!(Card::read(&Card { magnification: None, ..card }.turned(CARD_PAGE, Page::Details)).map(|(_, read)| read.magnification), Some(None));
         assert!(Card::read("sb|1|25|2|50|-|s").is_none(), "a cat's button is never read as an enemy's");
@@ -3370,14 +3382,14 @@ mod tests {
     // Discord refuses a message whose buttons share an ID, so every button of a panel has its own.
     #[test]
     fn panel_button_ids_never_repeat() {
-        let card = Card { owner: 1, id: 2, page: Page::Stats, magnification: None };
+        let card = Card { owner: 1, id: 2, page: Page::Stats, magnification: None, lens: Lens::default() };
         let ids = [card.turned(CARD_PAGE, Page::Stats), card.turned(CARD_PAGE, Page::Details), card.turned(CARD_ASK, card.page), format!("{LABEL}|0"), format!("{LABEL}|1")];
 
         for (at, id) in ids.iter().enumerate() {
             assert!(!ids[..at].contains(id), "{id} is used twice");
         }
 
-        let sheet = Sheet { owner: 1, id: 25, form: 2, level: None, talents: None, page: Page::Stats, versus: Versus::default() };
+        let sheet = Sheet { owner: 1, id: 25, form: 2, level: None, talents: None, page: Page::Stats, versus: Versus::default(), lens: Lens::default() };
         let forms = (0..FORMS.len()).map(|form| sheet.turned("sb", form, sheet.page));
         let pages = [Page::Stats, Page::Talents, Page::Details].into_iter().map(|page| sheet.turned("sp", sheet.form, page));
         let ids: Vec<String> = forms.chain(pages).chain([sheet.custom("sl", sheet.form), sheet.custom("st", sheet.form)]).collect();

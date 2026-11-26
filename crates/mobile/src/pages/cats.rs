@@ -22,7 +22,8 @@ use foundry::domains::cat::level;
 use foundry::domains::cat::game::talents as talent_logic;
 use foundry::domains::cat::scanner::CatEntry;
 use foundry::domains::cat::statblock::{self as cat_statblock, Subject};
-use foundry::domains::cat::versus::{self, Pace};
+use foundry::domains::cat::versus;
+use foundry::systems::combat::lens::{self, Lens, Pace, MODES, ONE_HIT};
 use foundry::domains::cat::waiter::unitid;
 use foundry::systems::combat::abilities::collect_ability_data;
 use foundry::systems::combat::registry::{
@@ -125,6 +126,7 @@ pub struct State {
     treasure: Option<Bonus>,
     versus: bool,
     foe: Foe,
+    lens: Lens,
 }
 
 pub type Edited = Rc<dyn Fn(&AppWindow)>;
@@ -546,6 +548,7 @@ impl State {
             exporting: false,
             versus: false,
             foe: Foe::default(),
+            lens: Lens::default(),
             edited: None,
             locked: false,
             granted: None,
@@ -856,6 +859,32 @@ pub fn wire(window: &AppWindow, context: &Rc<Context>) -> Shared {
 
             state.conjure_expanded.insert(id, next);
         }
+
+        if let Some(ui) = weak.upgrade() {
+            refresh(&ui, &held, &ctx);
+        }
+    });
+
+    let (held, ctx, weak) = on(&state, context, window);
+    cats.on_hits_picked(move |index| {
+        let Some(ui) = weak.upgrade() else {
+            return;
+        };
+        let label = usize::try_from(index).ok().and_then(|index| ui.global::<Cats>().get_hit_options().row_data(index));
+
+        if let Some(label) = label {
+            held.borrow_mut().lens.hits = lens::hits_of(&label);
+            refresh(&ui, &held, &ctx);
+        }
+    });
+
+    let (held, ctx, weak) = on(&state, context, window);
+    cats.on_mode_picked(move |index| {
+        let Some(mode) = usize::try_from(index).ok().and_then(|index| MODES.get(index).copied()) else {
+            return;
+        };
+
+        held.borrow_mut().lens.mode = mode;
 
         if let Some(ui) = weak.upgrade() {
             refresh(&ui, &held, &ctx);
@@ -1424,12 +1453,15 @@ fn refresh_abilities(ui: &AppWindow, state: &Shared, context: &Rc<Context>, glob
         held.versus.then_some(held.foe)
     };
     let stat_ctx = StatContext::cat(&final_stats, cat.atk_anim_frames[form], Some(&cat.unitbuy), &treasure);
-    let cycle = (STAT_ATK_CYCLE.get_value)(&stat_ctx);
+    let held = state.borrow().lens;
+    let lens = Lens { hits: lens::settled(&final_stats, held.hits), ..held };
     let (traits, headline_1, headline_2, body_1, body_2, footer) = match picked {
-        Some(foe) => versus::palette(&ctx, foe, versus::spirit_controls(&ctx), Pace::of(&stat_ctx)),
-        None => versus::plain(&ctx, Pace::of(&stat_ctx)),
+        Some(foe) => versus::palette(&ctx, foe, versus::spirit_controls(&ctx), Pace::of(&stat_ctx), lens),
+        None => lens::plain(&ctx, Pace::of(&stat_ctx), lens),
     };
-    let felt = picked.map(|foe| versus::felt(&ctx, cycle, foe)).unwrap_or_default();
+    let felt = versus::felt(&ctx, &stat_ctx, picked.unwrap_or_default(), lens);
+
+    show_dials(&cats, &final_stats, held);
     let felt_cell = |def: &StatsDef, held: &Option<(String, Mark)>| held.as_ref().map_or_else(|| value_cell(def, &stat_ctx), |(text, _)| text_cell(def.display_name, text));
     let marks = |held: [&Option<(String, Mark)>; 5]| ModelRc::new(VecModel::from(held.iter().map(|held| tone_of(held.as_ref().map_or(Mark::None, |(_, mark)| *mark))).collect::<Vec<_>>()));
 
@@ -1867,6 +1899,11 @@ fn export(ui: &AppWindow, state: &Shared, context: &Rc<Context>) {
         is_conjure_expanded: conjure,
         global,
         grants: granted.as_deref(),
+        lens: {
+            let held = state.borrow().lens;
+
+            Lens { hits: cat.stats.get(form).and_then(Option::as_ref).map_or(held.hits, |stats| lens::settled(stats, held.hits)), ..held }
+        },
     };
 
     if tab == Tab::Talents {
@@ -1891,6 +1928,18 @@ fn export(ui: &AppWindow, state: &Shared, context: &Rc<Context>) {
 
     state.borrow_mut().exporting = true;
     detail::export_statblock(ui, context, data, face, finished);
+}
+
+fn show_dials(cats: &Cats<'_>, stats: &Entity, held: Lens) {
+    let choices: Vec<SharedString> = lens::hit_choices(stats).into_iter().map(|hits| SharedString::from(lens::hits_label(hits))).collect();
+    let shown = lens::hits_label(lens::shown_hits(stats, held.hits));
+
+    cats.set_hit_index(choices.iter().position(|choice| choice == shown).map_or(0, |at| at as i32));
+    cats.set_hit_options(ModelRc::new(VecModel::from(choices)));
+    cats.set_picks_hits(lens::picks_hits(stats));
+    cats.set_hit_hint(ONE_HIT.into());
+    cats.set_mode_options(ModelRc::new(VecModel::from(MODES.map(|mode| SharedString::from(lens::mode_label(mode))).to_vec())));
+    cats.set_mode_index(MODES.iter().position(|mode| *mode == held.mode).map_or(0, |at| at as i32));
 }
 
 pub fn set_export_face(ui: &AppWindow, label: &str, tone: Tone) {

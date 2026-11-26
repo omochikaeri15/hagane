@@ -3,12 +3,13 @@ use std::collections::HashMap;
 
 use codex::cat::unit::UnitBuy;
 use codex::chapter::stage::BattlegroundEntry;
-use codex::combat::{crowned, deploy_cost, knockback_reach, magnified, resisted, AttrValue, Entity, Faction, Identity, Timing, KNOCKBACK_FRAMES, REGISTRY};
+use codex::combat::{crowned, deploy_cost, knockback_reach, magnified, resisted, AttrValue, Entity, Faction, Identity, Mode, Rules, KNOCKBACK_FRAMES, REGISTRY};
 use codex::chapter::treasure::TraitBonus;
 use codex::files::{img015, Param};
 use serde::{Deserialize, Serialize};
 
 use crate::common::{decimal::trimmed, frames};
+use crate::systems::combat::lens::Lens;
 use crate::systems::combat::{CustomIcon, NameBook};
 use crate::systems::treasure::Bonus;
 
@@ -125,6 +126,7 @@ pub struct FormatContext<'a> {
     pub names: &'a NameBook,
     pub against: Option<Against>,
     pub rhythm: Option<Rhythm>,
+    pub lens: Lens,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -138,7 +140,7 @@ pub struct Against {
 pub struct Rhythm {
     pub cycle: i32,
     pub recharge: i32,
-    pub timing: Timing,
+    pub rules: Rules,
 }
 
 pub struct AbilityDisplayDef {
@@ -188,7 +190,7 @@ fn targets(ctx: &FormatContext<'_>, identity: Identity) -> String {
 }
 
 fn fruit(ctx: &FormatContext<'_>, multiplier: impl Fn(TraitBonus) -> f64, reciprocal: bool) -> String {
-    let (low, high) = ctx.treasure.fruit_span(ctx.stats);
+    let (low, high) = ctx.against.map_or_else(|| ctx.treasure.fruit_span(ctx.stats), |against| (against.fruit, against.fruit));
     let label = |bonus: TraitBonus| {
         let value = multiplier(bonus);
         let shown = if reciprocal { format!("1/{}", trimmed(1.0 / value)) } else { trimmed(value) };
@@ -235,22 +237,38 @@ fn percent(share: f64) -> String {
     }
 }
 
-fn uptime(ctx: &FormatContext<'_>, identity: Identity, gap: &str) -> String {
-    let Some(rhythm) = ctx.rhythm else {
-        return String::new();
-    };
+fn picked<T: Copy>(mode: Mode, shortest: T, longest: T) -> (T, T) {
+    match mode {
+        Mode::Minimum => (shortest, shortest),
+        Mode::Average => (shortest, longest),
+        Mode::Maximum => (longest, longest),
+    }
+}
 
-    let (shortest, longest) = match ctx.against {
+fn held_span(ctx: &FormatContext<'_>, identity: Identity) -> (i32, i32) {
+    match ctx.against {
         Some(against) => {
             let held = held_frames(ctx, against, identity);
 
             (held, held)
         }
-        None => ctx.treasure.fruit_frames(ctx.stats, ctx.duration, ctx.stats.effect_up(identity)),
+        None => {
+            let (shortest, longest) = ctx.treasure.fruit_frames(ctx.stats, ctx.duration, ctx.stats.effect_up(identity));
+
+            picked(ctx.lens.mode, shortest, longest)
+        }
+    }
+}
+
+fn uptime(ctx: &FormatContext<'_>, identity: Identity, gap: &str) -> String {
+    let Some(rhythm) = ctx.rhythm else {
+        return String::new();
     };
-    let exposure = ctx.stats.exposure(rhythm.cycle, rhythm.recharge, &rhythm.timing);
+
+    let (shortest, longest) = held_span(ctx, identity);
+    let exposure = ctx.stats.exposure(rhythm.cycle, rhythm.recharge, ctx.lens.hits, &rhythm.rules);
     let chance = finite(ctx.value);
-    let (Some((least, _)), Some((_, most))) = (exposure.uptime(chance, shortest), exposure.uptime(chance, longest)) else {
+    let (Some(least), Some(most)) = (exposure.uptime(chance, shortest, ctx.lens.mode), exposure.uptime(chance, longest, ctx.lens.mode)) else {
         return String::new();
     };
     let (low, high) = (percent(least), percent(most));
@@ -259,16 +277,9 @@ fn uptime(ctx: &FormatContext<'_>, identity: Identity, gap: &str) -> String {
 }
 
 fn fruit_time(ctx: &FormatContext<'_>, identity: Identity) -> String {
-    let raise = ctx.stats.effect_up(identity);
+    let (shortest, longest) = held_span(ctx, identity);
 
-    match ctx.against {
-        Some(against) => frames::label(held_frames(ctx, against, identity)),
-        None => {
-            let (shortest, longest) = ctx.treasure.fruit_frames(ctx.stats, ctx.duration, raise);
-
-            frames::span(shortest, longest)
-        }
-    }
+    frames::span(shortest, longest)
 }
 
 fn knockback_distance(ctx: &FormatContext<'_>) -> String {
@@ -279,6 +290,7 @@ fn knockback_distance(ctx: &FormatContext<'_>) -> String {
         Some(against) => shown(against.push, sage_resist(ctx, against, Identity::Knockback)),
         None => {
             let (near, far) = ctx.treasure.push_span(ctx.stats);
+            let (near, far) = picked(ctx.lens.mode, near, far);
 
             if near == far { shown(near, 0) } else { format!("{}~{}", shown(near, 0), shown(far, 0)) }
         }
@@ -1550,9 +1562,11 @@ impl<'a> StatContext<'a> {
     }
 
     fn scaled_attack(&self) -> i32 {
-        let scale = |damage: i32| self.scaled(damage, self.magnification.attack);
+        self.strikes().into_iter().sum()
+    }
 
-        scale(self.stats.attack_1_damage) + scale(self.stats.attack_2_damage) + scale(self.stats.attack_3_damage)
+    pub fn strikes(&self) -> [i32; 3] {
+        [self.stats.attack_1_damage, self.stats.attack_2_damage, self.stats.attack_3_damage].map(|damage| self.scaled(damage, self.magnification.attack))
     }
 }
 
@@ -1742,6 +1756,7 @@ mod control_tests {
     use codex::files::Param;
 
     use super::{get_display_def, Against, FormatContext, Magnification, Rhythm};
+    use crate::systems::combat::lens::Lens;
     use crate::systems::combat::NameBook;
     use crate::systems::treasure::Bonus;
 
@@ -1753,7 +1768,7 @@ mod control_tests {
         let param = Param { sage_type_resist_freeze: Some(50), sage_type_resist_knockback: Some(50), ..Param::default() };
         let (treasure, names) = (Bonus::default(), NameBook::default());
         let duration = stats.freeze_duration;
-        let ctx = FormatContext { value: AttrValue::Finite(100), stats, target: "Red", duration, magnification: Magnification::default(), param: &param, treasure: &treasure, names: &names, against, rhythm };
+        let ctx = FormatContext { value: AttrValue::Finite(100), stats, target: "Red", duration, magnification: Magnification::default(), param: &param, treasure: &treasure, names: &names, against, rhythm, lens: Lens::default() };
 
         (get_display_def(identity).formatter)(&ctx)
     }

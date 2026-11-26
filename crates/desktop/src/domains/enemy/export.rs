@@ -1,4 +1,5 @@
 use foundry::common::context::GlobalContext;
+use foundry::systems::combat::lens::Lens;
 use foundry::systems::combat::registry::Magnification;
 use foundry::domains::enemy::scanner::EnemyEntry;
 use foundry::domains::enemy::statblock::{self, Subject};
@@ -18,6 +19,7 @@ pub(super) struct Ctx<'a> {
     pub(super) global: GlobalContext<'a>,
     pub(super) settings: &'a Settings,
     pub(super) vault: &'a Vault,
+    pub(super) lens: Lens,
 }
 
 pub(super) fn request(ctx: Ctx<'_>) -> Option<Request> {
@@ -29,6 +31,7 @@ pub(super) fn request(ctx: Ctx<'_>) -> Option<Request> {
                 show_invalid: ctx.settings.show_invalid_enemies(),
                 global: ctx.global,
                 vault: ctx.vault,
+                lens: ctx.lens,
             });
 
             Some(Request::statblock(data, ctx.sheets, ctx.settings))

@@ -30,7 +30,8 @@ use foundry::domains::cat::animation as cat_animation;
 use foundry::domains::cat::game::stats::{get_final_stats, seeded_level};
 use foundry::domains::cat::level;
 use foundry::domains::cat::scanner::{self, CatEntry};
-use foundry::domains::cat::versus::{self, Pace};
+use foundry::domains::cat::versus;
+use foundry::systems::combat::lens::Pace;
 use foundry::domains::cat::waiter::unitid;
 use foundry::domains::cat::CatDataState;
 use foundry::domains::sandbox::jailbreak::Grants;
@@ -973,6 +974,7 @@ impl State {
                     settings,
                     grants: self.granted.as_ref(),
                     foe: self.abilities.versus().unwrap_or_default(),
+                    lens: self.abilities.lens(cat.stats.get(self.selected_form).and_then(Option::as_ref).unwrap_or(&Entity::default())),
                 });
 
                 self.export.update(msg, || ctx.and_then(export::request)).map(Message::Export)
@@ -1216,7 +1218,10 @@ impl State {
             detail_row = detail_row.push(Space::new().width(Length::Fixed(15.0)));
             detail_row = detail_row.push(container(rule::vertical(1)).height(Length::Fixed(96.0)));
             detail_row = detail_row.push(Space::new().width(Length::Fixed(EXPORT_BUTTON_RULE_GAP)));
-            detail_row = detail_row.push(self.abilities.versus_card().map(Message::Abilities));
+            detail_row = match cat.stats.get(self.selected_form).and_then(Option::as_ref) {
+                Some(stats) => detail_row.push(self.abilities.header(stats).map(Message::Abilities)),
+                None => detail_row.push(self.abilities.versus_card().map(Message::Abilities)),
+            };
             detail_row = detail_row.push(Space::new().width(Length::Fixed(EXPORT_BUTTON_RULE_GAP)));
             detail_row = detail_row.push(container(rule::vertical(1)).height(Length::Fixed(96.0)));
             detail_row = detail_row.push(Space::new().width(Length::Fixed(EXPORT_BUTTON_RULE_GAP)));
@@ -1371,7 +1376,7 @@ impl State {
     fn view_stats(&self, cat: &CatEntry, ctx: &RenderContext<'_>, form: usize) -> Element<'_, Message> {
         let stat_ctx = StatContext::cat(ctx.final_stats, cat.atk_anim_frames[form], Some(&cat.unitbuy), ctx.global.treasure);
         let cycle = (STAT_ATK_CYCLE.get_value)(&stat_ctx);
-        let felt = self.abilities.versus().map(|foe| versus::felt(ctx, cycle, foe)).unwrap_or_default();
+        let felt = versus::felt(ctx, &stat_ctx, self.abilities.versus().unwrap_or_default(), self.abilities.lens(ctx.final_stats));
         let shown = |held: &Option<(String, Mark)>, plain: String| held.as_ref().map_or(plain, |(text, _)| text.clone());
         let tone = |held: &Option<(String, Mark)>| held.as_ref().and_then(|(_, mark)| mark.tones()).map(|(upper, _)| Color::from_rgba8(upper[0], upper[1], upper[2], f32::from(upper[3]) / 255.0));
 

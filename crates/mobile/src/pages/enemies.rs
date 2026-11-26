@@ -7,13 +7,13 @@ use std::sync::Arc;
 
 use slint::{ComponentHandle, Model, ModelRc, SharedString, VecModel};
 
-use codex::combat::{AttrUnit, Entity, Identity, REGISTRY};
+use codex::combat::{AttrUnit, Entity, Foe, Identity, Terms, REGISTRY};
 use foundry::Vault;
 use foundry::domains::enemy::filter::evaluation::{entity_passes_filter, get_identity_name};
 use foundry::domains::enemy::filter::{ATTACK_TYPE_IDENTITIES, EnemyFilterState, MatchMode};
 use foundry::domains::enemy::scanner::{self, EnemyEntry};
 use foundry::domains::enemy::statblock::{self as enemy_statblock, Subject};
-use foundry::systems::combat::abilities::collect_ability_data;
+use foundry::systems::combat::lens::{self, Lens, Pace, MODES, ONE_HIT};
 use foundry::systems::combat::registry::{
     DisplayGroup, Magnification, STAT_ATK_CYCLE, STAT_ATTACK, STAT_CASH_DROP, STAT_DPS, STAT_HITPOINTS, STAT_KNOCKBACKS, STAT_RANGE, STAT_SPEED, StatContext, get_display_def,
 };
@@ -22,7 +22,7 @@ use foundry::systems::combat::{RenderContext, present_identities};
 use crate::catalog::Load;
 use crate::context::Globals;
 use crate::images::{self, Images};
-use crate::pages::cats::{ability_rows, frames_cell, headers, icon_of, icon_row, name_size, value_cell};
+use crate::pages::cats::{ability_rows, frames_cell, headers, icon_of, icon_row, name_size, text_cell, value_cell};
 use crate::pages::detail::{self, EXPORT_IDLE};
 use crate::pages::Context;
 use crate::roster::{Entry, Roster};
@@ -74,6 +74,7 @@ pub struct State {
     available: Option<Rc<HashSet<Identity>>>,
     roster: Rc<Roster>,
     exporting: bool,
+    lens: Lens,
 }
 
 pub type Shared = Rc<RefCell<State>>;
@@ -133,6 +134,7 @@ impl State {
             available: None,
             roster,
             exporting: false,
+            lens: Lens::default(),
         }
     }
 
@@ -248,6 +250,32 @@ pub fn wire(window: &AppWindow, context: &Rc<Context>) -> Shared {
         }
 
         refresh(&ui, &held, &ctx);
+    });
+
+    let (held, ctx, weak) = on(&state, context, window);
+    enemies.on_hits_picked(move |index| {
+        let Some(ui) = weak.upgrade() else {
+            return;
+        };
+        let label = usize::try_from(index).ok().and_then(|index| ui.global::<Enemies>().get_hit_options().row_data(index));
+
+        if let Some(label) = label {
+            held.borrow_mut().lens.hits = lens::hits_of(&label);
+            refresh(&ui, &held, &ctx);
+        }
+    });
+
+    let (held, ctx, weak) = on(&state, context, window);
+    enemies.on_mode_picked(move |index| {
+        let Some(mode) = usize::try_from(index).ok().and_then(|index| MODES.get(index).copied()) else {
+            return;
+        };
+
+        held.borrow_mut().lens.mode = mode;
+
+        if let Some(ui) = weak.upgrade() {
+            refresh(&ui, &held, &ctx);
+        }
     });
 
     let (held, ctx, weak) = on(&state, context, window);
@@ -475,10 +503,10 @@ fn refresh(ui: &AppWindow, state: &Shared, context: &Rc<Context>) {
     };
     let vault = context.engine.vault();
     let images = &context.images;
-    let (tab, mag_input, magnification) = {
+    let (tab, mag_input) = {
         let held = state.borrow();
 
-        (held.tab, held.mag_input.clone(), held.magnification)
+        (held.tab, held.mag_input.clone())
     };
     let name = enemy.display_name();
 
@@ -507,7 +535,7 @@ fn refresh(ui: &AppWindow, state: &Shared, context: &Rc<Context>) {
             let show_invalid = context.state.settings().show_invalid_enemies();
             let stats = state.borrow_mut().stats_of(&vault, enemy.id, show_invalid).unwrap_or_else(|| enemy.stats.clone());
 
-            refresh_abilities(ui, &globals, &vault, images, &enemy, &stats, magnification);
+            refresh_abilities(ui, &globals, &vault, images, &enemy, &stats, state);
             crate::viewer::hide(context);
         }
         Tab::Details => {
@@ -520,16 +548,24 @@ fn refresh(ui: &AppWindow, state: &Shared, context: &Rc<Context>) {
     }
 }
 
-fn refresh_abilities(ui: &AppWindow, globals: &Rc<Globals>, vault: &Arc<Vault>, images: &Images, enemy: &EnemyEntry, stats: &Entity, magnification: Magnification) {
+fn refresh_abilities(ui: &AppWindow, globals: &Rc<Globals>, vault: &Arc<Vault>, images: &Images, enemy: &EnemyEntry, stats: &Entity, state: &Shared) {
     let enemies = ui.global::<Enemies>();
-    let ctx = RenderContext::enemy(globals.context(vault), stats, magnification);
-    let (traits, headline_1, headline_2, body_1, body_2, footer) = collect_ability_data(&ctx);
-    let stat_ctx = StatContext::enemy(stats, enemy.atk_anim_frames, magnification, &globals.treasure);
+    let (magnification, held) = {
+        let state = state.borrow();
 
+        (state.magnification, state.lens)
+    };
+    let ctx = RenderContext::enemy(globals.context(vault), stats, magnification);
+    let stat_ctx = StatContext::enemy(stats, enemy.atk_anim_frames, magnification, &globals.treasure);
+    let lens = Lens { hits: lens::settled(stats, held.hits), ..held };
+    let (traits, headline_1, headline_2, body_1, body_2, footer) = lens::plain(&ctx, Pace::of(&stat_ctx), lens);
+    let measured = lens::measure(&stat_ctx, &lens::rules(&ctx.global), Foe::default(), Terms::default(), lens);
+
+    show_dials(&enemies, stats, held);
     enemies.set_stat_headers_1(headers(&[&STAT_ATTACK, &STAT_DPS, &STAT_RANGE, &STAT_ATK_CYCLE]));
     enemies.set_stat_values_1(ModelRc::new(VecModel::from(vec![
-        value_cell(&STAT_ATTACK, &stat_ctx),
-        value_cell(&STAT_DPS, &stat_ctx),
+        text_cell(STAT_ATTACK.display_name, &lens::rate(measured.attack)),
+        text_cell(STAT_DPS.display_name, &lens::rate(measured.dps)),
         value_cell(&STAT_RANGE, &stat_ctx),
         frames_cell(&STAT_ATK_CYCLE, &stat_ctx),
     ])));
@@ -546,6 +582,18 @@ fn refresh_abilities(ui: &AppWindow, globals: &Rc<Globals>, vault: &Arc<Vault>, 
     enemies.set_body_1(ability_rows(images, vault, &body_1));
     enemies.set_body_2(ability_rows(images, vault, &body_2));
     enemies.set_footer(icon_row(images, vault, &footer));
+}
+
+fn show_dials(enemies: &Enemies<'_>, stats: &Entity, held: Lens) {
+    let choices: Vec<SharedString> = lens::hit_choices(stats).into_iter().map(|hits| SharedString::from(lens::hits_label(hits))).collect();
+    let shown = lens::hits_label(lens::shown_hits(stats, held.hits));
+
+    enemies.set_hit_index(choices.iter().position(|choice| choice == shown).map_or(0, |at| at as i32));
+    enemies.set_hit_options(ModelRc::new(VecModel::from(choices)));
+    enemies.set_picks_hits(lens::picks_hits(stats));
+    enemies.set_hit_hint(ONE_HIT.into());
+    enemies.set_mode_options(ModelRc::new(VecModel::from(MODES.map(|mode| SharedString::from(lens::mode_label(mode))).to_vec())));
+    enemies.set_mode_index(MODES.iter().position(|mode| *mode == held.mode).map_or(0, |at| at as i32));
 }
 
 fn refresh_filter(ui: &AppWindow, state: &Shared, context: &Rc<Context>) {
@@ -695,7 +743,9 @@ fn export(ui: &AppWindow, state: &Shared, context: &Rc<Context>) {
         return detail::export_details(ui, context, enemy_statblock::details(&enemy, globals.context(&vault)), Rc::new(set_export_face), finished);
     }
 
-    let data = enemy_statblock::build(Subject { enemy: &enemy, magnification, show_invalid: context.state.settings().show_invalid_enemies(), global: globals.context(&vault), vault: &vault });
+    let held = state.borrow().lens;
+    let lens = Lens { hits: lens::settled(&enemy.stats, held.hits), ..held };
+    let data = enemy_statblock::build(Subject { enemy: &enemy, magnification, show_invalid: context.state.settings().show_invalid_enemies(), global: globals.context(&vault), vault: &vault, lens });
 
     detail::export_statblock(ui, context, data, Rc::new(set_export_face), finished);
 }

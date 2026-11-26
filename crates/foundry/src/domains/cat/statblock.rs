@@ -14,7 +14,8 @@ use super::files;
 use super::game::stats::get_final_stats;
 use super::grants::Grants;
 use super::scanner::CatEntry;
-use super::versus::{self, Pace};
+use super::versus;
+use crate::systems::combat::lens::{self, Lens, Pace};
 use super::waiter::unitid;
 
 pub struct Subject<'a> {
@@ -26,6 +27,7 @@ pub struct Subject<'a> {
     pub is_conjure_expanded: bool,
     pub global: GlobalContext<'a>,
     pub grants: Option<&'a Grants>,
+    pub lens: Lens,
 }
 
 const NO_DESCRIPTION: &str = "No description available";
@@ -170,7 +172,9 @@ pub fn build_against(subject: Subject<'_>, versus: impl FnOnce(&Entity) -> Foe) 
         is_conjure_unit: false,
     };
 
-    Some(assemble(&ctx, cat, subject.form, subject.level_input.to_string(), subject.is_conjure_expanded, foe))
+    let lens = Lens { hits: lens::settled(&final_stats, subject.lens.hits), ..subject.lens };
+
+    Some(assemble(&ctx, cat, subject.form, subject.level_input.to_string(), subject.is_conjure_expanded, foe, lens))
 }
 
 fn assemble(
@@ -180,13 +184,14 @@ fn assemble(
     level_input: String,
     is_conjure_expanded: bool,
     foe: Foe,
+    lens: Lens,
 ) -> StatblockData {
     let anim_frames = cat_entry.atk_anim_frames[current_form];
     let stat_ctx = StatContext::cat(ctx.final_stats, anim_frames, Some(&cat_entry.unitbuy), ctx.global.treasure);
     let cycle = (STAT_ATK_CYCLE.get_value)(&stat_ctx);
 
     let spirit = if is_conjure_expanded { build_spirit_data(ctx, foe) } else { None };
-    let (traits, h1, h2, b1, b2, footer) = versus::abilities(ctx, foe, spirit.as_ref().is_some_and(|(_, controls)| *controls), Pace::of(&stat_ctx));
+    let (traits, h1, h2, b1, b2, footer) = versus::abilities(ctx, foe, spirit.as_ref().is_some_and(|(_, controls)| *controls), Pace::of(&stat_ctx), lens);
     let spirit_data = spirit.map(|(data, _)| data);
 
     let headers_1 = vec![
@@ -197,7 +202,7 @@ fn assemble(
         STAT_RARITY.display_name.to_string(),
     ];
 
-    let felt = versus::felt(ctx, cycle, foe);
+    let felt = versus::felt(ctx, &stat_ctx, foe, lens);
     let shown = |held: &Option<(String, Mark)>, plain: String| held.as_ref().map_or(plain, |(text, _)| text.clone());
     let marked = |held: &Option<(String, Mark)>| held.as_ref().map_or(Mark::None, |(_, mark)| *mark);
 
@@ -243,6 +248,7 @@ fn assemble(
         marks_1,
         marks_2,
         traits, h1, h2, b1, b2, footer, spirit_data,
+        tag: lens::tag(ctx.final_stats, lens),
     }
 }
 

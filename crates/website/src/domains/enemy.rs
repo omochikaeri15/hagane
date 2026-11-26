@@ -5,14 +5,14 @@ use std::rc::Rc;
 
 use dioxus::prelude::*;
 
-use codex::combat::{Entity, Faction};
+use codex::combat::{Entity, Foe, Terms};
 use foundry::domains::enemy::filter::EnemyFilterState;
 use foundry::domains::enemy::animation as enemy_animation;
 use foundry::domains::enemy::scanner::{self, EnemyEntry};
 use foundry::domains::enemy::statblock::{self as enemy_statblock, Subject};
 use foundry::domains::settings::Settings;
 use foundry::systems::combat::RenderContext;
-use foundry::systems::combat::abilities::collect_ability_data;
+use foundry::systems::combat::lens::{self, Lens, Pace};
 use foundry::systems::combat::registry::{
     Magnification, STAT_ATK_CYCLE, STAT_ATTACK, STAT_CASH_DROP, STAT_DPS, STAT_HITPOINTS, STAT_KNOCKBACKS, STAT_RANGE, STAT_SPEED, StatContext, format_stat,
 };
@@ -23,17 +23,19 @@ use crate::domains::cat::{abilities, header_class};
 use crate::platform::Platform;
 use crate::systems::catalog::{self, Load};
 use crate::systems::context::{self, Shared};
+use crate::systems::dials::Dials;
 use crate::systems::export::{self, Shot, Statblock};
 use crate::systems::images::{self, Pictures};
 use crate::systems::library::Library;
 use crate::systems::picture::Pic;
-use crate::widget::{Drawer, FitWidth, Hold, NameBox, Settled, StatFrames, StatHeader, StatValue, Status, drawer, header, span};
+use crate::widget::{Drawer, FitWidth, Hold, NameBox, Popup, Settled, StatFrames, StatHeader, StatValue, Status, drawer, header, span};
 
 pub(crate) use filter::FilterPopup;
 
 const EMPTY_ICON: &str = "uni.png";
 const LAST_ENEMY_KEY: &str = "last-enemy";
 const DEFAULT_MAGNIFICATION: &str = "100";
+const MORE_WIDTH: f32 = 260.0;
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
 pub(crate) enum DetailTab {
@@ -58,6 +60,7 @@ pub(crate) struct EnemyState {
     pub(crate) magnification: Signal<Magnification>,
     pub(crate) seeded_for: Signal<Option<u32>>,
     pub(crate) appearances: Signal<Option<u32>>,
+    pub(crate) lens: Signal<Lens>,
 }
 
 pub(crate) fn provide() -> EnemyState {
@@ -70,6 +73,7 @@ pub(crate) fn provide() -> EnemyState {
         magnification: Signal::new(Magnification::default()),
         seeded_for: Signal::new(None),
         appearances: Signal::new(None),
+        lens: Signal::new(Lens::default()),
     })
 }
 
@@ -236,6 +240,7 @@ fn Detail(enemy: SelectedEnemy, globals: Shared) -> Element {
     let name = enemy.display_name();
     let mag_input = (state.mag_input)();
     let shot = shot_request(Rc::clone(&enemy), globals.clone(), settings, pictures.clone(), state);
+    let more = use_signal(|| false);
 
     rsx! {
         Hold { stamp: format!("{id}:{tab:?}"),
@@ -267,9 +272,20 @@ fn Detail(enemy: SelectedEnemy, globals: Shared) -> Element {
                             span { "%" }
                         }
                     }
-                    if tab == DetailTab::Abilities {
+                    if tab == DetailTab::Abilities && !packed {
+                        div { class: "vrule tall" }
+                        div { class: "dials",
+                            Dials { stats: enemy.stats.clone(), lens: state.lens }
+                        }
                         div { class: "vrule tall" }
                         export::ExportButtons { request: shot }
+                    }
+                    if tab == DetailTab::Abilities && packed {
+                        div { class: "vrule tall" }
+                        div { class: "action-stack packed",
+                            export::ExportButtons { request: shot }
+                            button { class: "btn btn-primary talent-btn", onclick: move |_| { let mut more = more; more.set(true); }, "More Actions" }
+                        }
                     }
                     if tab == DetailTab::Animation {
                         div { class: "vrule tall" }
@@ -295,13 +311,22 @@ fn Detail(enemy: SelectedEnemy, globals: Shared) -> Element {
                 }
                 div { class: "rule" }
             }
+            if packed && tab == DetailTab::Abilities {
+                Popup { title: "More Actions", open: more, width: MORE_WIDTH,
+                    div { class: "dialog-body more-actions",
+                        div { class: "dials",
+                            Dials { stats: enemy.stats.clone(), lens: state.lens }
+                        }
+                    }
+                }
+            }
             div { class: if tab == DetailTab::Animation { "detail-body viewing" } else { "detail-body" },
                 match tab {
                     DetailTab::Abilities => {
                         let held = stats();
                         let current = held.as_ref().unwrap_or(&enemy.stats);
 
-                        abilities_tab(&enemy, current, &globals, &pictures, (state.magnification)())
+                        abilities_tab(&enemy, current, &globals, &pictures, (state.magnification)(), (state.lens)())
                     }
                     DetailTab::Details => details_tab(&enemy),
                     DetailTab::Animation => rsx! { crate::systems::animation::EnemyViewer { enemy: SelectedEnemy(Rc::clone(&enemy)), globals: globals.clone() } },
@@ -326,6 +351,7 @@ fn shot_request(enemy: Rc<EnemyEntry>, globals: Shared, settings: Signal<Setting
             show_invalid: settings.peek().show_invalid_enemies(),
             global: globals.0.context(),
             vault: globals.0.vault(),
+            lens: Lens { hits: lens::settled(&enemy.stats, state.lens.peek().hits), ..*state.lens.peek() },
         });
 
         Some(Shot::Stats(Box::new(Statblock { data, sheets: icons::sheets(&pictures, &globals, IMG015), priority })))
@@ -344,12 +370,13 @@ fn icon_url(pictures: &Pictures, globals: &Shared, enemy: &EnemyEntry) -> Option
     Some((sized.url, sized.width as f32 * scale, sized.height as f32 * scale))
 }
 
-fn abilities_tab(enemy: &EnemyEntry, stats: &Entity, globals: &Shared, pictures: &Pictures, magnification: Magnification) -> Element {
+fn abilities_tab(enemy: &EnemyEntry, stats: &Entity, globals: &Shared, pictures: &Pictures, magnification: Magnification, held: Lens) -> Element {
     let ctx = RenderContext::enemy(globals.0.context(), stats, magnification);
-    let (traits, headline_1, headline_2, body_1, body_2, footer) = collect_ability_data(&ctx);
     let stat_ctx = StatContext::enemy(stats, enemy.atk_anim_frames, magnification, &globals.0.treasure);
     let cycle = (STAT_ATK_CYCLE.get_value)(&stat_ctx);
-    let _ = Faction::Enemy;
+    let lens = Lens { hits: lens::settled(stats, held.hits), ..held };
+    let (traits, headline_1, headline_2, body_1, body_2, footer) = lens::plain(&ctx, Pace::of(&stat_ctx), lens);
+    let measured = lens::measure(&stat_ctx, &lens::rules(&ctx.global), Foe::default(), Terms::default(), lens);
 
     rsx! {
         FitWidth { natural: span(STAT_COLUMNS),
@@ -362,8 +389,8 @@ fn abilities_tab(enemy: &EnemyEntry, stats: &Entity, globals: &Shared, pictures:
                     StatHeader { label: STAT_ATK_CYCLE.display_name }
                 }
                 div { class: "stat-row",
-                    StatValue { header: STAT_ATTACK.display_name, value: format_stat(&STAT_ATTACK, &stat_ctx) }
-                    StatValue { header: STAT_DPS.display_name, value: format_stat(&STAT_DPS, &stat_ctx) }
+                    StatValue { header: STAT_ATTACK.display_name, value: lens::rate(measured.attack) }
+                    StatValue { header: STAT_DPS.display_name, value: lens::rate(measured.dps) }
                     StatValue { header: STAT_RANGE.display_name, value: format_stat(&STAT_RANGE, &stat_ctx) }
                     StatFrames { header: STAT_ATK_CYCLE.display_name, frames: cycle }
                 }

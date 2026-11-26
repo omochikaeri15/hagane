@@ -1,7 +1,8 @@
 use std::mem;
 
 use codex::chapter::Category;
-use codex::combat::{Entity, Foe, Identity};
+use codex::combat::{Entity, Foe, Hits, Identity, Mode as Gauge};
+use foundry::systems::combat::lens::Lens;
 
 use super::fuzzy::CLOSENESS;
 use super::prefs::Mode;
@@ -90,6 +91,8 @@ pub(crate) struct Stats {
     pub(crate) magnification: Option<(i32, i32)>,
     pub(crate) talents: Option<Vec<Talent>>,
     pub(crate) versus: Option<Vec<String>>,
+    pub(crate) gauge: Option<Gauge>,
+    pub(crate) hits: Option<Hits>,
 }
 
 pub(crate) enum Lookup<'a> {
@@ -263,10 +266,71 @@ const TRAITS: [(Identity, &[&str]); 15] = [
     (Identity::TraitBehemoth, &["behemoth"]),
     (Identity::TraitSage, &["sage"]),
 ];
+const GAUGE_HINT: &str = "`--mode` (`-m`) takes min, avg or max";
+const HITS_HINT: &str = "`--hits` (`-h`) takes 1, 2, 3, avg or all";
 const FORM_HINT: &str = "`form` (`f`) takes 1-4, n e t u, f c s u, or Normal, Evolved, True, Ultra";
 
 fn versus_flag(token: &str) -> bool {
     matches!(lower(token).as_str(), "--versus" | "-v")
+}
+
+fn lens_flag(token: &str) -> bool {
+    matches!(lower(token).as_str(), "--mode" | "-m" | "--hits" | "-h")
+}
+
+fn gauge_of(word: &str) -> Option<Gauge> {
+    match lower(word).as_str() {
+        "min" | "minimum" => Some(Gauge::Minimum),
+        "avg" | "average" => Some(Gauge::Average),
+        "max" | "maximum" => Some(Gauge::Maximum),
+        _ => None,
+    }
+}
+
+fn hits_of(word: &str) -> Option<Hits> {
+    match lower(word).as_str() {
+        "1" | "1st" | "first" => Some(Hits::Only(0)),
+        "2" | "2nd" | "second" => Some(Hits::Only(1)),
+        "3" | "3rd" | "third" => Some(Hits::Only(2)),
+        "avg" | "average" => Some(Hits::Standing),
+        "all" => Some(Hits::All),
+        _ => None,
+    }
+}
+
+pub(crate) fn lens_tag(lens: Lens) -> String {
+    let gauge = match lens.mode {
+        Gauge::Minimum => 'n',
+        Gauge::Average => 'a',
+        Gauge::Maximum => 'x',
+    };
+    let hits = match lens.hits {
+        Hits::Only(0) => '1',
+        Hits::Only(1) => '2',
+        Hits::Only(_) => '3',
+        Hits::Standing => 's',
+        Hits::All => 'l',
+    };
+
+    format!("{gauge}{hits}")
+}
+
+pub(crate) fn lens_tagged(tag: &str) -> Lens {
+    let mut chars = tag.chars();
+    let mode = match chars.next() {
+        Some('n') => Gauge::Minimum,
+        Some('x') => Gauge::Maximum,
+        _ => Gauge::Average,
+    };
+    let hits = match chars.next() {
+        Some('1') => Hits::Only(0),
+        Some('2') => Hits::Only(1),
+        Some('3') => Hits::Only(2),
+        Some('l') => Hits::All,
+        _ => Hits::Standing,
+    };
+
+    Lens { mode, hits }
 }
 
 fn trait_of(word: &str) -> Option<Identity> {
@@ -395,7 +459,7 @@ fn stats_tell(token: &str, kind: Kind) -> bool {
     let marked_level = marked_level(token);
     let marked_percent = kind == Kind::Enemy && token.contains('%') && magnification_of(token).is_some();
 
-    matches!(lower(token).as_str(), "--talents" | "-t" | "lv" | "lvl" | "level") || mode_of(token).is_some() || (kind == Kind::Cat && versus_flag(token)) || (kind == Kind::Cat && marked_level) || marked_percent
+    matches!(lower(token).as_str(), "--talents" | "-t" | "lv" | "lvl" | "level") || mode_of(token).is_some() || lens_flag(token) || (kind == Kind::Cat && versus_flag(token)) || (kind == Kind::Cat && marked_level) || marked_percent
 }
 
 fn mode_of(token: &str) -> Option<Mode> {
@@ -781,6 +845,18 @@ fn stats_of(tokens: &[&str], kind: Kind) -> Result<Stats, String> {
 
                 stats.versus = Some(tokens[at..end].iter().map(|token| (*token).to_owned()).collect());
                 at = end;
+            }
+            "--mode" | "-m" => {
+                let word = tokens.get(at).ok_or(GAUGE_HINT)?;
+
+                stats.gauge = Some(gauge_of(word).ok_or(GAUGE_HINT)?);
+                at += 1;
+            }
+            "--hits" | "-h" => {
+                let word = tokens.get(at).ok_or(HITS_HINT)?;
+
+                stats.hits = Some(hits_of(word).ok_or(HITS_HINT)?);
+                at += 1;
             }
             _ if mode_of(token).is_some() => stats.mode = mode_of(token),
             _ if kind == Kind::Cat && stats.level.is_none() && marked_level(token) => stats.level = level_of(token),

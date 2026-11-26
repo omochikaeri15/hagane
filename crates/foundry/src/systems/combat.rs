@@ -1,4 +1,5 @@
 pub mod abilities;
+pub mod lens;
 pub mod names;
 pub mod registry;
 

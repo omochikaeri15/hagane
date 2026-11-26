@@ -1,6 +1,7 @@
 pub(crate) mod animation;
 pub(crate) mod catalog;
 pub(crate) mod context;
+pub(crate) mod dials;
 pub(crate) mod export;
 pub mod host;
 pub(crate) mod images;

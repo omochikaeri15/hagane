@@ -1,6 +1,6 @@
 import { ListView } from "std-widgets.slint";
 import { Theme } from "../theme.slint";
-import { Btn, Tone, Input, Combo, Toggle, Label, Status, Dialog, Panel, Rule, VRule, Card, OutlinedCard, Tip, Slider } from "../widgets/basics.slint";
+import { Btn, Tone, Input, Combo, Toggle, Label, Status, Dialog, Panel, Rule, VRule, Card, OutlinedCard, Tip, Slider, TapTip } from "../widgets/basics.slint";
 import { Drawer, EdgeGrab } from "../widgets/drawer.slint";
 import { Line, Seg, AbilityIcon, AbilityLine, StatCell, HeaderBtn, RosterRow, Lines, IconBox, IconRow, AbilityRows, StatGrid, HeaderToggle, OrbSlot, OrbPicture } from "../widgets/detail.slint";
 import { AnimViewer, Viewer, DebugToggles } from "../widgets/viewer.slint";
@@ -49,6 +49,12 @@ export global Cats {
     in property <bool> conjure-open;
     in property <bool> has-spirit;
     in property <bool> versus;
+    in property <[string]> hit-options;
+    in-out property <int> hit-index;
+    in property <bool> picks-hits;
+    in property <string> hit-hint;
+    in property <[string]> mode-options;
+    in-out property <int> mode-index;
     in property <[color]> stat-marks-1;
     in property <[color]> stat-marks-2;
     in property <[Line]> spirit-damage;
@@ -112,6 +118,8 @@ export global Cats {
     callback level-edited(string);
     callback conjure-toggled();
     callback versus-toggled();
+    callback hits-picked(int);
+    callback mode-picked(int);
     callback trait-picked(int);
     callback export-image();
     callback toggle-talents(bool);
@@ -522,9 +530,26 @@ export component MoreDialog inherits Dialog {
         padding: 16px;
         spacing: 12px;
         alignment: center;
-        if Cats.tab == 0: HorizontalLayout {
-            alignment: center;
-            Btn { width: 130px; height: 32px; text-size: 13px; tone: Tone.toggle; active: Cats.versus; label: "Versus Mode"; pad-y: 0px; clicked => { Cats.versus-toggled(); } }
+        if Cats.tab == 0: VerticalLayout {
+            spacing: 6px;
+            HorizontalLayout {
+                alignment: center;
+                if Cats.picks-hits: Combo { width: 130px; height: 32px; text-size: 13px; options: Cats.hit-options; current <=> Cats.hit-index; selected(index) => { Cats.hits-picked(index); } }
+                if !Cats.picks-hits: Rectangle {
+                    width: 130px;
+                    height: 32px;
+                    Combo { width: 100%; height: 100%; text-size: 13px; enabled: false; options: Cats.hit-options; current: 0; }
+                    TapTip { text: Cats.hit-hint; width: 100%; height: 100%; }
+                }
+            }
+            HorizontalLayout {
+                alignment: center;
+                Combo { width: 130px; height: 32px; text-size: 13px; options: Cats.mode-options; current <=> Cats.mode-index; selected(index) => { Cats.mode-picked(index); } }
+            }
+            HorizontalLayout {
+                alignment: center;
+                Btn { width: 130px; height: 32px; text-size: 13px; tone: Tone.toggle; active: Cats.versus; label: "Versus Mode"; pad-y: 0px; clicked => { Cats.versus-toggled(); } }
+            }
         }
         if Cats.tab == 1 && Cats.has-orbs: VerticalLayout {
             spacing: 6px;

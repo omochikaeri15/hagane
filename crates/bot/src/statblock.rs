@@ -11,6 +11,7 @@ use foundry::domains::cat::scanner::CatEntry;
 use foundry::domains::cat::statblock::{self as cat_statblock, Subject as CatSubject};
 use foundry::domains::enemy::scanner::EnemyEntry;
 use foundry::domains::enemy::statblock::{self as enemy_statblock, Subject as EnemySubject};
+use foundry::systems::combat::lens::Lens;
 use foundry::systems::combat::registry::Magnification;
 use foundry::systems::statblock::{DetailsData, Fonts, PageFonts, StatblockData, build_details_image, build_statblock_image, build_talents_image};
 
@@ -42,18 +43,19 @@ impl<'a> Shown<'a> {
             is_conjure_expanded: true,
             global: library.context(),
             grants: None,
+            lens: Lens::default(),
         }
     }
 }
 
-pub(crate) fn cat(library: &Library, cache: &Cache, shown: Shown<'_>, versus: Versus) -> Result<Vec<u8>, Trouble> {
-    let data = cat_statblock::build_against(shown.subject(library), |stats| versus.against(stats)).ok_or_else(|| Trouble::NoStats(shown.cat.display_name(shown.form)))?;
+pub(crate) fn cat(library: &Library, cache: &Cache, shown: Shown<'_>, versus: Versus, lens: Lens) -> Result<Vec<u8>, Trouble> {
+    let data = cat_statblock::build_against(CatSubject { lens, ..shown.subject(library) }, |stats| versus.against(stats)).ok_or_else(|| Trouble::NoStats(shown.cat.display_name(shown.form)))?;
 
     drawn(library, cache, data)
 }
 
-pub(crate) fn enemy(library: &Library, cache: &Cache, enemy: &EnemyEntry, magnification: Magnification) -> Result<Vec<u8>, Trouble> {
-    let subject = EnemySubject { enemy, magnification, show_invalid: library.settings.show_invalid_enemies(), global: library.context(), vault: &library.vault };
+pub(crate) fn enemy(library: &Library, cache: &Cache, enemy: &EnemyEntry, magnification: Magnification, lens: Lens) -> Result<Vec<u8>, Trouble> {
+    let subject = EnemySubject { enemy, magnification, show_invalid: library.settings.show_invalid_enemies(), global: library.context(), vault: &library.vault, lens };
 
     drawn(library, cache, enemy_statblock::build(subject))
 }

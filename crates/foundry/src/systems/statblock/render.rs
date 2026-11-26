@@ -157,7 +157,7 @@ pub fn build_statblock_image(
     }
 
     let mut max_needed_width = base_grid_width;
-    max_needed_width = max_needed_width.max(header_width);
+    max_needed_width = max_needed_width.max(header_width + tag_width(font, &data.tag));
     max_needed_width = max_needed_width.max(list_max_width);
     max_needed_width = max_needed_width.max(icon_row_width(own_traits));
     max_needed_width = max_needed_width.max(check_icon_row_width(&data.h1));
@@ -167,6 +167,8 @@ pub fn build_statblock_image(
     let canvas_width = (max_needed_width.ceil() as i32) * scale;
     let title = Title { name: &data.name, id: &data.id_str, top: Some((&data.top_label, &data.top_value)) };
     let mut board = Board::open(max_needed_width, CANVAS_ROWS, &head, font, &title);
+
+    board.tag(font, &data.tag);
 
     let custom_assets = custom_icons();
     let mut current_y_global = board.at;

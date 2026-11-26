@@ -29,7 +29,7 @@ pub struct Param {
     pub unknown_6: Option<i32>,
     pub unknown_7: Option<i32>,
     pub unknown_8: Option<i32>,
-    pub unknown_9: Option<i32>,
+    pub mini_wave_damage: Option<i32>,
     pub mini_wave_interval: Option<i32>,
     pub mini_wave_first_frame: Option<i32>,
     pub mini_wave_last_frame: Option<i32>,
@@ -133,6 +133,7 @@ const SAGE_RESIST: i32 = 50;
 const SAGE_SLAYER_WARP_RESIST: i32 = 70;
 const SLAYER_ATTACK: i32 = 1600;
 const SLAYER_DEFENSE: i32 = 700;
+const MINI_WAVE_DAMAGE: i32 = 30;
 const MINI_WAVE_INTERVAL: i32 = 4;
 const MINI_WAVE_FIRST_FRAME: i32 = 3;
 const MINI_WAVE_LAST_FRAME: i32 = 7;
@@ -143,6 +144,9 @@ const EXPLOSION_SPREAD: i32 = 15;
 const EXPLOSION_BIG_WIDTH: i32 = 800;
 const EXPLOSION_MEDIUM_WIDTH: i32 = 500;
 const EXPLOSION_SMALL_WIDTH: i32 = 400;
+const EXPLOSION_BIG_DAMAGE: i32 = 100;
+const EXPLOSION_MEDIUM_DAMAGE: i32 = 60;
+const EXPLOSION_SMALL_DAMAGE: i32 = 20;
 const POWERUP_KILLS: i32 = 15;
 const REGISTERED_PLUS: i32 = 5;
 
@@ -170,6 +174,7 @@ settled! {
     sage_slayer_resist_warp: SAGE_SLAYER_WARP_RESIST,
     sage_slayer_attack_multiplier: SLAYER_ATTACK,
     sage_slayer_defense_multiplier: SLAYER_DEFENSE,
+    mini_wave_damage: MINI_WAVE_DAMAGE,
     mini_wave_interval: MINI_WAVE_INTERVAL,
     mini_wave_first_frame: MINI_WAVE_FIRST_FRAME,
     mini_wave_last_frame: MINI_WAVE_LAST_FRAME,
@@ -180,6 +185,9 @@ settled! {
     explosion_big_width: EXPLOSION_BIG_WIDTH,
     explosion_medium_width: EXPLOSION_MEDIUM_WIDTH,
     explosion_small_width: EXPLOSION_SMALL_WIDTH,
+    explosion_big_damage_multiplier: EXPLOSION_BIG_DAMAGE,
+    explosion_medium_damage_multiplier: EXPLOSION_MEDIUM_DAMAGE,
+    explosion_small_damage_multiplier: EXPLOSION_SMALL_DAMAGE,
     powerup_kills: POWERUP_KILLS,
     registered_plus_levels: REGISTERED_PLUS,
 }
@@ -241,7 +249,7 @@ fn parse_inner(bytes: &[u8]) -> Result<Param, ParamError> {
         unknown_6: get_val("slot_font_size2"),
         unknown_7: get_val("slot_name_margin_top2"),
         unknown_8: get_val("slot_name_margin_left2"),
-        unknown_9: get_val("battle_wave_s_st"),
+        mini_wave_damage: get_val("battle_wave_s_st"),
         mini_wave_interval: get_val("battle_wave_s_inter"),
         mini_wave_first_frame: get_val("battle_wave_s_frame1"),
         mini_wave_last_frame: get_val("battle_wave_s_frame2"),

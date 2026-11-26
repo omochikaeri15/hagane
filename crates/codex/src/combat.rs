@@ -2,8 +2,8 @@ mod abilities;
 mod arena;
 pub(crate) mod entity;
 mod glossary;
+mod output;
 mod scaling;
-mod uptime;
 mod versus;
 
 pub use abilities::{
@@ -15,6 +15,6 @@ pub use crate::common::Scale;
 pub use crate::common::Separator;
 pub use entity::{Column, Entity, EntityError, Faction};
 pub use scaling::{crowned, deploy_cost, magnified};
-pub use uptime::{Exposure, Timing};
-pub use versus::{resisted, Bearing, Foe, Strike, Terms};
+pub use output::{Exposure, Hits, Mode, Rules};
+pub use versus::{resisted, Bearing, Carrier, Foe, Roll, Shortfall, Terms};
 pub use glossary::{AttributeIndex, AttributeIndexError, AttributeRow, DictionaryIndex, DictionaryIndexError, DictionaryRow, Glossary, GlossaryEntry, GlossaryError, TraitLabel, TraitLabelError, TraitLabels};

@@ -5,6 +5,7 @@ use tracing::trace;
 
 use crate::systems::combat::{AbilityGroups, AbilityItem, CustomIcon, Mark};
 use crate::domains::cat::game::talents;
+use crate::systems::combat::lens::Lens;
 use crate::systems::combat::registry::{self, AbilityIcon, Against, DisplayGroup, FormatContext, Rhythm, StatContext};
 use crate::systems::combat::RenderContext;
 
@@ -16,10 +17,10 @@ const BODY_2: usize = 4;
 const FOOTER: usize = 5;
 
 pub fn collect_ability_data(ctx: &RenderContext<'_>) -> AbilityGroups {
-    collect_ability_data_against(ctx, None, None)
+    collect_ability_data_against(ctx, None, None, Lens::default())
 }
 
-pub fn collect_ability_data_against(ctx: &RenderContext<'_>, against: Option<Against>, rhythm: Option<Rhythm>) -> AbilityGroups {
+pub fn collect_ability_data_against(ctx: &RenderContext<'_>, against: Option<Against>, rhythm: Option<Rhythm>, lens: Lens) -> AbilityGroups {
     trace!("collecting ability rendering data");
 
     let faction = ctx.final_stats.faction;
@@ -61,6 +62,7 @@ pub fn collect_ability_data_against(ctx: &RenderContext<'_>, against: Option<Aga
             names: ctx.global.names,
             against,
             rhythm,
+            lens,
         };
 
         groups[slot].push(AbilityItem {
@@ -111,6 +113,7 @@ pub fn collect_ability_data_against(ctx: &RenderContext<'_>, against: Option<Aga
                         names: ctx.global.names,
                         against,
                         rhythm: None,
+                        lens,
                     };
 
                     let text = (display_def.formatter)(&format_ctx);

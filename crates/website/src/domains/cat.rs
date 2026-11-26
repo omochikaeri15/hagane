@@ -23,12 +23,14 @@ use foundry::domains::cat::statblock::{self as cat_statblock, Subject};
 use foundry::domains::cat::waiter::unitid;
 use foundry::domains::sandbox::jailbreak::Grants;
 use foundry::domains::settings::Settings;
+use foundry::systems::combat::lens::{self, Lens};
 use foundry::systems::treasure::Bonus;
 
 use crate::app::{self, Route};
 use crate::platform::Platform;
 use crate::systems::catalog::{self, Load};
 use crate::systems::context::{self, Shared};
+use crate::systems::dials::Dials;
 use crate::systems::export::{self, Shot, Statblock};
 use crate::systems::images::{self, Pictures};
 use crate::systems::library::Library;
@@ -76,6 +78,7 @@ pub(crate) struct CatState {
     pub(crate) treasure: Signal<Option<Bonus>>,
     pub(crate) versus: Signal<bool>,
     pub(crate) foe: Signal<Foe>,
+    pub(crate) lens: Signal<Lens>,
     ultra_active: Signal<bool>,
     saved_level: Signal<Option<(i32, String)>>,
 }
@@ -108,6 +111,7 @@ fn provided(locked: bool) -> CatState {
         treasure: Signal::new(None),
         versus: Signal::new(false),
         foe: Signal::new(Foe::default()),
+        lens: Signal::new(Lens::default()),
         ultra_active: Signal::new(false),
         saved_level: Signal::new(None),
     })
@@ -490,6 +494,7 @@ fn shot_request(cat: Rc<CatEntry>, globals: Shared, settings: Signal<Settings>, 
             is_conjure_expanded,
             global: GlobalContext { treasure: &treasure, ..globals.0.context() },
             grants: granted.as_deref(),
+            lens: settled(&cat, form, *state.lens.peek()),
         };
         let sheets = icons::sheets(&pictures, &globals, icons::IMG015);
         let foe = state.versus.peek().then(|| *state.foe.peek()).unwrap_or_default();
@@ -499,6 +504,10 @@ fn shot_request(cat: Rc<CatEntry>, globals: Shared, settings: Signal<Settings>, 
             _ => Some(Shot::Stats(Box::new(Statblock { data: cat_statblock::build_against(subject, |_| foe)?, sheets, priority }))),
         }
     })
+}
+
+fn settled(cat: &CatEntry, form: usize, held: Lens) -> Lens {
+    Lens { hits: cat.stats.get(form).and_then(Option::as_ref).map_or(held.hits, |stats| lens::settled(stats, held.hits)), ..held }
 }
 
 #[derive(Clone)]
@@ -572,6 +581,7 @@ pub(crate) fn Detail(cat: SelectedCat, globals: Shared, #[props(default)] extra:
     let shot = shot_request(Rc::clone(&cat), globals.clone(), settings, pictures.clone(), state);
     let level_input = (state.level_input)();
     let caps = cat.unitbuy.level_caps();
+    let dial_stats = cat.stats.get(form).cloned().flatten().unwrap_or_default();
     let versus_on = (state.versus)();
     let versus_button = rsx! {
         button {
@@ -629,7 +639,10 @@ pub(crate) fn Detail(cat: SelectedCat, globals: Shared, #[props(default)] extra:
                     }
                     if tab == DetailTab::Abilities && !packed {
                         div { class: "vrule tall" }
-                        {versus_button.clone()}
+                        div { class: "dials",
+                            Dials { stats: dial_stats.clone(), lens: state.lens }
+                            {versus_button.clone()}
+                        }
                     }
                     if tab == DetailTab::Abilities && packed {
                         div { class: "vrule tall" }
@@ -660,7 +673,10 @@ pub(crate) fn Detail(cat: SelectedCat, globals: Shared, #[props(default)] extra:
             if packed && tab == DetailTab::Abilities {
                 Popup { title: "More Actions", open: more, width: MORE_WIDTH,
                     div { class: "dialog-body more-actions",
-                        {versus_button}
+                        div { class: "dials",
+                            Dials { stats: dial_stats, lens: state.lens }
+                            {versus_button}
+                        }
                     }
                 }
             }

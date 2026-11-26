@@ -212,6 +212,10 @@ img { user-select: none; -webkit-user-select: none; }
 .dimmed { opacity: 0.4; }
 .icon-pick { display: inline-flex; padding: 0; border: none; background: none; cursor: pointer; }
 .versus-btn { width: 100px; height: 24px; min-height: 24px; padding: 0; font-size: 12px; border-radius: var(--radius-sm); }
+.dials { display: flex; flex-direction: column; gap: 6px; }
+.combo.dial { width: 100px; height: 24px; min-height: 24px; padding: 0 22px 0 6px; font-size: 12px; background-position: right 7px center; box-sizing: border-box; }
+.combo.dial.idle { display: flex; align-items: center; color: var(--weak-text); background-image: none; cursor: default; }
+.combo.dial.idle:hover { border-color: var(--bg-strong); }
 .fit-width { width: 100%; min-width: 0; }
 .ability-groups { display: flex; flex-direction: column; gap: 7px; }
 .icon-row { display: flex; flex-wrap: wrap; gap: 5px 3px; align-items: center; }

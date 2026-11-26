@@ -67,6 +67,7 @@ pub struct StatblockData {
     pub b2: Vec<AbilityItem>,
     pub footer: Vec<AbilityItem>,
     pub spirit_data: Option<SpiritData>,
+    pub tag: String,
 }
 
 #[derive(Clone, Debug)]

@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 
 use codex::combat::Foe;
+use foundry::systems::combat::lens::Lens;
 use foundry::common::context::GlobalContext;
 use foundry::domains::cat::grants::Grants;
 use foundry::domains::cat::scanner::CatEntry;
@@ -26,6 +27,7 @@ pub(super) struct Ctx<'a> {
     pub(super) settings: &'a Settings,
     pub(super) grants: Option<&'a Grants>,
     pub(super) foe: Foe,
+    pub(super) lens: Lens,
 }
 
 pub(super) fn request(ctx: Ctx<'_>) -> Option<Request> {
@@ -38,6 +40,7 @@ pub(super) fn request(ctx: Ctx<'_>) -> Option<Request> {
         is_conjure_expanded: ctx.is_conjure_expanded,
         global: ctx.global,
         grants: ctx.grants,
+        lens: ctx.lens,
     };
 
     match ctx.tab {

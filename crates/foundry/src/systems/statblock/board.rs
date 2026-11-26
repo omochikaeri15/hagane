@@ -220,6 +220,17 @@ impl Head {
     }
 }
 
+pub(super) fn tag_width(font: &FontRef<'_>, text: &str) -> f32 {
+    if text.is_empty() {
+        return 0.0;
+    }
+
+    let scale = PxScale::from(INFO_TEXT_SIZE * RENDER_SCALE as f32);
+    let widest = text.lines().map(|line| text_size(scale, font, line).0).max().unwrap_or(0);
+
+    widest as f32 / RENDER_SCALE as f32 + LEVEL_INPUT_PADDING_X * 2.0 + HEADER_GAP_X
+}
+
 pub(super) fn framed(content: &RgbaImage) -> RgbaImage {
     let border_thick = px(FRAME_THICKNESS);
     let margin = border_thick + px(FRAME_PADDING);
@@ -327,6 +338,31 @@ impl Board {
         draw_filled_rect_mut(&mut image, Rect::at(padding, rule).of_size(wide - padding as u32 * 2, px(RULE_THICKNESS) as u32), COLOR_RULE);
 
         Self { image, at: rule + px(RULE_THICKNESS) + px(SECTION_GAP), sections: 0 }
+    }
+
+    pub(super) fn tag(&mut self, font: &FontRef<'_>, text: &str) {
+        if text.is_empty() {
+            return;
+        }
+
+        let scale = PxScale::from(INFO_TEXT_SIZE * RENDER_SCALE as f32);
+        let padding = px(CONTENT_PADDING);
+        let line = px(INFO_TEXT_SIZE);
+        let lines: Vec<&str> = text.lines().collect();
+        let widest = lines.iter().map(|held| text_size(scale, font, held).0).max().unwrap_or(0);
+        let wide = widest as i32 + px(LEVEL_INPUT_PADDING_X) * 2;
+        let tall = line * lines.len() as i32 + px(LEVEL_INPUT_PADDING_Y) * 2;
+        let left = self.image.width() as i32 - padding - wide;
+        let cell = CellShape::new(Rect::at(left, padding).of_size(wide.max(1) as u32, tall.max(1) as u32), px(RADIUS_SM), px(BORDER_WIDTH));
+
+        draw_bordered_rect_mut(&mut self.image, cell, COLOR_INPUT, COLOR_INPUT_BORDER);
+
+        for (row, held) in lines.iter().enumerate() {
+            let top = padding + px(LEVEL_INPUT_PADDING_Y) + line * row as i32;
+            let band = CellShape::new(Rect::at(left, top).of_size(wide.max(1) as u32, line.max(1) as u32), 0, 0);
+
+            draw_centered_text(&mut self.image, COLOR_TEXT, band, scale, font, held);
+        }
     }
 
     pub(super) fn close(self) -> RgbaImage {

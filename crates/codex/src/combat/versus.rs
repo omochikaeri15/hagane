@@ -1,5 +1,5 @@
 use super::abilities::{get_ability, Identity};
-use super::entity::Entity;
+use super::entity::{Entity, Faction};
 
 const COLOSSUS_DEALT: i64 = 160;
 const COLOSSUS_TAKEN: i64 = 70;
@@ -8,6 +8,8 @@ const WITCH_TAKEN: f64 = 10.0;
 const EVA_TAKEN: f64 = 5.0;
 const CRITICAL: i64 = 2;
 const METAL_FLOOR: i64 = 1;
+const WHOLE: i64 = 100;
+const MINI_SURGE_SHARE: i64 = 500;
 
 const TARGETED: [Identity; 12] = [
     Identity::TraitRed,
@@ -139,11 +141,27 @@ pub struct Terms {
     pub sage_taken: i32,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub struct Strike {
-    pub landed: i64,
-    pub expected: f64,
-    pub pierced: Option<bool>,
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Carrier {
+    Direct,
+    Wave,
+    MiniWave(i32),
+    Surge,
+    MiniSurge,
+    Explosion(i32),
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Roll {
+    pub critical: bool,
+    pub savage: bool,
+    pub boosted: bool,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Shortfall {
+    Metal,
+    Sage,
 }
 
 fn flag(stats: &Entity, label: Identity) -> i32 {
@@ -227,12 +245,44 @@ impl Entity {
         aimed.iter().copied().chain(labeled).filter(|ability| self.holds(*ability)).map(|ability| (ability, bearing(ability))).collect()
     }
 
-    pub fn blow(&self, foe: Foe, terms: Terms, attack: i32, critical: bool) -> i64 {
-        let fruit = i64::from(terms.fruit);
-        let mut damage = i64::from(attack);
+    pub fn shortfall(&self, foe: Foe, ability: Identity) -> Option<Shortfall> {
+        let blunted = foe.has(Identity::TraitMetal) && !self.crits();
+        let soothed = foe.has(Identity::TraitSage) && self.sage_slayer == 0;
 
-        if critical {
+        match ability {
+            _ if blunted && (DEALT_ONLY.contains(&ability) || DEALT_AND_TAKEN.contains(&ability)) => Some(Shortfall::Metal),
+            _ if soothed && CONTROLS.contains(&ability) => Some(Shortfall::Sage),
+            _ => None,
+        }
+    }
+
+    pub fn landing(&self, foe: Foe, terms: Terms, attack: i32, carrier: Carrier, roll: Roll) -> i64 {
+        let fruit = i64::from(terms.fruit);
+        let scale = match carrier {
+            Carrier::Explosion(percent) => i64::from(percent),
+            _ => WHOLE,
+        };
+        let raw = i64::from(attack) * scale;
+        let mut damage = match carrier {
+            Carrier::MiniSurge => raw / MINI_SURGE_SHARE,
+            Carrier::MiniWave(percent) => raw / WHOLE * i64::from(percent) / WHOLE,
+            _ => raw / WHOLE,
+        };
+
+        if roll.critical {
             damage *= CRITICAL;
+        }
+
+        if roll.boosted && self.strengthen_threshold > 0 {
+            damage = damage * (WHOLE + i64::from(self.strengthen_boost)) / WHOLE;
+        }
+
+        if roll.boosted && self.faction == Faction::Cat && self.kill_attack_up > 0 {
+            damage = damage * (WHOLE + i64::from(self.kill_attack_up)) / WHOLE;
+        }
+
+        if roll.savage {
+            damage = damage * (WHOLE + i64::from(self.savage_blow_boost)) / WHOLE;
         }
 
         if self.targets(foe) {
@@ -269,36 +319,11 @@ impl Entity {
             damage = damage * i64::from(terms.sage_dealt) / 1000;
         }
 
-        if foe.has(Identity::TraitMetal) && !critical && damage > 0 {
+        if foe.has(Identity::TraitMetal) && !roll.critical && damage > 0 {
             damage = METAL_FLOOR;
         }
 
         damage.max(0)
-    }
-
-    pub fn strike(&self, foe: Foe, terms: Terms) -> Strike {
-        let metal = foe.has(Identity::TraitMetal);
-        let chance = f64::from(self.critical_chance.clamp(0, 100)) / 100.0;
-        let hits = [(self.attack_1_damage, self.attack_1_abilities), (self.attack_2_damage, self.attack_2_abilities), (self.attack_3_damage, self.attack_3_abilities)];
-        let pierces = |able: i32| metal && able != 0 && self.critical_chance > 0;
-        let mut strike = Strike { landed: 0, expected: 0.0, pierced: metal.then_some(false) };
-
-        for (attack, able) in hits.into_iter().filter(|(attack, _)| *attack != 0) {
-            let plain = self.blow(foe, terms, attack, false);
-
-            if pierces(able) {
-                let critical = self.blow(foe, terms, attack, true);
-
-                strike.landed += critical;
-                strike.expected += chance * critical as f64 + (1.0 - chance) * plain as f64;
-                strike.pierced = Some(true);
-            } else {
-                strike.landed += plain;
-                strike.expected += plain as f64;
-            }
-        }
-
-        strike
     }
 
     pub fn taken(&self, foe: Foe, terms: Terms) -> f64 {
@@ -372,11 +397,11 @@ mod tests {
     fn trait_damage_needs_a_shared_trait() {
         let unit = Entity { attack_1_damage: 1000, trait_red: 1, massive_damage: 1, ..Entity::default() };
 
-        assert_eq!(unit.blow(foe(&[Identity::TraitRed]), TERMS, 1000, false), 4000);
-        assert_eq!(unit.blow(foe(&[Identity::TraitRed, Identity::TraitAngel]), TERMS, 1000, false), 4000);
-        assert_eq!(unit.blow(foe(&[Identity::TraitAngel]), TERMS, 1000, false), 1000);
-        assert_eq!(unit.blow(Foe::default(), TERMS, 1000, false), 1000);
-        assert_eq!(Entity { strong_against: 1, ..unit }.blow(foe(&[Identity::TraitRed]), TERMS, 1000, false), 7200, "strong first, then massive, each rounded down on its own");
+        assert_eq!(unit.landing(foe(&[Identity::TraitRed]), TERMS, 1000, Carrier::Direct, Roll { critical: false, savage: false, boosted: false }), 4000);
+        assert_eq!(unit.landing(foe(&[Identity::TraitRed, Identity::TraitAngel]), TERMS, 1000, Carrier::Direct, Roll { critical: false, savage: false, boosted: false }), 4000);
+        assert_eq!(unit.landing(foe(&[Identity::TraitAngel]), TERMS, 1000, Carrier::Direct, Roll { critical: false, savage: false, boosted: false }), 1000);
+        assert_eq!(unit.landing(Foe::default(), TERMS, 1000, Carrier::Direct, Roll { critical: false, savage: false, boosted: false }), 1000);
+        assert_eq!(Entity { strong_against: 1, ..unit }.landing(foe(&[Identity::TraitRed]), TERMS, 1000, Carrier::Direct, Roll { critical: false, savage: false, boosted: false }), 7200, "strong first, then massive, each rounded down on its own");
     }
 
     // Against Metal a landing that is not a critical hit deals 1, whatever came before; a critical one is doubled first and then multiplied.
@@ -384,29 +409,49 @@ mod tests {
     fn metal_takes_one_unless_the_hit_is_critical() {
         let unit = Entity { attack_1_damage: 1000, attack_1_abilities: 1, trait_metal: 1, massive_damage: 1, critical_chance: 30, ..Entity::default() };
         let metal = foe(&[Identity::TraitMetal]);
-        let struck = unit.strike(metal, TERMS);
+        let land = |carrier: Carrier, critical: bool, savage: bool| unit.landing(metal, TERMS, 1000, carrier, Roll { critical, savage, boosted: false });
 
-        assert_eq!((unit.blow(metal, TERMS, 1000, false), unit.blow(metal, TERMS, 1000, true)), (1, 8000));
-        assert_eq!((struck.landed, struck.pierced), (8000, Some(true)));
-        assert!((struck.expected - 2400.7).abs() < 1e-9);
-
-        let blunt = Entity { critical_chance: 0, ..unit.clone() }.strike(metal, TERMS);
-
-        assert_eq!((blunt.landed, blunt.expected, blunt.pierced), (1, 1.0, Some(false)));
+        assert_eq!((land(Carrier::Direct, false, false), land(Carrier::Direct, true, false)), (1, 8000));
+        assert_eq!(land(Carrier::Direct, false, true), 1, "savage alone is still 1 against Metal");
         assert!(unit.crits());
         assert!(!Entity { critical_chance: 0, ..unit.clone() }.crits());
         assert!(!Entity { attack_1_abilities: 0, ..unit.clone() }.crits(), "a chance on a hit that carries no abilities never fires");
-        assert_eq!(unit.strike(Foe::default(), TERMS).pierced, None);
     }
 
-    // Only a hit that carries the abilities can be critical, so the others still deal 1.
+    // A carrier is scaled before the crit doubles it and savage multiplies it, each step rounded down.
     #[test]
-    fn each_hit_is_critical_on_its_own() {
-        let unit = Entity { attack_1_damage: 3000, attack_1_abilities: 1, attack_2_damage: 1000, critical_chance: 50, ..Entity::default() };
-        let struck = unit.strike(foe(&[Identity::TraitMetal]), TERMS);
+    fn carriers_scale_before_the_rolls() {
+        let unit = Entity { savage_blow_boost: 200, ..Entity::default() };
+        let land = |carrier: Carrier, critical: bool, savage: bool| unit.landing(Foe::default(), TERMS, 1001, carrier, Roll { critical, savage, boosted: false });
 
-        assert_eq!(struck.landed, 6001);
-        assert!((struck.expected - 3001.5).abs() < 1e-9);
+        assert_eq!(land(Carrier::Direct, true, true), 1001 * 2 * 3);
+        assert_eq!(land(Carrier::MiniWave(20), false, false), 200);
+        assert_eq!(land(Carrier::MiniSurge, true, false), 400);
+        assert_eq!(land(Carrier::Explosion(70), false, true), 700 * 3);
+        assert_eq!(land(Carrier::Surge, false, false), land(Carrier::Wave, false, false));
+    }
+
+    // Strengthen and the kill boost come right after the crit doubles a landing and before savage,
+    // and only a cat carries the kill boost.
+    #[test]
+    fn boosts_land_between_the_crit_and_savage() {
+        let unit = Entity { strengthen_threshold: 50, strengthen_boost: 100, kill_attack_up: 50, savage_blow_boost: 200, ..Entity::default() };
+        let land = |unit: &Entity, boosted: bool| unit.landing(Foe::default(), TERMS, 1000, Carrier::Direct, Roll { critical: true, savage: true, boosted });
+
+        assert_eq!(land(&unit, true), 1000 * 2 * 2 * 3 / 2 * 3);
+        assert_eq!(land(&unit, false), 1000 * 2 * 3);
+        assert_eq!(land(&Entity { faction: Faction::Enemy, ..unit.clone() }, true), 1000 * 2 * 2 * 3, "an enemy has no kill boost");
+    }
+
+    // Only Metal without a crit and a Sage without a slayer hold an ability back.
+    #[test]
+    fn a_shortfall_names_its_cause() {
+        let unit = Entity { attack_1_damage: 1000, attack_1_abilities: 1, trait_metal: 1, massive_damage: 1, freeze_chance: 30, freeze_duration: 30, ..Entity::default() };
+
+        assert_eq!(unit.shortfall(foe(&[Identity::TraitMetal]), Identity::MassiveDamage), Some(Shortfall::Metal));
+        assert_eq!(unit.shortfall(foe(&[Identity::TraitSage]), Identity::Freeze), Some(Shortfall::Sage));
+        assert_eq!(Entity { critical_chance: 10, ..unit.clone() }.shortfall(foe(&[Identity::TraitMetal]), Identity::MassiveDamage), None);
+        assert_eq!(unit.shortfall(foe(&[Identity::TraitRed]), Identity::Freeze), None);
     }
 
     // The killers and slayers read the enemy's label alone, with no trait of the unit's own needed.
@@ -414,10 +459,10 @@ mod tests {
     fn killers_need_only_the_label() {
         let unit = Entity { attack_1_damage: 1000, witch_killer: 1, colossus_slayer: 1, behemoth_slayer: 1, sage_slayer: 1, ..Entity::default() };
 
-        assert_eq!(unit.blow(foe(&[Identity::TraitWitch]), TERMS, 1000, false), 5000);
-        assert_eq!(unit.blow(foe(&[Identity::TraitColossus]), TERMS, 1000, false), 1600);
-        assert_eq!(unit.blow(foe(&[Identity::TraitBehemoth]), TERMS, 1000, false), 2500);
-        assert_eq!(unit.blow(foe(&[Identity::TraitSage]), TERMS, 1000, false), 1200);
+        assert_eq!(unit.landing(foe(&[Identity::TraitWitch]), TERMS, 1000, Carrier::Direct, Roll { critical: false, savage: false, boosted: false }), 5000);
+        assert_eq!(unit.landing(foe(&[Identity::TraitColossus]), TERMS, 1000, Carrier::Direct, Roll { critical: false, savage: false, boosted: false }), 1600);
+        assert_eq!(unit.landing(foe(&[Identity::TraitBehemoth]), TERMS, 1000, Carrier::Direct, Roll { critical: false, savage: false, boosted: false }), 2500);
+        assert_eq!(unit.landing(foe(&[Identity::TraitSage]), TERMS, 1000, Carrier::Direct, Roll { critical: false, savage: false, boosted: false }), 1200);
         assert_eq!(unit.taken(foe(&[Identity::TraitWitch]), TERMS), 0.1);
         assert_eq!(unit.taken(foe(&[Identity::TraitColossus]), TERMS), 0.7);
         assert_eq!(unit.touched(foe(&[Identity::TraitWitch])), [(Identity::WitchKiller, Bearing::Full)]);
@@ -446,7 +491,7 @@ mod tests {
         assert_eq!(bearing(&critter, Identity::MassiveDamage), Some(Bearing::Full));
         assert_eq!(bearing(&critter, Identity::StrongAgainst), Some(Bearing::Full));
         assert_eq!(unit.touched(foe(&[Identity::TraitRed])), [], "a unit that targets only Metal has nothing against Red");
-        assert_eq!(critter.blow(metal, TERMS, 1000, true), 1000 * 2 * 1800 / 1000 * 1200 / 300, "a crit keeps Strong and Massive, Metal fruit included");
+        assert_eq!(critter.landing(metal, TERMS, 1000, Carrier::Direct, Roll { critical: true, savage: false, boosted: false }), 1000 * 2 * 1800 / 1000 * 1200 / 300, "a crit keeps Strong and Massive, Metal fruit included");
     }
 
     // A Sage shrugs off most of every status a unit without Sage Slayer lands, so those count against the unit,

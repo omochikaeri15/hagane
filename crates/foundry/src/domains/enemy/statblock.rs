@@ -1,6 +1,8 @@
+use codex::combat::{Foe, Terms};
+
 use crate::common::context::GlobalContext;
 use crate::domains::cat::files;
-use crate::systems::combat::abilities::collect_ability_data;
+use crate::systems::combat::lens::{self, Lens, Pace};
 use crate::systems::combat::registry::{format_stat, Magnification, StatContext, STAT_ATK_CYCLE, STAT_ATTACK, STAT_CASH_DROP, STAT_DPS, STAT_HITPOINTS, STAT_KNOCKBACKS, STAT_RANGE, STAT_SPEED};
 use crate::systems::combat::RenderContext;
 use crate::systems::statblock::{DetailsData, SheetHead, StatCell, StatblockData};
@@ -14,6 +16,7 @@ pub struct Subject<'a> {
     pub show_invalid: bool,
     pub global: GlobalContext<'a>,
     pub vault: &'a Vault,
+    pub lens: Lens,
 }
 
 const NO_DESCRIPTION: &str = "No description available";
@@ -49,14 +52,14 @@ pub fn build(subject: Subject<'_>) -> StatblockData {
 
     let ctx = RenderContext::enemy(subject.global, stats, subject.magnification);
 
-    assemble(&ctx, enemy)
+    assemble(&ctx, enemy, Lens { hits: lens::settled(stats, subject.lens.hits), ..subject.lens })
 }
 
-fn assemble(ctx: &RenderContext<'_>, enemy_entry: &EnemyEntry) -> StatblockData {
-    let (traits, h1, h2, b1, b2, footer) = collect_ability_data(ctx);
-
+fn assemble(ctx: &RenderContext<'_>, enemy_entry: &EnemyEntry, lens: Lens) -> StatblockData {
     let stat_ctx = StatContext::enemy(ctx.final_stats, enemy_entry.atk_anim_frames, ctx.magnification, ctx.global.treasure);
     let cycle = (STAT_ATK_CYCLE.get_value)(&stat_ctx);
+    let (traits, h1, h2, b1, b2, footer) = lens::plain(ctx, Pace::of(&stat_ctx), lens);
+    let measured = lens::measure(&stat_ctx, &lens::rules(&ctx.global), Foe::default(), Terms::default(), lens);
 
     let (hitpoints, attack) = ctx.magnification.shown(0);
     let top_val_str = if ctx.magnification.split() { format!("{hitpoints}%/{attack}%") } else { format!("{hitpoints}%") };
@@ -69,8 +72,8 @@ fn assemble(ctx: &RenderContext<'_>, enemy_entry: &EnemyEntry) -> StatblockData 
     ];
 
     let data_1 = vec![
-        StatCell::Text(format_stat(&STAT_ATTACK, &stat_ctx)),
-        StatCell::Text(format_stat(&STAT_DPS, &stat_ctx)),
+        StatCell::Text(lens::rate(measured.attack)),
+        StatCell::Text(lens::rate(measured.dps)),
         StatCell::Text(format_stat(&STAT_RANGE, &stat_ctx)),
         StatCell::Frames(cycle),
     ];
@@ -103,5 +106,6 @@ fn assemble(ctx: &RenderContext<'_>, enemy_entry: &EnemyEntry) -> StatblockData 
         marks_1: Vec::new(),
         marks_2: Vec::new(),
         traits, h1, h2, b1, b2, footer, spirit_data: None,
+        tag: lens::tag(ctx.final_stats, lens),
     }
 }

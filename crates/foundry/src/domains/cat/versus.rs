@@ -1,37 +1,20 @@
-use codex::combat::{Bearing, Entity, Foe, Identity, Terms, Timing};
+use codex::combat::{Bearing, Entity, Foe, Identity, Shortfall, Terms};
 
-use crate::common::decimal::trimmed;
 use crate::systems::combat::abilities::collect_ability_data_against;
-use crate::systems::combat::registry::{get_display_def, AbilityIcon, Against, Rhythm, StatContext, STAT_ATK_CYCLE, STAT_COOLDOWN};
+use crate::systems::combat::lens::{self, Lens, Pace};
+use crate::systems::combat::registry::{get_display_def, AbilityIcon, Against, StatContext};
 use crate::systems::combat::{AbilityGroups, AbilityItem, CustomIcon, Mark, RenderContext};
 
 use super::game::stats::get_final_stats;
 use super::waiter::unitid;
 
-const FRAMES_PER_SECOND: f64 = 30.0;
 const UNCHANGED: f64 = 1e-9;
-
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub struct Pace {
-    pub cycle: i32,
-    pub recharge: i32,
-}
-
-impl Pace {
-    pub fn of(stats: &StatContext<'_>) -> Self {
-        Self { cycle: (STAT_ATK_CYCLE.get_value)(stats), recharge: (STAT_COOLDOWN.get_value)(stats) }
-    }
-}
 
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Felt {
     pub attack: Option<(String, Mark)>,
     pub dps: Option<(String, Mark)>,
     pub hitpoints: Option<(String, Mark)>,
-}
-
-fn rate(per_second: f64) -> String {
-    if per_second > 0.0 && per_second < 1.0 { trimmed(per_second) } else { (per_second.round() as i64).to_string() }
 }
 
 fn terms(ctx: &RenderContext<'_>, foe: Foe) -> Terms {
@@ -46,28 +29,28 @@ fn terms(ctx: &RenderContext<'_>, foe: Foe) -> Terms {
     }
 }
 
-pub fn felt(ctx: &RenderContext<'_>, cycle: i32, foe: Foe) -> Felt {
-    if foe.is_empty() {
-        return Felt::default();
-    }
-
-    let stats = ctx.final_stats;
+pub fn felt(ctx: &RenderContext<'_>, stats: &StatContext<'_>, foe: Foe, lens: Lens) -> Felt {
+    let unit = ctx.final_stats;
+    let rules = lens::rules(&ctx.global);
     let terms = terms(ctx, foe);
-    let plain = i64::from(stats.attack_1_damage) + i64::from(stats.attack_2_damage) + i64::from(stats.attack_3_damage);
-    let strike = stats.strike(foe, terms);
-    let mark = match strike.pierced {
-        Some(false) => Some(Mark::Miss),
-        Some(true) => Some(Mark::Hit),
-        None => (strike.landed != plain).then_some(Mark::Hit),
+    let measured = lens::measure(stats, &rules, foe, terms, lens);
+    let mark = match (foe.is_empty(), foe.has(Identity::TraitMetal)) {
+        (true, _) => Mark::None,
+        (false, true) if unit.crits() => Mark::Hit,
+        (false, true) => Mark::Miss,
+        (false, false) => {
+            let plain = lens::measure(stats, &rules, Foe::default(), terms, lens);
+
+            if (measured.attack - plain.attack).abs() > UNCHANGED { Mark::Hit } else { Mark::None }
+        }
     };
-    let per_second = if cycle > 0 { strike.expected * FRAMES_PER_SECOND / f64::from(cycle) } else { 0.0 };
-    let share = stats.taken(foe, terms);
-    let tougher = (share - 1.0).abs() > UNCHANGED && share > 0.0;
+    let share = unit.taken(foe, terms);
+    let tougher = !foe.is_empty() && (share - 1.0).abs() > UNCHANGED && share > 0.0;
 
     Felt {
-        attack: mark.map(|mark| (strike.landed.to_string(), mark)),
-        dps: mark.map(|mark| (rate(per_second), mark)),
-        hitpoints: tougher.then(|| (((f64::from(stats.hitpoints) / share).round() as i64).to_string(), Mark::Hit)),
+        attack: Some((lens::rate(measured.attack), mark)),
+        dps: Some((lens::rate(measured.dps), mark)),
+        hitpoints: tougher.then(|| (((f64::from(unit.hitpoints) / share).round() as i64).to_string(), Mark::Hit)),
     }
 }
 
@@ -87,17 +70,24 @@ fn against(ctx: &RenderContext<'_>, foe: Foe) -> Option<Against> {
     (stats.targets(foe) || sage).then(|| Against { fruit: treasure.fruit_against(stats, foe), push: treasure.push_fruit(foe), sage })
 }
 
-fn rhythm(ctx: &RenderContext<'_>, pace: Pace) -> Option<Rhythm> {
-    (pace.cycle > 0 && !ctx.is_conjure_unit).then(|| {
-        let vault = ctx.global.vault;
-        let [wave, mini] = vault.vds.skills.wave_frames(&vault.vfs);
+fn sage_cut(ctx: &RenderContext<'_>, ability: Identity) -> i32 {
+    let param = ctx.global.param;
 
-        Rhythm { cycle: pace.cycle, recharge: pace.recharge, timing: Timing::new(ctx.global.param, wave, mini) }
-    })
+    match ability {
+        Identity::Freeze => param.sage_type_resist_freeze(),
+        Identity::Slow => param.sage_type_resist_slow(),
+        Identity::Weaken => param.sage_type_resist_weaken(),
+        Identity::Curse => param.sage_type_resist_curse(),
+        _ => param.sage_type_resist_knockback(),
+    }
 }
 
-pub fn plain(ctx: &RenderContext<'_>, pace: Pace) -> AbilityGroups {
-    collect_ability_data_against(ctx, None, rhythm(ctx, pace))
+fn reason(ctx: &RenderContext<'_>, foe: Foe, ability: Identity, bearing: Bearing) -> Option<String> {
+    match (ctx.final_stats.shortfall(foe, ability)?, bearing) {
+        (Shortfall::Metal, Bearing::Partial) => Some("Deals 1 to Metal without a critical hit\nStill cuts the damage it takes".to_owned()),
+        (Shortfall::Metal, _) => Some("Deals 1 to Metal without a critical hit".to_owned()),
+        (Shortfall::Sage, _) => Some(format!("A Sage cuts it by {}%", sage_cut(ctx, ability))),
+    }
 }
 
 fn metal_mark(stats: &Entity) -> Mark {
@@ -146,7 +136,8 @@ fn owns(stats: &Entity, label: Identity) -> bool {
     }
 }
 
-fn marked(stats: &Entity, foe: Foe, spirit: bool, groups: &mut [&mut Vec<AbilityItem>; 6]) -> Vec<Identity> {
+fn marked(ctx: &RenderContext<'_>, foe: Foe, spirit: bool, groups: &mut [&mut Vec<AbilityItem>; 6]) -> Vec<Identity> {
+    let stats = ctx.final_stats;
     let touched = stats.touched(foe);
     let mut shown = Vec::new();
 
@@ -156,21 +147,25 @@ fn marked(stats: &Entity, foe: Foe, spirit: bool, groups: &mut [&mut Vec<Ability
             shown.push(item.identity);
         } else if let Some((_, bearing)) = touched.iter().find(|(ability, _)| *ability == item.identity) {
             item.mark = bearing_mark(*bearing);
+
+            if let Some(reason) = reason(ctx, foe, item.identity, *bearing) {
+                item.text = format!("{}\n{reason}", item.text);
+            }
         }
     }
 
     shown
 }
 
-fn gathered(ctx: &RenderContext<'_>, foe: Foe, spirit: bool, pace: Pace) -> (AbilityGroups, Vec<Identity>) {
-    let (mut traits, mut h1, mut h2, mut b1, mut b2, mut footer) = collect_ability_data_against(ctx, against(ctx, foe), rhythm(ctx, pace));
-    let shown = if foe.is_empty() { Vec::new() } else { marked(ctx.final_stats, foe, spirit, &mut [&mut traits, &mut h1, &mut h2, &mut b1, &mut b2, &mut footer]) };
+fn gathered(ctx: &RenderContext<'_>, foe: Foe, spirit: bool, pace: Pace, lens: Lens) -> (AbilityGroups, Vec<Identity>) {
+    let (mut traits, mut h1, mut h2, mut b1, mut b2, mut footer) = collect_ability_data_against(ctx, against(ctx, foe), lens::rhythm(ctx, pace), lens);
+    let shown = if foe.is_empty() { Vec::new() } else { marked(ctx, foe, spirit, &mut [&mut traits, &mut h1, &mut h2, &mut b1, &mut b2, &mut footer]) };
 
     ((traits, h1, h2, b1, b2, footer), shown)
 }
 
-pub fn abilities(ctx: &RenderContext<'_>, foe: Foe, spirit: bool, pace: Pace) -> AbilityGroups {
-    let ((mut traits, h1, h2, b1, b2, footer), shown) = gathered(ctx, foe, spirit, pace);
+pub fn abilities(ctx: &RenderContext<'_>, foe: Foe, spirit: bool, pace: Pace, lens: Lens) -> AbilityGroups {
+    let ((mut traits, h1, h2, b1, b2, footer), shown) = gathered(ctx, foe, spirit, pace, lens);
     let stats = ctx.final_stats;
 
     traits.extend(foe.labels().filter(|label| !shown.contains(label)).map(|label| labeled(ctx, label, label_mark(stats, label, spirit))));
@@ -178,8 +173,8 @@ pub fn abilities(ctx: &RenderContext<'_>, foe: Foe, spirit: bool, pace: Pace) ->
     (traits, h1, h2, b1, b2, footer)
 }
 
-pub fn palette(ctx: &RenderContext<'_>, foe: Foe, spirit: bool, pace: Pace) -> AbilityGroups {
-    let ((_, h1, h2, b1, b2, footer), _) = gathered(ctx, foe, spirit, pace);
+pub fn palette(ctx: &RenderContext<'_>, foe: Foe, spirit: bool, pace: Pace, lens: Lens) -> AbilityGroups {
+    let ((_, h1, h2, b1, b2, footer), _) = gathered(ctx, foe, spirit, pace, lens);
     let stats = ctx.final_stats;
     let picks = Foe::LABELS
         .into_iter()
@@ -210,7 +205,7 @@ pub fn spirit_controls(ctx: &RenderContext<'_>) -> bool {
 }
 
 pub fn spirit_abilities(ctx: &RenderContext<'_>, foe: Foe) -> AbilityGroups {
-    gathered(ctx, foe, false, Pace::default()).0
+    gathered(ctx, foe, false, Pace::default(), Lens::default()).0
 }
 
 #[cfg(test)]
@@ -263,15 +258,5 @@ mod tests {
         assert_eq!(label_mark(&slayer, Identity::TraitSage, false), Mark::Glancing);
         assert_eq!(label_mark(&Entity::default(), Identity::TraitSage, false), Mark::Inert);
         assert_eq!(label_mark(&Entity::default(), Identity::TraitSage, true), Mark::Miss, "a spirit's crowd control counts as the cat's");
-    }
-
-    // Decimals only show up where a whole number would round a real rate down to nothing.
-    #[test]
-    fn small_rates_keep_their_decimals() {
-        assert_eq!(rate(30.0 / 199.0), "0.15");
-        assert_eq!(rate(0.1), "0.1");
-        assert_eq!(rate(0.0), "0");
-        assert_eq!(rate(1.4), "1");
-        assert_eq!(rate(1227.5), "1228");
     }
 }
