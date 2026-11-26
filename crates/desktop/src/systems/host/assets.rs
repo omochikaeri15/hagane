@@ -1,7 +1,7 @@
 use std::cell::RefCell;
 use std::collections::{BTreeMap, BTreeSet};
 use std::mem;
-use std::ops::Bound;
+use std::ops::{Bound, Deref, DerefMut};
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -49,7 +49,64 @@ impl Sheet {
 
 pub(super) const WIDE_COMMA: &str = "\u{ff0c}";
 
-pub type SheetCache = BTreeMap<Box<str>, Sheet>;
+#[derive(Default)]
+pub struct SheetCache {
+    held: BTreeMap<Box<str>, Sheet>,
+    survivors: Arc<[Box<str>]>,
+    census: Option<BTreeSet<Box<str>>>,
+    lately: BTreeSet<Box<str>>,
+}
+
+impl Deref for SheetCache {
+    type Target = BTreeMap<Box<str>, Sheet>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.held
+    }
+}
+
+impl DerefMut for SheetCache {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.held
+    }
+}
+
+impl SheetCache {
+    pub fn settle(&mut self) {
+        self.survivors = self.held.keys().cloned().collect();
+    }
+
+    pub fn survivors(&self) -> &Arc<[Box<str>]> {
+        &self.survivors
+    }
+
+    pub fn count(&mut self) {
+        self.census = Some(BTreeSet::new());
+    }
+
+    fn ask(&mut self, name: &str) {
+        let asked = self.census.as_mut().unwrap_or(&mut self.lately);
+
+        if !asked.contains(name) {
+            asked.insert(Box::from(name));
+        }
+    }
+
+    pub fn prune(&mut self, keep: impl Fn(&str) -> bool) {
+        let Some(census) = self.census.take() else {
+            return;
+        };
+        let lately = mem::take(&mut self.lately);
+        let before = self.held.len();
+
+        self.held.retain(|name, _| census.contains(name) || lately.contains(name) || keep(name));
+
+        if self.held.len() < before {
+            debug!(released = before - self.held.len(), held = self.held.len(), "emu: sheets the new battle did not ask for were released");
+            self.settle();
+        }
+    }
+}
 
 pub type FileIndex = BTreeMap<Box<str>, Source>;
 
@@ -464,8 +521,14 @@ impl DiskAssets {
     }
 
     fn decode(&mut self, name: &str) -> Option<Sheet> {
-        if let Some(sheet) = self.sheets.borrow().get(name) {
-            return Some(sheet.clone());
+        {
+            let mut sheets = self.sheets.borrow_mut();
+
+            sheets.ask(name);
+
+            if let Some(sheet) = sheets.get(name) {
+                return Some(sheet.clone());
+            }
         }
 
         let image = self.read(name).and_then(|bytes| {
@@ -570,3 +633,50 @@ impl AssetSource for DiskAssets {
     }
 }
 
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn sheet() -> Sheet {
+        Sheet { width: 1, height: 1, pixels: Arc::from([0u8; 4].as_slice()), stamp: NEXT_STAMP.fetch_add(1, Ordering::Relaxed) }
+    }
+
+    fn held(cache: &SheetCache) -> Vec<&str> {
+        cache.keys().map(AsRef::as_ref).collect()
+    }
+
+    #[test]
+    fn a_new_stage_keeps_what_it_shares_and_what_the_last_battle_loaded_late() {
+        let mut cache = SheetCache::default();
+
+        cache.count();
+
+        for name in ["shared.png", "old_stage.png"] {
+            cache.ask(name);
+            cache.insert(Box::from(name), sheet());
+        }
+
+        cache.prune(|_| false);
+
+        // The pause dialog only loads mid-battle, so no load ever asks for it.
+        cache.ask("pause.png");
+        cache.insert(Box::from("pause.png"), sheet());
+
+        cache.count();
+        cache.ask("shared.png");
+        cache.ask("new_stage.png");
+        cache.insert(Box::from("new_stage.png"), sheet());
+        cache.prune(|_| false);
+
+        assert_eq!(held(&cache), ["new_stage.png", "pause.png", "shared.png"]);
+
+        // A battle that never paused lets the dialog go at the next load.
+        cache.count();
+        cache.ask("shared.png");
+        cache.ask("new_stage.png");
+        cache.prune(|_| false);
+
+        assert_eq!(held(&cache), ["new_stage.png", "shared.png"]);
+    }
+}

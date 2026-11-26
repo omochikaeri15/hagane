@@ -1,7 +1,7 @@
 use std::cell::RefCell;
 use std::collections::{BTreeMap, BTreeSet};
 use std::mem;
-use std::ops::Bound;
+use std::ops::{Bound, Deref, DerefMut};
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::sync::Arc;
@@ -51,7 +51,54 @@ impl Sheet {
     }
 }
 
-pub(super) type SheetCache = BTreeMap<Box<str>, Sheet>;
+#[derive(Default)]
+pub(super) struct SheetCache {
+    held: BTreeMap<Box<str>, Sheet>,
+    census: Option<BTreeSet<Box<str>>>,
+    lately: BTreeSet<Box<str>>,
+}
+
+impl Deref for SheetCache {
+    type Target = BTreeMap<Box<str>, Sheet>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.held
+    }
+}
+
+impl DerefMut for SheetCache {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.held
+    }
+}
+
+impl SheetCache {
+    pub(super) fn count(&mut self) {
+        self.census = Some(BTreeSet::new());
+    }
+
+    fn ask(&mut self, name: &str) {
+        let asked = self.census.as_mut().unwrap_or(&mut self.lately);
+
+        if !asked.contains(name) {
+            asked.insert(Box::from(name));
+        }
+    }
+
+    pub(super) fn prune(&mut self, keep: impl Fn(&str) -> bool) {
+        let Some(census) = self.census.take() else {
+            return;
+        };
+        let lately = mem::take(&mut self.lately);
+        let before = self.held.len();
+
+        self.held.retain(|name, _| census.contains(name) || lately.contains(name) || keep(name));
+
+        if self.held.len() < before {
+            debug!(released = before - self.held.len(), held = self.held.len(), "emu: sheets the new battle did not ask for were released");
+        }
+    }
+}
 
 pub(super) type FileIndex = BTreeMap<Box<str>, Source>;
 
@@ -432,8 +479,14 @@ impl DiskAssets {
     }
 
     fn decode(&mut self, name: &str) -> Option<Sheet> {
-        if let Some(sheet) = self.sheets.borrow().get(name) {
-            return Some(sheet.clone());
+        {
+            let mut sheets = self.sheets.borrow_mut();
+
+            sheets.ask(name);
+
+            if let Some(sheet) = sheets.get(name) {
+                return Some(sheet.clone());
+            }
         }
 
         let image = self.read(name).and_then(|bytes| image::load_from_memory_with_format(&bytes, image::ImageFormat::Png).inspect_err(|error| warn!("emu: {name} failed to decode: {error}")).ok())?;

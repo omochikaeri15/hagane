@@ -349,7 +349,7 @@ pub(crate) fn provide(platform: &Platform) -> Battle {
                     BattleEvent::Rendering(share) => battle.filming(RENDERING_STAGE, share),
                     BattleEvent::Sounding(share) => battle.filming(SOUNDING_STAGE, share),
                     BattleEvent::Filmed(filmed) => battle.filmed(&platform, filmed),
-                    BattleEvent::Frame(_) | BattleEvent::Sheets(_) | BattleEvent::Audio(_) | BattleEvent::Rolled(_) => {}
+                    BattleEvent::Frame(_) | BattleEvent::Sheets(..) | BattleEvent::Audio(_) | BattleEvent::Rolled(_) => {}
                 }
             }
         });

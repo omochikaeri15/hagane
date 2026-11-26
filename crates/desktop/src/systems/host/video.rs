@@ -395,6 +395,8 @@ impl Gpu {
     }
 
     fn draw(&mut self, scene: Scene, pixels: &mut Vec<u8>) -> Result<(), String> {
+        self.pipeline.release(&scene.survivors);
+
         for (name, sheet) in &scene.uploads {
             self.pipeline.ensure_sheet(&self.device, &self.queue, name, sheet);
         }

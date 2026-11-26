@@ -322,7 +322,7 @@ pub struct Driver {
 impl Driver {
     pub fn new(equipment: Equipment) -> Self {
         let frame = Rc::new(RefCell::new(Frame::default()));
-        let sheets: Rc<RefCell<SheetCache>> = Rc::new(RefCell::new(SheetCache::new()));
+        let sheets: Rc<RefCell<SheetCache>> = Rc::new(RefCell::new(SheetCache::default()));
         let profile = Rc::new(DeviceProfile::default());
         let returning = Rc::new(Cell::new(false));
 
@@ -579,6 +579,16 @@ impl Driver {
         (self.ctx.device_screen_w, self.ctx.device_screen_h)
     }
 
+    pub fn count_sheets(&mut self) {
+        self.sheets.borrow_mut().count();
+    }
+
+    pub fn prune_sheets(&mut self) {
+        let drawn: BTreeSet<Box<str>> = self.frame.borrow().sheets.iter().cloned().collect();
+
+        self.sheets.borrow_mut().prune(|name| name.starts_with(LABEL_PREFIX) || drawn.contains(name));
+    }
+
     pub fn keep_assets(&mut self) {
         let Tape::Recording(footage) = &mut self.tape else {
             return;
@@ -645,6 +655,8 @@ impl Driver {
     }
 
     fn pump_input(&mut self, script: Option<Vec<Cue>>) -> Vec<Cue> {
+        let keyed = self.keys.busy();
+
         self.keys.pump(&mut self.ctx, &mut self.spread, &mut self.gap);
 
         let mut played: Vec<Cue> = Vec::new();
@@ -658,7 +670,6 @@ impl Driver {
                 }
             }
             None => {
-                let keyed = self.keys.busy();
                 let mut pending: VecDeque<Touch> = self.touches.borrow_mut().drain(..).collect();
 
                 while let Some(touch) = pending.pop_front() {

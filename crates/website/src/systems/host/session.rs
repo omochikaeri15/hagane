@@ -445,6 +445,8 @@ impl Session {
 
                 let mark = self.clock.now_ms();
 
+                self.driver.count_sheets();
+
                 match self.reel.take() {
                     Some(footage) => match footage.cues() {
                         Ok(frames) => {
@@ -467,6 +469,8 @@ impl Session {
                         self.driver.keep_assets();
                     }
                 }
+
+                self.driver.prune_sheets();
 
                 trace!(entered = self.entered, ms = (self.clock.now_ms() - mark) as u32, failure = ?self.failure, "emu: battle load finished");
 

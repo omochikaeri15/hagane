@@ -352,7 +352,7 @@ pub struct Standing {
 pub enum BattleEvent {
     Standing(Standing),
     Frame(Frame),
-    Sheets(Vec<SheetWire>),
+    Sheets(Vec<SheetWire>, Vec<Box<str>>),
     Audio(Vec<AudioCommand>),
     Options(OptionsWire),
     Diagnostics(Diagnostics),

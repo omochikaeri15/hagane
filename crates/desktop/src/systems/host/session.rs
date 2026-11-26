@@ -475,6 +475,8 @@ impl Session {
                     self.driver.renew();
                 }
 
+                self.driver.count_sheets();
+
                 match self.reel.take() {
                     Some((reel, source)) => match self.cue(&reel, source, vfs, settled) {
                         Ok(()) => {
@@ -524,6 +526,8 @@ impl Session {
                         );
                     }
                 }
+
+                self.driver.prune_sheets();
 
                 trace!(entered = self.entered, ms = loading.elapsed().as_millis(), failure = ?self.failure, "emu: battle load finished");
 

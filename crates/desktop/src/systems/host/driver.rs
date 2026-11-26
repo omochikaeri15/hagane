@@ -177,7 +177,7 @@ impl Driver {
 
     fn build(output: SharedOutput, listener: Option<SharedLog>) -> Self {
         let frame = Rc::new(RefCell::new(Frame::default()));
-        let sheets: Rc<RefCell<SheetCache>> = Rc::new(RefCell::new(SheetCache::new()));
+        let sheets: Rc<RefCell<SheetCache>> = Rc::new(RefCell::new(SheetCache::default()));
         let files: Rc<RefCell<FileIndex>> = Rc::new(RefCell::new(FileIndex::new()));
         let profile = Rc::new(DeviceProfile::default());
         let returning = Rc::new(Cell::new(false));
@@ -291,7 +291,12 @@ impl Driver {
         self.seeds = Seeds::draw();
 
         *self.ctx = AppContext::default();
-        self.sheets.borrow_mut().retain(|name, _| !name.starts_with(LABEL_PREFIX));
+        {
+            let mut sheets = self.sheets.borrow_mut();
+
+            sheets.retain(|name, _| !name.starts_with(LABEL_PREFIX));
+            sheets.settle();
+        }
         self.touches.borrow_mut().clear();
         self.returning.set(false);
         self.spread = 0;
@@ -525,6 +530,16 @@ impl Driver {
         (self.ctx.device_screen_w, self.ctx.device_screen_h)
     }
 
+    pub fn count_sheets(&mut self) {
+        self.sheets.borrow_mut().count();
+    }
+
+    pub fn prune_sheets(&mut self) {
+        let drawn: BTreeSet<Box<str>> = self.frame.borrow().quads.iter().filter_map(|quad| quad.sheet.clone()).collect();
+
+        self.sheets.borrow_mut().prune(|name| name.starts_with(LABEL_PREFIX) || drawn.contains(name));
+    }
+
     pub fn keep_assets(&mut self) {
         self.keep_requested();
         self.stash.borrow_mut().release();
@@ -558,8 +573,12 @@ impl Driver {
 
     pub fn forget_assets(&mut self) {
         self.files.borrow_mut().clear();
-        self.sheets.borrow_mut().clear();
         self.stash.borrow_mut().forget();
+
+        let mut sheets = self.sheets.borrow_mut();
+
+        sheets.clear();
+        sheets.settle();
     }
 
     pub fn reindex(&mut self, vfs: &Vfs) {
@@ -577,8 +596,10 @@ impl Driver {
     fn adopt_index(&mut self, fresh: FileIndex) {
         {
             let held = self.files.borrow();
+            let mut sheets = self.sheets.borrow_mut();
 
-            self.sheets.borrow_mut().retain(|name, _| held.get(name) == fresh.get(name));
+            sheets.retain(|name, _| held.get(name) == fresh.get(name));
+            sheets.settle();
         }
 
         *self.files.borrow_mut() = fresh;
@@ -617,6 +638,8 @@ impl Driver {
     }
 
     fn pump_input(&mut self, script: Option<Vec<Cue>>) -> Vec<Cue> {
+        let keyed = self.keys.busy();
+
         self.keys.pump(&mut self.ctx, &mut self.spread, &mut self.gap);
 
         let mut played: Vec<Cue> = Vec::new();
@@ -630,7 +653,6 @@ impl Driver {
                 }
             }
             None => {
-                let keyed = self.keys.busy();
                 let mut pending: VecDeque<Touch> = self.touches.borrow_mut().drain(..).collect();
 
                 while let Some(touch) = pending.pop_front() {

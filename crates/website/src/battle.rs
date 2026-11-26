@@ -1,5 +1,5 @@
 use std::cell::RefCell;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
@@ -137,6 +137,7 @@ pub(crate) struct Screen {
     dirty: bool,
     sizes: HashMap<Box<str>, (u32, u32)>,
     pending: Vec<SheetWire>,
+    live: Option<HashSet<Box<str>>>,
     scale: f32,
     padded: bool,
     surfaced: bool,
@@ -723,12 +724,18 @@ impl Screen {
                 self.frame = Some(frame);
                 self.dirty = true;
             }
-            BattleEvent::Sheets(sheets) => {
+            BattleEvent::Sheets(sheets, live) => {
+                let live: HashSet<Box<str>> = live.into_iter().collect();
+
+                self.sizes.retain(|name, _| live.contains(name));
+
                 for sheet in &sheets {
                     self.sizes.insert(sheet.name.clone(), (sheet.width, sheet.height));
                 }
 
+                self.pending.retain(|sheet| live.contains(&sheet.name));
                 self.pending.extend(sheets);
+                self.live = Some(live);
                 self.dirty = true;
             }
             BattleEvent::Audio(commands) => {
@@ -772,6 +779,10 @@ impl Screen {
 
         if !self.dirty {
             return;
+        }
+
+        if let Some(live) = self.live.take() {
+            gpu.sheets.retain(|name, _| live.contains(name));
         }
 
         for sheet in &self.pending {

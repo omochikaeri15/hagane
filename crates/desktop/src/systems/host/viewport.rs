@@ -84,6 +84,7 @@ pub struct Scene {
     pub(super) runs: Vec<(Option<Box<str>>, u8, u32, u32)>,
     pub(super) uploads: Vec<(Box<str>, Sheet)>,
     pub(super) presented: Option<Arc<Presented>>,
+    pub(super) survivors: Arc<[Box<str>]>,
     pub(super) scale: f32,
     pub(super) padded: bool,
 }
@@ -254,6 +255,7 @@ pub(super) fn paint(frame: &EmuFrame, sheets: &SheetCache, canvas: Surface, boun
         runs,
         uploads,
         presented: None,
+        survivors: Arc::clone(sheets.survivors()),
         scale: if surfaced { resolution } else { 1.0 },
         padded: surfaced && padded,
     }
@@ -274,6 +276,7 @@ impl<Message> shader::Program<Message> for Viewport {
                 runs: Vec::new(),
                 uploads: Vec::new(),
                 presented,
+                survivors: Arc::clone(self.sheets.borrow().survivors()),
                 scale: 1.0,
                 padded: false,
             };
@@ -398,6 +401,7 @@ impl shader::Primitive for Scene {
         let started = Instant::now();
 
         pipeline.reduce(device, self.scale, self.padded, viewport.physical_size());
+        pipeline.release(&self.survivors);
 
         let uploaded = self.uploads.iter().filter(|(name, sheet)| pipeline.ensure_sheet(device, queue, name, sheet)).count();
 

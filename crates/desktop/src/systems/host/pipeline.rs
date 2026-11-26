@@ -1,5 +1,6 @@
 use std::collections::BTreeMap;
 use std::ops::Range;
+use std::sync::Arc;
 
 use iced::wgpu;
 use iced::widget::shader;
@@ -107,6 +108,7 @@ pub struct Pipeline {
     runs: Vec<Run>,
     reduced: Option<Reduced>,
     inset: Option<(f32, f32)>,
+    survivors: Option<Arc<[Box<str>]>>,
 }
 
 impl shader::Pipeline for Pipeline {
@@ -250,6 +252,7 @@ impl Pipeline {
             runs: Vec::new(),
             reduced: None,
             inset: None,
+            survivors: None,
         }
     }
 
@@ -371,6 +374,21 @@ impl Pipeline {
         self.sheets.insert(Box::from(name), binding);
 
         true
+    }
+
+    pub fn release(&mut self, survivors: &Arc<[Box<str>]>) {
+        if self.survivors.as_ref().is_some_and(|seen| Arc::ptr_eq(seen, survivors)) {
+            return;
+        }
+
+        let before = self.sheets.len();
+
+        self.sheets.retain(|name, _| survivors.binary_search(name).is_ok());
+        self.survivors = Some(Arc::clone(survivors));
+
+        if self.sheets.len() < before {
+            trace!(released = before - self.sheets.len(), held = self.sheets.len(), "emu: battle sheets the host let go of were released");
+        }
     }
 
     pub fn write(

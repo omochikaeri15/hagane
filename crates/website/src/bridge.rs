@@ -317,7 +317,7 @@ fn received(calls: &Calls, link: &Link, data: &JsValue) {
 
                 match event {
                     BattleEvent::Rolled(rolled) => film::deliver(rolled),
-                    BattleEvent::Frame(_) | BattleEvent::Sheets(_) | BattleEvent::Audio(_) => link.screen.borrow_mut().handle(event),
+                    BattleEvent::Frame(_) | BattleEvent::Sheets(..) | BattleEvent::Audio(_) => link.screen.borrow_mut().handle(event),
                     other => {
                         link.screen.borrow_mut().handle(other.clone());
 

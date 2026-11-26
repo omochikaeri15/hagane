@@ -266,6 +266,7 @@ struct Arena {
     session: Session,
     audio: Rc<WorkerAudio>,
     sent: HashSet<u64>,
+    released: u64,
     standing: Option<Standing>,
     diagnosing: bool,
     forgetting: bool,
@@ -421,7 +422,7 @@ fn ensure(engine: &Rc<Engine>, priority: Vec<String>) {
 
         ARENA.with(|slot| {
             *slot.borrow_mut() =
-                Some(Arena { session, audio, sent: HashSet::new(), standing: None, diagnosing: false, forgetting: false, warming: None, priority, overlay, ticker: None, interval: None })
+                Some(Arena { session, audio, sent: HashSet::new(), released: 0, standing: None, diagnosing: false, forgetting: false, warming: None, priority, overlay, ticker: None, interval: None })
         });
 
         return;
@@ -803,22 +804,24 @@ fn tick(engine: &Rc<Engine>) {
         }
 
         if drawn {
-            let sheets: Vec<SheetWire> = arena
-                .session
-                .sheets()
-                .borrow()
+            let held = arena.session.sheets().borrow();
+            let sheets: Vec<SheetWire> = held
                 .iter()
                 .filter(|(_, sheet)| !arena.sent.contains(&sheet.stamp))
                 .map(|(name, sheet)| SheetWire { name: name.clone(), width: sheet.width, height: sheet.height, pixels: Arc::clone(&sheet.pixels) })
                 .collect();
+            let released = held.released();
 
-            if !sheets.is_empty() {
-                for sheet in arena.session.sheets().borrow().values() {
-                    arena.sent.insert(sheet.stamp);
-                }
+            drop(held);
 
-                debug!(count = sheets.len(), "Battle sheets handed to the page");
-                post(BattleEvent::Sheets(sheets));
+            if !sheets.is_empty() || released != arena.released {
+                arena.released = released;
+                arena.sent = arena.session.sheets().borrow().values().map(|sheet| sheet.stamp).collect();
+
+                let live: Vec<Box<str>> = arena.session.sheets().borrow().keys().cloned().collect();
+
+                debug!(count = sheets.len(), held = live.len(), "Battle sheets handed to the page");
+                post(BattleEvent::Sheets(sheets, live));
             }
 
             post(BattleEvent::Frame(arena.session.frame().borrow().clone()));

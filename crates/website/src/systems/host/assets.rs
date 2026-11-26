@@ -1,5 +1,7 @@
 use std::cell::RefCell;
 use std::collections::{BTreeMap, BTreeSet};
+use std::mem;
+use std::ops::{Deref, DerefMut};
 use std::rc::Rc;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -50,7 +52,60 @@ impl Sheet {
     }
 }
 
-pub type SheetCache = BTreeMap<Box<str>, Sheet>;
+#[derive(Default)]
+pub struct SheetCache {
+    held: BTreeMap<Box<str>, Sheet>,
+    census: Option<BTreeSet<Box<str>>>,
+    lately: BTreeSet<Box<str>>,
+    released: u64,
+}
+
+impl Deref for SheetCache {
+    type Target = BTreeMap<Box<str>, Sheet>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.held
+    }
+}
+
+impl DerefMut for SheetCache {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.held
+    }
+}
+
+impl SheetCache {
+    pub fn count(&mut self) {
+        self.census = Some(BTreeSet::new());
+    }
+
+    fn ask(&mut self, name: &str) {
+        let asked = self.census.as_mut().unwrap_or(&mut self.lately);
+
+        if !asked.contains(name) {
+            asked.insert(Box::from(name));
+        }
+    }
+
+    pub fn prune(&mut self, keep: impl Fn(&str) -> bool) {
+        let Some(census) = self.census.take() else {
+            return;
+        };
+        let lately = mem::take(&mut self.lately);
+        let before = self.held.len();
+
+        self.held.retain(|name, _| census.contains(name) || lately.contains(name) || keep(name));
+
+        if self.held.len() < before {
+            debug!(released = before - self.held.len(), held = self.held.len(), "emu: sheets the new battle did not ask for were released");
+            self.released = self.released.wrapping_add(1);
+        }
+    }
+
+    pub fn released(&self) -> u64 {
+        self.released
+    }
+}
 
 fn cut_rects(bytes: &[u8]) -> Vec<[u32; 4]> {
     String::from_utf8_lossy(bytes)
@@ -405,8 +460,14 @@ impl Assets {
     }
 
     fn decode(&mut self, name: &str) -> Option<Sheet> {
-        if let Some(sheet) = self.sheets.borrow().get(name) {
-            return Some(sheet.clone());
+        {
+            let mut sheets = self.sheets.borrow_mut();
+
+            sheets.ask(name);
+
+            if let Some(sheet) = sheets.get(name) {
+                return Some(sheet.clone());
+            }
         }
 
         let image = self.read(name).and_then(|bytes| {
