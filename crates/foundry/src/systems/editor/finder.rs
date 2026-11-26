@@ -21,7 +21,8 @@ use crate::domains::cat::scanner::CatEntry;
 use crate::domains::enemy::files as enemy_files;
 use crate::domains::enemy::scanner::EnemyEntry;
 use crate::domains::sandbox::base::{self as sandbox_base, Parts};
-use crate::domains::sandbox::{orb, scored};
+use crate::domains::cat::orbs;
+use crate::domains::sandbox::scored;
 use crate::domains::settings::EditorMode;
 use crate::domains::stage::files as stage_files;
 use crate::domains::stage::{GlobalMapId, GlobalStageId};
@@ -2778,7 +2779,7 @@ impl Builder<'_> {
         let folder = self.folder(Some(parent), ORB_TRAIT_TABLE.to_owned(), ORB_TRAIT_FOLDER.to_owned());
 
         for (trait_id, line) in lines.into_iter().enumerate() {
-            let name = orb::TRAITS.get(trait_id).map_or_else(|| format!("{ORB_TRAIT_LINE} {trait_id}"), |identity| sources.names.trait_label(*identity).to_owned());
+            let name = orbs::TRAITS.get(trait_id).map_or_else(|| format!("{ORB_TRAIT_LINE} {trait_id}"), |identity| sources.names.trait_label(*identity).to_owned());
             let unit = self.unit(Who::Line(line), folder, format!("{ORB_TRAIT_LINE} {trait_id:02}"), name);
 
             self.listed(unit, Pane::Figures(figures::Subject::OrbTraits), ORB_TRAIT_TABLE, Source::Variants);
@@ -2792,7 +2793,7 @@ impl Builder<'_> {
 
         let folder = self.folder(Some(parent), ORB_GRADE_TABLE.to_owned(), ORB_GRADES.to_owned());
 
-        for (at, grade) in orb::GRADES.iter().enumerate() {
+        for (at, grade) in orbs::GRADES.iter().enumerate() {
             let line = at + 1;
             let unit = self.unit(Who::Line(line), folder, format!("{LINE_TAG} {line}"), format!("{ORB_GRADE_LABEL} {grade}"));
 

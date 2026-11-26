@@ -91,6 +91,10 @@ pub(crate) enum Trouble {
     NoTalents(String),
     FewTalents(String, usize),
     NoTalentLike(String, String),
+    NoOrbs(String),
+    OneOrbSlot(String),
+    OrbLocked(String),
+    NoOrbLike(String, String),
     Other(String),
 }
 
@@ -122,6 +126,10 @@ impl Trouble {
             Trouble::NoTalents(unit) => NO_TALENTS.filled(prose, &[("unit", unit)]),
             Trouble::FewTalents(unit, count) => FEW_TALENTS.filled(prose, &[("unit", unit), ("count", &count.to_string())]),
             Trouble::NoTalentLike(unit, name) => NO_TALENT_LIKE.filled(prose, &[("unit", unit), ("name", name)]),
+            Trouble::NoOrbs(unit) => NO_ORBS.filled(prose, &[("unit", unit)]),
+            Trouble::OneOrbSlot(unit) => ONE_ORB_SLOT.filled(prose, &[("unit", unit)]),
+            Trouble::OrbLocked(unit) => ORB_LOCKED.filled(prose, &[("unit", unit)]),
+            Trouble::NoOrbLike(unit, name) => NO_ORB_LIKE.filled(prose, &[("unit", unit), ("name", name)]),
             Trouble::Other(reason) => COULD_NOT.filled(prose, &[("reason", reason)]),
         }
     }
@@ -191,6 +199,11 @@ pub(crate) const WEBSITE: Line = Line::new("https://hagane.app/", "Here, just ta
 pub(crate) const NO_TALENTS: Line = Line::new("{unit} has no talents", "{unit} doesn't have any talents! What were you expecting?!");
 pub(crate) const FEW_TALENTS: Line = Line::new("{unit} only has {count} talents", "{unit} only has {count} talents! Can't you count?!");
 pub(crate) const NO_TALENT_LIKE: Line = Line::new("{unit} has no talent like `{name}`", "{unit} has no talent like `{name}`! Where did you even get that from?!");
+pub(crate) const NO_ORBS: Line = Line::new("{unit} can't hold talent orbs", "{unit} can't even hold a talent orb! Pick a unit that can!");
+pub(crate) const ONE_ORB_SLOT: Line = Line::new("{unit} only has one orb slot", "{unit} only has one orb slot! Where would a second one even go?!");
+pub(crate) const ORB_LOCKED: Line = Line::new("{unit}'s second orb slot opens at Lv60", "{unit}'s second orb slot opens at Lv60! Level it up first, dummy!");
+pub(crate) const NO_ORB_LIKE: Line = Line::new("{unit} can't hold an orb like `{name}`", "{unit} can't hold an orb like `{name}`! Where did you even dig that up?!");
+pub(crate) const TALENTS_PANEL: Line = Line::new("Talents and orbs for the statblock above. Only you can see this", "Talents and orbs for the statblock above. Only you can see this, so don't show off!");
 pub(crate) const NOT_A_LEVEL: Line = Line::new("A level looks like `50`, `50+70` or `lv30`", "That's not a level! It looks like `50`, `50+70` or `lv30`, got it?!");
 pub(crate) const NOT_A_PERCENT: Line = Line::new("A magnification looks like `400%` or `400%/200%`", "That's not a magnification, baka! It looks like `400%` or `400%/200%`, got it?!");
 pub(crate) const PREFIX_SPACED: Line = Line::new("A prefix can't have spaces in it", "A prefix can't have spaces in it, dummy!");
@@ -235,7 +248,7 @@ pub(crate) const ALIAS_CLEARED: Line = Line::new("Every alias is removed", "They
 pub(crate) const ALIAS_RESET: Line = Line::new("Your aliases are back to the built-in ones", "Your aliases are back to the built-in ones. D-Don't mess them up again!");
 
 #[cfg(test)]
-pub(crate) const LINES: [&Line; 99] = [
+pub(crate) const LINES: [&Line; 104] = [
     &NOT_A_TRAIT,
     &ALIAS_TITLE,
     &ALIAS_NONE,
@@ -260,6 +273,11 @@ pub(crate) const LINES: [&Line; 99] = [
     &RESOLVE_PANEL,
     &PANEL_GONE,
     &VERSUS_PANEL,
+    &TALENTS_PANEL,
+    &NO_ORBS,
+    &ONE_ORB_SLOT,
+    &ORB_LOCKED,
+    &NO_ORB_LIKE,
     &VERSUS_FOUND,
     &NO_PLACE,
     &NO_MAP,

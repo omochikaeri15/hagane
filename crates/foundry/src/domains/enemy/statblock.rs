@@ -107,5 +107,6 @@ fn assemble(ctx: &RenderContext<'_>, enemy_entry: &EnemyEntry, lens: Lens) -> St
         marks_2: Vec::new(),
         traits, h1, h2, b1, b2, footer, spirit_data: None,
         tag: lens::tag(ctx.final_stats, lens),
+        orbs: Vec::new(),
     }
 }

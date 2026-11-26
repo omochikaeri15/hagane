@@ -2,7 +2,6 @@ mod combos;
 mod config;
 mod jailbreak;
 mod lineup;
-pub(crate) mod orbs;
 mod replay;
 
 use iced::alignment::{Horizontal, Vertical};
@@ -447,8 +446,8 @@ impl State {
         self.lineup.unit_popup_view(window, settings, app_state, ctx).map(|view| view.map(Message::Lineup))
     }
 
-    pub(crate) fn orb_popup_view<'a>(&'a self, window: Size, app_state: &'a AppState) -> Option<Element<'a, Message>> {
-        self.lineup.orb_popup_view(window, app_state).map(|view| view.map(Message::Lineup))
+    pub(crate) fn orb_popup_view<'a>(&'a self, window: Size, names: &'a NameBook) -> Option<Element<'a, Message>> {
+        self.lineup.orb_popup_view(window, names).map(|view| view.map(Message::Lineup))
     }
 
     pub(crate) fn filter_popup_view<'a>(&'a self, window: Size, names: &'a NameBook) -> Option<Element<'a, Message>> {
@@ -603,6 +602,30 @@ impl State {
 
     pub(crate) fn replay_export_view(&self, window: Size) -> Option<Element<'_, Message>> {
         self.replay.export_popup_view(window).map(|view| view.map(Message::Replay))
+    }
+
+    pub(crate) fn lineup_more_open(&self) -> bool {
+        self.lineup.more_open()
+    }
+
+    pub(crate) fn lineup_more_view<'a>(&'a self, window: Size, ctx: GlobalContext<'a>) -> Option<Element<'a, Message>> {
+        self.lineup.more_popup_view(window, ctx).map(|view| view.map(Message::Lineup))
+    }
+
+    pub(crate) fn replay_more_open(&self) -> bool {
+        self.replay.more_open()
+    }
+
+    pub(crate) fn replay_more_view<'a>(&'a self, window: Size, ctx: GlobalContext<'a>) -> Option<Element<'a, Message>> {
+        self.replay.more_popup_view(window, ctx).map(|view| view.map(Message::Replay))
+    }
+
+    pub(crate) fn jailbreak_more_open(&self) -> bool {
+        self.jailbreak.more_open()
+    }
+
+    pub(crate) fn jailbreak_more_view<'a>(&'a self, window: Size, ctx: GlobalContext<'a>) -> Option<Element<'a, Message>> {
+        self.jailbreak.more_view(window, ctx).map(|view| view.map(jailbroken))
     }
 
     pub(crate) fn lineup_export_open(&self) -> bool {

@@ -30,6 +30,8 @@ pub struct CatStore {
     combo_params: Slot<Vec<NyancomboParam>>,
     orbs: Slot<Vec<Equipment>>,
     orb_slots: Slot<HashMap<u32, usize>>,
+    orb_gates: Slot<HashMap<u32, Vec<i32>>>,
+    orb_masks: Slot<Vec<u32>>,
     #[serde(skip)]
     explanations: RwLock<HashMap<u32, Arc<UnitExplanation>>>,
 }
@@ -51,6 +53,8 @@ impl Clone for CatStore {
             combo_params: super::snapshot(&self.combo_params),
             orbs: super::snapshot(&self.orbs),
             orb_slots: super::snapshot(&self.orb_slots),
+            orb_gates: super::snapshot(&self.orb_gates),
+            orb_masks: super::snapshot(&self.orb_masks),
             explanations: RwLock::new(self.explanations.read().map(|held| held.clone()).unwrap_or_default()),
         }
     }
@@ -165,6 +169,14 @@ impl CatStore {
         super::cached(&self.orb_slots, || waiter::equipmentslot(vfs))
     }
 
+    pub fn orb_gates(&self, vfs: &Vfs) -> Arc<HashMap<u32, Vec<i32>>> {
+        super::cached(&self.orb_gates, || waiter::equipmentgates(vfs))
+    }
+
+    pub fn orb_masks(&self, vfs: &Vfs) -> Arc<Vec<u32>> {
+        super::cached(&self.orb_masks, || waiter::equipmentattribute(vfs))
+    }
+
     pub fn explanation(&self, vfs: &Vfs, id: u32) -> Arc<UnitExplanation> {
         if let Ok(held) = self.explanations.read()
             && let Some(found) = held.get(&id)
@@ -202,7 +214,11 @@ impl CatStore {
             files::NYANCOMBO_FILTER => super::reset(&self.combo_filters),
             files::NYANCOMBO_PARAM => super::reset(&self.combo_params),
             files::EQUIPMENT_LIST => super::reset(&self.orbs),
-            files::EQUIPMENT_SLOT => super::reset(&self.orb_slots),
+            files::EQUIPMENT_SLOT => {
+                super::reset(&self.orb_slots);
+                super::reset(&self.orb_gates);
+            }
+            files::EQUIPMENT_ATTRIBUTE => super::reset(&self.orb_masks),
             _ => return false,
         }
 
@@ -221,6 +237,11 @@ impl CatStore {
         super::reset(&self.combo_effects);
         super::reset(&self.combo_bands);
         super::reset(&self.combo_filters);
+        super::reset(&self.combo_params);
+        super::reset(&self.orbs);
+        super::reset(&self.orb_slots);
+        super::reset(&self.orb_gates);
+        super::reset(&self.orb_masks);
 
         if let Ok(mut held) = self.explanations.write() {
             held.clear();

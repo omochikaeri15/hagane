@@ -32,8 +32,9 @@ const ANIMATION: [&str; 27] = [
     "../foundry/src/systems/raster",
 ];
 
-const STATBLOCK: [&str; 10] = [
+const STATBLOCK: [&str; 11] = [
     "src/statblock.rs",
+    "../foundry/src/domains/cat/orbs.rs",
     "../foundry/src/systems/statblock.rs",
     "../foundry/src/systems/statblock",
     "../foundry/src/common/assets.rs",

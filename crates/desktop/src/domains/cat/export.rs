@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use codex::combat::Foe;
+use codex::combat::{Foe, Worn};
 use foundry::systems::combat::lens::Lens;
 use foundry::common::context::GlobalContext;
 use foundry::domains::cat::grants::Grants;
@@ -28,6 +28,7 @@ pub(super) struct Ctx<'a> {
     pub(super) grants: Option<&'a Grants>,
     pub(super) foe: Foe,
     pub(super) lens: Lens,
+    pub(super) orbs: Vec<Worn>,
 }
 
 pub(super) fn request(ctx: Ctx<'_>) -> Option<Request> {
@@ -41,6 +42,7 @@ pub(super) fn request(ctx: Ctx<'_>) -> Option<Request> {
         global: ctx.global,
         grants: ctx.grants,
         lens: ctx.lens,
+        orbs: &ctx.orbs,
     };
 
     match ctx.tab {

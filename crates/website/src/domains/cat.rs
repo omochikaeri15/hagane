@@ -12,11 +12,13 @@ use std::sync::Arc;
 use dioxus::prelude::*;
 use dioxus::router::Navigator;
 
-use codex::combat::{Entity, Foe, Switches};
+use codex::combat::orb::FIRST_FORM;
+use codex::combat::{Entity, Foe, Switches, Worn};
 use foundry::common::context::GlobalContext;
 use foundry::domains::cat::filter::CatFilterState;
-use foundry::domains::cat::game::stats::seeded_level;
+use foundry::domains::cat::game::stats::{get_final_stats, seeded_level};
 use foundry::domains::cat::level;
+use foundry::domains::cat::orbs::{self as orb, Shine};
 use foundry::domains::cat::animation as cat_animation;
 use foundry::domains::cat::scanner::CatEntry;
 use foundry::domains::cat::statblock::{self as cat_statblock, Subject};
@@ -25,6 +27,7 @@ use foundry::domains::sandbox::jailbreak::Grants;
 use foundry::domains::settings::Settings;
 use foundry::systems::combat::lens::{self, Lens};
 use foundry::systems::treasure::Bonus;
+use foundry::Vault;
 
 use crate::app::{self, Route};
 use crate::platform::Platform;
@@ -80,6 +83,7 @@ pub(crate) struct CatState {
     pub(crate) foe: Signal<Foe>,
     pub(crate) lens: Signal<Lens>,
     pub(crate) switches: Signal<Switches>,
+    pub(crate) orbs: Signal<Vec<Option<u32>>>,
     ultra_active: Signal<bool>,
     saved_level: Signal<Option<(i32, String)>>,
 }
@@ -114,6 +118,7 @@ fn provided(locked: bool) -> CatState {
         foe: Signal::new(Foe::default()),
         lens: Signal::new(Lens::default()),
         switches: Signal::new(Switches::default()),
+        orbs: Signal::new(Vec::new()),
         ultra_active: Signal::new(false),
         saved_level: Signal::new(None),
     })
@@ -173,6 +178,44 @@ impl CatState {
         (self.treasure)().unwrap_or(fallback)
     }
 
+    pub(crate) fn worn(&self, cat: &CatEntry, form: usize, vault: &Vault) -> Vec<Worn> {
+        if form < FIRST_FORM || self.granted.read().is_some() || *self.seeded_for.read() != Some(cat.id) {
+            return Vec::new();
+        }
+
+        let count = vault.vds.cats.orb_slots(&vault.vfs).get(&cat.id).copied().unwrap_or(0);
+        let doors = orb::open_slots(count, vault.vds.cats.orb_gates(&vault.vfs).get(&cat.id), *self.level.read());
+
+        orb::worn(&vault.vds.cats.orbs(&vault.vfs), &vault.vds.cats.orb_masks(&vault.vfs), orb::picked(&self.orbs.read(), &doors))
+    }
+
+    pub(crate) fn orb_marks(&self, cat: &CatEntry, form: usize, globals: &Shared) -> Vec<(bool, Shine)> {
+        let vault = globals.0.vault();
+        let count = vault.vds.cats.orb_slots(&vault.vfs).get(&cat.id).copied().unwrap_or(0);
+        let level = *self.level.read();
+        let doors = orb::open_slots(count, vault.vds.cats.orb_gates(&vault.vfs).get(&cat.id), level);
+        let worn = self.worn(cat, form, vault);
+        let (lens, foe) = self.sight(cat, form);
+        let levels = self.levels_for(cat.id);
+        let talent_data = cat.talent_data.as_ref().filter(|_| self.talented(form));
+        let treasure = self.treasure_or(globals.0.treasure);
+        let bare = cat.stats.get(form).and_then(Option::as_ref).map(|base| get_final_stats(base, cat.curve.as_ref(), level, talent_data, Some(&levels), &treasure));
+
+        (0..self.orbs.read().len())
+            .map(|slot| {
+                let shine = worn.iter().find(|held| held.slot == slot).zip(bare.as_ref()).map(|(held, stats)| orb::shine(stats, lens, foe, held)).unwrap_or_default();
+
+                (!doors.get(slot).copied().unwrap_or(false), shine)
+            })
+            .collect()
+    }
+
+    pub(crate) fn sight(&self, cat: &CatEntry, form: usize) -> (Lens, Option<Foe>) {
+        let on = *self.versus.read();
+
+        (Lens { switches: if on { *self.switches.read() } else { Switches::default() }, switching: on, ..settled(cat, form, *self.lens.read()) }, on.then(|| *self.foe.read()))
+    }
+
     pub(crate) fn talented(&self, form: usize) -> bool {
         self.granted.read().is_some() || form >= 2
     }
@@ -181,8 +224,9 @@ impl CatState {
         self.granted.read().is_none() && form >= 2
     }
 
-    pub(crate) fn seed(&mut self, cat: &CatEntry, form: usize, level: &str, talents: &HashMap<u8, u8>) {
+    pub(crate) fn seed(&mut self, cat: &CatEntry, form: usize, level: &str, talents: &HashMap<u8, u8>, orbs: &[Option<u32>]) {
         self.seeded_for.set(Some(cat.id));
+        self.orbs.set(orbs.to_vec());
         self.talent_inputs.write().clear();
         self.talent_levels.write().insert(cat.id, talents.clone());
         let caps = cat.unitbuy.level_caps().filter(|_| !self.locked);
@@ -487,6 +531,7 @@ fn shot_request(cat: Rc<CatEntry>, globals: Shared, settings: Signal<Settings>, 
         let treasure = state.treasure.peek().unwrap_or(globals.0.treasure);
         let talent_levels = (granted.is_some() || form >= 2).then(|| state.levels_for(cat.id));
         let is_conjure_expanded = state.conjure_expanded.peek().get(&cat.id).copied().unwrap_or(settings.peek().cat_data.expand_spirit_details);
+        let worn = state.worn(&cat, form, globals.0.vault());
         let subject = Subject {
             cat: &cat,
             form,
@@ -501,6 +546,7 @@ fn shot_request(cat: Rc<CatEntry>, globals: Shared, settings: Signal<Settings>, 
 
                 Lens { switches: if on { *state.switches.peek() } else { Switches::default() }, switching: on, ..settled(&cat, form, *state.lens.peek()) }
             },
+            orbs: &worn,
         };
         let sheets = icons::sheets(&pictures, &globals, icons::IMG015);
         let foe = state.versus.peek().then(|| *state.foe.peek()).unwrap_or_default();
@@ -649,6 +695,10 @@ pub(crate) fn Detail(cat: SelectedCat, globals: Shared, #[props(default)] extra:
                             Dials { stats: dial_stats.clone(), lens: state.lens, on_mode: move |()| { let mut switches = state.switches; switches.set(Switches::default()); } }
                             {versus_button.clone()}
                         }
+                        if let Some(extra) = extra.clone() {
+                            div { class: "vrule tall even" }
+                            {extra}
+                        }
                     }
                     if tab == DetailTab::Abilities && packed {
                         div { class: "vrule tall" }
@@ -665,10 +715,6 @@ pub(crate) fn Detail(cat: SelectedCat, globals: Shared, #[props(default)] extra:
                         div { class: "vrule tall" }
                         talents::Header { cat: SelectedCat(Rc::clone(&cat)), globals: globals.clone(), more: packed.then_some(more) }
                         if !packed {
-                            if let Some(extra) = extra.clone() {
-                                div { class: "vrule tall even" }
-                                {extra}
-                            }
                             div { class: "vrule tall even" }
                             export::ExportButtons { request: shot }
                         }
@@ -683,16 +729,16 @@ pub(crate) fn Detail(cat: SelectedCat, globals: Shared, #[props(default)] extra:
                             Dials { stats: dial_stats, lens: state.lens, on_mode: move |()| { let mut switches = state.switches; switches.set(Switches::default()); } }
                             {versus_button}
                         }
+                        if let Some(extra) = extra.clone() {
+                            div { class: "rule" }
+                            {extra}
+                        }
                     }
                 }
             }
             if packed && tab == DetailTab::Talents && cat.talent_data.is_some() {
                 Popup { title: "More Actions", open: more, width: MORE_WIDTH,
                     div { class: "dialog-body more-actions",
-                        if let Some(extra) = extra {
-                            {extra}
-                            div { class: "rule" }
-                        }
                         export::ExportButtons { request: shot }
                     }
                 }

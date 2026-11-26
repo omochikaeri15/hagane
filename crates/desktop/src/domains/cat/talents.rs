@@ -20,6 +20,7 @@ use crate::app::theme;
 use crate::common::ability_icon;
 use crate::common::skill_name;
 use crate::common::fonts::{self, MISC_SYMBOLS_LINE_HEIGHT};
+use crate::common::glyphs::Ruler;
 use crate::common::{CustomAssets, SpriteSheet};
 use crate::widget::{fallback_icon, smooth_scroll, strong_superscript};
 
@@ -48,17 +49,36 @@ const HEADER_NP_ICON_SIZE: f32 = 24.0;
 const HEADER_NP_TEXT_SIZE: f32 = 20.0;
 const TALENT_BTN_WIDTH: f32 = 100.0;
 const TALENT_BTN_HEIGHT: f32 = 23.0;
+pub(super) const COMPACT_BTN_HEIGHT: f32 = 21.0;
+pub(super) const COMPACT_GAP: f32 = 3.0;
+const TALENT_HEADER_GAP: f32 = 5.0;
 const SECTION_SPACING: f32 = 2.0;
 
 fn typable_digits(value: &str) -> bool {
     value.chars().all(|glyph| glyph.is_ascii_digit())
 }
 
+thread_local! {
+    static NP_DIGITS: RefCell<Ruler> = RefCell::new(Ruler::new(bold_font(), HEADER_NP_TEXT_SIZE));
+}
+
+fn bold_font() -> font::Font {
+    font::Font { weight: font::Weight::Bold, ..Default::default() }
+}
+
 fn bold_text<'a>(content: impl ToString, size: f32) -> iced::widget::Text<'a> {
-    text(content.to_string())
-        .size(size)
-        .font(font::Font { weight: font::Weight::Bold, ..Default::default() })
-        .color(Color::WHITE)
+    text(content.to_string()).size(size).font(bold_font()).color(Color::WHITE)
+}
+
+fn np_room(talent_data: &Talent, talent_costs: &HashMap<u8, TalentCost>) -> f32 {
+    let digits = talent_logic::get_max_np_cost(talent_data, talent_costs).max(0).to_string().len() as f32;
+    let widest = NP_DIGITS.with(|ruler| {
+        let mut ruler = ruler.borrow_mut();
+
+        ('0'..='9').map(|digit| ruler.width(digit.encode_utf8(&mut [0; 4]))).fold(0.0, f32::max)
+    });
+
+    (widest * digits).ceil()
 }
 
 #[derive(Debug, Clone)]
@@ -207,27 +227,29 @@ impl State {
         talent_levels: Option<&'a HashMap<u8, u8>>,
         talent_costs: &'a HashMap<u8, TalentCost>,
         img022_sheets: &'a [SpriteSheet],
+        compact: bool,
     ) -> Element<'a, Message> {
+        let (height, gap) = if compact { (COMPACT_BTN_HEIGHT, COMPACT_GAP) } else { (TALENT_BTN_HEIGHT, TALENT_HEADER_GAP) };
         let total_np = talent_levels.map_or(0, |levels| talent_logic::get_total_np_cost(talent_data, levels, talent_costs));
         let availability = toggle_availability(talent_data, talent_levels);
 
-        let np_row = row![self.np_icon(img022_sheets, HEADER_NP_ICON_SIZE), bold_text(total_np, HEADER_NP_TEXT_SIZE)]
+        let np_row = row![self.np_icon(img022_sheets, HEADER_NP_ICON_SIZE), container(bold_text(total_np, HEADER_NP_TEXT_SIZE)).width(Length::Fixed(np_room(talent_data, talent_costs)))]
             .spacing(6)
             .align_y(Alignment::Center);
 
         let normal_label = if availability.has_normal_enabled { "No Talents" } else { "All Talents" };
         let normal_btn = button(theme::centered_text(normal_label).size(12))
             .width(Length::Fixed(TALENT_BTN_WIDTH))
-            .height(Length::Fixed(TALENT_BTN_HEIGHT))
+            .height(Length::Fixed(height))
             .on_press(Message::ToggleNormal);
 
         let ultra_label = if availability.has_ultra_enabled { "No Ultra" } else { "All Ultra" };
         let ultra_btn = button(theme::centered_text(ultra_label).size(12))
             .width(Length::Fixed(TALENT_BTN_WIDTH))
-            .height(Length::Fixed(TALENT_BTN_HEIGHT))
+            .height(Length::Fixed(height))
             .on_press_maybe(availability.has_ultra_talents.then_some(Message::ToggleUltra));
 
-        column![np_row, normal_btn, ultra_btn].spacing(5).into()
+        column![np_row, normal_btn, ultra_btn].spacing(gap).align_x(Alignment::Center).into()
     }
 
     pub fn view<'a>(&'a self, ctx: ViewCtx<'a, '_>) -> Element<'a, Message> {

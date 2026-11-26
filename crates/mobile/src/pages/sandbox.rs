@@ -234,6 +234,7 @@ fn build_setup(state: &State, context: &Rc<Context>, entry: StageEntry) -> Setup
     let parts = Parts::load(vfs);
     let orbs = vault.vds.cats.orbs(vfs);
     let orb_slots = vault.vds.cats.orb_slots(vfs);
+    let orb_gates = vault.vds.cats.orb_gates(vfs);
     let saved = state.saved();
     let tutorial = &saved.config.tutorial;
     let mut setup = Setup {
@@ -255,9 +256,11 @@ fn build_setup(state: &State, context: &Rc<Context>, entry: StageEntry) -> Setup
         .flat_map(|lineup| lineup.slots.iter())
         .map(|member| {
             let cat = state.cat(member.id);
-            let (level, plus) = member.levels(cat.as_ref().and_then(|cat| cat.unitbuy.level_caps()));
+            let caps = cat.as_ref().and_then(|cat| cat.unitbuy.level_caps());
+            let (level, plus) = member.levels(caps);
             let groups = cat.and_then(|cat| cat.talent_data);
             let slots = orb_slots.get(&member.id).copied().unwrap_or(0);
+            let open = member.open(slots, orb_gates.get(&member.id), caps);
 
             SetupUnit {
                 unit: member.id as i32,
@@ -273,7 +276,7 @@ fn build_setup(state: &State, context: &Rc<Context>, entry: StageEntry) -> Setup
                         Some((i32::from(group.ability_id), i32::from(*level)))
                     })
                     .collect(),
-                orbs: member.worn(slots, &orbs).map(|(slot, orb)| (slot as i32, orb as i32)).collect(),
+                orbs: member.worn(&open, &orbs).map(|(slot, orb)| (slot as i32, orb as i32)).collect(),
             }
         })
         .collect();

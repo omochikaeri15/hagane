@@ -6,7 +6,7 @@ use codex::cat::unit::LevelCurve;
 use codex::files::img015;
 
 use foundry::common::context::GlobalContext;
-use codex::combat::{Entity, Faction, Foe, Identity, Switches};
+use codex::combat::{Entity, Faction, Foe, Identity, Switch, Switches};
 use foundry::domains::cat::versus;
 use foundry::systems::combat::lens::{self, Lens, Pace};
 use foundry::domains::settings::Settings;
@@ -28,6 +28,7 @@ pub enum Message {
     ToggleConjureExpand(u32),
     ToggleVersus,
     Pick(Identity),
+    Flip(Switch),
     Dials(dials::Message),
 }
 
@@ -64,6 +65,7 @@ impl State {
                 self.conjure_overrides.insert(cat_id, !current.unwrap_or(false));
             }
             Message::ToggleVersus => self.versus = !self.versus,
+            Message::Flip(switch) => self.switches = self.switches.flipped(switch, self.dials.mode()),
             Message::Pick(picked) => match lens::switch_of(picked) {
                 Some(switch) => self.switches = self.switches.flipped(switch, self.dials.mode()),
                 None => self.foe = if self.foe.has(picked) { self.foe.without(picked) } else { self.foe.with(picked) },

@@ -5,12 +5,13 @@ use std::time::{Duration, Instant};
 
 use slint::{ComponentHandle, Image, Model, ModelRc, SharedString, TimerMode, VecModel};
 
+
 use foundry::domains::cat::combo::{self, CatCombo};
 use foundry::domains::cat::filter::evaluation::entity_passes_filter;
 use foundry::domains::cat::game::stats::{get_final_stats, seeded_level};
 use foundry::domains::cat::scanner::{self, CatEntry};
 use foundry::domains::sandbox::jailbreak::Runs;
-use foundry::domains::sandbox::orb::{self, Allowance, Kind};
+use foundry::domains::cat::orbs::{self as orb, Kind};
 use foundry::domains::sandbox::{BENCH_SLOTS, Cell, Edge, LINEUP_SLOTS, Lineup, Member, Placed, Roster, mount_of};
 use foundry::systems::treasure::Bonus;
 
@@ -222,7 +223,7 @@ fn open_unit(ui: &AppWindow, state: &Shared, context: &Rc<Context>, cell: Cell, 
         return;
     };
 
-    cats::seed_member(ui, &pages.cats, context, cats::Seed { cat: &cat, form: member.form, level: &member.level, talents: &member.talents, locked: false, grants: None, treasure: Some(super::treasure(state, context)) });
+    cats::seed_member(ui, &pages.cats, context, cats::Seed { cat: &cat, form: member.form, level: &member.level, talents: &member.talents, orbs: &member.orbs, locked: false, grants: None, treasure: Some(super::treasure(state, context)) });
 
     let landing = Rc::clone(state);
     let ctx = Rc::clone(context);
@@ -626,7 +627,17 @@ pub fn wire(window: &AppWindow, state: &Shared, context: &Rc<Context>) {
 
     let (held, ctx, weak) = on(state, context, window);
     window.global::<Cats>().on_orb_tapped(move |slot| {
-        held.borrow_mut().orb_slot = Some(slot.max(0) as usize);
+        let slot = slot.max(0) as usize;
+
+        if let Some(ui) = weak.upgrade()
+            && let Some(pages) = ctx.pages()
+            && cats::flip_orb(&ui, &pages.cats, &ctx, slot)
+        {
+            refresh(&ui, &held, &ctx);
+            return;
+        }
+
+        held.borrow_mut().orb_slot = Some(slot);
 
         if let Some(ui) = weak.upgrade() {
             ui.global::<Sandbox>().set_orb_open(true);
@@ -648,15 +659,15 @@ pub fn wire(window: &AppWindow, state: &Shared, context: &Rc<Context>) {
         let Some(cat) = held.borrow().cat(member.id) else {
             return;
         };
-        let allowance = Allowance::of(&cat);
-        let offered = book.offered(allowance);
+        let allowance = book.allowance(&cat);
+        let offered = book.offered(&allowance);
         let Some(content) = usize::try_from(index).ok().and_then(|index| offered.get(index)).copied() else {
             return;
         };
         let current = held.borrow().orb_slot.and_then(|slot| member.orbs.get(slot).copied().flatten());
         let grade = current.and_then(|orb| orb::grade(&book.orbs, orb)).unwrap_or(BEST_GRADE);
         let aimed = current.and_then(|orb| orb::kind(&book.orbs, orb)).and_then(|kind| kind.attribute);
-        let aims = book.aims(content, allowance);
+        let aims = book.aims(content, &allowance);
         let attribute = aims.iter().find(|attribute| Some(**attribute) == aimed).or_else(|| aims.first()).copied();
 
         set_orb(&held, &ctx, orb::pick(&book.orbs, Kind { content, attribute }, grade));
@@ -681,7 +692,7 @@ pub fn wire(window: &AppWindow, state: &Shared, context: &Rc<Context>) {
         let Some(kind) = current.and_then(|orb| orb::kind(&book.orbs, orb)) else {
             return;
         };
-        let aims = book.aims(kind.content, Allowance::of(&cat));
+        let aims = book.aims(kind.content, &book.allowance(&cat));
         let Some(attribute) = usize::try_from(index).ok().and_then(|index| aims.get(index)).copied() else {
             return;
         };
@@ -746,8 +757,9 @@ fn cell_of(painter: &Painter<'_>, member: Option<&Member>, priced: Priced) -> De
         (levels, None) => levels,
     };
     let slots = vault.vds.cats.orb_slots(&vault.vfs).get(&member.id).copied().unwrap_or(0);
+    let open = member.open(slots, vault.vds.cats.orb_gates(&vault.vfs).get(&member.id), caps);
     let orbs: Vec<Image> = book
-        .map(|book| member.worn(slots, &book.orbs).filter_map(|(_, orb)| book.face(images, &vault, orb)).collect())
+        .map(|book| member.worn(&open, &book.orbs).filter_map(|(_, orb)| book.face(images, &vault, orb)).collect())
         .unwrap_or_default();
     let np = vault.vfs.find(NP_ICON).and_then(|path| images.trimmed(&vault, &path));
 
@@ -985,15 +997,41 @@ pub fn sync(ui: &AppWindow, state: &Shared, context: &Rc<Context>, staging: Opti
             let cat = cats.iter().find(|cat| cat.id == member.id);
 
             sandbox.set_unit_title(cat.map_or_else(|| format!("Unit {:03}", member.id), |cat| cat.display_name(member.form)).into());
+            let caps = cat.and_then(|cat| cat.unitbuy.level_caps());
+            let count = vault.vds.cats.orb_slots(&vault.vfs).get(&member.id).copied().unwrap_or(0);
+            let open = member.open(count, vault.vds.cats.orb_gates(&vault.vfs).get(&member.id), caps);
+            let (lens, foe) = context.pages().map_or_else(Default::default, |pages| cats::sight(&pages.cats));
+            let bare = cat.and_then(|cat| {
+                let base = cat.stats.get(member.form)?.as_ref()?;
+                let (level, plus) = member.levels(caps);
+
+                Some(get_final_stats(base, cat.curve.as_ref(), i32::try_from(level + plus).unwrap_or(i32::MAX), cat.talent_data.as_ref(), Some(&member.talents), &super::treasure(state, context)))
+            });
+            let faces: Vec<OrbSlot> = member
+                .orbs
+                .iter()
+                .enumerate()
+                .map(|(slot, held)| {
+                    let worn = held.map(|orb| orb::worn(&book.orbs, &book.masks, [(slot, orb)]));
+                    let shine = worn.as_ref().and_then(|worn| worn.first()).zip(bare.as_ref()).map(|(worn, stats)| orb::shine(stats, lens, foe, worn)).unwrap_or_default();
+
+                    OrbSlot { shut: !open.get(slot).copied().unwrap_or(false), ..book.shaded(images, &vault, *held, !shine.lit, shine.ringed) }
+                })
+                .collect();
+
             ui.global::<Cats>().set_has_orbs(member.form >= FIRST_TALENT_FORM && !member.orbs.is_empty());
-            ui.global::<Cats>().set_orb_slots(ModelRc::new(VecModel::from(member.orbs.iter().map(|orb| book.picture(images, &vault, *orb)).collect::<Vec<OrbSlot>>())));
+            ui.global::<Cats>().set_orb_slots(ModelRc::new(VecModel::from(faces)));
+
+            if let Some(pages) = context.pages() {
+                cats::set_orbs(ui, &pages.cats, context, &member.orbs);
+            }
 
             let held_orb = orb_slot.and_then(|slot| member.orbs.get(slot).copied().flatten());
-            let allowance = cat.map(Allowance::of).unwrap_or_default();
+            let allowance = cat.map(|cat| book.allowance(cat)).unwrap_or_default();
             let kind = held_orb.and_then(|orb| orb::kind(&book.orbs, orb));
-            let offered = book.offered(allowance);
+            let offered = book.offered(&allowance);
             let chosen = kind.map(|kind| kind.content).and_then(|content| offered.iter().position(|held| *held == content));
-            let aims = kind.map_or_else(Vec::new, |kind| book.aims(kind.content, allowance));
+            let aims = kind.map_or_else(Vec::new, |kind| book.aims(kind.content, &allowance));
             let aim = kind.and_then(|kind| kind.attribute).and_then(|attribute| aims.iter().position(|held| *held == attribute));
             let grades = kind.map_or_else(Vec::new, |kind| book.grades(kind));
             let grade = held_orb.and_then(|orb| orb::grade(&book.orbs, orb)).and_then(|grade| grades.iter().position(|held| *held == grade));

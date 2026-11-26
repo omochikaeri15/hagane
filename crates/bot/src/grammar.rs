@@ -95,6 +95,7 @@ pub(crate) struct Stats {
     pub(crate) gauge: Option<Gauge>,
     pub(crate) hits: Option<Hits>,
     pub(crate) switches: Switches,
+    pub(crate) orbs: [Option<String>; 2],
 }
 
 pub(crate) enum Lookup<'a> {
@@ -170,13 +171,13 @@ pub(crate) struct Motion {
 #[derive(Debug, PartialEq)]
 pub(crate) enum Tune {
     Track(u32, String),
-    Place(Request, bool),
+    Place(Box<Request>, bool),
 }
 
 #[derive(Debug, PartialEq)]
 pub(crate) enum Backing {
     Id(u32, String),
-    Place(Request),
+    Place(Box<Request>),
 }
 
 #[derive(Debug, PartialEq)]
@@ -292,10 +293,23 @@ const TRAITS: [(Identity, &[&str]); 15] = [
     (Identity::TraitBehemoth, &["behemoth"]),
     (Identity::TraitSage, &["sage"]),
 ];
-const SWITCH_HINT: &str = "`--on` and `--off` take crit, savage, wave, surge, explosion, strengthen or kills";
+const SWITCH_HINT: &str = "`--on` and `--off` take crit, savage, wave, surge, explosion, strengthen, kills, orb 1 or orb 2";
+const ORB_HINT: &str = "`--orb1` (`-1`) and `--orb2` (`-2`) take a grade, a trait and an effect, like `-1 S Red Attack Up`";
 const GAUGE_HINT: &str = "`--mode` (`-m`) takes base, avg or max, or b, a or m";
 const HITS_HINT: &str = "`--hits` (`-h`) takes 1, 2, 3, avg or all";
 const FORM_HINT: &str = "`form` (`f`) takes 1-4, n e t u, f c s u, or Normal, Evolved, True, Ultra";
+
+fn orb_slot(token: &str) -> Option<usize> {
+    match lower(token).as_str() {
+        "--orb" | "--orb1" | "-1" => Some(0),
+        "--orb2" | "-2" => Some(1),
+        _ => None,
+    }
+}
+
+fn breaks(token: &str, kind: Kind) -> bool {
+    is_flag(token) || (kind == Kind::Cat && orb_slot(token).is_some())
+}
 
 fn versus_flag(token: &str) -> bool {
     matches!(lower(token).as_str(), "--versus" | "-v")
@@ -316,12 +330,31 @@ pub(crate) fn switch_of(word: &str) -> Option<Switch> {
         "explosion" | "blast" => Some(Switch::Explosion),
         "strengthen" | "strengthened" => Some(Switch::Strengthen),
         "kill" => Some(Switch::Kills),
+        "orb1" => Some(Switch::Orb1),
+        "orb2" => Some(Switch::Orb2),
         _ => None,
     }
 }
 
 fn switched(switches: Switches, words: &[&str], lit: bool) -> Result<Switches, String> {
-    words.iter().filter(|word| !SWITCH_FILLER.contains(&lower(word).as_str())).try_fold(switches, |held, word| switch_of(word).map(|switch| held.set(switch, lit)).ok_or_else(|| SWITCH_HINT.to_owned()))
+    let mut held = switches;
+    let mut words = words.iter().map(|word| lower(word)).filter(|word| !SWITCH_FILLER.contains(&word.as_str())).peekable();
+
+    while let Some(word) = words.next() {
+        let word = match (word.as_str(), words.peek().map(String::as_str)) {
+            ("orb", Some(slot @ ("1" | "2"))) => {
+                let joined = format!("orb{slot}");
+
+                words.next();
+                joined
+            }
+            _ => word,
+        };
+
+        held = held.set(switch_of(&word).ok_or_else(|| SWITCH_HINT.to_owned())?, lit);
+    }
+
+    Ok(held)
 }
 
 pub(crate) fn gauge_of(word: &str) -> Option<Gauge> {
@@ -344,7 +377,7 @@ pub(crate) fn hits_of(word: &str) -> Option<Hits> {
     }
 }
 
-pub(crate) const SWITCH_WORDS: [(Switch, &str); 7] = [
+pub(crate) const SWITCH_WORDS: [(Switch, &str); 9] = [
     (Switch::Critical, "crit"),
     (Switch::Savage, "savage"),
     (Switch::Wave, "wave"),
@@ -352,6 +385,8 @@ pub(crate) const SWITCH_WORDS: [(Switch, &str); 7] = [
     (Switch::Explosion, "explosion"),
     (Switch::Strengthen, "strengthen"),
     (Switch::Kills, "kills"),
+    (Switch::Orb1, "orb1"),
+    (Switch::Orb2, "orb2"),
 ];
 
 pub(crate) fn switch_word(switch: Switch) -> &'static str {
@@ -424,7 +459,7 @@ pub(crate) fn lens_tagged(tag: &str) -> Option<Lens> {
     Some(Lens { mode, hits, switches, switching: false })
 }
 
-fn trait_of(word: &str) -> Option<Identity> {
+pub(crate) fn trait_of(word: &str) -> Option<Identity> {
     let named = |test: &dyn Fn(&str) -> bool| -> Vec<Identity> { TRAITS.iter().filter(|(_, names)| names.iter().any(|name| test(name))).map(|(label, _)| *label).collect() };
     let exact = named(&|name| name == word);
     let begun = named(&|name| name.starts_with(word));
@@ -551,7 +586,7 @@ fn stats_tell(token: &str, kind: Kind) -> bool {
     let marked_level = marked_level(token);
     let marked_percent = kind == Kind::Enemy && token.contains('%') && magnification_of(token).is_some();
 
-    matches!(lower(token).as_str(), "--talents" | "-t" | "lv" | "lvl" | "level") || mode_of(token).is_some() || lens_flag(token) || (kind == Kind::Cat && versus_flag(token)) || (kind == Kind::Cat && marked_level) || marked_percent
+    matches!(lower(token).as_str(), "--talents" | "-t" | "lv" | "lvl" | "level") || (kind == Kind::Cat && orb_slot(token).is_some()) || mode_of(token).is_some() || lens_flag(token) || (kind == Kind::Cat && versus_flag(token)) || (kind == Kind::Cat && marked_level) || marked_percent
 }
 
 fn mode_of(token: &str) -> Option<Mode> {
@@ -564,7 +599,7 @@ fn mode_of(token: &str) -> Option<Mode> {
 
 fn inferred(rest: &[&str], kind: Kind) -> Result<bool, String> {
     let motion = rest.first().is_some_and(|token| !is_flag(token) && clip_of(token).is_some()) || rest.iter().any(|token| motion_flag(token));
-    let stats = rest.iter().any(|token| stats_tell(token, kind));
+    let stats = rest.iter().any(|token| stats_tell(token, kind) && !(motion && orb_slot(token).is_some()));
 
     match (motion, stats) {
         (true, true) => Err("That mixes stats and animation options; add `s` or `a` to say which".to_owned()),
@@ -629,7 +664,7 @@ fn ends_a_name(token: &str, kind: Kind) -> bool {
 
     let level_word = matches!(lower(token).as_str(), "lv" | "lvl" | "level");
 
-    want_of(token, kind).is_some() || is_flag(token) || marked_level || marked_percent || level_word
+    want_of(token, kind).is_some() || breaks(token, kind) || marked_level || marked_percent || level_word
 }
 
 fn enemy_id(token: &str) -> Option<u32> {
@@ -891,7 +926,7 @@ fn placed(tokens: &[&str], search: Option<u32>, kinds: &[Kind]) -> Result<Reques
 }
 
 fn talented(tokens: &[&str]) -> Result<Stats, String> {
-    let (typed, flags) = tokens.split_at(tokens.iter().position(|token| is_flag(token)).unwrap_or(tokens.len()));
+    let (typed, flags) = tokens.split_at(tokens.iter().position(|token| breaks(token, Kind::Cat)).unwrap_or(tokens.len()));
     let mut stats = stats_of(flags, Kind::Cat)?;
     let mut words = Vec::new();
     let mut level = None;
@@ -930,13 +965,24 @@ fn stats_of(tokens: &[&str], kind: Kind) -> Result<Stats, String> {
 
         match lower(token).as_str() {
             "--talents" | "-t" if kind == Kind::Cat => {
-                let end = tokens[at..].iter().position(|next| is_flag(next)).map_or(tokens.len(), |offset| at + offset);
+                let end = tokens[at..].iter().position(|next| breaks(next, kind)).map_or(tokens.len(), |offset| at + offset);
 
                 stats.talents = Some(talents_of(&tokens[at..end]));
                 at = end;
             }
+            flag if kind == Kind::Cat && orb_slot(flag).is_some() => {
+                let end = tokens[at..].iter().position(|next| breaks(next, kind) || marked_level(next) || level_word(next)).map_or(tokens.len(), |offset| at + offset);
+                let slot = stats.orbs.get_mut(orb_slot(flag).unwrap_or_default()).ok_or(ORB_HINT)?;
+
+                if at == end {
+                    return Err(ORB_HINT.to_owned());
+                }
+
+                *slot = Some(tokens[at..end].join(" "));
+                at = end;
+            }
             "--versus" | "-v" if kind == Kind::Cat => {
-                let end = tokens[at..].iter().position(|next| is_flag(next)).map_or(tokens.len(), |offset| at + offset);
+                let end = tokens[at..].iter().position(|next| breaks(next, kind)).map_or(tokens.len(), |offset| at + offset);
 
                 if at == end {
                     return Err(VERSUS_HINT.to_owned());
@@ -946,7 +992,7 @@ fn stats_of(tokens: &[&str], kind: Kind) -> Result<Stats, String> {
                 at = end;
             }
             "--on" | "--off" => {
-                let end = tokens[at..].iter().position(|next| is_flag(next)).map_or(tokens.len(), |offset| at + offset);
+                let end = tokens[at..].iter().position(|next| breaks(next, kind)).map_or(tokens.len(), |offset| at + offset);
 
                 if at == end {
                     return Err(SWITCH_HINT.to_owned());
@@ -1046,7 +1092,7 @@ pub(crate) fn tune(text: &str) -> Result<Tune, String> {
 
     match request.crowns {
         Some(_) => Err("A stage plays the same music at every crown, so leave `--crowns` out".to_owned()),
-        None => Ok(Tune::Place(request, boss)),
+        None => Ok(Tune::Place(Box::new(request), boss)),
     }
 }
 
@@ -1062,7 +1108,7 @@ pub(crate) fn scenery(text: &str) -> Result<Scenery, String> {
         ([], _) => return Err(SCENERY_HINT.to_owned()),
         ([_], Some(_)) if search.is_some() => return Err(SEARCH_HINT.to_owned()),
         ([only], Some(id)) => Backing::Id(id, (*only).to_owned()),
-        _ => Backing::Place(Request { tail: tokens.join(" "), ..placed(named, search, &Kind::PLACES)? }),
+        _ => Backing::Place(Box::new(Request { tail: tokens.join(" "), ..placed(named, search, &Kind::PLACES)? })),
     };
     let mut scenery = Scenery { subject, seed: None, range: None, offset: None, size: None, format: None, quality: None, compression: None };
     let mut at = 0;
@@ -1190,6 +1236,21 @@ fn motion_of(tokens: &[&str]) -> Result<Motion, String> {
 mod tests {
     use super::*;
 
+    // Each orb flag takes its own words, a level after them still counts, and -1 or -2 is never a number in cat stats.
+    #[test]
+    fn each_orb_flag_takes_its_own_words() {
+        let Want::Stats(stats) = parse("bahamut -1 S Red Attack Up -2 cash back lv50", Kind::Cat).unwrap().want else { panic!("not stats") };
+
+        assert_eq!(stats.orbs, [Some("S Red Attack Up".to_owned()), Some("cash back".to_owned())]);
+        assert_eq!(stats.level.as_deref(), Some("50"));
+
+        let Want::Stats(alias) = parse("25 --orb dodge", Kind::Cat).unwrap().want else { panic!("not stats") };
+
+        assert_eq!(alias.orbs, [Some("dodge".to_owned()), None]);
+        assert!(parse("25 -2", Kind::Cat).is_err());
+        assert!(matches!(parse("25 attack -r -1 30", Kind::Cat).unwrap().want, Want::Motion(_)), "a negative frame stays a frame");
+    }
+
     // The switches ride in a button with the hits and the mode, and a lens with none set keeps the short tag.
     #[test]
     fn switches_travel_with_the_lens() {
@@ -1197,7 +1258,7 @@ mod tests {
 
         assert_eq!(lens_tagged(&lens_tag(lens)), Some(lens));
         assert_eq!((lens_tag(Lens::default()).as_str(), lens_tagged("as")), ("as", Some(Lens::default())));
-        assert_eq!(SWITCH_WORDS.iter().map(|(switch, word)| switch_of(word) == Some(*switch)).collect::<Vec<_>>(), [true; 7], "every word reads back as its switch");
+        assert_eq!(SWITCH_WORDS.iter().map(|(switch, word)| switch_of(word) == Some(*switch)).collect::<Vec<_>>(), [true; 9], "every word reads back as its switch");
 
         let stats = stats_of(&["--on", "kills", "--off", "crits", "-m", "base"], Kind::Cat).unwrap();
 

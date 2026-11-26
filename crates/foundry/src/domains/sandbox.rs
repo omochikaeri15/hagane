@@ -10,8 +10,6 @@ pub mod keybind;
 #[cfg(feature = "sandbox")]
 pub mod lineup;
 #[cfg(feature = "sandbox")]
-pub mod orb;
-#[cfg(feature = "sandbox")]
 pub mod rules;
 #[cfg(feature = "sandbox")]
 pub mod replay;

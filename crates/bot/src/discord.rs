@@ -9,10 +9,11 @@ use tokio::sync::{OwnedRwLockReadGuard, RwLock, Semaphore};
 use tokio::task;
 use tracing::{debug, error, info, warn};
 
-use codex::combat::{Entity, Foe, Switches};
+use codex::combat::{Entity, Foe, Switches, Worn};
 use foundry::common::architecture;
 use foundry::domains::cat::animation as cat_animation;
 use foundry::domains::cat::level;
+use foundry::domains::cat::orbs as foundry_orbs;
 use foundry::domains::cat::scanner::CatEntry;
 use foundry::domains::enemy::scanner::EnemyEntry;
 use foundry::domains::enemy::animation as enemy_animation;
@@ -34,6 +35,7 @@ use super::fuzzy;
 use super::grammar::{self, Backing, Kind, Lookup, Motion, Page, Request, Scenery, Tune, Unit, Versus, Want};
 use super::library::{self, Catalog, Library, Remote};
 use super::lookup::{self, CROWN_GLYPH, Found, Hit, Landing};
+use super::orbs::{self, Bench};
 use super::prefs::{self, Book, FORMS, Mode, Prefs, Search};
 use super::prose::{self, Line, Prose, Trouble};
 use super::render::{self, Clip, Format, Options, Planned, Progress};
@@ -63,10 +65,13 @@ const CARD_ASK: &str = "em";
 const CARD_SET: &str = "ev";
 const CARD_RESOLVE: &str = "er";
 const DIAL: &str = "rv|";
+const ORB_PART: char = 'o';
+const SELECT_ROOM: usize = 25;
+const NO_ORB: &str = "None";
 const PANEL_LIFE: Duration = Duration::from_secs(14 * 60);
 const TALENT_HINT: &str = "all, standard, ultra, none, 10 10 5 or Attack Buff 5";
 const MODE_HELP: &str = "`--mode`: `base` (`b`) for the plain numbers, `avg` (`a`) for procs averaged in (the default), `max` (`m`) for every proc landing plus Strengthen and the kill boost\n`--hits`: `1`, `2` or `3` for one hit, `avg` for the hits that reach standing range (the default), `all` for every hit";
-const SWITCH_HELP: &str = "Counts an ability or leaves it out, whatever the mode says: crit, savage, wave, surge, explosion, strengthen, kills. `-m avg --on strengthen` is an average with Strengthen";
+const SWITCH_HELP: &str = "Counts an ability or an orb or leaves it out, whatever the mode says: crit, savage, wave, surge, explosion, strengthen, kills, orb 1, orb 2. `-m avg --on strengthen` is an average with Strengthen";
 const ENEMY_HINT: &str = "teacher bear, 12-e or an alias";
 const PANEL_PICKS: usize = 25;
 const ENEMY_LIMIT: u16 = 100;
@@ -208,12 +213,14 @@ impl Dialed {
 enum Board {
     Resolve,
     Versus,
+    Talents(usize),
 }
 
 impl Board {
     fn of(part: &str) -> Self {
         match part {
             "v" | "e" | "f" | "p" => Board::Versus,
+            _ if part.starts_with(ORB_PART) => Board::Talents(orb_page(part)),
             _ => Board::Resolve,
         }
     }
@@ -222,6 +229,7 @@ impl Board {
         let line = match self {
             Board::Resolve => &prose::RESOLVE_PANEL,
             Board::Versus => &prose::VERSUS_PANEL,
+            Board::Talents(_) => &prose::TALENTS_PANEL,
         };
 
         note.map_or_else(|| line.said(prose).to_owned(), |note| format!("{}\n{note}", line.said(prose)))
@@ -231,15 +239,24 @@ impl Board {
         let button = match self {
             Board::Resolve => "Resolve",
             Board::Versus => "Versus",
+            Board::Talents(_) => "Talents",
         };
 
         prose::PANEL_GONE.filled(prose, &[("button", button)])
     }
 
-    fn rows(self, key: u64, dialed: &Dialed, stats: &Entity) -> Vec<serenity::CreateActionRow> {
-        match self {
-            Board::Resolve => panel_rows(key, dialed.lens(), stats),
-            Board::Versus => versus_rows(key, dialed.versus(), &[]),
+    fn rows(self, key: u64, dialed: &Dialed, stats: &Entity, library: &Library) -> Vec<serenity::CreateActionRow> {
+        match (self, dialed) {
+            (Board::Resolve, _) => {
+                let titles = foundry_orbs::Titles::load(&library.vault.vfs);
+                let list = library.vault.vds.cats.orbs(&library.vault.vfs);
+                let named = |worn: &Worn| list.get(worn.id as usize).map_or_else(|| format!("Orb {}", worn.slot + 1), |orb| titles.title(library.context().names, orb));
+
+                panel_rows(key, dialed.lens(), stats, &named)
+            }
+            (Board::Versus, _) => versus_rows(key, dialed.versus(), &[]),
+            (Board::Talents(page), Dialed::Sheet(sheet)) => talents_rows(key, library, sheet, page),
+            (Board::Talents(_), Dialed::Card(_)) => Vec::new(),
         }
     }
 }
@@ -1256,7 +1273,7 @@ async fn answer(voice: Voice<'_>, scope: Scope, text: &str) -> Result<(), Error>
         },
         Scope::Theme => match grammar::tune(text) {
             Ok(Tune::Track(id, typed)) => return serve_audio(voice, id, typed).await,
-            Ok(Tune::Place(request, boss)) => return serve_theme(voice, request, boss, &prose::NO_PLACE).await,
+            Ok(Tune::Place(request, boss)) => return serve_theme(voice, *request, boss, &prose::NO_PLACE).await,
             Err(reason) => reason,
         },
         Scope::Backdrop => match grammar::scenery(text) {
@@ -1374,6 +1391,7 @@ struct Sheet {
     page: Page,
     versus: Versus,
     lens: Lens,
+    orbs: Vec<Option<u32>>,
 }
 
 impl Sheet {
@@ -1382,7 +1400,7 @@ impl Sheet {
     }
 
     fn turned(&self, tag: &str, form: usize, page: Page) -> String {
-        format!("{tag}|{}|{}|{}|{}|{}|{}|{:x}|{}", self.owner, self.id, form, self.level.as_deref().unwrap_or_default(), self.talents.as_deref().unwrap_or("-"), page.tag(), self.versus.bits(), grammar::lens_tag(self.lens))
+        format!("{tag}|{}|{}|{}|{}|{}|{}|{:x}|{}|{}", self.owner, self.id, form, self.level.as_deref().unwrap_or_default(), self.talents.as_deref().unwrap_or("-"), page.tag(), self.versus.bits(), grammar::lens_tag(self.lens), orbs::tag(&self.orbs))
     }
 
     fn read(custom: &str) -> Option<(&str, Self)> {
@@ -1396,8 +1414,9 @@ impl Sheet {
         let page = Page::tagged(parts.next()?)?;
         let versus = Versus::from_bits(u32::from_str_radix(parts.next()?, 16).ok()?);
         let lens = grammar::lens_tagged(parts.next()?)?;
+        let orbs = parts.next().map(orbs::tagged).unwrap_or_default();
 
-        Some((tag, Self { owner, id, form, level, talents, page, versus, lens }))
+        Some((tag, Self { owner, id, form, level, talents, page, versus, lens, orbs }))
     }
 }
 
@@ -1442,14 +1461,16 @@ fn dialed_stats(library: &Library, dialed: &Dialed) -> Option<Entity> {
             let caps = cat.unitbuy.level_caps();
             let levels = sheet.talents.as_deref().and_then(talents::decoded);
             let shown = sheet.level.as_deref().map_or_else(|| library.level_for(cat, sheet.form, levels.as_ref()), |level| level::capped(level, caps));
-            let asked = statblock::Shown { cat, form: sheet.form, level: level::total(&shown, caps), level_input: &shown, talents: levels.as_ref() };
+            let total = level::total(&shown, caps);
+            let worn = statblock::worn(library, cat, sheet.form, total, &sheet.orbs);
+            let asked = statblock::Shown { cat, form: sheet.form, level: total, level_input: &shown, talents: levels.as_ref(), orbs: &worn };
 
             statblock::cat_stats(library, asked)
         }
     }
 }
 
-fn panel_rows(key: u64, lens: Lens, stats: &Entity) -> Vec<serenity::CreateActionRow> {
+fn panel_rows(key: u64, lens: Lens, stats: &Entity, named: &dyn Fn(&Worn) -> String) -> Vec<serenity::CreateActionRow> {
     let custom = |part: &str| format!("{DIAL}{key:x}|{part}");
     let shown = combat_lens::shown_hits(stats, lens.hits);
     let hits = combat_lens::hit_choices(stats).into_iter().map(|hits| serenity::CreateSelectMenuOption::new(combat_lens::hits_label(hits), grammar::hits_word(hits)).default_selection(hits == shown)).collect();
@@ -1459,11 +1480,13 @@ fn panel_rows(key: u64, lens: Lens, stats: &Entity) -> Vec<serenity::CreateActio
         serenity::CreateActionRow::SelectMenu(serenity::CreateSelectMenu::new(custom("m"), serenity::CreateSelectMenuKind::String { options: modes })),
     ];
     let held = combat_lens::held_switches(stats);
+    let toggles = foundry_orbs::toggles(&stats.orbs);
 
-    if !held.is_empty() {
+    if !held.is_empty() || !toggles.is_empty() {
         let options: Vec<serenity::CreateSelectMenuOption> = held
             .iter()
             .map(|(switch, identity)| serenity::CreateSelectMenuOption::new(get_display_def(*identity).name, grammar::switch_word(*switch)).default_selection(lens.switches.lit(*switch, lens.mode)))
+            .chain(toggles.iter().map(|(switch, worn)| serenity::CreateSelectMenuOption::new(named(worn), grammar::switch_word(*switch)).default_selection(worn.toggled(lens.switches, lens.mode))))
             .collect();
         let most = u8::try_from(options.len()).unwrap_or(u8::MAX);
 
@@ -1471,6 +1494,184 @@ fn panel_rows(key: u64, lens: Lens, stats: &Entity) -> Vec<serenity::CreateActio
     }
 
     rows
+}
+
+fn orb_page(part: &str) -> usize {
+    part.chars().nth(1).and_then(|digit| digit.to_digit(10)).map_or(0, |page| page as usize)
+}
+
+fn sheet_level(library: &Library, cat: &CatEntry, sheet: &Sheet) -> i32 {
+    let caps = cat.unitbuy.level_caps();
+    let levels = sheet.talents.as_deref().and_then(talents::decoded);
+    let shown = sheet.level.as_deref().map_or_else(|| library.level_for(cat, sheet.form, levels.as_ref()), |level| level::capped(level, caps));
+
+    level::total(&shown, caps)
+}
+
+fn talents_rows(key: u64, library: &Library, sheet: &Sheet, page: usize) -> Vec<serenity::CreateActionRow> {
+    let custom = |slot: usize, op: char| format!("{DIAL}{key:x}|{ORB_PART}{slot}{op}");
+    let Some(cat) = library.cat(sheet.id) else { return Vec::new() };
+    let bench = Bench::of(library, cat, sheet.form, sheet_level(library, cat, sheet));
+    let held = sheet.orbs.get(page).copied().flatten();
+    let mut top = vec![serenity::CreateButton::new(custom(page, 'm')).label("Click to Change Talents").style(serenity::ButtonStyle::Primary).disabled(!talented(cat, sheet.form))];
+
+    for (slot, open) in bench.doors.iter().enumerate() {
+        let style = if slot == page { serenity::ButtonStyle::Success } else { serenity::ButtonStyle::Secondary };
+
+        top.push(serenity::CreateButton::new(custom(slot, 'p')).label(format!("Orb {}", slot + 1)).style(style).disabled(!*open));
+    }
+
+    if !bench.doors.is_empty() {
+        top.push(serenity::CreateButton::new(custom(page, 'x')).label("Remove Orb").style(serenity::ButtonStyle::Danger).disabled(held.is_none()));
+    }
+
+    let mut rows = vec![serenity::CreateActionRow::Buttons(top)];
+
+    if !bench.doors.get(page).copied().unwrap_or(false) {
+        return rows;
+    }
+
+    let kind = held.and_then(|orb| bench.kind(orb));
+    let shut = |op: char| {
+        let options = vec![serenity::CreateSelectMenuOption::new(NO_ORB, NO_ORB)];
+
+        serenity::CreateActionRow::SelectMenu(serenity::CreateSelectMenu::new(custom(page, op), serenity::CreateSelectMenuKind::String { options }).placeholder(NO_ORB).disabled(true))
+    };
+    let aims = kind.map_or_else(Vec::new, |kind| bench.aims(kind.content));
+
+    rows.push(match kind.and_then(|kind| kind.attribute).filter(|_| !aims.is_empty()) {
+        Some(aimed) => {
+            let options = aims.iter().take(SELECT_ROOM).map(|attribute| serenity::CreateSelectMenuOption::new(Bench::trait_label(library, *attribute), attribute.to_string()).default_selection(*attribute == aimed)).collect();
+
+            serenity::CreateActionRow::SelectMenu(serenity::CreateSelectMenu::new(custom(page, 't'), serenity::CreateSelectMenuKind::String { options }).placeholder("Trait"))
+        }
+        None => shut('t'),
+    });
+
+    let offered = bench.offered();
+
+    for (chunk, op) in offered.chunks(SELECT_ROOM).zip(['e', 'f']) {
+        let options = chunk.iter().map(|content| serenity::CreateSelectMenuOption::new(bench.effect_label(*content), content.to_string()).default_selection(kind.is_some_and(|kind| kind.content == *content))).collect();
+
+        rows.push(serenity::CreateActionRow::SelectMenu(serenity::CreateSelectMenu::new(custom(page, op), serenity::CreateSelectMenuKind::String { options }).placeholder("Effect")));
+    }
+
+    let grades = kind.map_or_else(Vec::new, |kind| bench.grades(kind));
+    let grade = held.and_then(|orb| bench.grade(orb));
+
+    rows.push(if grades.is_empty() {
+        shut('g')
+    } else {
+        let options = grades.iter().map(|held| serenity::CreateSelectMenuOption::new(orbs::grade_label(*held), held.to_string()).default_selection(Some(*held) == grade)).collect();
+
+        serenity::CreateActionRow::SelectMenu(serenity::CreateSelectMenu::new(custom(page, 'g'), serenity::CreateSelectMenuKind::String { options }).placeholder("Grade"))
+    });
+
+    rows
+}
+
+async fn on_orbs(ctx: &serenity::Context, press: &serenity::ComponentInteraction, data: &Data, opened: Opened, page: usize, part: &str) -> Result<(), Error> {
+    let prefs = data.book.get(press.user.id.get());
+    let Opened { key, token, message, dialed } = opened;
+    let Dialed::Sheet(mut sheet) = dialed else { return Ok(()) };
+    let op = part.chars().nth(2).unwrap_or_default();
+
+    if op == 'm' {
+        let current = sheet.talents.as_deref().map(|levels| levels.replace('.', " ")).unwrap_or_default();
+        let input = serenity::CreateInputText::new(serenity::InputTextStyle::Short, "Talent levels (none or empty turns them off)", "levels").placeholder(TALENT_HINT).value(current).required(false);
+        let modal = serenity::CreateModal::new(format!("{DIAL}{key:x}|{ORB_PART}{page}n"), "Talents").components(vec![serenity::CreateActionRow::InputText(input)]);
+
+        press.create_response(ctx, serenity::CreateInteractionResponse::Modal(modal)).await?;
+        return Ok(());
+    }
+
+    let Some((guard, library)) = open(data, &prefs.language).await? else { return Ok(()) };
+    let Some(cat) = library.cat(sheet.id) else { return Ok(()) };
+    let bench = Bench::of(&library, cat, sheet.form, sheet_level(&library, cat, &sheet));
+    let picked = match &press.data.kind {
+        serenity::ComponentInteractionDataKind::StringSelect { values } => values.first().and_then(|value| value.parse::<i64>().ok()),
+        _ => None,
+    };
+    let held = sheet.orbs.get(page).copied().flatten();
+    let changed = match (op, picked) {
+        ('x', _) => Some(None),
+        ('t', Some(attribute)) => Some(bench.with_trait(held, i32::try_from(attribute).unwrap_or_default())),
+        ('e' | 'f', Some(content)) => Some(bench.with_effect(held, i32::try_from(content).unwrap_or_default())),
+        ('g', Some(grade)) => Some(bench.with_grade(held, usize::try_from(grade).unwrap_or_default())),
+        _ => None,
+    };
+
+    if let Some(orb) = changed {
+        if sheet.orbs.len() <= page {
+            sheet.orbs.resize(bench.doors.len().max(page + 1), None);
+        }
+
+        sheet.orbs[page] = orb;
+    }
+
+    let dialed = Dialed::Sheet(sheet);
+    let Some(stats) = dialed_stats(&library, &dialed) else { return Ok(()) };
+    let board = Board::Talents(page);
+    let turned = serenity::CreateInteractionResponseMessage::new().content(board.said(prefs.prose, None)).components(board.rows(key, &dialed, &stats, &library));
+
+    drop(guard);
+    press.create_response(ctx, serenity::CreateInteractionResponse::UpdateMessage(turned)).await?;
+
+    if changed.is_some() && !redial(ctx, data, &Opened { key, token, message, dialed }).await? {
+        let gone = serenity::EditInteractionResponse::new().content(board.gone(prefs.prose)).components(Vec::new());
+
+        press.edit_response(ctx, gone).await?;
+    }
+
+    Ok(())
+}
+
+async fn on_panel_talents(ctx: &serenity::Context, form: &serenity::ModalInteraction, data: &Data, rest: &str) -> Result<(), Error> {
+    let owner = form.user.id.get();
+    let prefs = data.book.get(owner);
+    let (key, part) = rest.split_once('|').unwrap_or((rest, ""));
+    let page = orb_page(part);
+    let board = Board::Talents(page);
+    let notice = |text: String| serenity::CreateInteractionResponse::Message(serenity::CreateInteractionResponseMessage::new().content(text).ephemeral(true));
+    let Some(Opened { key, token, message, dialed }) = panels(data).find(key, owner) else {
+        form.create_response(ctx, notice(board.gone(prefs.prose))).await?;
+        return Ok(());
+    };
+    let Dialed::Sheet(mut sheet) = dialed else { return Ok(()) };
+    let Some((guard, library)) = open(data, &prefs.language).await? else { return Ok(()) };
+    let Some(cat) = library.cat(sheet.id) else { return Ok(()) };
+    let typed = typed(form);
+    let words: Vec<&str> = typed.split_whitespace().collect();
+
+    sheet.talents = if words.is_empty() {
+        None
+    } else {
+        match talents::levels(&library, cat, &grammar::talents_of(&words)) {
+            Ok(levels) => talents::encoded(&levels, cat.talent_data.as_ref().map_or(0, |held| held.groups.len())),
+            Err(trouble) => {
+                let told = format!("{}\n{}", trouble.told(prefs.prose), talents::listed(&library, cat, None));
+
+                drop(guard);
+                form.create_response(ctx, notice(told)).await?;
+                return Ok(());
+            }
+        }
+    };
+
+    let dialed = Dialed::Sheet(sheet);
+    let Some(stats) = dialed_stats(&library, &dialed) else { return Ok(()) };
+    let turned = serenity::CreateInteractionResponseMessage::new().content(board.said(prefs.prose, None)).components(board.rows(key, &dialed, &stats, &library));
+
+    drop(guard);
+    form.create_response(ctx, serenity::CreateInteractionResponse::UpdateMessage(turned)).await?;
+
+    if !redial(ctx, data, &Opened { key, token, message, dialed }).await? {
+        let gone = serenity::EditInteractionResponse::new().content(board.gone(prefs.prose)).components(Vec::new());
+
+        form.edit_response(ctx, gone).await?;
+    }
+
+    Ok(())
 }
 
 fn versus_rows(key: u64, versus: Versus, found: &[&EnemyEntry]) -> Vec<serenity::CreateActionRow> {
@@ -1502,7 +1703,7 @@ async fn open_panel(ctx: &serenity::Context, press: &serenity::ComponentInteract
     let Some((_guard, library)) = open(data, &prefs.language).await? else { return Ok(()) };
     let Some(stats) = dialed_stats(&library, &dialed) else { return Ok(()) };
     let key = panels(data).keep(owner, press.message.id.get(), press.token.clone(), dialed.clone());
-    let panel = serenity::CreateInteractionResponseFollowup::new().content(board.said(prefs.prose, None)).components(board.rows(key, &dialed, &stats)).ephemeral(true);
+    let panel = serenity::CreateInteractionResponseFollowup::new().content(board.said(prefs.prose, None)).components(board.rows(key, &dialed, &stats, &library)).ephemeral(true);
 
     press.create_followup(ctx, panel).await?;
     Ok(())
@@ -1538,6 +1739,10 @@ async fn on_dial(ctx: &serenity::Context, press: &serenity::ComponentInteraction
         return Ok(());
     };
 
+    if let Board::Talents(page) = board {
+        return on_orbs(ctx, press, data, Opened { key, token, message, dialed }, page, part).await;
+    }
+
     if part == "e" {
         let input = serenity::CreateInputText::new(serenity::InputTextStyle::Short, "Name, ID or alias", "enemy").placeholder(ENEMY_HINT).max_length(ENEMY_LIMIT);
         let modal = serenity::CreateModal::new(format!("{DIAL}{key:x}|f"), "Search for Enemy").components(vec![serenity::CreateActionRow::InputText(input)]);
@@ -1560,6 +1765,11 @@ async fn on_dial(ctx: &serenity::Context, press: &serenity::ComponentInteraction
 
                 if lit == switch.by_default(held.mode) { switches.cleared(switch) } else { switches.set(switch, lit) }
             });
+            let switches = foundry_orbs::toggles(&stats.orbs).into_iter().fold(switches, |switches, (switch, worn)| {
+                let lit = values.iter().any(|value| value == grammar::switch_word(switch));
+
+                if lit == worn.toggled(Switches::default(), held.mode) { switches.cleared(switch) } else { switches.set(switch, lit) }
+            });
 
             (dialed.with(Lens { switches, ..held }), None)
         }
@@ -1571,7 +1781,7 @@ async fn on_dial(ctx: &serenity::Context, press: &serenity::ComponentInteraction
         }
         _ => return Ok(()),
     };
-    let turned = serenity::CreateInteractionResponseMessage::new().content(board.said(prefs.prose, note.as_deref())).components(board.rows(key, &dialed, &stats));
+    let turned = serenity::CreateInteractionResponseMessage::new().content(board.said(prefs.prose, note.as_deref())).components(board.rows(key, &dialed, &stats, &library));
 
     drop(guard);
     press.create_response(ctx, serenity::CreateInteractionResponse::UpdateMessage(turned)).await?;
@@ -1665,8 +1875,8 @@ fn sheet_png(library: &Library, cache: &Cache, sheet: &Sheet) -> Result<(Vec<u8>
     let levels = sheet.talents.as_deref().and_then(talents::decoded);
     let shown = sheet.level.as_deref().map_or_else(|| library.level_for(cat, sheet.form, levels.as_ref()), |level| level::capped(level, caps));
     let total = level::total(&shown, caps);
-
-    let asked = statblock::Shown { cat, form: sheet.form, level: total, level_input: &shown, talents: levels.as_ref() };
+    let worn = statblock::worn(library, cat, sheet.form, total, &sheet.orbs);
+    let asked = statblock::Shown { cat, form: sheet.form, level: total, level_input: &shown, talents: levels.as_ref(), orbs: &worn };
 
     match sheet.page {
         Page::Talents => Ok((statblock::talents(library, cache, asked)?, format!("{id}.talents.png"))),
@@ -1944,9 +2154,13 @@ async fn serve_background(voice: Voice<'_>, scenery: Scenery) -> Result<(), Erro
         Backing::Id(id, typed) if !backdrop::ids(&library).ids.contains(id) => grammar::place(typed).ok().map(|request| (request, &prose::NO_BACKGROUND)),
         _ => None,
     };
-    let id = match (&scenery.subject, &numbered) {
-        (Backing::Id(id, _), None) => *id,
-        (Backing::Place(request), _) | (_, Some((request, _))) => {
+    let target = match &scenery.subject {
+        Backing::Place(request) => Ok(request.as_ref()),
+        Backing::Id(id, _) => numbered.as_ref().map(|(request, _)| request).ok_or(*id),
+    };
+    let id = match target {
+        Err(id) => id,
+        Ok(request) => {
             let missing = numbered.as_ref().map_or(&prose::NO_PLACE, |(_, missing)| missing);
             let Some((kind, code)) = sought(voice, &library, &prefs, Scope::Backdrop, request, missing).await? else { return Ok(()) };
 
@@ -2176,8 +2390,23 @@ async fn serve_cat(voice: Voice<'_>, request: Request) -> Result<(), Error> {
                 },
                 None => None,
             };
-            let lifted = talents.is_some() || stats.page == Page::Talents;
+            let lifted = talents.is_some() || stats.orbs.iter().any(Option::is_some) || stats.page == Page::Talents;
             let form = if lifted && form < TRUE_FORM && cat.forms[TRUE_FORM] { TRUE_FORM } else { form };
+            let orbs = if stats.orbs.iter().any(Option::is_some) {
+                let caps = cat.unitbuy.level_caps();
+                let levels = talents.as_deref().and_then(talents::decoded);
+                let shown = stats.level.as_deref().map_or_else(|| library.level_for(cat, form, levels.as_ref()), |level| level::capped(level, caps));
+
+                match orbs::assign(&library, cat, form, level::total(&shown, caps), &stats.orbs) {
+                    Ok(slots) => slots,
+                    Err(trouble) => {
+                        voice.say(trouble.told(prefs.prose)).await?;
+                        return Ok(());
+                    }
+                }
+            } else {
+                Vec::new()
+            };
 
             if stats.page == Page::Talents && !talented(cat, form) {
                 voice.say(Trouble::NoTalents(cat.display_name(form)).told(prefs.prose)).await?;
@@ -2185,7 +2414,7 @@ async fn serve_cat(voice: Voice<'_>, request: Request) -> Result<(), Error> {
             }
 
             let lens = Lens { mode: stats.gauge.unwrap_or_default(), hits: stats.hits.unwrap_or_default(), switches: stats.switches, switching: false };
-            let sheet = Sheet { owner, id: cat.id, form, level: stats.level, talents, page: stats.page, versus, lens };
+            let sheet = Sheet { owner, id: cat.id, form, level: stats.level, talents, page: stats.page, versus, lens, orbs };
 
             send_sheet(voice, Arc::clone(&library), sheet, stats.mode.unwrap_or(prefs.mode)).await
         }
@@ -2389,13 +2618,14 @@ fn help_page(page_name: &str, section: &str, prefix: &str, prose: Prose) -> sere
             .field("Pages", "`stats` (`s`): the statblock, the default\n`talents` (`t`): every talent, its level and what it does; lifts Normal or Evolved to True. Words after it are talents: `t all`, `t 10 10 5`, `t attack buff 5`\n`details` (`d`): description, evolve costs and combos", false)
             .field("Level", "`lv50`, `l50`, `level 50` or `50+70`. A bare `50` needs its mark, and after `t` it's a talent level. Without one, a typical level for its rarity", false)
             .field("`--talents` (`-t`)", "`all`, `standard`, `ultra`, `none`, levels in order (`10 10 5`) or names (`Attack Buff 5`). Lifts Normal or Evolved to True", false)
+            .field("`--orb1` (`-1`), `--orb2` (`-2`)", "A talent orb as a grade, a trait and an effect, in any order: `-1 S Red Attack Up -2 Cash Back`. No grade is S, no trait is the first one the unit can use. `--orb` is `--orb1`. A second slot opens at Lv60. Lifts Normal or Evolved to True", false)
             .field("`--versus` (`-v`)", "Traits (`-v red`, `-v black metal`) or an enemy's name (`-v teacher bear`): the stats against that enemy, by the game's math. `targets` is every trait the cat has something for; `traits`, `subtraits` and `all` leave Metal out; `none` clears them\nHitpoints become what it takes to kill the cat. Non-crit hits deal 1 to Metal. A Sage cuts crowd control unless the cat has Sage Slayer\nOutlines: green works, red doesn't or holds the cat back, orange means it has nothing for that trait; half and half works partly", false)
             .field("`--mode` (`-m`), `--hits` (`-h`)", MODE_HELP, false)
             .field("`--on`, `--off`", SWITCH_HELP, false)
             .field("Uptime", "Freeze, Slow, Weaken and Curse show how much of the time they hold a target, by `--mode`. A unit that dies after attacking goes by its recharge", false)
             .field("`--interactive` (`-i`), `--dormant` (`-d`)", "Buttons or none, this time only", false),
         ("cat", "animation") => Voiced::new(prefix, "hg!cat (c) • Animation", "`hg!cat <unit> [a | anim] [type] ...`").field("Types", CLIPS, false).field("Flags", MOTION_FLAGS, false),
-        ("cat", "buttons") => Voiced::new(prefix, "hg!cat (c) • Buttons", "With Blocks on Interactive, or `-i`, three rows sit under the picture: Form, Page, and Apply (Level, Talents, Versus, Resolve). Versus and Resolve open a panel only you can see: Versus has the traits and an enemy search, Resolve the hits, the mode and which abilities count. Green is what's set or shown, gray isn't available. Only you can press them"),
+        ("cat", "buttons") => Voiced::new(prefix, "hg!cat (c) • Buttons", "With Blocks on Interactive, or `-i`, three rows sit under the picture: Form, Page, and Apply (Level, Talents, Versus, Resolve). Talents, Versus and Resolve open a panel only you can see: Talents changes the talents and each orb's trait, effect and grade, Versus has the traits and an enemy search, Resolve the hits, the mode and which abilities and orbs count. Green is what's set or shown, gray isn't available. Only you can press them"),
         ("cat", _) => Voiced::new(prefix, "hg!cat (c)", "`hg!cat <unit> [stats | animation] ...`")
             .field("Stats or animation", "An animation name or flag means animation, a level or `--talents` stats, and `s` or `a` decides outright. `t` and `d` open Talents and Details, so the dig animation is `dig` or `a d`, and the soul is `soul` or `a s`", false)
             .field("Examples", "`hg!c 137_u lv50+70 -t all`\n`hg!c 44 t 10 5 lv40`\n`hg!c bahamut cat d`\n`hg!c bahamut cat form normal`\n`hg!c jamiera cat a showcase -f webp`\n`hg!c 008 a walk -l -r 10~120`", false),
@@ -2977,14 +3207,7 @@ async fn on_press(ctx: &serenity::Context, press: &serenity::ComponentInteractio
 
             Ok(())
         }
-        "st" => {
-            let current = sheet.talents.as_deref().map(|levels| levels.replace('.', " ")).unwrap_or_default();
-            let input = serenity::CreateInputText::new(serenity::InputTextStyle::Short, "Talent levels (none or empty turns them off)", "levels").placeholder(TALENT_HINT).value(current).required(false);
-            let modal = serenity::CreateModal::new(sheet.custom("sm", sheet.form), "Talents").components(vec![serenity::CreateActionRow::InputText(input)]);
-
-            press.create_response(ctx, serenity::CreateInteractionResponse::Modal(modal)).await?;
-            Ok(())
-        }
+        "st" => open_panel(ctx, press, data, Dialed::Sheet(sheet), Board::Talents(0)).await,
         "sr" => open_panel(ctx, press, data, Dialed::Sheet(sheet), Board::Resolve).await,
         "sx" => open_panel(ctx, press, data, Dialed::Sheet(sheet), Board::Versus).await,
         "sl" => {
@@ -3096,6 +3319,10 @@ async fn on_modal(ctx: &serenity::Context, form: &serenity::ModalInteraction, da
     }
 
     if let Some(rest) = form.data.custom_id.strip_prefix(DIAL) {
+        if rest.split_once('|').is_some_and(|(_, part)| part.starts_with(ORB_PART)) {
+            return on_panel_talents(ctx, form, data, rest).await;
+        }
+
         return on_search(ctx, form, data, rest).await;
     }
 
@@ -3677,16 +3904,17 @@ mod tests {
 
     #[test]
     fn a_sheet_survives_its_button_id() {
-        let sheet = Sheet { owner: 1, id: 25, form: 2, level: Some("50+70".to_owned()), talents: Some("10.0.5".to_owned()), page: Page::Talents, versus: Versus { foe: Foe::from_bits(0b1001), aimed: true }, lens: Lens { mode: Gauge::Maximum, hits: Hits::Only(1), switches: Switches::default().set(Switch::Strengthen, true).set(Switch::Wave, false), switching: false } };
+        let sheet = Sheet { owner: 1, id: 25, form: 2, level: Some("50+70".to_owned()), talents: Some("10.0.5".to_owned()), page: Page::Talents, versus: Versus { foe: Foe::from_bits(0b1001), aimed: true }, lens: Lens { mode: Gauge::Maximum, hits: Hits::Only(1), switches: Switches::default().set(Switch::Strengthen, true).set(Switch::Wave, false), switching: false }, orbs: vec![Some(0xa3), None] };
         let custom = sheet.custom("sb", 3);
         let (tag, read) = Sheet::read(&custom).unwrap();
 
         assert_eq!(tag, "sb");
         assert_eq!((read.owner, read.id, read.form, read.level.as_deref(), read.talents.as_deref(), read.page), (1, 25, 3, Some("50+70"), Some("10.0.5"), Page::Talents));
         assert_eq!((read.versus, read.lens), (sheet.versus, sheet.lens));
+        assert_eq!(read.orbs, sheet.orbs, "the orbs come back slot for slot");
         assert!(custom.len() <= 100);
 
-        let widest = Sheet { owner: u64::MAX, id: 9999, level: Some("999+999".to_owned()), talents: Some("10.10.10.10.10.10.10.10.10.10".to_owned()), versus: Versus { foe: Foe::from_bits(u16::MAX), aimed: true }, ..sheet.clone() };
+        let widest = Sheet { owner: u64::MAX, id: 9999, level: Some("999+999".to_owned()), talents: Some("10.10.10.10.10.10.10.10.10.10".to_owned()), versus: Versus { foe: Foe::from_bits(u16::MAX), aimed: true }, orbs: vec![Some(0xfff), Some(0xfff)], ..sheet.clone() };
 
         assert!(widest.custom("sb", 3).len() <= 100);
 
@@ -3719,7 +3947,7 @@ mod tests {
             assert!(!ids[..at].contains(id), "{id} is used twice");
         }
 
-        let sheet = Sheet { owner: 1, id: 25, form: 2, level: None, talents: None, page: Page::Stats, versus: Versus::default(), lens: Lens::default() };
+        let sheet = Sheet { owner: 1, id: 25, form: 2, level: None, talents: None, page: Page::Stats, versus: Versus::default(), lens: Lens::default(), orbs: Vec::new() };
         let forms = (0..FORMS.len()).map(|form| sheet.turned("sb", form, sheet.page));
         let pages = [Page::Stats, Page::Talents, Page::Details].into_iter().map(|page| sheet.turned("sp", sheet.form, page));
         let ids: Vec<String> = forms.chain(pages).chain([sheet.custom("sl", sheet.form), sheet.custom("st", sheet.form), sheet.custom("sx", sheet.form), sheet.custom("sr", sheet.form)]).collect();
@@ -3741,7 +3969,7 @@ mod tests {
         assert!(picks.len() <= 25 && picks.iter().all(|pick| pick["default"] == true));
         assert_eq!(grammar::versus_picked(&values), every);
 
-        let both = serde_json::to_value(panel_rows(7, Lens::default(), &Entity::default()).into_iter().chain(versus_rows(7, every, &[])).collect::<Vec<_>>()).unwrap();
+        let both = serde_json::to_value(panel_rows(7, Lens::default(), &Entity::default(), &|_| String::new()).into_iter().chain(versus_rows(7, every, &[])).collect::<Vec<_>>()).unwrap();
         let ids: Vec<&str> = both.as_array().unwrap().iter().flat_map(|row| row["components"].as_array().unwrap().iter().map(|part| part["custom_id"].as_str().unwrap())).collect();
 
         for (at, id) in ids.iter().enumerate() {

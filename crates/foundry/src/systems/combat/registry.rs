@@ -3,7 +3,8 @@ use std::collections::HashMap;
 
 use codex::cat::unit::UnitBuy;
 use codex::chapter::stage::BattlegroundEntry;
-use codex::combat::{crowned, deploy_cost, knockback_reach, magnified, resisted, AttrValue, Entity, Faction, Identity, Mode, Rules, KNOCKBACK_FRAMES, REGISTRY};
+use codex::combat::orb::{MASSIVE_UP, STRONG_UP, TOUGH_UP};
+use codex::combat::{crowned, deploy_cost, knockback_reach, magnified, resisted, AttrValue, Entity, Faction, Foe, Identity, Mode, Rules, KNOCKBACK_FRAMES, REGISTRY};
 use codex::chapter::treasure::TraitBonus;
 use codex::files::{img015, Param};
 use serde::{Deserialize, Serialize};
@@ -134,6 +135,7 @@ pub struct Against {
     pub fruit: TraitBonus,
     pub push: i32,
     pub sage: bool,
+    pub foe: Foe,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -200,6 +202,34 @@ fn fruit(ctx: &FormatContext<'_>, multiplier: impl Fn(TraitBonus) -> f64, recipr
     };
 
     if low == high { label(low) } else { format!("{}~{}", label(low), label(high)) }
+}
+
+fn shares(ctx: &FormatContext<'_>, share: impl Fn(TraitBonus, Foe) -> f64, taken: bool, reciprocal: bool) -> String {
+    let values: Vec<f64> = match ctx.against {
+        Some(against) => vec![share(against.fruit, against.foe)],
+        None => ctx.treasure.fruit_traits(ctx.stats).into_iter().map(|(label, bonus)| share(bonus, Foe::default().with(label))).collect(),
+    };
+
+    if values.is_empty() || ctx.stats.orbs.is_empty() {
+        let (low, high) = ctx.against.map_or_else(|| ctx.treasure.fruit_span(ctx.stats), |against| (against.fruit, against.fruit));
+
+        return spanned(share(low, Foe::default()), share(high, Foe::default()), reciprocal);
+    }
+
+    let low = values.iter().copied().fold(f64::INFINITY, f64::min);
+    let high = values.iter().copied().fold(f64::NEG_INFINITY, f64::max);
+
+    if taken { spanned(high, low, reciprocal) } else { spanned(low, high, reciprocal) }
+}
+
+fn spanned(first: f64, second: f64, reciprocal: bool) -> String {
+    let label = |value: f64| {
+        let shown = if reciprocal { format!("1/{}", trimmed(1.0 / value)) } else { trimmed(value) };
+
+        format!("{shown}\u{d7}")
+    };
+
+    if label(first) == label(second) { label(first) } else { format!("{}~{}", label(first), label(second)) }
 }
 
 fn sage_resist(ctx: &FormatContext<'_>, against: Against, identity: Identity) -> i32 {
@@ -776,7 +806,10 @@ pub fn get_display_def(identity: Identity) -> AbilityDisplayDef {
             formatter: |ctx| {
                 let raise = ctx.stats.effect_up(Identity::StrongAgainst);
 
-                format!("Deals {} Damage to and takes {} Damage from {}", fruit(ctx, |bonus| bonus.strong_dealt(raise), false), fruit(ctx, |bonus| bonus.strong_taken(raise), false), ctx.target)
+                let dealt = shares(ctx, |bonus, foe| TraitBonus(bonus.0 + ctx.stats.orb_versus(STRONG_UP, 0, foe)).strong_dealt(raise), false, false);
+                let taken = shares(ctx, |bonus, foe| bonus.strong_taken(raise + ctx.stats.orb_versus(STRONG_UP, 1, foe)), true, false);
+
+                format!("Deals {dealt} Damage to and takes {taken} Damage from {}", ctx.target)
             },
         },
         Identity::MassiveDamage => AbilityDisplayDef {
@@ -784,7 +817,7 @@ pub fn get_display_def(identity: Identity) -> AbilityDisplayDef {
             fallback: "Massv",
             icon: AbilityIcon::Standard(img015::ICON_MASSIVE_DAMAGE),
             group: DisplayGroup::Headline1,
-            formatter: |ctx| format!("Deals {} Damage to {}", fruit(ctx, |bonus| bonus.massive_dealt(ctx.stats.effect_up(Identity::MassiveDamage)), false), ctx.target),
+            formatter: |ctx| format!("Deals {} Damage to {}", shares(ctx, |bonus, foe| TraitBonus(bonus.0 + ctx.stats.orb_versus(MASSIVE_UP, 0, foe)).massive_dealt(ctx.stats.effect_up(Identity::MassiveDamage)), false, false), ctx.target),
         },
         Identity::InsaneDamage => AbilityDisplayDef {
             name: "Insane Damage",
@@ -798,7 +831,7 @@ pub fn get_display_def(identity: Identity) -> AbilityDisplayDef {
             fallback: "Resist",
             icon: AbilityIcon::Standard(img015::ICON_RESIST),
             group: DisplayGroup::Headline1,
-            formatter: |ctx| format!("Takes {} Damage from {}", fruit(ctx, |bonus| bonus.resist_taken(ctx.stats.effect_up(Identity::Resist)), true), ctx.target),
+            formatter: |ctx| format!("Takes {} Damage from {}", shares(ctx, |bonus, foe| bonus.resist_taken(ctx.stats.effect_up(Identity::Resist) + ctx.stats.orb_versus(TOUGH_UP, 0, foe)), true, true), ctx.target),
         },
         Identity::InsanelyTough => AbilityDisplayDef {
             name: "Insanely Tough",
@@ -1680,7 +1713,7 @@ pub const STAT_RARITY: StatsDef = StatsDef {
 pub const STAT_COST: StatsDef = StatsDef {
     name: "Cost",
     display_name: "Cost",
-    get_value: |ctx| deploy_cost(ctx.stats.eoc1_cost),
+    get_value: |ctx| ctx.stats.orb_cost(deploy_cost(ctx.stats.eoc1_cost)),
     formatter: |cost| format!("{}¢", cost),
     talent_fmt: None,
     linked_talents: &[25],
@@ -1690,7 +1723,7 @@ pub const STAT_COST: StatsDef = StatsDef {
 pub const STAT_COOLDOWN: StatsDef = StatsDef {
     name: "Cooldown",
     display_name: "Cooldown",
-    get_value: |ctx| ctx.treasure.recharge(ctx.stats.cooldown),
+    get_value: |ctx| ctx.stats.orb_recharge(ctx.treasure.recharge(ctx.stats.cooldown)),
     formatter: frames::label,
     talent_fmt: None,
     linked_talents: &[26],

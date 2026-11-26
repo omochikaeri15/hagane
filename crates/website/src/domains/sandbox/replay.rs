@@ -95,6 +95,7 @@ struct Tile {
     talents: Vec<(i32, i32)>,
     talented: bool,
     orbs: Vec<u32>,
+    slots: Vec<Option<u32>>,
     icon: Option<String>,
 }
 
@@ -111,6 +112,18 @@ fn tile(unit: &Unit, save: &Save, slot: usize) -> Tile {
 
     worn.sort_unstable();
 
+    let mut slots: Vec<Option<u32>> = Vec::new();
+
+    for (at, orb) in &worn {
+        if let (Ok(at), Ok(orb)) = (usize::try_from(*at), u32::try_from(*orb)) {
+            if slots.len() <= at {
+                slots.resize(at + 1, None);
+            }
+
+            slots[at] = Some(orb);
+        }
+    }
+
     Tile {
         id: u32::try_from(unit.unit).unwrap_or(0),
         form: usize::try_from(unit.form).unwrap_or(0),
@@ -120,6 +133,7 @@ fn tile(unit: &Unit, save: &Save, slot: usize) -> Tile {
         talents: unit.talents.clone(),
         talented: !unit.talents.is_empty(),
         orbs: worn.into_iter().filter_map(|(_, orb)| u32::try_from(orb).ok()).collect(),
+        slots,
         icon: save.icons.get(slot).filter(|name| !name.is_empty()).cloned(),
     }
 }
@@ -410,7 +424,7 @@ pub(crate) fn Replays(globals: Shared, cats: Option<Cats>) -> Element {
 
                                                                 let levels = grants.as_ref().map_or_else(|| talent_levels(&cat, &seeded.talents), |grants| grants.levels.clone());
 
-                                                                cat_state.seed(&cat, seeded.form, &seeded.inspected, &levels);
+                                                                cat_state.seed(&cat, seeded.form, &seeded.inspected, &levels, &seeded.slots);
                                                                 cat_state.granted.set(grants.map(Rc::new));
                                                                 cat_state.treasure.set(treasure);
                                                                 shown.set(Some(Rc::new(cat)));
@@ -566,20 +580,8 @@ pub(crate) fn Replays(globals: Shared, cats: Option<Cats>) -> Element {
         }
         if let Some((held, cat)) = opened {
             {
-                let header = (held.form >= FIRST_TALENT_FORM && !held.orbs.is_empty()).then(|| {
-                    rsx! {
-                        div { class: "orb-header",
-                            span { class: "bold orb-header-title", "Orbs" }
-                            div { class: "orb-slots",
-                                for (place, orb) in held.orbs.iter().enumerate() {
-                                    div { key: "{place}", class: "orb-slot static",
-                                        {orbs::picture(&pictures, &shelf.0.orbs, *orb, SLOT_ORB_SIZE)}
-                                    }
-                                }
-                            }
-                        }
-                    }
-                });
+                let marks = cat_state.orb_marks(&cat, held.form, &globals);
+                let header = (held.form >= FIRST_TALENT_FORM && !held.slots.is_empty()).then(|| orbs::header(&pictures, &shelf.0.orbs, &held.slots, &marks, SLOT_ORB_SIZE, None));
                 let title = cat.display_name(held.form);
 
                 rsx! {

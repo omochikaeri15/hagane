@@ -9,7 +9,8 @@ use ab_glyph::{Font, FontRef, PxScale, ScaleFont};
 use slint::{Color, ComponentHandle, Image, Model, ModelRc, Rgba8Pixel, SharedPixelBuffer, SharedString, VecModel};
 
 use codex::cat::unit::{Talent, TalentGroup};
-use codex::combat::{AttrUnit, Entity, Faction, Foe, Identity, Switch, Switches, REGISTRY, get_talent};
+use codex::combat::orb::FIRST_FORM;
+use codex::combat::{AttrUnit, Entity, Faction, Foe, Identity, Switch, Switches, Worn, REGISTRY, get_talent};
 use codex::files::{img015, img022};
 use foundry::common::context::GlobalContext;
 use foundry::common::{glyphs, io};
@@ -19,6 +20,7 @@ use foundry::domains::cat::filter::{ATTACK_TYPE_ICONS, CatFilterState, MatchMode
 use foundry::domains::cat::game::stats::{get_final_stats, seeded_level};
 use foundry::domains::sandbox::jailbreak::Grants;
 use foundry::domains::cat::level;
+use foundry::domains::cat::orbs as orb;
 use foundry::domains::cat::game::talents as talent_logic;
 use foundry::domains::cat::scanner::CatEntry;
 use foundry::domains::cat::statblock::{self as cat_statblock, Subject};
@@ -128,6 +130,7 @@ pub struct State {
     foe: Foe,
     lens: Lens,
     switches: Switches,
+    slots: Vec<Option<u32>>,
 }
 
 pub type Edited = Rc<dyn Fn(&AppWindow)>;
@@ -262,6 +265,41 @@ pub fn text_cell(header: &str, value: &str) -> StatCell {
     StatCell { header: header.into(), value: detail::lines(value), tip: format!("{header}: {value}").into() }
 }
 
+pub fn set_orbs(ui: &AppWindow, state: &Shared, context: &Rc<Context>, slots: &[Option<u32>]) {
+    if state.borrow().slots == slots {
+        return;
+    }
+
+    state.borrow_mut().slots = slots.to_vec();
+    refresh(ui, state, context);
+}
+
+pub fn sight(state: &Shared) -> (Lens, Option<Foe>) {
+    state.borrow().sight()
+}
+
+pub fn flip_orb(ui: &AppWindow, state: &Shared, context: &Rc<Context>, slot: usize) -> bool {
+    let vault = context.engine.vault();
+    let flip = {
+        let held = state.borrow();
+        let cat = held.selected.and_then(|id| held.cat(id));
+
+        cat.filter(|_| held.versus).and_then(|cat| held.worn(&cat, &vault).into_iter().find(|worn| worn.slot == slot)?.switch())
+    };
+    let Some(switch) = flip else {
+        return false;
+    };
+
+    {
+        let mut held = state.borrow_mut();
+
+        held.switches = held.switches.flipped(switch, held.lens.mode);
+    }
+
+    refresh(ui, state, context);
+    true
+}
+
 pub fn set_edited(state: &Shared, edited: Option<Edited>) {
     state.borrow_mut().edited = edited;
 }
@@ -287,13 +325,14 @@ pub struct Seed<'a> {
     pub form: usize,
     pub level: &'a str,
     pub talents: &'a HashMap<u8, u8>,
+    pub orbs: &'a [Option<u32>],
     pub locked: bool,
     pub grants: Option<Rc<Grants>>,
     pub treasure: Option<Bonus>,
 }
 
 pub fn seed_member(ui: &AppWindow, state: &Shared, context: &Rc<Context>, seed: Seed<'_>) {
-    let Seed { cat, form, level: level_input, talents, locked, grants, treasure } = seed;
+    let Seed { cat, form, level: level_input, talents, orbs, locked, grants, treasure } = seed;
 
     {
         let mut held = state.borrow_mut();
@@ -304,6 +343,7 @@ pub fn seed_member(ui: &AppWindow, state: &Shared, context: &Rc<Context>, seed: 
         held.talent_history.retain(|held| *held != cat.id);
         held.talent_history.push(cat.id);
         held.talent_levels.insert(cat.id, talents.clone());
+        held.slots = orbs.to_vec();
         held.form = form.min(cat.forms.len() - 1);
         let caps = cat.unitbuy.level_caps().filter(|_| !locked);
 
@@ -552,6 +592,7 @@ impl State {
             foe: Foe::default(),
             lens: Lens::default(),
             switches: Switches::default(),
+            slots: Vec::new(),
             edited: None,
             locked: false,
             granted: None,
@@ -567,6 +608,22 @@ impl State {
         }
 
         Some(cat)
+    }
+
+    fn worn(&self, cat: &CatEntry, vault: &Vault) -> Vec<Worn> {
+        if self.form < FIRST_FORM || self.granted.is_some() || self.seeded_for != Some(cat.id) {
+            return Vec::new();
+        }
+
+        let count = vault.vds.cats.orb_slots(&vault.vfs).get(&cat.id).copied().unwrap_or(0);
+        let doors = orb::open_slots(count, vault.vds.cats.orb_gates(&vault.vfs).get(&cat.id), self.level);
+        orb::worn(&vault.vds.cats.orbs(&vault.vfs), &vault.vds.cats.orb_masks(&vault.vfs), orb::picked(&self.slots, &doors))
+    }
+
+    fn sight(&self) -> (Lens, Option<Foe>) {
+        let switches = if self.versus { self.switches } else { Switches::default() };
+
+        (Lens { switches, switching: self.versus, ..self.lens }, self.versus.then_some(self.foe))
     }
 
     fn talented(&self, form: usize) -> bool {
@@ -1458,8 +1515,9 @@ fn refresh_abilities(ui: &AppWindow, state: &Shared, context: &Rc<Context>, glob
     let treasure = state.borrow().treasure.unwrap_or(globals.treasure);
     let mut final_stats = get_final_stats(base, cat.curve.as_ref(), level, talent_data, levels.as_ref(), &treasure);
 
-    if let Some(grants) = state.borrow().granted.as_ref() {
-        grants.apply(&mut final_stats);
+    match state.borrow().granted.as_ref() {
+        Some(grants) => grants.apply(&mut final_stats),
+        None => orb::dress(&mut final_stats, base, form, state.borrow().sight().0, &state.borrow().worn(cat, vault)),
     }
     let ctx = RenderContext {
         global: GlobalContext { treasure: &treasure, ..globals.context(vault) },
@@ -1596,6 +1654,7 @@ fn refresh_talents(ui: &AppWindow, state: &Shared, globals: &Rc<Globals>, vault:
     let np_icon = images.cut(vault, IMG022, img022::ICON_NP_COST);
 
     cats.set_np_total(total.to_string().into());
+    cats.set_np_room("8".repeat(talent_logic::get_max_np_cost(talent_data, costs).max(0).to_string().len()).into());
     cats.set_has_np_icon(np_icon.is_some());
     cats.set_np_icon(np_icon.unwrap_or_default());
     cats.set_normal_label(if availability.has_normal_enabled { "No Talents".into() } else { "All Talents".into() });
@@ -1902,11 +1961,11 @@ fn export(ui: &AppWindow, state: &Shared, context: &Rc<Context>) {
         return;
     };
     let vault = context.engine.vault();
-    let (form, level, level_input, talent_levels, conjure, granted, treasure) = {
+    let (form, level, level_input, talent_levels, conjure, granted, treasure, worn) = {
         let held = state.borrow();
         let talents = held.talented(held.form).then(|| held.levels_for(cat.id));
 
-        (held.form, held.level, held.level_input.clone(), talents, held.conjure_expanded.get(&cat.id).copied().unwrap_or(context.state.settings().cat_data.expand_spirit_details), held.granted.clone(), held.treasure.unwrap_or(globals.treasure))
+        (held.form, held.level, held.level_input.clone(), talents, held.conjure_expanded.get(&cat.id).copied().unwrap_or(context.state.settings().cat_data.expand_spirit_details), held.granted.clone(), held.treasure.unwrap_or(globals.treasure), held.worn(&cat, &vault))
     };
     let tab = state.borrow().tab;
     let landing = Rc::clone(state);
@@ -1934,6 +1993,7 @@ fn export(ui: &AppWindow, state: &Shared, context: &Rc<Context>) {
 
             Lens { hits: cat.stats.get(form).and_then(Option::as_ref).map_or(held.lens.hits, |stats| lens::settled(stats, held.lens.hits)), switches, switching: held.versus, ..held.lens }
         },
+        orbs: &worn,
     };
 
     if tab == Tab::Talents {

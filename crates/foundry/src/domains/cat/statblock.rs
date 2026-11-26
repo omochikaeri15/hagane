@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 
-use codex::combat::{Entity, Faction, Foe, Identity, get_talent};
+use codex::combat::orb::FIRST_FORM;
+use codex::combat::{Entity, Faction, Foe, Identity, Worn, get_talent};
 
 use crate::common::context::GlobalContext;
 use crate::common::io;
@@ -8,11 +9,12 @@ use crate::domains::cat::combo;
 use crate::domains::cat::game::talents as talent_logic;
 use crate::systems::combat::registry::{get_display_def, AbilityIcon, format_stat, Magnification, StatContext, STAT_ATK_CYCLE, STAT_ATTACK, STAT_COOLDOWN, STAT_COST, STAT_DPS, STAT_HITPOINTS, STAT_KNOCKBACKS, STAT_RANGE, STAT_RARITY, STAT_SPEED};
 use crate::systems::combat::{AbilityItem, CustomIcon, Mark, RenderContext};
-use crate::systems::statblock::{ComboCard, ComboSeat, DetailsData, EvolveCost, EvolveData, EvolveItem, SheetHead, SpiritData, StatCell, StatblockData, TalentCard, TalentsData};
+use crate::systems::statblock::{ComboCard, ComboSeat, DetailsData, EvolveCost, EvolveData, EvolveItem, OrbFace, SheetHead, SpiritData, StatCell, StatblockData, TalentCard, TalentsData};
 
 use super::files;
 use super::game::stats::get_final_stats;
 use super::grants::Grants;
+use super::orbs;
 use super::scanner::CatEntry;
 use super::versus;
 use crate::systems::combat::lens::{self, Lens, Pace};
@@ -28,6 +30,7 @@ pub struct Subject<'a> {
     pub global: GlobalContext<'a>,
     pub grants: Option<&'a Grants>,
     pub lens: Lens,
+    pub orbs: &'a [Worn],
 }
 
 const NO_DESCRIPTION: &str = "No description available";
@@ -151,11 +154,32 @@ fn resolved(subject: &Subject<'_>, base_stats: &Entity) -> Entity {
     let talent_levels = if form_allows_talents { subject.talent_levels } else { None };
     let mut final_stats = get_final_stats(base_stats, subject.cat.curve.as_ref(), subject.current_level, talent_data, talent_levels, subject.global.treasure);
 
-    if let Some(grants) = subject.grants {
-        grants.apply(&mut final_stats);
+    match subject.grants {
+        Some(grants) => grants.apply(&mut final_stats),
+        None => orbs::dress(&mut final_stats, base_stats, subject.form, subject.lens, subject.orbs),
     }
 
     final_stats
+}
+
+fn faces(subject: &Subject<'_>, stats: &Entity, foe: Foe) -> Vec<OrbFace> {
+    if subject.form < FIRST_FORM || subject.grants.is_some() || subject.orbs.is_empty() {
+        return Vec::new();
+    }
+
+    let vfs = &subject.global.vault.vfs;
+    let list = subject.global.vault.vds.cats.orbs(vfs);
+    let drawn = orbs::Faces::load(vfs);
+
+    subject
+        .orbs
+        .iter()
+        .filter_map(|worn| {
+            let shine = orbs::shine(stats, subject.lens, Some(foe), worn);
+
+            Some(OrbFace { id: worn.id, image: drawn.face(list.get(worn.id as usize)?)?, dimmed: !shine.lit, lit: shine.ringed })
+        })
+        .collect()
 }
 
 pub fn final_stats(subject: &Subject<'_>) -> Option<Entity> {
@@ -187,8 +211,9 @@ pub fn build_against(subject: Subject<'_>, versus: impl FnOnce(&Entity) -> Foe) 
     };
 
     let lens = Lens { hits: lens::settled(&final_stats, subject.lens.hits), ..subject.lens };
+    let worn = faces(&subject, &final_stats, foe);
 
-    Some(assemble(&ctx, cat, subject.form, subject.level_input.to_string(), subject.is_conjure_expanded, foe, lens))
+    Some(StatblockData { orbs: worn, ..assemble(&ctx, cat, subject.form, subject.level_input.to_string(), subject.is_conjure_expanded, foe, lens) })
 }
 
 fn assemble(
@@ -263,6 +288,7 @@ fn assemble(
         marks_2,
         traits, h1, h2, b1, b2, footer, spirit_data,
         tag: lens::tag(ctx.final_stats, lens),
+        orbs: Vec::new(),
     }
 }
 

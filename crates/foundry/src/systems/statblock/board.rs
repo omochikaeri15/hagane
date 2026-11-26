@@ -6,6 +6,8 @@ use imageproc::rect::Rect;
 
 use crate::Source;
 use crate::common::gfx::{autocrop, open_image};
+use crate::systems::combat::Mark;
+use crate::systems::statblock::OrbFace;
 
 use super::draw::*;
 use super::render::Fonts;
@@ -55,6 +57,10 @@ const HEADING_GAP: f32 = 6.0;
 const SECTION_BREAK: f32 = 14.0;
 const RAISED_SHADE: f32 = 0.75;
 const GROWTH: u32 = 2;
+
+const ORB_SIZE: f32 = 34.0;
+const ORB_GAP: f32 = 4.0;
+const DARKENED: f32 = 0.4;
 
 const FRAME_THICKNESS: f32 = 7.0;
 const FRAME_PADDING: f32 = 4.0;
@@ -340,9 +346,9 @@ impl Board {
         Self { image, at: rule + px(RULE_THICKNESS) + px(SECTION_GAP), sections: 0 }
     }
 
-    pub(super) fn tag(&mut self, font: &FontRef<'_>, text: &str) {
+    pub(super) fn tag(&mut self, font: &FontRef<'_>, text: &str) -> i32 {
         if text.is_empty() {
-            return;
+            return 0;
         }
 
         let scale = PxScale::from(INFO_TEXT_SIZE * RENDER_SCALE as f32);
@@ -362,6 +368,50 @@ impl Board {
             let band = CellShape::new(Rect::at(left, top).of_size(wide.max(1) as u32, line.max(1) as u32), 0, 0);
 
             draw_centered_text(&mut self.image, COLOR_TEXT, band, scale, font, held);
+        }
+
+        wide
+    }
+
+    pub(super) fn orbs(&mut self, faces: &[OrbFace], room: i32) {
+        let Some(count) = i32::try_from(faces.len()).ok().filter(|count| *count > 0) else {
+            return;
+        };
+        let natural = px(ORB_SIZE) * count + px(ORB_GAP) * (count - 1);
+        let room = if room > 0 { room.min(natural) } else { natural };
+        let size = px(ORB_SIZE).min(room);
+        let step = if count > 1 { (room - size) / (count - 1) } else { 0 };
+        let padding = px(CONTENT_PADDING);
+        let top = padding + px(HEADER_HEIGHT) - size;
+        let left = self.image.width() as i32 - padding - room;
+
+        for (at, face) in faces.iter().enumerate() {
+            let mut picture = safe_resize(face.image.clone(), size.max(1) as u32, size.max(1) as u32);
+
+            if face.dimmed {
+                for pixel in picture.pixels_mut() {
+                    for channel in &mut pixel.0[..3] {
+                        *channel = (f32::from(*channel) * DARKENED) as u8;
+                    }
+                }
+            }
+
+            imageops::overlay(&mut self.image, &picture, i64::from(left + step * at as i32), i64::from(top));
+        }
+
+        let Some(colors) = mark_colors(Mark::Hit) else {
+            return;
+        };
+        let lit: Vec<i32> = faces.iter().enumerate().filter(|(_, face)| face.lit).map(|(at, _)| step * at as i32).collect();
+        let edge = size.max(1) as u32;
+
+        if count > 1 && lit.len() == faces.len() {
+            imageops::overlay(&mut self.image, &ring(room.max(1) as u32, edge, px(RADIUS_SM), px(MARK_WIDTH), colors), i64::from(left), i64::from(top));
+            return;
+        }
+
+        for shift in lit {
+            imageops::overlay(&mut self.image, &ring(edge, edge, px(RADIUS_SM), px(MARK_WIDTH), colors), i64::from(left + shift), i64::from(top));
         }
     }
 

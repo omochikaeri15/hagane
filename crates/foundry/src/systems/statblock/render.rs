@@ -167,7 +167,9 @@ pub fn build_statblock_image(
     let title = Title { name: &data.name, id: &data.id_str, top: Some((&data.top_label, &data.top_value)) };
     let mut board = Board::open(max_needed_width, CANVAS_ROWS, &head, font, &title);
 
-    board.tag(font, &data.tag);
+    let room = board.tag(font, &data.tag);
+
+    board.orbs(&data.orbs, room);
 
     let custom_assets = custom_icons();
     let mut current_y_global = board.at;

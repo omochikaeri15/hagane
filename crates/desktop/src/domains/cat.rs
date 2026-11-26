@@ -4,6 +4,7 @@ mod details;
 mod export;
 mod filter;
 mod list;
+mod orbs;
 mod talents;
 mod ultra;
 
@@ -16,11 +17,12 @@ use std::thread;
 use iced::alignment::{Horizontal, Vertical};
 use iced::futures::channel::mpsc;
 use iced::widget::{
-    button, column, container, image as iced_image, row, rule,
-    text, text_input, Id, Space,
+    button, column, container, image as iced_image, responsive, row, rule,
+    text, text_input, Id, Row, Space,
 };
 use iced::{Border, Color, Element, Length, Size, Subscription, Task, Theme};
-use codex::combat::Entity;
+use codex::combat::orb::FIRST_FORM;
+use codex::combat::{Entity, Worn};
 use tracing::info;
 
 use foundry::common::context::GlobalContext;
@@ -29,9 +31,10 @@ use foundry::common::formats::SpriteSheet as CoreSpriteSheet;
 use foundry::domains::cat::animation as cat_animation;
 use foundry::domains::cat::game::stats::{get_final_stats, seeded_level};
 use foundry::domains::cat::level;
+use foundry::domains::cat::orbs::{self as orb, Allowance};
 use foundry::domains::cat::scanner::{self, CatEntry};
 use foundry::domains::cat::versus;
-use foundry::systems::combat::lens::Pace;
+use foundry::systems::combat::lens::{Lens, Pace};
 use foundry::domains::cat::waiter::unitid;
 use foundry::domains::cat::CatDataState;
 use foundry::domains::sandbox::jailbreak::Grants;
@@ -48,7 +51,7 @@ use crate::common::CustomAssets;
 use crate::common::SpriteSheet;
 use crate::common::header_icon::{self, HeaderIcon};
 use crate::editor;
-use crate::widget::{grid_frames, grid_header, grid_pair, grid_value, name_box, popup, roster_list, statblock_export, status};
+use crate::widget::{grid_frames, grid_header, grid_pair, grid_value, hover_hint, name_box, popup, roster_list, statblock_export, status};
 
 const HEADER_BUTTON_WIDTH: f32 = 65.0;
 const HEADER_BUTTON_HEIGHT: f32 = 26.0;
@@ -58,6 +61,18 @@ const TALENT_HISTORY_CAP: usize = 3;
 const EMPTY_CAT_ICON: &str = "uni.png";
 const ICON_BOX_WIDTH: f32 = 110.0;
 const ICON_BOX_HEIGHT: f32 = 96.0;
+const ORB_POPUP: Size = Size::new(310.0, 250.0);
+const SLOT_ORB_SIZE: f32 = 44.0;
+const ORB_HEADER_SIZE: f32 = 18.0;
+const LOCKED_SLOT: &str = "Opens at Lv60";
+const HEADER_SPACING: f32 = 12.0;
+const NAME_BOX_WIDTH: f32 = 123.0;
+const CARD_WIDTH: f32 = 100.0;
+const SLOT_WIDTH: f32 = 48.0;
+const SLOT_GAP: f32 = 6.0;
+const MORE_BUTTON_HEIGHT: f32 = 24.0;
+const MORE_GAP: f32 = 6.0;
+const MORE_POPUP: Size = Size::new(260.0, 240.0);
 
 pub(crate) struct CatChanges<'a> {
     pub(crate) images: &'a HashSet<u32>,
@@ -103,6 +118,10 @@ pub enum Message {
     ToggleWorld(bool),
     ToggleCombat(bool),
     HeaderAction(usize),
+    Orbs(orbs::Message),
+    OrbPopup(popup::Message),
+    OpenMore,
+    MorePopup(popup::Message),
     List(list::Message),
     Filter(filter::Message),
     Abilities(abilities::Message),
@@ -176,6 +195,10 @@ impl std::fmt::Debug for Message {
             Self::ToggleWorld(b) => write!(f, "ToggleWorld({})", b),
             Self::ToggleCombat(b) => write!(f, "ToggleCombat({})", b),
             Self::HeaderAction(index) => write!(f, "HeaderAction({})", index),
+            Self::Orbs(msg) => write!(f, "Orbs({msg:?})"),
+            Self::OrbPopup(_) => write!(f, "OrbPopup"),
+            Self::OpenMore => write!(f, "OpenMore"),
+            Self::MorePopup(_) => write!(f, "MorePopup"),
             Self::List(msg) => write!(f, "List({:?})", msg),
             Self::Filter(msg) => write!(f, "Filter({:?})", msg),
             Self::Abilities(msg) => write!(f, "Abilities({:?})", msg),
@@ -198,6 +221,17 @@ pub struct State {
     pub talent_levels: HashMap<u32, HashMap<u8, u8>>,
     pub talent_history: VecDeque<u32>,
     pub talent_level_inputs: HashMap<u8, String>,
+    pub worn: HashMap<u32, Vec<Option<u32>>>,
+
+    orbs: orbs::State,
+    orb_slot: Option<usize>,
+    orb_popup: popup::State,
+    orb_spec: popup::Spec,
+    orb_locked: bool,
+    allowance: Allowance,
+    more_popup: popup::State,
+    more_spec: popup::Spec,
+    more_open: bool,
 
     img015_sheets: Vec<SpriteSheet>,
     img022_sheets: Vec<SpriteSheet>,
@@ -239,6 +273,17 @@ impl Default for State {
             talent_levels: HashMap::new(),
             talent_history: VecDeque::new(),
             talent_level_inputs: HashMap::new(),
+            worn: HashMap::new(),
+
+            orbs: orbs::State::default(),
+            orb_slot: None,
+            orb_popup: popup::State::default(),
+            orb_spec: popup::Spec::new(popup::Kind::CatOrb, ORB_POPUP),
+            orb_locked: false,
+            allowance: Allowance::default(),
+            more_popup: popup::State::default(),
+            more_spec: popup::Spec::new(popup::Kind::CatMore, MORE_POPUP),
+            more_open: false,
 
             img015_sheets: Vec::new(),
             img022_sheets: Vec::new(),
@@ -271,6 +316,7 @@ pub(crate) struct Inspected<'a> {
     pub(crate) form: usize,
     pub(crate) level: &'a str,
     pub(crate) talents: Option<&'a HashMap<u8, u8>>,
+    pub(crate) orbs: Option<&'a Vec<Option<u32>>>,
 }
 
 pub(crate) enum Picked {
@@ -291,6 +337,21 @@ impl Message {
 impl State {
     pub(crate) fn inspector(scope: &'static str, banner_form: usize, export: popup::Kind) -> Self {
         Self { list: list::State::scoped(scope, banner_form), animation: animation::State::with_popup(export), details: details::State::inspecting(), ..Self::default() }
+    }
+
+    pub(crate) fn orbing(mut self, kind: popup::Kind) -> Self {
+        self.orb_spec = popup::Spec::new(kind, ORB_POPUP);
+        self
+    }
+
+    pub(crate) fn moring(mut self, kind: popup::Kind) -> Self {
+        self.more_spec = popup::Spec::new(kind, MORE_POPUP);
+        self
+    }
+
+    pub(crate) fn lock_orbs(mut self) -> Self {
+        self.orb_locked = true;
+        self
     }
 
     pub(crate) fn granting(mut self) -> Self {
@@ -341,17 +402,21 @@ impl State {
         Task::batch([
             self.filter.refresh_available(available).map(Message::Filter),
             self.check_sheets(&vault.vfs),
+            self.orbs.load(vault).map(Message::Orbs),
             self.list.take_scroll(),
         ])
     }
 
-    pub(crate) fn inspect(&mut self, id: u32, form: usize, level: &str, talents: &HashMap<u8, u8>) {
+    pub(crate) fn inspect(&mut self, id: u32, form: usize, level: &str, talents: &HashMap<u8, u8>, orbs: &[Option<u32>]) {
         self.selected_cat = Some(id);
         self.selected_form = form;
         self.selected_tab = DetailTab::Abilities;
         self.talent_level_inputs.clear();
         self.talent_levels.clear();
         self.talent_levels.insert(id, talents.clone());
+        self.worn.clear();
+        self.worn.insert(id, orbs.to_vec());
+        self.orb_slot = None;
         let caps = self.data.cats.iter().find(|cat| cat.id == id).and_then(|cat| cat.unitbuy.level_caps()).filter(|_| self.granted.is_none());
 
         self.level_input = level::capped(level, caps);
@@ -363,7 +428,7 @@ impl State {
     pub(crate) fn inspected(&self) -> Option<Inspected<'_>> {
         let id = self.selected_cat?;
 
-        Some(Inspected { form: self.selected_form, level: &self.level_input, talents: self.talent_levels.get(&id) })
+        Some(Inspected { form: self.selected_form, level: &self.level_input, talents: self.talent_levels.get(&id), orbs: self.worn.get(&id) })
     }
 
     pub(crate) fn restore_list(&mut self, offset: f32, query: &str) -> Task<Message> {
@@ -384,21 +449,97 @@ impl State {
         self.view_sidebar(footer)
     }
 
-    pub(crate) fn detail_view<'a>(
-        &'a self,
-        settings: &'a Settings,
-        app_state: &'a AppState,
-        global_ctx: GlobalContext<'a>,
-        extra: Option<Element<'a, Message>>,
-    ) -> Element<'a, Message> {
-        self.view_main_content(settings, app_state, global_ctx, extra)
+    pub(crate) fn detail_view<'a>(&'a self, settings: &'a Settings, app_state: &'a AppState, global_ctx: GlobalContext<'a>) -> Element<'a, Message> {
+        self.view_main_content(settings, app_state, global_ctx)
     }
 
-    pub(crate) fn header_action(message: &Message) -> Option<usize> {
-        match message {
-            Message::HeaderAction(index) => Some(*index),
-            _ => None,
+    fn orb_doors(&self, cat: &CatEntry, vault: &Vault) -> Vec<bool> {
+        if self.selected_form < FIRST_FORM || self.granted.is_some() {
+            return Vec::new();
         }
+
+        let count = vault.vds.cats.orb_slots(&vault.vfs).get(&cat.id).copied().unwrap_or(0);
+        let gates = vault.vds.cats.orb_gates(&vault.vfs);
+
+        orb::open_slots(count, gates.get(&cat.id), self.current_level)
+    }
+
+    fn worn_orbs(&self, cat: &CatEntry, vault: &Vault) -> Vec<Worn> {
+        let doors = self.orb_doors(cat, vault);
+        let held = self.worn.get(&cat.id).map_or(&[][..], Vec::as_slice);
+
+        orb::worn(self.orbs.catalog(), &vault.vds.cats.orb_masks(&vault.vfs), orb::picked(held, &doors))
+    }
+
+    fn bare_stats(&self, cat: &CatEntry, global_ctx: GlobalContext<'_>) -> Option<(Entity, Entity)> {
+        let dynamic_stats = self.dynamic_stats(&global_ctx.vault.vfs, cat.id);
+        let base_stats = dynamic_stats.as_ref().and_then(|forms| forms.get(self.selected_form))?;
+        let talented = self.talented(self.selected_form);
+        let talent_data = if talented { cat.talent_data.as_ref() } else { None };
+        let talent_levels = if talented { self.talent_levels.get(&cat.id) } else { None };
+
+        Some((base_stats.clone(), get_final_stats(base_stats, cat.curve.as_ref(), self.current_level, talent_data, talent_levels, global_ctx.treasure)))
+    }
+
+    pub(crate) fn orb_popup_open(&self) -> bool {
+        self.orb_slot.is_some() && self.selected_cat.is_some()
+    }
+
+    pub fn orb_popup_view<'a>(&'a self, window: Size, names: &'a NameBook) -> Option<Element<'a, Message>> {
+        let slot = self.orb_slot?;
+        let held = self.worn.get(&self.selected_cat?).and_then(|held| held.get(slot).copied().flatten());
+
+        Some(self.orb_popup.view("Orb", self.orb_spec, window, Message::OrbPopup, move || self.orbs.view(held, &self.allowance, names).map(Message::Orbs), None))
+    }
+
+    pub(crate) fn orb_picture<'a, M: 'a>(&self, orb: u32, size: f32) -> Element<'a, M> {
+        self.orbs.picture(orb, size)
+    }
+
+    pub(crate) fn orb_catalog(&self) -> &[codex::cat::unit::Equipment] {
+        self.orbs.catalog()
+    }
+
+    fn orb_header<'a>(&'a self, cat: &'a CatEntry, global_ctx: GlobalContext<'_>) -> Option<Element<'a, Message>> {
+        let doors = self.orb_doors(cat, global_ctx.vault);
+
+        if doors.is_empty() {
+            return None;
+        }
+
+        let bare = self.bare_stats(cat, global_ctx).map(|(_, stats)| stats);
+        let lens = bare.as_ref().map_or_else(Lens::default, |stats| self.abilities.lens(stats));
+        let foe = self.abilities.versus();
+        let worn = self.worn_orbs(cat, global_ctx.vault);
+        let held = self.worn.get(&cat.id);
+        let mut slots = row![].spacing(6);
+
+        for (slot, open) in doors.into_iter().enumerate() {
+            let orb = held.and_then(|held| held.get(slot).copied().flatten());
+
+            if !open {
+                let label = container(text("Lv60").size(12).style(|theme: &Theme| text::Style { color: Some(theme::weak_text_color(theme)) }))
+                    .center_x(Length::Fixed(SLOT_ORB_SIZE))
+                    .center_y(Length::Fixed(SLOT_ORB_SIZE));
+                let shut = button(label).padding(2).style(theme::neutral_button);
+
+                slots = slots.push(hover_hint(shut, LOCKED_SLOT));
+                continue;
+            }
+
+            let on = worn.iter().find(|held| held.slot == slot);
+            let shine = on.zip(bare.as_ref()).map(|(held, stats)| orb::shine(stats, lens, foe, held)).unwrap_or_default();
+            let face: Element<'a, Message> = match orb {
+                Some(orb) => self.orbs.shaded(orb, SLOT_ORB_SIZE, !shine.lit, shine.ringed),
+                None => container(text("+").size(20)).center_x(Length::Fixed(SLOT_ORB_SIZE)).center_y(Length::Fixed(SLOT_ORB_SIZE)).into(),
+            };
+            let flip = on.and_then(Worn::switch).filter(|_| foe.is_some()).map(|switch| Message::Abilities(abilities::Message::Flip(switch)));
+            let press = flip.or_else(|| (!self.orb_locked).then_some(Message::HeaderAction(slot)));
+
+            slots = slots.push(button(face).padding(2).style(theme::neutral_button).on_press_maybe(press));
+        }
+
+        Some(column![theme::bold_text("Orbs").size(ORB_HEADER_SIZE), slots].spacing(6).align_x(Horizontal::Center).into())
     }
 
     pub(crate) fn seeded(&self, id: u32, banner_form: usize, settings: &Settings) -> Option<(usize, String)> {
@@ -625,7 +766,7 @@ impl State {
             }
         });
 
-        Task::batch([Task::stream(rx), self.check_sheets(&vault.vfs)])
+        Task::batch([Task::stream(rx), self.check_sheets(&vault.vfs), self.orbs.load(vault).map(Message::Orbs)])
     }
 
     pub fn rescan(&mut self, settings: &Settings, vault: &Arc<Vault>, active_mod: Option<String>) -> Task<Message> {
@@ -907,7 +1048,53 @@ impl State {
                 settings.animation.show_combat = val;
                 Task::none()
             }
-            Message::HeaderAction(_) => Task::none(),
+            Message::HeaderAction(slot) => {
+                let open = self.selected_cat.and_then(|id| self.data.cats.iter().find(|cat| cat.id == id)).is_some_and(|cat| self.orb_doors(cat, global_ctx.vault).get(slot).copied().unwrap_or(false));
+
+                if open && !self.orb_locked {
+                    self.allowance = self.selected_cat.and_then(|id| self.data.cats.iter().find(|cat| cat.id == id)).map_or_else(Allowance::default, |cat| Allowance::of(cat, global_ctx.vault.vds.cats.orb_masks(&global_ctx.vault.vfs)));
+                    self.orb_slot = Some(slot);
+                }
+
+                Task::none()
+            }
+            Message::Orbs(msg) => {
+                let held = self.orb_slot.zip(self.selected_cat).and_then(|(slot, id)| self.worn.get(&id)?.get(slot).copied().flatten());
+
+                if let orbs::Outcome::Equip(picked) = self.orbs.update(msg, held, &self.allowance, global_ctx.names)
+                    && let Some((slot, id)) = self.orb_slot.zip(self.selected_cat)
+                {
+                    let count = global_ctx.vault.vds.cats.orb_slots(&global_ctx.vault.vfs).get(&id).copied().unwrap_or(0);
+                    let held = self.worn.entry(id).or_default();
+
+                    held.resize(held.len().max(count), None);
+
+                    if let Some(target) = held.get_mut(slot) {
+                        *target = picked;
+                    }
+                }
+
+                Task::none()
+            }
+            Message::OrbPopup(msg) => {
+                if self.orb_popup.update(msg, self.orb_spec) {
+                    self.orb_slot = None;
+                }
+
+                Task::none()
+            }
+            Message::OpenMore => {
+                self.more_open = true;
+
+                Task::none()
+            }
+            Message::MorePopup(msg) => {
+                if self.more_popup.update(msg, self.more_spec) {
+                    self.more_open = false;
+                }
+
+                Task::none()
+            }
             Message::ToggleTalents(is_ultra) => {
                 let talent_data = self.selected_cat
                     .and_then(|id| self.data.cats.iter().find(|c| c.id == id))
@@ -960,6 +1147,7 @@ impl State {
             }
             Message::Export(msg) => {
                 let cat = self.selected_cat.and_then(|id| self.data.cats.iter().find(|c| c.id == id));
+                let worn = cat.map_or_else(Vec::new, |cat| self.worn_orbs(cat, global_ctx.vault));
                 let ctx = cat.map(|cat| export::Ctx {
                     tab: self.selected_tab,
                     cat,
@@ -975,6 +1163,7 @@ impl State {
                     grants: self.granted.as_ref(),
                     foe: self.abilities.versus().unwrap_or_default(),
                     lens: self.abilities.lens(cat.stats.get(self.selected_form).and_then(Option::as_ref).unwrap_or(&Entity::default())),
+                    orbs: worn,
                 });
 
                 self.export.update(msg, || ctx.and_then(export::request)).map(Message::Export)
@@ -1032,7 +1221,7 @@ impl State {
 
     pub fn view<'a>(&'a self, settings: &'a Settings, app_state: &'a AppState, global_ctx: GlobalContext<'a>) -> Element<'a, Message> {
         let sidebar = self.view_sidebar(None);
-        let main_content = self.view_main_content(settings, app_state, global_ctx, None);
+        let main_content = self.view_main_content(settings, app_state, global_ctx);
 
         let base_layout = row![sidebar, main_content]
             .width(Length::Fill)
@@ -1103,13 +1292,7 @@ impl State {
         Some(status("Scanning Cats...", Some(format!("{} / {}", done, total))))
     }
 
-    fn view_main_content<'a>(
-        &'a self,
-        settings: &'a Settings,
-        app_state: &'a AppState,
-        global_ctx: GlobalContext<'a>,
-        extra: Option<Element<'a, Message>>,
-    ) -> Element<'a, Message> {
+    fn view_main_content<'a>(&'a self, settings: &'a Settings, app_state: &'a AppState, global_ctx: GlobalContext<'a>) -> Element<'a, Message> {
         if let Some(progress) = self.scan_status() {
             return progress;
         }
@@ -1132,7 +1315,7 @@ impl State {
                 .into();
         };
 
-        let header = self.view_header(cat, &global_ctx.vault.vfs, settings, extra);
+        let header = self.view_header(cat, settings, global_ctx);
 
         let content = match self.selected_tab {
             DetailTab::Abilities => self.view_abilities(cat, settings, global_ctx),
@@ -1157,13 +1340,7 @@ impl State {
             .into()
     }
 
-    fn view_header<'a>(
-        &'a self,
-        cat: &'a CatEntry,
-        vfs: &Vfs,
-        settings: &'a Settings,
-        extra: Option<Element<'a, Message>>,
-    ) -> Element<'a, Message> {
+    fn view_header<'a>(&'a self, cat: &'a CatEntry, settings: &'a Settings, global_ctx: GlobalContext<'a>) -> Element<'a, Message> {
         let mut form_row = row![].spacing(4);
         let form_labels = ["Normal", "Evolved", "True", "Ultra"];
 
@@ -1209,56 +1386,7 @@ impl State {
             };
         }
 
-        let mut detail_row = row![
-            self.view_cat_icon(cat, vfs),
-            self.view_info_box(cat),
-        ].spacing(12).align_y(Vertical::Center);
-
-        if self.selected_tab == DetailTab::Abilities {
-            detail_row = detail_row.push(Space::new().width(Length::Fixed(15.0)));
-            detail_row = detail_row.push(container(rule::vertical(1)).height(Length::Fixed(96.0)));
-            detail_row = detail_row.push(Space::new().width(Length::Fixed(EXPORT_BUTTON_RULE_GAP)));
-            detail_row = match cat.stats.get(self.selected_form).and_then(Option::as_ref) {
-                Some(stats) => detail_row.push(self.abilities.header(stats).map(Message::Abilities)),
-                None => detail_row.push(self.abilities.versus_card().map(Message::Abilities)),
-            };
-            detail_row = detail_row.push(Space::new().width(Length::Fixed(EXPORT_BUTTON_RULE_GAP)));
-            detail_row = detail_row.push(container(rule::vertical(1)).height(Length::Fixed(96.0)));
-            detail_row = detail_row.push(Space::new().width(Length::Fixed(EXPORT_BUTTON_RULE_GAP)));
-            detail_row = detail_row.push(self.export.view().map(Message::Export));
-        } else if self.selected_tab == DetailTab::Talents
-            && let Some(talent_data) = cat.talent_data.as_ref() {
-            detail_row = detail_row.push(Space::new().width(Length::Fixed(15.0)));
-            detail_row = detail_row.push(container(rule::vertical(1)).height(Length::Fixed(96.0)));
-            detail_row = detail_row.push(Space::new().width(Length::Fixed(EXPORT_BUTTON_RULE_GAP)));
-            detail_row = detail_row.push(
-                self.talents
-                    .header_view(talent_data, self.talent_levels.get(&cat.id), &cat.talent_costs, &self.img022_sheets)
-                    .map(Message::Talents),
-            );
-
-            if let Some(extra) = extra {
-                detail_row = detail_row.push(Space::new().width(Length::Fixed(15.0)));
-                detail_row = detail_row.push(container(rule::vertical(1)).height(Length::Fixed(96.0)));
-                detail_row = detail_row.push(Space::new().width(Length::Fixed(15.0)));
-                detail_row = detail_row.push(extra);
-            }
-
-            detail_row = detail_row.push(Space::new().width(Length::Fixed(15.0)));
-            detail_row = detail_row.push(container(rule::vertical(1)).height(Length::Fixed(96.0)));
-            detail_row = detail_row.push(Space::new().width(Length::Fixed(EXPORT_BUTTON_RULE_GAP)));
-            detail_row = detail_row.push(self.export.view().map(Message::Export));
-        } else if self.selected_tab == DetailTab::Details {
-            detail_row = detail_row.push(Space::new().width(Length::Fixed(15.0)));
-            detail_row = detail_row.push(container(rule::vertical(1)).height(Length::Fixed(96.0)));
-            detail_row = detail_row.push(Space::new().width(Length::Fixed(EXPORT_BUTTON_RULE_GAP)));
-            detail_row = detail_row.push(self.export.view().map(Message::Export));
-        } else if self.selected_tab == DetailTab::Animation {
-            detail_row = detail_row.push(Space::new().width(Length::Fixed(15.0)));
-            detail_row = detail_row.push(container(rule::vertical(1)).height(Length::Fixed(96.0)));
-            detail_row = detail_row.push(Space::new().width(Length::Fixed(EXPORT_BUTTON_RULE_GAP)));
-            detail_row = detail_row.push(animation::debug_toggles(settings, Message::ToggleOrigin, Message::ToggleParts, Message::ToggleWorld, Some(Message::ToggleCombat)));
-        }
+        let detail_row = container(responsive(move |size| self.detail_row(cat, settings, global_ctx, size.width))).height(Length::Fixed(ICON_BOX_HEIGHT));
 
         column![
             Space::new().height(Length::Fixed(HEADER_BUTTON_TOP_PADDING)),
@@ -1272,6 +1400,123 @@ impl State {
             Space::new().height(Length::Fixed(8.0)),
             detail_row,
         ].into()
+    }
+
+    fn detail_row<'a>(&'a self, cat: &'a CatEntry, settings: &'a Settings, global_ctx: GlobalContext<'a>, width: f32) -> Element<'a, Message> {
+        let vfs = &global_ctx.vault.vfs;
+        let identity = row![self.view_cat_icon(cat, vfs), self.view_info_box(cat)].spacing(12).align_y(Vertical::Center);
+        let crushed = width < self.natural_width(cat, global_ctx);
+        let mut groups: Vec<Element<'a, Message>> = vec![identity.into()];
+
+        if self.selected_tab == DetailTab::Abilities {
+            if crushed {
+                groups.push(Self::divided(15.0, column![self.export.view().map(Message::Export), self.more_button(MORE_BUTTON_HEIGHT)].spacing(MORE_GAP).into()));
+
+                return Row::with_children(groups).spacing(12).align_y(Vertical::Center).into();
+            }
+
+            let cards = match cat.stats.get(self.selected_form).and_then(Option::as_ref) {
+                Some(stats) => self.abilities.header(stats).map(Message::Abilities),
+                None => self.abilities.versus_card().map(Message::Abilities),
+            };
+
+            groups.push(Self::divided(15.0, cards));
+
+            if let Some(orbs) = self.orb_header(cat, global_ctx) {
+                groups.push(Self::divided(EXPORT_BUTTON_RULE_GAP, orbs));
+            }
+
+            groups.push(Self::divided(EXPORT_BUTTON_RULE_GAP, self.export.view().map(Message::Export)));
+        } else if self.selected_tab == DetailTab::Talents
+            && let Some(talent_data) = cat.talent_data.as_ref() {
+            let header = self.talents.header_view(talent_data, self.talent_levels.get(&cat.id), &cat.talent_costs, &self.img022_sheets, crushed).map(Message::Talents);
+
+            if crushed {
+                groups.push(Self::divided(15.0, column![header, self.more_button(talents::COMPACT_BTN_HEIGHT)].spacing(talents::COMPACT_GAP).align_x(Horizontal::Center).into()));
+            } else {
+                groups.push(Self::divided(15.0, header));
+                groups.push(Self::divided(EXPORT_BUTTON_RULE_GAP, self.export.view().map(Message::Export)));
+            }
+        } else if self.selected_tab == DetailTab::Details {
+            groups.push(Self::divided(15.0, self.export.view().map(Message::Export)));
+        } else if self.selected_tab == DetailTab::Animation {
+            groups.push(Self::divided(15.0, animation::debug_toggles(settings, Message::ToggleOrigin, Message::ToggleParts, Message::ToggleWorld, Some(Message::ToggleCombat))));
+        }
+
+        Row::with_children(groups).spacing(12).align_y(Vertical::Center).into()
+    }
+
+    fn natural_width(&self, cat: &CatEntry, global_ctx: GlobalContext<'_>) -> f32 {
+        let identity = ICON_BOX_WIDTH + HEADER_SPACING + NAME_BOX_WIDTH;
+        let divided = |lead: f32, body: f32| HEADER_SPACING + lead + HEADER_SPACING * 3.0 + 1.0 + EXPORT_BUTTON_RULE_GAP + body;
+
+        match self.selected_tab {
+            DetailTab::Abilities => {
+                let slots = self.orb_doors(cat, global_ctx.vault).len() as f32;
+                let orbs = if slots > 0.0 { divided(EXPORT_BUTTON_RULE_GAP, (slots * SLOT_WIDTH + (slots - 1.0) * SLOT_GAP).max(SLOT_WIDTH)) } else { 0.0 };
+
+                identity + divided(15.0, CARD_WIDTH) + orbs + divided(EXPORT_BUTTON_RULE_GAP, CARD_WIDTH)
+            }
+            DetailTab::Talents => identity + divided(15.0, CARD_WIDTH) + divided(EXPORT_BUTTON_RULE_GAP, CARD_WIDTH),
+            DetailTab::Details | DetailTab::Animation => 0.0,
+        }
+    }
+
+    fn more_button<'a>(&self, height: f32) -> Element<'a, Message> {
+        button(theme::centered_text("More Actions").size(12))
+            .width(Length::Fixed(CARD_WIDTH))
+            .height(Length::Fixed(height))
+            .padding(0)
+            .style(theme::primary_button)
+            .on_press(Message::OpenMore)
+            .into()
+    }
+
+    pub(crate) fn more_popup_open(&self) -> bool {
+        self.more_open && self.selected_cat.is_some()
+    }
+
+    pub fn more_popup_view<'a>(&'a self, window: Size, global_ctx: GlobalContext<'a>) -> Option<Element<'a, Message>> {
+        if !self.more_popup_open() {
+            return None;
+        }
+
+        let cat = self.data.cats.iter().find(|cat| Some(cat.id) == self.selected_cat)?;
+
+        Some(self.more_popup.view("More Actions", self.more_spec, window, Message::MorePopup, move || self.more_body(cat, global_ctx), None))
+    }
+
+    fn more_body<'a>(&'a self, cat: &'a CatEntry, global_ctx: GlobalContext<'a>) -> Element<'a, Message> {
+        let body: Element<'a, Message> = match self.selected_tab {
+            DetailTab::Abilities => {
+                let cards = match cat.stats.get(self.selected_form).and_then(Option::as_ref) {
+                    Some(stats) => self.abilities.header(stats).map(Message::Abilities),
+                    None => self.abilities.versus_card().map(Message::Abilities),
+                };
+                let mut stack = column![cards].spacing(10).align_x(Horizontal::Center);
+
+                if let Some(orbs) = self.orb_header(cat, global_ctx) {
+                    stack = stack.push(rule::horizontal(1)).push(orbs);
+                }
+
+                stack.into()
+            }
+            _ => self.export.view().map(Message::Export),
+        };
+
+        container(body).padding(10).center_x(Length::Fill).into()
+    }
+
+    fn divided<'a>(lead: f32, body: Element<'a, Message>) -> Element<'a, Message> {
+        row![
+            Space::new().width(Length::Fixed(lead)),
+            container(rule::vertical(1)).height(Length::Fixed(96.0)),
+            Space::new().width(Length::Fixed(EXPORT_BUTTON_RULE_GAP)),
+            body,
+        ]
+        .spacing(12)
+        .align_y(Vertical::Center)
+        .into()
     }
 
     fn view_cat_icon(&self, cat: &CatEntry, vfs: &Vfs) -> Element<'_, Message> {
@@ -1335,8 +1580,9 @@ impl State {
 
         let mut final_stats = get_final_stats(base_stats, cat.curve.as_ref(), self.current_level, talent_data, talent_levels, global_ctx.treasure);
 
-        if let Some(grants) = self.granted.as_ref() {
-            grants.apply(&mut final_stats);
+        match self.granted.as_ref() {
+            Some(grants) => grants.apply(&mut final_stats),
+            None => orb::dress(&mut final_stats, base_stats, self.selected_form, self.abilities.lens(base_stats), &self.worn_orbs(cat, global_ctx.vault)),
         }
 
         let cat_ctx = RenderContext {

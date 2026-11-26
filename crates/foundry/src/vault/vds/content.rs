@@ -94,6 +94,8 @@ mod tests {
         combo_params: Option<u8>,
         orbs: Option<u8>,
         orb_slots: Option<u8>,
+        orb_gates: Option<u8>,
+        orb_masks: Option<u8>,
     }
 
     #[derive(Default, Serialize)]
@@ -112,6 +114,8 @@ mod tests {
         combo_params: Option<u8>,
         orbs: Option<u8>,
         orb_slots: Option<u8>,
+        orb_gates: Option<u8>,
+        orb_masks: Option<u8>,
     }
 
     #[derive(Default, Serialize)]

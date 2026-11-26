@@ -779,7 +779,19 @@ pub fn wire(window: &AppWindow, state: &Shared, context: &Rc<Context>) {
         let treasure = treasure.or(kept);
         let levels = grants.as_ref().map_or_else(|| talent_levels(&cat, &unit.talents), |grants| grants.levels.clone());
 
-        cats::seed_member(&ui, &pages.cats, &ctx, cats::Seed { cat: &cat, form, level: &inspected, talents: &levels, locked: true, grants, treasure });
+        let mut orbs: Vec<Option<u32>> = Vec::new();
+
+        for (slot, orb) in &unit.orbs {
+            if let (Ok(slot), Ok(orb)) = (usize::try_from(*slot), u32::try_from(*orb)) {
+                if orbs.len() <= slot {
+                    orbs.resize(slot + 1, None);
+                }
+
+                orbs[slot] = Some(orb);
+            }
+        }
+
+        cats::seed_member(&ui, &pages.cats, &ctx, cats::Seed { cat: &cat, form, level: &inspected, talents: &levels, orbs: &orbs, locked: true, grants, treasure });
         held.borrow_mut().replay.opened = Some(slot);
         ui.global::<Sandbox>().set_unit_tab(Tab::Replay.index());
         ui.global::<Sandbox>().set_unit_open(true);

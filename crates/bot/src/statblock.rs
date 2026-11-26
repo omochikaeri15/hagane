@@ -5,9 +5,11 @@ use std::path::Path;
 use image::{ImageFormat, RgbaImage};
 use tracing::warn;
 
-use codex::combat::Entity;
+use codex::combat::orb::FIRST_FORM;
+use codex::combat::{Entity, Worn};
 use foundry::Source;
 
+use foundry::domains::cat::orbs;
 use foundry::domains::cat::scanner::CatEntry;
 use foundry::domains::cat::statblock::{self as cat_statblock, Subject as CatSubject};
 use foundry::domains::enemy::scanner::EnemyEntry;
@@ -31,6 +33,7 @@ pub(crate) struct Shown<'a> {
     pub(crate) level: i32,
     pub(crate) level_input: &'a str,
     pub(crate) talents: Option<&'a HashMap<u8, u8>>,
+    pub(crate) orbs: &'a [Worn],
 }
 
 impl<'a> Shown<'a> {
@@ -45,8 +48,21 @@ impl<'a> Shown<'a> {
             global: library.context(),
             grants: None,
             lens: Lens::default(),
+            orbs: self.orbs,
         }
     }
+}
+
+pub(crate) fn worn(library: &Library, cat: &CatEntry, form: usize, level: i32, slots: &[Option<u32>]) -> Vec<Worn> {
+    if form < FIRST_FORM {
+        return Vec::new();
+    }
+
+    let vault = &library.vault;
+    let count = vault.vds.cats.orb_slots(&vault.vfs).get(&cat.id).copied().unwrap_or(0);
+    let doors = orbs::open_slots(count, vault.vds.cats.orb_gates(&vault.vfs).get(&cat.id), level);
+
+    orbs::worn(&vault.vds.cats.orbs(&vault.vfs), &vault.vds.cats.orb_masks(&vault.vfs), orbs::picked(slots, &doors))
 }
 
 pub(crate) fn cat_stats(library: &Library, shown: Shown<'_>) -> Option<Entity> {

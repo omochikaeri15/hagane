@@ -7,11 +7,12 @@ use std::sync::Arc;
 use dioxus::html::input_data::MouseButton;
 use dioxus::prelude::*;
 
+use codex::combat::{Switch, Worn};
+
 use foundry::common::architecture::GAME;
 use foundry::domains::cat::filter::evaluation;
 use foundry::domains::cat::game::stats::{get_final_stats, seeded_level};
 use foundry::domains::cat::scanner::{self, CatEntry};
-use foundry::domains::sandbox::orb::Allowance;
 use foundry::domains::sandbox::{Arrangement, BENCH_SLOTS, Cell, Edge, LINEUP_SLOTS, Lineup, Member, Placed, Roster};
 use foundry::systems::treasure::Bonus;
 
@@ -272,6 +273,7 @@ fn price(lineup: &Lineup, cats: &[CatEntry], rules: &Ruled) -> HashMap<Cell, Pri
 struct Recruiter {
     cats: Rc<Vec<CatEntry>>,
     orb_slots: Arc<HashMap<u32, usize>>,
+    orb_gates: Arc<HashMap<u32, Vec<i32>>>,
     banner_form: usize,
 }
 
@@ -334,7 +336,7 @@ pub(crate) fn Editor(cats: Cats, globals: Shared, rules: Ruled, altar: Option<u3
 
     let vault = globals.0.vault();
     let banner_form = settings.read().sandbox.banner_form;
-    let recruiter = Recruiter { cats: Rc::clone(&cats.0), orb_slots: vault.vds.cats.orb_slots(&vault.vfs), banner_form };
+    let recruiter = Recruiter { cats: Rc::clone(&cats.0), orb_slots: vault.vds.cats.orb_slots(&vault.vfs), orb_gates: vault.vds.cats.orb_gates(&vault.vfs), banner_form };
     let held = sandbox.read();
     let lineup = Rc::new(held.roster.current().cloned().unwrap_or_default());
     let roster_names: Vec<(usize, String, usize)> = held.roster.lineups.iter().enumerate().map(|(index, lineup)| (index, lineup.name.clone(), lineup.slots.len())).collect();
@@ -490,7 +492,7 @@ pub(crate) fn Editor(cats: Cats, globals: Shared, rules: Ruled, altar: Option<u3
                         if let Some(member) = member
                             && let Some(cat) = cats.iter().find(|cat| cat.id == member.id)
                         {
-                            cat_state.seed(cat, member.form, &member.level, &member.talents);
+                            cat_state.seed(cat, member.form, &member.level, &member.talents, &member.orbs);
                             editing.set(Some(member.id));
                             orb_slot.set(None);
                         }
@@ -568,7 +570,8 @@ pub(crate) fn Editor(cats: Cats, globals: Shared, rules: Ruled, altar: Option<u3
         };
         let badge = if plus > 0 { format!("Lv{level}+{plus}") } else { format!("Lv{level}") };
         let priced_cell = priced.get(&source).copied().unwrap_or_default();
-        let worn: Vec<u32> = member.worn(recruiter.orb_slots.get(&member.id).copied().unwrap_or(0), &shelf.0.orbs).map(|(_, orb)| orb).collect();
+        let open = member.open(recruiter.orb_slots.get(&member.id).copied().unwrap_or(0), recruiter.orb_gates.get(&member.id), caps);
+        let worn: Vec<u32> = member.worn(&open, &shelf.0.orbs).map(|(_, orb)| orb).collect();
         let orb_size = ORB_SIZE * metrics.scale;
         let fallback = format!("{:03}-{}", member.id, member.form + 1);
         let coin = coin.clone().filter(|_| priced_cell.talented);
@@ -980,24 +983,32 @@ fn UnitPopup(cat: SelectedCat, member: Member, cell: Cell, globals: Shared, shel
         });
     });
 
-    let allowance = Allowance::of(&cat.0);
-    let header = (form >= FIRST_TALENT_FORM && slots > 0).then(|| {
-        rsx! {
-            div { class: "orb-header",
-                span { class: "bold orb-header-title", "Orbs" }
-                div { class: "orb-slots",
-                    for (slot, orb) in orbs_now.iter().enumerate() {
-                        button { key: "{slot}", class: "btn btn-neutral orb-slot", onclick: move |_| orb_slot.set(Some(slot)),
-                            match orb {
-                                Some(orb) => orbs::picture(&pictures, &shelf.0.orbs, *orb, SLOT_ORB_SIZE),
-                                None => rsx! { span { class: "orb-plus", "+" } },
-                            }
-                        }
-                    }
-                }
-            }
+    let synced = orbs_now.clone();
+
+    use_effect(use_reactive!(|synced| {
+        let mut held = cat_state.orbs;
+
+        if *held.peek() != synced {
+            held.set(synced);
         }
+    }));
+
+    let allowance = shelf.0.allowance(&cat.0);
+    let marks = cat_state.orb_marks(&cat.0, form, &globals);
+    let worn = cat_state.worn(&cat.0, form, globals.0.vault());
+    let flips: Vec<Option<Switch>> = (0..orbs_now.len()).map(|slot| worn.iter().find(|held| held.slot == slot).and_then(Worn::switch)).collect();
+    let versus_on = (cat_state.versus)();
+    let press = EventHandler::new(move |slot: usize| match flips.get(slot).copied().flatten().filter(|_| versus_on) {
+        Some(switch) => {
+            let mut switches = cat_state.switches;
+            let mode = cat_state.lens.peek().mode;
+            let flipped = switches.peek().flipped(switch, mode);
+
+            switches.set(flipped);
+        }
+        None => orb_slot.set(Some(slot)),
     });
+    let header = (form >= FIRST_TALENT_FORM && slots > 0).then(|| orbs::header(&pictures, &shelf.0.orbs, &orbs_now, &marks, SLOT_ORB_SIZE, Some(press)));
     let picking = orb_slot();
     let held = picking.and_then(|slot| member.orbs.get(slot).copied().flatten());
     let pick_tools = tools.clone();

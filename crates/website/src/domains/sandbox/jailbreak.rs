@@ -434,7 +434,7 @@ pub(crate) fn Editor(board: Held, cats: Cats, globals: Shared, ruled: Ruled, sta
 
     use_effect(use_reactive!(|seeded| {
         if let Some((member, cat, grants, treasure)) = seeded {
-            cat_state.seed(&cat.0, member.form, &member.level, &member.talents);
+            cat_state.seed(&cat.0, member.form, &member.level, &member.talents, &[]);
             cat_state.granted.set(Some(grants));
             cat_state.treasure.set(Some(treasure));
         }

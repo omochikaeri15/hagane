@@ -107,6 +107,19 @@ impl Bonus {
         WEAKENINGS.iter().position(|weakening| *weakening == effect).map_or(0, |index| self.weakenings[row][index])
     }
 
+    pub fn fruit_traits(&self, stats: &Entity) -> Vec<(Identity, TraitBonus)> {
+        let bare = [Identity::TraitTraitless, Identity::TraitWitch, Identity::TraitEva, Identity::TraitRelic, Identity::TraitAku];
+
+        FRUIT_LABELS
+            .iter()
+            .zip(self.fruits)
+            .map(|(label, value)| (*label, value))
+            .chain(bare.into_iter().map(|label| (label, 0)))
+            .filter(|(label, _)| stats.aims_at(*label))
+            .map(|(label, value)| (label, TraitBonus(value)))
+            .collect()
+    }
+
     pub fn fruit_span(&self, stats: &Entity) -> (TraitBonus, TraitBonus) {
         let (low, high) = spread(stats, &self.fruits);
 

@@ -42,7 +42,7 @@ use crate::common::architecture;
 use crate::domains::cat::scanner::CatEntry;
 use crate::domains::mods;
 use crate::domains::enemy::scanner::EnemyEntry;
-use crate::domains::sandbox::orb;
+use crate::domains::cat::orbs;
 use crate::domains::stage::{GlobalMapId, GlobalStageId, Stage, StageRegistry};
 use crate::systems::combat::names::NameBook;
 use crate::{Vault, Vfs};
@@ -324,16 +324,16 @@ fn drop_ids(stage: &Stage) -> impl Iterator<Item = u32> + '_ {
 pub fn orb_named(sources: &Sources<'_>) -> records::Named {
     let numbered = |at: usize| i32::try_from(at).unwrap_or(i32::MAX);
 
-    let grades = orb::GRADES.iter().enumerate().map(|(at, grade)| (numbered(at), (*grade).to_owned())).collect();
+    let grades = orbs::GRADES.iter().enumerate().map(|(at, grade)| (numbered(at), (*grade).to_owned())).collect();
 
-    let effects = orb::effect_names(&sources.vault.vfs)
+    let effects = orbs::effect_names(&sources.vault.vfs)
         .into_iter()
         .enumerate()
         .filter(|(_, name)| !name.is_empty())
         .map(|(at, name)| (numbered(at), name))
         .collect();
 
-    let traits = orb::TRAITS.iter().enumerate().map(|(at, identity)| (numbered(at), sources.names.trait_label(*identity).to_owned())).collect();
+    let traits = orbs::TRAITS.iter().enumerate().map(|(at, identity)| (numbered(at), sources.names.trait_label(*identity).to_owned())).collect();
 
     vec![(ORB_GRADE, grades), (ORB_EFFECT, effects), (ORB_TRAIT, traits)]
 }

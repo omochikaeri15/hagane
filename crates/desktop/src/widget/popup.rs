@@ -234,6 +234,11 @@ pub enum Kind {
     SandboxFilter,
     SandboxUnit,
     SandboxOrb,
+    CatOrb,
+    CatMore,
+    SandboxMore,
+    ReplayMore,
+    JailbreakMore,
     ReplayVersion,
     ReplayUnit,
     Diagnostics,
@@ -249,7 +254,7 @@ pub enum Kind {
     JailbreakFilter,
 }
 
-pub(crate) const KIND_COUNT: usize = 172;
+pub(crate) const KIND_COUNT: usize = 177;
 
 const KINDS: [Kind; KIND_COUNT] = [
     Kind::CatFilter,
@@ -411,6 +416,11 @@ const KINDS: [Kind; KIND_COUNT] = [
     Kind::SandboxFilter,
     Kind::SandboxUnit,
     Kind::SandboxOrb,
+    Kind::CatOrb,
+    Kind::CatMore,
+    Kind::SandboxMore,
+    Kind::ReplayMore,
+    Kind::JailbreakMore,
     Kind::ReplayVersion,
     Kind::ReplayUnit,
     Kind::Diagnostics,
@@ -588,6 +598,11 @@ impl Kind {
             Self::SandboxFilter => "sandbox_filter",
             Self::SandboxUnit => "sandbox_unit",
             Self::SandboxOrb => "sandbox_orb",
+            Self::CatOrb => "cat_orb",
+            Self::CatMore => "cat_more",
+            Self::SandboxMore => "sandbox_more",
+            Self::ReplayMore => "replay_more",
+            Self::JailbreakMore => "jailbreak_more",
             Self::ReplayVersion => "replay_version",
             Self::ReplayUnit => "replay_unit",
             Self::Diagnostics => "diagnostics",

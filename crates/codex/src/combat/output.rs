@@ -35,10 +35,12 @@ pub enum Switch {
     Explosion,
     Strengthen,
     Kills,
+    Orb1,
+    Orb2,
 }
 
 impl Switch {
-    pub const ALL: [Switch; 7] = [Switch::Critical, Switch::Savage, Switch::Wave, Switch::Surge, Switch::Explosion, Switch::Strengthen, Switch::Kills];
+    pub const ALL: [Switch; 9] = [Switch::Critical, Switch::Savage, Switch::Wave, Switch::Surge, Switch::Explosion, Switch::Strengthen, Switch::Kills, Switch::Orb1, Switch::Orb2];
 
     pub fn by_default(self, mode: Mode) -> bool {
         match self {
@@ -428,7 +430,7 @@ impl Exposure {
                     .map(|(crit, sav)| {
                         let odds = if crit { critical } else { 1.0 - critical } * if sav { savage } else { 1.0 - savage };
 
-                        odds * stats.landing(foe, terms, attacks[attack], carrier, Roll { critical: crit, savage: sav, strengthened, rampant }) as f64
+                        odds * stats.landing(foe, terms, attacks[attack], carrier, Roll { critical: crit, savage: sav, strengthened, rampant, hit: attack }) as f64
                     })
                     .sum()
             };

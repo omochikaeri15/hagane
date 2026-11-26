@@ -13,7 +13,6 @@ use foundry::systems::combat::NameBook;
 use foundry::domains::cat::scanner::{self, CatEntry};
 use foundry::domains::cat::game::stats::get_final_stats;
 use foundry::systems::treasure::Bonus;
-use foundry::domains::sandbox::orb::Allowance;
 use foundry::domains::sandbox::rules::Rules;
 use foundry::domains::sandbox::{mount_of, Arrangement, Cell, Edge, Lineup, Member, Placed, Roster, BENCH_SLOTS, LINEUP_SLOTS};
 use foundry::domains::settings::Settings;
@@ -30,13 +29,12 @@ use crate::domains::cat::{self, Picked};
 use crate::editor;
 use crate::widget::{list_row, popup, roster_list, scrim, smooth_scroll};
 
-use super::{combos, orbs};
+use super::combos;
 
 pub(super) const LIST_SCOPE: &str = "sandbox-cat-banner-list";
 const BENCH_NOTE: &str = "Does not affect battle";
 
 const UNIT_POPUP: popup::Spec = popup::Spec::new(popup::Kind::SandboxUnit, Size::new(760.0, 540.0));
-const ORB_POPUP: popup::Spec = popup::Spec::new(popup::Kind::SandboxOrb, Size::new(310.0, 250.0));
 pub(super) const RIPE: Duration = Duration::from_millis(160);
 pub(super) const DOUBLE_CLICK: Duration = Duration::from_millis(400);
 pub(super) const SLACK: f32 = 6.0;
@@ -60,14 +58,12 @@ const ORB_SIZE: f32 = 26.0;
 const COIN_SIZE: f32 = 18.0;
 const ORB_STEP: f32 = 0.55;
 const NP_ICON: &str = "gatyaitemD_07_f.png";
-const SLOT_ORB_SIZE: f32 = 44.0;
 const BADGE_FILL: f32 = 0.62;
 pub(super) const GHOST_ALPHA: f32 = 0.75;
 const EMPTY_FILL: f32 = 0.07;
 pub(super) const NAME_SIZE: f32 = 13.0;
 const UNUSED_SIZE: f32 = 14.0;
 const UNUSED_PADDING: [f32; 2] = [10.0, 16.0];
-const ORB_HEADER_SIZE: f32 = 18.0;
 pub(super) const ECHO: Duration = Duration::from_millis(80);
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -225,14 +221,12 @@ enum Drag {
 pub enum Message {
     Cat(cat::Message),
     Combos(combos::Message),
-    Orbs(orbs::Message),
     Measured(Size),
     PressCell(Cell),
     DragMove(Point),
     DragEnd,
     DragCancel,
     UnitPopup(popup::Message),
-    OrbPopup(popup::Message),
     Drop(Cell),
     Create,
     Delete,
@@ -337,7 +331,6 @@ pub(super) fn deck_card<'a, M: 'a>(metrics: Metrics, bench_note: &'a str, action
 pub struct State {
     inspector: cat::State,
     combos: combos::State,
-    orbs: orbs::State,
     drag: Drag,
     plan: Option<Arrangement>,
     area: Size,
@@ -352,9 +345,6 @@ pub struct State {
     banner_form: usize,
     editing: Option<u32>,
     unit_popup: popup::State,
-    orb_popup: popup::State,
-    orb_slot: Option<usize>,
-    allowance: Allowance,
     deleting: Confirm<()>,
     search: String,
     found: Vec<usize>,
@@ -362,14 +352,14 @@ pub struct State {
     orphans: HashMap<u32, [Option<Entity>; 4]>,
     mount: String,
     orb_slots: Arc<HashMap<u32, usize>>,
+    orb_gates: Arc<HashMap<u32, Vec<i32>>>,
 }
 
 impl State {
     pub fn new(banner_form: usize) -> Self {
         Self {
-            inspector: cat::State::inspector(LIST_SCOPE, banner_form, popup::Kind::SandboxAnimationExport),
+            inspector: cat::State::inspector(LIST_SCOPE, banner_form, popup::Kind::SandboxAnimationExport).orbing(popup::Kind::SandboxOrb).moring(popup::Kind::SandboxMore),
             combos: combos::State::default(),
-            orbs: orbs::State::default(),
             drag: Drag::Idle,
             plan: None,
             area: Size::ZERO,
@@ -384,9 +374,6 @@ impl State {
             banner_form,
             editing: None,
             unit_popup: popup::State::default(),
-            orb_popup: popup::State::default(),
-            orb_slot: None,
-            allowance: Allowance::default(),
             deleting: Confirm::default(),
             search: String::new(),
             found: Vec::new(),
@@ -394,6 +381,7 @@ impl State {
             orphans: HashMap::new(),
             mount: String::new(),
             orb_slots: Arc::default(),
+            orb_gates: Arc::default(),
         }
     }
 
@@ -419,17 +407,15 @@ impl State {
 
         let adopted = self.inspector.adopt_cats(cats, ctx.vault).map(Message::Cat);
         let inspector_ms = started.elapsed().as_millis();
-        let orbs = self.orbs.load(ctx.vault, ctx.names).map(Message::Orbs);
-        let orbs_ms = started.elapsed().as_millis() - inspector_ms;
 
         self.combos.invalidate();
         self.decoded.borrow_mut().clear();
         self.coin = None;
         self.settle(app_state, ctx);
 
-        debug!(inspector_ms, orbs_ms, total_ms = started.elapsed().as_millis(), "Sandbox lineup adopted the cat list");
+        debug!(inspector_ms, total_ms = started.elapsed().as_millis(), "Sandbox lineup adopted the cat list");
 
-        Task::batch([adopted, orbs])
+        adopted
     }
 
     pub fn set_banner_form(&mut self, banner_form: usize) {
@@ -469,7 +455,7 @@ impl State {
     }
 
     pub fn orb_open(&self) -> bool {
-        self.editing.is_some() && self.orb_slot.is_some()
+        self.editing.is_some() && self.inspector.orb_popup_open()
     }
 
     pub fn export_open(&self) -> bool {
@@ -492,7 +478,10 @@ impl State {
     }
 
     pub fn worn<'a>(&'a self, member: &'a Member) -> impl Iterator<Item = (usize, u32)> + 'a {
-        member.worn(self.orb_slots.get(&member.id).copied().unwrap_or(0), self.orbs.catalog())
+        let caps = self.inspector.cat(member.id).and_then(|cat| cat.unitbuy.level_caps());
+        let open = member.open(self.orb_slots.get(&member.id).copied().unwrap_or(0), self.orb_gates.get(&member.id), caps);
+
+        member.worn(&open, self.inspector.orb_catalog()).collect::<Vec<_>>().into_iter()
     }
 
     pub fn set_altar(&mut self, cap: Option<u32>) {
@@ -553,6 +542,7 @@ impl State {
         self.orphans.clear();
         self.mount = mount_of(&ctx.vault.vfs);
         self.orb_slots = ctx.vault.vds.cats.orb_slots(&ctx.vault.vfs);
+        self.orb_gates = ctx.vault.vds.cats.orb_gates(&ctx.vault.vfs);
 
         let members = app_state.sandbox.roster.current().into_iter().flat_map(|lineup| lineup.slots.iter().chain(lineup.bench.iter().flatten()));
 
@@ -618,15 +608,13 @@ impl State {
 
         self.inspector.reveal(member.id, member.form, vfs);
         self.inspector.set_export_scope(format!("lineup-{:016x}", lineup.id));
-        self.inspector.inspect(member.id, member.form, &member.level, &member.talents);
+        self.inspector.inspect(member.id, member.form, &member.level, &member.talents, &member.orbs);
         self.editing = Some(member.id);
-        self.orb_slot = None;
         self.combos.focus(Some((member.id, member.form)));
     }
 
     pub(super) fn close(&mut self) {
         self.editing = None;
-        self.orb_slot = None;
         self.combos.focus(None);
     }
 
@@ -681,13 +669,6 @@ impl State {
                     None => (),
                 }
 
-                if let Some(slot) = cat::State::header_action(&msg) {
-                    self.orb_slot = Some(slot);
-                    self.allowance = self.allowance(app_state);
-
-                    return Task::none();
-                }
-
                 let task = self.inspector.update(msg, settings, app_state, ctx).map(Message::Cat);
 
                 self.write_back(app_state, ctx);
@@ -715,23 +696,6 @@ impl State {
                     });
 
                     *app_state.sandbox.roster.current_mut() = lineup;
-                }
-
-                Task::none()
-            }
-            Message::Orbs(msg) => {
-                let cell = self.held(app_state.sandbox.roster.current());
-                let allowance = self.allowance;
-                let held = self.orb_slot.and_then(|slot| {
-                    app_state.sandbox.roster.current()?.get(cell?)?.orbs.get(slot).copied().flatten()
-                });
-
-                if let orbs::Outcome::Equip(orb) = self.orbs.update(msg, held, allowance)
-                    && let (Some(cell), Some(slot)) = (cell, self.orb_slot)
-                    && let Some(member) = app_state.sandbox.roster.current_mut().get_mut(cell)
-                    && let Some(target) = member.orbs.get_mut(slot)
-                {
-                    *target = orb;
                 }
 
                 Task::none()
@@ -841,13 +805,6 @@ impl State {
 
                 Task::none()
             }
-            Message::OrbPopup(msg) => {
-                if self.orb_popup.update(msg, ORB_POPUP) {
-                    self.orb_slot = None;
-                }
-
-                Task::none()
-            }
             Message::Drop(cell) => {
                 let gone = app_state.sandbox.roster.current_mut().take(cell);
 
@@ -935,6 +892,12 @@ impl State {
             member.talents = talents;
         }
 
+        if let Some(orbs) = seen.orbs
+            && member.orbs != *orbs
+        {
+            member.orbs.clone_from(orbs);
+        }
+
         member.orbs.resize(slots.get(&member.id).copied().unwrap_or(0), None);
     }
 
@@ -954,46 +917,23 @@ impl State {
             UNIT_POPUP,
             window,
             Message::UnitPopup,
-            move || self.inspector.detail_view(settings, app_state, ctx, self.orb_header(member)).map(Message::Cat),
+            move || self.inspector.detail_view(settings, app_state, ctx).map(Message::Cat),
             None,
         ))
     }
 
-    fn orb_header<'a>(&'a self, member: &'a Member) -> Option<Element<'a, cat::Message>> {
-        if member.form < FIRST_TALENT_FORM || member.orbs.is_empty() {
-            return None;
-        }
-
-        let mut slots = Row::new().spacing(6);
-
-        for (slot, orb) in member.orbs.iter().enumerate() {
-            let face: Element<'a, cat::Message> = orb.map_or_else(
-                || container(text("+").size(20)).center_x(Length::Fixed(SLOT_ORB_SIZE)).center_y(Length::Fixed(SLOT_ORB_SIZE)).into(),
-                |orb| self.orbs.picture(orb, SLOT_ORB_SIZE),
-            );
-
-            slots = slots.push(button(face).padding(2).style(theme::neutral_button).on_press(cat::Message::HeaderAction(slot)));
-        }
-
-        Some(column![theme::bold_text("Orbs").size(ORB_HEADER_SIZE), slots].spacing(6).align_x(Horizontal::Center).into())
+    pub fn more_open(&self) -> bool {
+        self.editing.is_some() && self.inspector.more_popup_open()
     }
 
-    fn allowance(&self, app_state: &AppState) -> Allowance {
-        let lineup = app_state.sandbox.roster.current();
-
-        self.held(lineup)
-            .and_then(|cell| lineup?.get(cell))
-            .and_then(|member| self.inspector.cat(member.id))
-            .map_or_else(Allowance::default, Allowance::of)
+    pub fn more_popup_view<'a>(&'a self, window: Size, ctx: GlobalContext<'a>) -> Option<Element<'a, Message>> {
+        self.editing?;
+        self.inspector.more_popup_view(window, ctx).map(|view| view.map(Message::Cat))
     }
 
-    pub fn orb_popup_view<'a>(&'a self, window: Size, app_state: &'a AppState) -> Option<Element<'a, Message>> {
-        let lineup = app_state.sandbox.roster.current()?;
-        let slot = self.orb_slot?;
-        let held = lineup.get(self.held(Some(lineup))?)?.orbs.get(slot).copied()?;
-        let allowance = self.allowance;
-
-        Some(self.orb_popup.view("Orb", ORB_POPUP, window, Message::OrbPopup, move || self.orbs.view(held, allowance).map(Message::Orbs), None))
+    pub fn orb_popup_view<'a>(&'a self, window: Size, names: &'a NameBook) -> Option<Element<'a, Message>> {
+        self.editing?;
+        self.inspector.orb_popup_view(window, names).map(|view| view.map(Message::Cat))
     }
 
     pub fn filter_popup_view<'a>(&'a self, window: Size, names: &'a NameBook) -> Option<Element<'a, Message>> {
@@ -1134,7 +1074,7 @@ impl State {
         for (place, (_, orb)) in self.worn(member).enumerate() {
             let shifted = Padding::default().left(place as f32 * orb_size * ORB_STEP);
 
-            worn = worn.push(container(self.orbs.picture(orb, orb_size)).padding(shifted));
+            worn = worn.push(container(self.inspector.orb_picture(orb, orb_size)).padding(shifted));
         }
 
         let coin: Element<'a, Message> = self

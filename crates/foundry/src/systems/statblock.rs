@@ -11,6 +11,10 @@ mod stage;
 #[cfg(feature = "statblock")]
 mod talents;
 
+use std::fmt;
+
+use image::RgbaImage;
+
 use crate::Source;
 use crate::systems::combat::{AbilityItem, Mark};
 
@@ -38,6 +42,22 @@ pub struct SpiritData {
     pub b1: Vec<AbilityItem>,
     pub b2: Vec<AbilityItem>,
     pub footer: Vec<AbilityItem>,
+}
+
+#[derive(Clone)]
+pub struct OrbFace {
+    pub id: u32,
+    pub image: RgbaImage,
+    pub dimmed: bool,
+    pub lit: bool,
+}
+
+impl fmt::Debug for OrbFace {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let print = self.image.as_raw().iter().fold(0xcbf2_9ce4_8422_2325_u64, |hash, byte| (hash ^ u64::from(*byte)).wrapping_mul(0x0100_0000_01b3));
+
+        write!(f, "OrbFace({}, {}, {}, {}x{}, {print:016x})", self.id, self.dimmed, self.lit, self.image.width(), self.image.height())
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -68,6 +88,7 @@ pub struct StatblockData {
     pub footer: Vec<AbilityItem>,
     pub spirit_data: Option<SpiritData>,
     pub tag: String,
+    pub orbs: Vec<OrbFace>,
 }
 
 #[derive(Clone, Debug)]

@@ -5,10 +5,8 @@ use codex::cat::unit::{Equipment, NyancomboData, Talent};
 use serde::{Deserialize, Serialize};
 
 use crate::common::architecture;
-use crate::domains::cat::level;
+use crate::domains::cat::{level, orbs};
 use crate::Vfs;
-
-use super::orb;
 
 pub const LINEUP_SLOTS: usize = 10;
 pub const BENCH_SLOTS: usize = 5;
@@ -68,8 +66,14 @@ impl Member {
             .filter_map(|(slot, orb)| orb.map(|orb| (slot, orb)))
     }
 
-    pub fn worn<'a>(&'a self, slots: usize, orbs: &'a [Equipment]) -> impl Iterator<Item = (usize, u32)> + 'a {
-        self.equipped().filter(move |(slot, held)| *slot < slots && orb::kind(orbs, *held).is_some())
+    pub fn worn<'a>(&'a self, open: &'a [bool], list: &'a [Equipment]) -> impl Iterator<Item = (usize, u32)> + 'a {
+        self.equipped().filter(move |(slot, held)| open.get(*slot).copied().unwrap_or(false) && orbs::kind(list, *held).is_some())
+    }
+
+    pub fn open(&self, count: usize, gates: Option<&Vec<i32>>, caps: Option<(u32, u32)>) -> Vec<bool> {
+        let (base, plus) = self.levels(caps);
+
+        orbs::open_slots(count, gates, i32::try_from(base + plus).unwrap_or(i32::MAX))
     }
 }
 

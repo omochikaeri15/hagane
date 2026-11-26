@@ -65,6 +65,7 @@ pub(crate) fn Header(cat: SelectedCat, globals: Shared, #[props(default)] more: 
     let levels = state.levels_for(cat.0.id);
     let costs = globals.0.vault().vds.cats.talent_costs(&globals.0.vault().vfs);
     let total = talent_logic::get_total_np_cost(talent_data, &levels, &costs);
+    let room = talent_logic::get_max_np_cost(talent_data, &costs).max(0).to_string().len();
     let availability = toggle_availability(talent_data, Some(&levels));
     let normal_label = if availability.has_normal_enabled { "No Talents" } else { "All Talents" };
     let ultra_label = if availability.has_ultra_enabled { "No Ultra" } else { "All Ultra" };
@@ -75,7 +76,7 @@ pub(crate) fn Header(cat: SelectedCat, globals: Shared, #[props(default)] more: 
         div { class: if more.is_some() { "talent-header packed" } else { "talent-header" },
             div { class: "np-row",
                 {np_icon(&pictures, if more.is_some() { PACKED_NP_ICON_SIZE } else { HEADER_NP_ICON_SIZE })}
-                span { class: "np-total bold", "{total}" }
+                span { class: "np-total bold", style: "min-width: {room}ch", "{total}" }
             }
             button { class: "btn btn-primary talent-btn", onclick: move |_| state.toggle_talents(&for_normal.0, false, &settings.read()), "{normal_label}" }
             button {

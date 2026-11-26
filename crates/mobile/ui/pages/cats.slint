@@ -71,6 +71,7 @@ export global Cats {
 
     in property <bool> has-talents;
     in property <string> np-total;
+    in property <string> np-room;
     in property <image> np-icon;
     in property <bool> has-np-icon;
     in property <string> normal-label: "All Talents";
@@ -349,10 +350,14 @@ component Header inherits VerticalLayout {
             spacing: 3px;
             HorizontalLayout {
                 spacing: 6px;
-                alignment: start;
+                alignment: center;
                 if Cats.has-np-icon: Image { source: Cats.np-icon; height: 22px; width: self.source.width * 22px / max(self.source.height, 1); }
                 if !Cats.has-np-icon: Label { text: "NP Cost"; bold: true; color: Theme.white; }
-                Label { text: Cats.np-total; font-size: 18px; bold: true; color: Theme.white; }
+                Rectangle {
+                    width: room.preferred-width;
+                    room := Text { text: Cats.np-room; font-size: 18px; font-weight: 700; color: transparent; vertical-alignment: center; }
+                    Label { text: Cats.np-total; font-size: 18px; bold: true; color: Theme.white; vertical-alignment: center; }
+                }
             }
             Btn { width: 100px; height: 21px; text-size: 12px; label: Cats.normal-label; enabled: !Cats.locked; pad-y: 0px; clicked => { Cats.toggle-talents(false); } }
             Btn { width: 100px; height: 21px; text-size: 12px; label: Cats.ultra-label; enabled: Cats.ultra-available && !Cats.locked; pad-y: 0px; clicked => { Cats.toggle-talents(true); } }
@@ -552,7 +557,8 @@ export component MoreDialog inherits Dialog {
                 Btn { width: 130px; height: 32px; text-size: 13px; tone: Tone.toggle; active: Cats.versus; label: "Versus Mode"; pad-y: 0px; clicked => { Cats.versus-toggled(); } }
             }
         }
-        if Cats.tab == 1 && Cats.has-orbs: VerticalLayout {
+        if Cats.tab == 0 && Cats.has-orbs: Rule { }
+        if Cats.tab == 0 && Cats.has-orbs: VerticalLayout {
             spacing: 6px;
             Label { text: "Orbs"; bold: true; font-size: 18px; horizontal-alignment: center; }
             HorizontalLayout {
@@ -564,12 +570,12 @@ export component MoreDialog inherits Dialog {
                     border-radius: Theme.radius-sm;
                     background: press.pressed ? Theme.bg-strongest : Theme.bg-strong;
                     OrbPicture { orb: orb; width: 44px; height: 44px; x: 2px; y: 2px; }
-                    if !orb.has-icon: Label { text: "+"; font-size: 20px; horizontal-alignment: center; vertical-alignment: center; width: parent.width; height: parent.height; }
-                    press := Tap { enabled: (!Cats.locked) && !Shell.swiping; tapped => { Cats.orb-tapped(index); } }
+                    if !orb.has-icon && !orb.shut: Label { text: "+"; font-size: 20px; horizontal-alignment: center; vertical-alignment: center; width: parent.width; height: parent.height; }
+                    if orb.shut: Label { text: "Lv60"; font-size: 12px; color: Theme.weak-text; horizontal-alignment: center; vertical-alignment: center; width: parent.width; height: parent.height; }
+                    press := Tap { enabled: (!Cats.locked) && !orb.shut && !Shell.swiping; tapped => { Cats.orb-tapped(index); } }
                 }
             }
         }
-        if Cats.tab == 1 && Cats.has-orbs: Rule { }
         if Cats.tab == 1: HorizontalLayout {
             alignment: center;
             Btn { width: 130px; height: 32px; text-size: 13px; tone: Cats.export-tone; label: Cats.export-label; pad-y: 0px; clicked => { Cats.export-image(); } }

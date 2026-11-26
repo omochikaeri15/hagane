@@ -13,6 +13,7 @@ use crate::systems::treasure::Bonus;
 const FRUIT_SCALED: [Identity; 5] = [Identity::Freeze, Identity::Slow, Identity::Weaken, Identity::Curse, Identity::Dodge];
 const NO_DESCRIPTION: &str = "No skill description found";
 const NAME_SLOT: &str = "%s";
+const SPAN_KEY: &str = "Width";
 
 pub fn describe(group: &TalentGroup, descriptions: &[String], combos: &[Option<String>]) -> String {
     let Some(text) = descriptions.get(usize::from(group.text_id)) else {
@@ -297,6 +298,10 @@ fn process_range_attribute(
     handled_attribute_keys.insert(attribute_key);
     handled_attribute_keys.insert(maximum_key);
 
+    if let Some(&(width_key, _)) = pure_definition.schema.iter().find(|(schema_key, _)| *schema_key == SPAN_KEY) {
+        handled_attribute_keys.insert(width_key);
+    }
+
     let old_minimum = extract_value(attribute_key, snapshots.old);
     let new_minimum = extract_value(attribute_key, snapshots.new);
     let absolute_min_minimum = extract_value(attribute_key, snapshots.min);
@@ -472,6 +477,10 @@ pub fn get_total_np_cost(talent_data: &Talent, talent_levels: &HashMap<u8, u8>, 
         .sum()
 }
 
+pub fn get_max_np_cost(talent_data: &Talent, costs_map: &HashMap<u8, TalentCost>) -> i32 {
+    talent_data.groups.iter().map(|group| get_talent_np_cost(group.cost_id, group.max_level.max(1), costs_map)).sum()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -491,6 +500,20 @@ mod tests {
 
     fn boost(ability_id: u8, percent: u16) -> TalentGroup {
         TalentGroup { ability_id, max_level: 1, min_1: percent, max_1: percent, name_id: -1, ..TalentGroup::default() }
+    }
+
+    // The range line already spans min to max, so a surge or explosion talent never adds a Width line under it.
+    #[test]
+    fn a_range_talent_leaves_its_width_out() {
+        let surge = TalentGroup { ability_id: 56, max_level: 1, min_1: 20, max_1: 20, min_2: 1, max_2: 1, min_3: 1200, max_3: 1200, min_4: 1000, max_4: 1000, ..TalentGroup::default() };
+        let blast = TalentGroup { ability_id: 67, max_level: 1, min_1: 20, max_1: 20, min_2: 800, max_2: 800, min_3: 400, max_3: 400, ..TalentGroup::default() };
+
+        for group in [surge, blast] {
+            let shown = calculate_talent_display(&group, &Entity::default(), 1, None, 1, &Bonus::default(), &Entity::default()).unwrap_or_default();
+
+            assert!(shown.contains("Range"), "{shown}");
+            assert!(!shown.contains(SPAN_KEY), "{shown}");
+        }
     }
 
     #[test]

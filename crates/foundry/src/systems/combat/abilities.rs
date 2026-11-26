@@ -1,4 +1,5 @@
 use codex::cat::unit::TalentGroup;
+use codex::combat::orb::RESISTS;
 use codex::combat::{get_talent, targets_traits, AttrUnit, AttrValue, Entity, Faction, Identity, REGISTRY};
 use codex::files::img015;
 use tracing::trace;
@@ -81,6 +82,8 @@ pub fn collect_ability_data_against(ctx: &RenderContext<'_>, against: Option<Aga
         });
     }
 
+    let resists: Vec<(Identity, i32)> = RESISTS.iter().map(|(content, identity)| (*identity, ctx.final_stats.orb_sum(*content, 0))).filter(|(_, value)| *value > 0).collect();
+
     if let (Some(talent_data), Some(levels)) = (ctx.talent_data, ctx.talent_levels) {
         let mut talent_headline = Vec::new();
 
@@ -103,8 +106,9 @@ pub fn collect_ability_data_against(ctx: &RenderContext<'_>, against: Option<Aga
                     }
                 },
                 18 | 19 | 20 | 21 | 22 | 24 | 30 | 52 | 54 => {
+                    let orbed = resists.iter().find(|(held, _)| *held == identity).map_or(0, |(_, value)| *value);
                     let format_ctx = FormatContext {
-                        value: AttrValue::Finite(talents::calculate_talent_value(group.min_1, group.max_1, level, group.max_level)),
+                        value: AttrValue::Finite(talents::calculate_talent_value(group.min_1, group.max_1, level, group.max_level).wrapping_add(orbed)),
                         stats: ctx.final_stats,
                         target: target_label,
                         duration: 0,

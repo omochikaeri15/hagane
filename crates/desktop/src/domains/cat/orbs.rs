@@ -8,8 +8,9 @@ use iced::widget::{column, container, image as iced_image, pick_list, row, text,
 use iced::{Element, Length, Task};
 
 use foundry::common::formats::SpriteSheet as CoreSpriteSheet;
-use foundry::systems::combat::NameBook;
-use foundry::domains::sandbox::orb::{self, effect_names, Allowance, Kind, GRADES, TRAITS};
+use foundry::systems::combat::{Mark, NameBook};
+use foundry::systems::statblock::mark_ring;
+use foundry::domains::cat::orbs::{self as orb, effect_names, Allowance, Kind, GRADES, LAYERS, PLAIN_FACE};
 use foundry::Vault;
 use image::{imageops, RgbaImage};
 use codex::cat::unit::Equipment;
@@ -23,10 +24,10 @@ const PICK_WIDTH: f32 = 230.0;
 const PICK_TEXT: f32 = 12.0;
 const PREVIEW_SIZE: f32 = 56.0;
 const POPUP_PADDING: f32 = 10.0;
-const UNIVERSAL: i32 = 12;
 const OVERSAMPLE: f32 = 2.0;
 const BEST_GRADE: usize = 4;
 const IDLE_PADDING: f32 = 5.0;
+const DARKENED: f32 = 0.4;
 
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -40,11 +41,7 @@ impl Layer {
     const ALL: [Self; 3] = [Self::Attribute, Self::Effect, Self::Grade];
 
     fn sheet(self) -> &'static str {
-        match self {
-            Self::Attribute => "equipment_attribute",
-            Self::Effect => "equipment_effect",
-            Self::Grade => "equipment_grade",
-        }
+        LAYERS[self as usize]
     }
 }
 
@@ -113,16 +110,13 @@ pub struct State {
     kinds: Vec<Kind>,
     choices: Vec<Choice>,
     sheets: [Vec<SpriteSheet>; 3],
-    drawn: RefCell<HashMap<(u32, u32), Handle>>,
-    trait_labels: Vec<String>,
+    drawn: RefCell<HashMap<(u32, u32, bool, bool), Handle>>,
 }
 
 impl State {
-    pub fn load(&mut self, vault: &Vault, names: &NameBook) -> Task<Message> {
+    pub fn load(&mut self, vault: &Vault) -> Task<Message> {
         let vfs = &vault.vfs;
         let effects = effect_names(vfs);
-
-        self.trait_labels = TRAITS.iter().map(|identity| names.trait_label(*identity).to_owned()).collect();
 
         self.orbs = vault.vds.cats.orbs(vfs);
         self.kinds = orb::kinds(&self.orbs);
@@ -143,7 +137,7 @@ impl State {
         }))
     }
 
-    pub fn update(&mut self, message: Message, held: Option<u32>, allowance: Allowance) -> Outcome {
+    pub fn update(&mut self, message: Message, held: Option<u32>, allowance: &Allowance, names: &NameBook) -> Outcome {
         match message {
             Message::Sheet(layer, index, sheet) => {
                 let slot = layer as usize;
@@ -158,7 +152,7 @@ impl State {
             Message::Effect(choice) => {
                 let grade = held.and_then(|orb| orb::grade(&self.orbs, orb)).unwrap_or(BEST_GRADE);
                 let aimed = held.and_then(|orb| orb::kind(&self.orbs, orb)).and_then(|kind| kind.attribute);
-                let offered = self.aims(choice.content, allowance);
+                let offered = self.aims(choice.content, allowance, names);
                 let attribute = offered.iter().find(|aim| Some(aim.attribute) == aimed).or_else(|| offered.first()).map(|aim| aim.attribute);
 
                 Outcome::Equip(orb::pick(&self.orbs, Kind { content: choice.content, attribute }, grade))
@@ -182,19 +176,19 @@ impl State {
         }
     }
 
-    fn aims(&self, content: i32, allowance: Allowance) -> Vec<Aim> {
+    fn aims(&self, content: i32, allowance: &Allowance, names: &NameBook) -> Vec<Aim> {
         orb::attributes(&self.kinds, content)
             .into_iter()
             .filter(|attribute| allowance.permits(Kind { content, attribute: Some(*attribute) }))
-            .map(|attribute| self.aim(attribute))
+            .map(|attribute| Self::aim(attribute, names))
             .collect()
     }
 
-    fn aim(&self, attribute: i32) -> Aim {
+    fn aim(attribute: i32, names: &NameBook) -> Aim {
         let label = usize::try_from(attribute)
             .ok()
-            .and_then(|index| self.trait_labels.get(index))
-            .map_or_else(|| format!("Trait {attribute}"), String::clone);
+            .and_then(|index| names.orb_trait(index))
+            .map_or_else(|| format!("Trait {attribute}"), str::to_owned);
 
         Aim { attribute, label }
     }
@@ -205,13 +199,13 @@ impl State {
         self.sheets[layer as usize].iter().find_map(|sheet| sheet.core.crop(index))
     }
 
-    fn drawn(&self, orb: u32, edge: u32) -> Option<Handle> {
-        if let Some(held) = self.drawn.borrow().get(&(orb, edge)) {
+    fn drawn(&self, orb: u32, edge: u32, dim: bool, lit: bool) -> Option<Handle> {
+        if let Some(held) = self.drawn.borrow().get(&(orb, edge, dim, lit)) {
             return Some(held.clone());
         }
 
         let held = self.orbs.get(orb as usize)?;
-        let mut face = self.cut(Layer::Attribute, held.attribute.unwrap_or(UNIVERSAL))?;
+        let mut face = self.cut(Layer::Attribute, held.attribute.unwrap_or(PLAIN_FACE))?;
 
         for (layer, index) in [(Layer::Effect, held.content), (Layer::Grade, held.grade_id)] {
             if let Some(over) = index.and_then(|index| self.cut(layer, index)) {
@@ -221,10 +215,23 @@ impl State {
             }
         }
 
-        let scaled = imageops::resize(&face, edge, edge, imageops::FilterType::Lanczos3);
+        let mut scaled = imageops::resize(&face, edge, edge, imageops::FilterType::Lanczos3);
+
+        if dim {
+            for pixel in scaled.pixels_mut() {
+                for channel in &mut pixel.0[..3] {
+                    *channel = (f32::from(*channel) * DARKENED) as u8;
+                }
+            }
+        }
+
+        if lit && let Some(ring) = mark_ring(Mark::Hit, edge, edge) {
+            imageops::overlay(&mut scaled, &ring, 0, 0);
+        }
+
         let handle = Handle::from_rgba(edge, edge, scaled.into_raw());
 
-        self.drawn.borrow_mut().insert((orb, edge), handle.clone());
+        self.drawn.borrow_mut().insert((orb, edge, dim, lit), handle.clone());
 
         Some(handle)
     }
@@ -234,25 +241,29 @@ impl State {
     }
 
     pub fn picture<'a, M: 'a>(&self, orb: u32, size: f32) -> Element<'a, M> {
+        self.shaded(orb, size, false, false)
+    }
+
+    pub fn shaded<'a, M: 'a>(&self, orb: u32, size: f32, dim: bool, lit: bool) -> Element<'a, M> {
         let edge = ((size * OVERSAMPLE).round() as u32).max(1);
 
-        self.drawn(orb, edge).map_or_else(
+        self.drawn(orb, edge, dim, lit).map_or_else(
             || Space::new().width(Length::Fixed(size)).height(Length::Fixed(size)).into(),
             |handle| iced_image(handle).width(Length::Fixed(size)).height(Length::Fixed(size)).into(),
         )
     }
 
-    pub fn view(&self, held: Option<u32>, allowance: Allowance) -> Element<'_, Message> {
+    pub fn view<'a>(&'a self, held: Option<u32>, allowance: &Allowance, names: &NameBook) -> Element<'a, Message> {
         let kind = held.and_then(|orb| orb::kind(&self.orbs, orb));
         let offered: Vec<Choice> = self
             .choices
             .iter()
-            .filter(|choice| orb::attributes(&self.kinds, choice.content).is_empty() || !self.aims(choice.content, allowance).is_empty())
+            .filter(|choice| orb::attributes(&self.kinds, choice.content).is_empty() || !self.aims(choice.content, allowance, names).is_empty())
             .cloned()
             .collect();
         let chosen = kind.and_then(|kind| offered.iter().find(|choice| choice.content == kind.content)).cloned();
-        let aims = kind.map_or_else(Vec::new, |kind| self.aims(kind.content, allowance));
-        let aim = kind.and_then(|kind| kind.attribute).map(|attribute| self.aim(attribute));
+        let aims = kind.map_or_else(Vec::new, |kind| self.aims(kind.content, allowance, names));
+        let aim = kind.and_then(|kind| kind.attribute).map(|attribute| Self::aim(attribute, names));
         let trait_pick: Element<'_, Message> = if aims.is_empty() {
             container(text("None").size(PICK_TEXT).style(|theme: &iced::Theme| text::Style { color: Some(theme::weak_text_color(theme)) }))
                 .padding(IDLE_PADDING)

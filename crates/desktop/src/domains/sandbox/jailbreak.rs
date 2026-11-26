@@ -209,7 +209,7 @@ pub struct State {
 impl Default for State {
     fn default() -> Self {
         Self {
-            inspector: cat::State::inspector(LIST_SCOPE, 0, popup::Kind::JailbreakAnimationExport).granting(),
+            inspector: cat::State::inspector(LIST_SCOPE, 0, popup::Kind::JailbreakAnimationExport).moring(popup::Kind::JailbreakMore).granting(),
             combos: combos::State::default(),
             treasure: treasure::Bonus::default(),
             global_popup: popup::State::default(),
@@ -569,7 +569,7 @@ impl State {
         if moved || self.viewing != Some(member.id) {
             self.inspector.reveal(member.id, member.form, &ctx.vault.vfs);
             self.inspector.set_export_scope(format!("jailbreak-{}", self.board.as_ref().map_or(0, |board| board.map_id)));
-            self.inspector.inspect(member.id, member.form, &member.level, &member.talents);
+            self.inspector.inspect(member.id, member.form, &member.level, &member.talents, &[]);
         }
 
         self.inspector.grant(member.id, grants);
@@ -911,7 +911,15 @@ impl State {
         let member = self.lineup.get(self.lineup.find(self.viewing.filter(|_| self.board.is_some())?)?)?;
         let title = self.inspector.cat(member.id).map_or("Unit", |cat| cat.names.get(member.form).and_then(Option::as_deref).unwrap_or("Unit"));
 
-        Some(self.unit_popup.view(title, UNIT_POPUP, window, Message::UnitPopup, move || self.inspector.detail_view(settings, app_state, GlobalContext { treasure: &self.treasure, ..ctx }, None).map(Message::Cat), None))
+        Some(self.unit_popup.view(title, UNIT_POPUP, window, Message::UnitPopup, move || self.inspector.detail_view(settings, app_state, GlobalContext { treasure: &self.treasure, ..ctx }).map(Message::Cat), None))
+    }
+
+    pub fn more_open(&self) -> bool {
+        self.unit_open() && self.inspector.more_popup_open()
+    }
+
+    pub fn more_view<'a>(&'a self, window: Size, ctx: GlobalContext<'a>) -> Option<Element<'a, Message>> {
+        self.unit_open().then(|| self.inspector.more_popup_view(window, GlobalContext { treasure: &self.treasure, ..ctx })).flatten().map(|view| view.map(Message::Cat))
     }
 
     pub fn export_view(&self, window: Size) -> Option<Element<'_, Message>> {

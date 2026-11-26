@@ -21,7 +21,6 @@ use foundry::systems::combat::NameBook;
 use foundry::common::frames;
 use foundry::domains::cat::scanner;
 use foundry::domains::sandbox::jailbreak::{self, Board, Run};
-use foundry::domains::sandbox::orb::Allowance;
 use foundry::domains::sandbox::replay::{self as tape, Staged, Summary, Unit};
 use foundry::domains::settings::{ScannerConfig, Settings};
 use foundry::systems::treasure::{self, Bonus};
@@ -39,7 +38,6 @@ use crate::systems::host::Reel;
 use crate::widget::{popup, section, smooth_scroll, text_with_superscript};
 
 use super::lineup::{Metrics, SMALLEST};
-use super::orbs;
 
 pub(super) use keepsakes::gather as gather_keepsakes;
 
@@ -72,9 +70,6 @@ const EDGE_ALPHA: f32 = 0.25;
 const ORB_SIZE: f32 = 26.0;
 const ORB_STEP: f32 = 0.55;
 const COIN_SIZE: f32 = 18.0;
-const SLOT_ORB_SIZE: f32 = 44.0;
-const ORB_HEADER_SIZE: f32 = 18.0;
-const FIRST_TALENT_FORM: usize = 2;
 const DOUBLE_CLICK: Duration = Duration::from_millis(400);
 const NP_ICON: &str = "gatyaitemD_07_f.png";
 const FORM_LETTERS: [char; 4] = ['f', 'c', 's', 'u'];
@@ -93,7 +88,6 @@ pub enum Message {
     CommitRename,
     Press(usize),
     Cat(cat::Message),
-    Orbs(orbs::Message),
     UnitPopup(popup::Message),
     Manage(manage::Message),
     RowPress(usize),
@@ -114,7 +108,6 @@ impl fmt::Debug for Message {
             Self::CommitRename => write!(f, "CommitRename"),
             Self::Press(slot) => write!(f, "Press({slot})"),
             Self::Cat(msg) => write!(f, "Cat({msg:?})"),
-            Self::Orbs(msg) => write!(f, "Orbs({msg:?})"),
             Self::UnitPopup(_) => write!(f, "UnitPopup"),
             Self::Manage(msg) => write!(f, "Manage({msg:?})"),
             Self::RowPress(row) => write!(f, "RowPress({row})"),
@@ -137,6 +130,7 @@ struct Tile {
     talents: HashMap<u8, u8>,
     talented: bool,
     orbs: Vec<u32>,
+    slots: Vec<Option<u32>>,
 }
 
 struct Details {
@@ -172,7 +166,6 @@ pub struct State {
     decoded: header_icon::Cache,
     coin: Option<Handle>,
     inspector: cat::State,
-    orbs: orbs::State,
     unit_popup: popup::State,
     open: Option<usize>,
     clicked: Option<(usize, Instant)>,
@@ -305,7 +298,7 @@ impl State {
     pub fn new() -> Self {
         let scale = ((CONTENT_WIDTH - CARD_PADDING * 2.0) / Metrics::FULL.grid_width()).clamp(SMALLEST, 1.0);
 
-        Self { inspector: cat::State::inspector(SCOPE, 0, popup::Kind::ReplayAnimationExport), metrics: Some(Metrics::at(scale)), ..Self::default() }
+        Self { inspector: cat::State::inspector(SCOPE, 0, popup::Kind::ReplayAnimationExport).lock_orbs().moring(popup::Kind::ReplayMore), metrics: Some(Metrics::at(scale)), ..Self::default() }
     }
 
     pub fn subscription(&self) -> iced::Subscription<Message> {
@@ -424,7 +417,6 @@ impl State {
         self.run_read = false;
 
         let adopted = self.inspector.adopt_cats(&staged.cats, &staged.vault).map(Message::Cat);
-        let orbs = self.orbs.load(&staged.vault, &self.glossary).map(Message::Orbs);
 
         self.coin = staged.vault.vfs.find(NP_ICON).and_then(|path| open_image(&staged.vault.vfs.source(&path))).map(|opened| {
             let cropped = foundry::common::gfx::autocrop(opened.to_rgba8());
@@ -460,7 +452,7 @@ impl State {
         self.tiles = tiles;
         self.staged = Some(staged);
 
-        Task::batch([adopted, orbs])
+        adopted
     }
 
     fn tile(&self, unit: &Unit, altar_cap: Option<i32>, cost: Option<i32>) -> Tile {
@@ -479,6 +471,18 @@ impl State {
 
         worn.sort_unstable();
 
+        let mut slots: Vec<Option<u32>> = Vec::new();
+
+        for (slot, orb) in &worn {
+            if let (Ok(slot), Ok(orb)) = (usize::try_from(*slot), u32::try_from(*orb)) {
+                if slots.len() <= slot {
+                    slots.resize(slot + 1, None);
+                }
+
+                slots[slot] = Some(orb);
+            }
+        }
+
         Tile {
             id,
             form: usize::try_from(unit.form).unwrap_or(0),
@@ -491,6 +495,7 @@ impl State {
             talents,
             talented: !unit.talents.is_empty(),
             orbs: worn.into_iter().filter_map(|(_, orb)| u32::try_from(orb).ok()).collect(),
+            slots,
         }
     }
 
@@ -520,7 +525,7 @@ impl State {
         );
 
         self.inspector.set_export_scope(scope);
-        self.inspector.inspect(tile.id, tile.form, &tile.inspected, &tile.talents);
+        self.inspector.inspect(tile.id, tile.form, &tile.inspected, &tile.talents, &tile.slots);
 
         if let Some((board, run)) = self.run.as_ref() {
             self.inspector.grant(tile.id, board.grants(run, tile.id));
@@ -653,11 +658,6 @@ impl State {
                 let scoped = GlobalContext { vault, treasure: &self.treasure, names: &self.glossary, ..ctx };
 
                 self.inspector.update(msg, settings, app_state, scoped).map(Message::Cat)
-            }
-            Message::Orbs(msg) => {
-                self.orbs.update(msg, None, Allowance::default());
-
-                Task::none()
             }
             Message::UnitPopup(msg) => {
                 if self.unit_popup.update(msg, UNIT_POPUP) {
@@ -862,6 +862,18 @@ impl State {
         }
     }
 
+    pub fn more_open(&self) -> bool {
+        self.open.is_some() && self.inspector.more_popup_open()
+    }
+
+    pub fn more_popup_view<'a>(&'a self, window: Size, ctx: GlobalContext<'a>) -> Option<Element<'a, Message>> {
+        self.open?;
+        let vault = self.vault()?;
+        let scoped = GlobalContext { vault, treasure: &self.treasure, names: &self.glossary, ..ctx };
+
+        self.inspector.more_popup_view(window, scoped).map(|view| view.map(Message::Cat))
+    }
+
     pub fn unit_popup_view<'a>(
         &'a self,
         window: Size,
@@ -879,23 +891,9 @@ impl State {
             UNIT_POPUP,
             window,
             Message::UnitPopup,
-            move || self.inspector.detail_view(settings, app_state, scoped, self.orb_header(tile)).map(Message::Cat),
+            move || self.inspector.detail_view(settings, app_state, scoped).map(Message::Cat),
             None,
         ))
-    }
-
-    fn orb_header<'a>(&'a self, tile: &'a Tile) -> Option<Element<'a, cat::Message>> {
-        if tile.form < FIRST_TALENT_FORM || tile.orbs.is_empty() {
-            return None;
-        }
-
-        let mut slots = Row::new().spacing(6);
-
-        for orb in &tile.orbs {
-            slots = slots.push(container(self.orbs.picture(*orb, SLOT_ORB_SIZE)).padding(2));
-        }
-
-        Some(column![theme::bold_text("Orbs").size(ORB_HEADER_SIZE), slots].spacing(6).align_x(Horizontal::Center).into())
     }
 
     fn view_tile(&self, metrics: Metrics, slot: usize, tile: &Tile) -> Element<'_, Message> {
@@ -917,7 +915,7 @@ impl State {
         let mut worn = stack![Space::new().width(Length::Fixed(spread)).height(Length::Fixed(orb_size))];
 
         for (place, orb) in tile.orbs.iter().enumerate() {
-            worn = worn.push(container(self.orbs.picture(*orb, orb_size)).padding(Padding::default().left(place as f32 * orb_size * ORB_STEP)));
+            worn = worn.push(container(self.inspector.orb_picture(*orb, orb_size)).padding(Padding::default().left(place as f32 * orb_size * ORB_STEP)));
         }
 
         let coin: Element<'_, Message> = self

@@ -232,7 +232,7 @@ fn show(ui: &AppWindow, state: &Shared, context: &Rc<Context>, member: &Member, 
     let grants = Rc::new(grants);
 
     state.borrow_mut().jail_shown = Some((member.clone(), Rc::clone(&grants), treasure));
-    cats::seed_member(ui, &pages.cats, context, cats::Seed { cat: &cat, form: member.form, level: &member.level, talents: &member.talents, locked: true, grants: Some(grants), treasure: Some(treasure) });
+    cats::seed_member(ui, &pages.cats, context, cats::Seed { cat: &cat, form: member.form, level: &member.level, talents: &member.talents, orbs: &[], locked: true, grants: Some(grants), treasure: Some(treasure) });
 }
 
 fn bonuses(context: &Rc<Context>, board: &Board, run: &Run, query: &str, global: bool) -> Vec<JailBonus> {
@@ -471,7 +471,7 @@ pub fn tapped(ui: &AppWindow, state: &Shared, context: &Rc<Context>, cell: Cell)
     let treasure = treasure(state, context, &board);
 
     cats::set_edited(&pages.cats, None);
-    cats::seed_member(ui, &pages.cats, context, cats::Seed { cat: &cat, form: member.form, level: &member.level, talents: &member.talents, locked: true, grants: Some(Rc::clone(&grants)), treasure: Some(treasure) });
+    cats::seed_member(ui, &pages.cats, context, cats::Seed { cat: &cat, form: member.form, level: &member.level, talents: &member.talents, orbs: &[], locked: true, grants: Some(Rc::clone(&grants)), treasure: Some(treasure) });
     state.borrow_mut().jail_shown = Some((member.clone(), grants, treasure));
     state.borrow_mut().jail_viewing = Some(member.id);
     ui.global::<Sandbox>().set_unit_locked(true);

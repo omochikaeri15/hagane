@@ -3,7 +3,7 @@ use std::path::{Path, PathBuf};
 
 use codex::cat::unitid;
 use codex::cat::unit::{
-    Equipment, EquipmentSlot, Nyancombo, NyancomboData, NyancomboFilter, NyancomboParam, UnitExplanation,
+    Equipment, EquipmentAttribute, EquipmentSlot, Nyancombo, NyancomboData, NyancomboFilter, NyancomboParam, UnitExplanation,
 };
 use codex::combat::{Entity, Separator};
 use tracing::trace;
@@ -169,6 +169,26 @@ pub(crate) fn equipmentslot(vfs: &Vfs) -> HashMap<u32, usize> {
         .into_iter()
         .filter_map(|row| Some((u32::try_from(row.unit_id?).ok()?, usize::try_from(row.slot_count?).ok()?)))
         .collect()
+}
+
+pub(crate) fn equipmentgates(vfs: &Vfs) -> HashMap<u32, Vec<i32>> {
+    let Some(bytes) = vfs.find(files::EQUIPMENT_SLOT).and_then(|path| vfs.read(&path).ok()) else {
+        return HashMap::new();
+    };
+
+    EquipmentSlot::parse(&bytes, None)
+        .unwrap_or_default()
+        .into_iter()
+        .filter_map(|row| Some((u32::try_from(row.unit_id?).ok()?, row.rest.iter().map_while(|cell| *cell).collect())))
+        .collect()
+}
+
+pub(crate) fn equipmentattribute(vfs: &Vfs) -> Vec<u32> {
+    let Some(bytes) = vfs.find(files::EQUIPMENT_ATTRIBUTE).and_then(|path| vfs.read(&path).ok()) else {
+        return Vec::new();
+    };
+
+    EquipmentAttribute::parse(&bytes, None).unwrap_or_default().iter().map(EquipmentAttribute::mask).collect()
 }
 
 pub fn nyancombo_source(vfs: &Vfs, line: usize) -> Option<PathBuf> {

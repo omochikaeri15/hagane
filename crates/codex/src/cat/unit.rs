@@ -1,3 +1,4 @@
+mod equipmentattribute;
 mod equipmentlist;
 mod equipmentslot;
 mod nyancombo;
@@ -22,6 +23,7 @@ use serde::{Deserialize, Serialize};
 use crate::combat::{Entity, EntityError};
 use crate::common::file::Separator;
 
+pub use equipmentattribute::{EquipmentAttribute, EquipmentAttributeError};
 pub use equipmentlist::{Equipment, EquipmentListError};
 pub use equipmentslot::{EquipmentSlot, EquipmentSlotError};
 pub use nyancombo::{Nyancombo, NyancomboError};

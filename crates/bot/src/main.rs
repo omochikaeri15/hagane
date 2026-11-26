@@ -10,6 +10,7 @@ mod grammar;
 mod headers;
 mod library;
 mod lookup;
+mod orbs;
 mod prefs;
 mod prose;
 mod render;

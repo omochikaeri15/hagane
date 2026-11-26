@@ -1,6 +1,7 @@
 use std::borrow::Cow;
 use std::collections::HashMap;
 
+use codex::combat::orb::TRAITS;
 use codex::combat::{get_ability, AttributeIndex, DictionaryIndex, Faction, Glossary, Identity, TraitLabels};
 use codex::files::Localizable;
 
@@ -86,6 +87,15 @@ impl NameBook {
         let row = get_ability(identity)?.orb_trait?;
 
         self.traits.as_ref()?.entries.get(usize::from(row)).filter(|label| !label.name.is_empty())
+    }
+
+    pub fn orb_trait(&self, row: usize) -> Option<&str> {
+        self.traits
+            .as_ref()
+            .and_then(|traits| traits.entries.get(row))
+            .map(|label| label.name.as_str())
+            .filter(|name| !name.is_empty())
+            .or_else(|| TRAITS.get(row).map(|identity| self.trait_label(*identity)))
     }
 
     pub fn trait_label(&self, identity: Identity) -> &str {

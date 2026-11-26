@@ -67,7 +67,7 @@ fn against(ctx: &RenderContext<'_>, foe: Foe) -> Option<Against> {
     let treasure = ctx.global.treasure;
     let sage = foe.has(Identity::TraitSage) && stats.sage_slayer == 0;
 
-    (stats.targets(foe) || sage).then(|| Against { fruit: treasure.fruit_against(stats, foe), push: treasure.push_fruit(foe), sage })
+    (stats.targets(foe) || sage).then(|| Against { fruit: treasure.fruit_against(stats, foe), push: treasure.push_fruit(foe), sage, foe })
 }
 
 fn metal_mark(stats: &Entity) -> Mark {
@@ -95,6 +95,7 @@ fn label_mark(stats: &Entity, label: Identity, spirit: bool) -> Mark {
         Identity::TraitMetal => metal_mark(stats),
         Identity::TraitSage => sage_mark(stats, spirit),
         _ if stats.answers(label) => Mark::Hit,
+        _ if stats.orb_answers(label) => Mark::Glancing,
         _ => Mark::Inert,
     }
 }
@@ -112,7 +113,7 @@ fn labeled(ctx: &RenderContext<'_>, label: Identity, mark: Mark) -> AbilityItem 
 fn owns(stats: &Entity, label: Identity) -> bool {
     match label {
         Identity::TraitMetal => stats.aims_at(label),
-        _ => stats.answers(label),
+        _ => stats.answers(label) || stats.orb_answers(label),
     }
 }
 
@@ -150,15 +151,16 @@ pub fn abilities(ctx: &RenderContext<'_>, foe: Foe, spirit: bool, pace: Pace, le
 }
 
 pub fn palette(ctx: &RenderContext<'_>, foe: Foe, spirit: bool, pace: Pace, lens: Lens) -> AbilityGroups {
-    let ((_, h1, h2, b1, b2, footer), _) = gathered(ctx, foe, spirit, pace, lens);
+    let ((held, h1, h2, b1, b2, footer), _) = gathered(ctx, foe, spirit, pace, lens);
     let stats = ctx.final_stats;
     let picks = Foe::LABELS
         .into_iter()
         .map(|label| {
             let picked = foe.has(label);
             let mark = if picked { label_mark(stats, label, spirit) } else { Mark::None };
+            let border_id = held.iter().find(|item| item.identity == label).and_then(|item| item.border_id);
 
-            AbilityItem { dimmed: !picked && !owns(stats, label), ..labeled(ctx, label, mark) }
+            AbilityItem { dimmed: !picked && !owns(stats, label), border_id, ..labeled(ctx, label, mark) }
         })
         .collect();
 

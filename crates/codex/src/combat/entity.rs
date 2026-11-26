@@ -6,7 +6,8 @@ use serde::{Deserialize, Serialize};
 use crate::common::columns;
 use crate::common::file::{self, Separator};
 
-use super::Identity;
+use super::orb::Terms as OrbTerms;
+use super::{Identity, Worn};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
@@ -192,6 +193,12 @@ pub struct Entity {
     pub run_recharge_cut: i32,
     #[serde(skip)]
     pub run_marks: Vec<(Identity, bool)>,
+    #[serde(skip)]
+    pub orbs: Vec<Worn>,
+    #[serde(skip)]
+    pub plain_attacks: [i32; 3],
+    #[serde(skip)]
+    pub orb_terms: OrbTerms,
 }
 
 impl Entity {

@@ -6,8 +6,12 @@ use dioxus::prelude::*;
 use codex::cat::unit::Equipment;
 use codex::combat::Identity;
 use foundry::Vfs;
-use foundry::domains::sandbox::orb::{self, Allowance, GRADES, Kind};
+use foundry::domains::cat::orbs::{self as orb, Allowance, GRADES, Kind};
+use foundry::domains::cat::orbs::Shine;
+use foundry::domains::cat::scanner::CatEntry;
+use foundry::systems::combat::Mark;
 
+use crate::domains::cat;
 use crate::systems::context::Shared;
 use crate::systems::images::{self, Pictures};
 use crate::systems::picture::Pic;
@@ -21,6 +25,7 @@ const EFFECT_SHEET: &str = "equipment_effect";
 const GRADE_SHEET: &str = "equipment_grade";
 pub(crate) const PREVIEW_SIZE: f32 = 56.0;
 const NONE: &str = "None";
+const SHUT_HINT: &str = "Opens at Lv60";
 
 const TRAITS: [Identity; 12] = [
     Identity::TraitRed,
@@ -39,6 +44,7 @@ const TRAITS: [Identity; 12] = [
 
 pub(crate) struct Book {
     pub(crate) orbs: Arc<Vec<Equipment>>,
+    pub(crate) masks: Arc<Vec<u32>>,
     kinds: Vec<Kind>,
     effects: Vec<String>,
     traits: Vec<String>,
@@ -75,11 +81,12 @@ impl Book {
     pub(crate) fn load(globals: &Shared) -> Self {
         let vault = globals.0.vault();
         let orbs = vault.vds.cats.orbs(&vault.vfs);
+        let masks = vault.vds.cats.orb_masks(&vault.vfs);
         let kinds = orb::kinds(&orbs);
         let effects = effect_names(&vault.vfs);
         let traits = TRAITS.iter().map(|identity| globals.0.names.trait_label(*identity).to_owned()).collect();
 
-        Self { orbs, kinds, effects, traits }
+        Self { orbs, masks, kinds, effects, traits }
     }
 
     fn effect_label(&self, content: i32) -> String {
@@ -94,34 +101,72 @@ impl Book {
         usize::try_from(attribute).ok().and_then(|index| self.traits.get(index)).map_or_else(|| format!("Trait {attribute}"), Clone::clone)
     }
 
-    fn aims(&self, content: i32, allowance: Allowance) -> Vec<i32> {
+    pub(crate) fn allowance(&self, cat: &CatEntry) -> Allowance {
+        Allowance::of(cat, Arc::clone(&self.masks))
+    }
+
+    fn aims(&self, content: i32, allowance: &Allowance) -> Vec<i32> {
         orb::attributes(&self.kinds, content).into_iter().filter(|attribute| allowance.permits(Kind { content, attribute: Some(*attribute) })).collect()
     }
 
-    fn offered(&self, allowance: Allowance) -> Vec<i32> {
+    fn offered(&self, allowance: &Allowance) -> Vec<i32> {
         orb::effects(&self.kinds).into_iter().filter(|content| orb::attributes(&self.kinds, *content).is_empty() || !self.aims(*content, allowance).is_empty()).collect()
     }
 }
 
+pub(crate) fn header(pictures: &Pictures, orbs: &[Equipment], slots: &[Option<u32>], marks: &[(bool, Shine)], size: f32, press: Option<EventHandler<usize>>) -> Element {
+    rsx! {
+        div { class: "orb-header",
+            span { class: "bold orb-header-title", "Orbs" }
+            div { class: "orb-slots",
+                for (slot, orb) in slots.iter().enumerate() {
+                    {
+                        let (shut, shine) = marks.get(slot).copied().unwrap_or_default();
+                        let face = match orb {
+                            Some(orb) => shaded(pictures, orbs, *orb, size, !shine.lit, shine.ringed),
+                            None if shut => rsx! { span { class: "weak orb-shut", "Lv60" } },
+                            None => rsx! { span { class: "orb-plus", "+" } },
+                        };
+
+                        match press.filter(|_| !shut) {
+                            Some(press) => rsx! { button { key: "{slot}", class: "btn btn-neutral orb-slot", onclick: move |_| press.call(slot), {face} } },
+                            None => rsx! { div { key: "{slot}", class: "orb-slot static", title: if shut { SHUT_HINT } else { "" }, {face} } },
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
 pub(crate) fn picture(pictures: &Pictures, orbs: &[Equipment], orb: u32, size: f32) -> Element {
+    shaded(pictures, orbs, orb, size, false, false)
+}
+
+fn shaded(pictures: &Pictures, orbs: &[Equipment], orb: u32, size: f32, dim: bool, lit: bool) -> Element {
     let Some(held) = orbs.get(orb as usize) else {
         return rsx! { div { class: "orb-stack", style: "width: {size}px; height: {size}px;" } };
     };
+    let class = if dim { "orb-stack dim" } else { "orb-stack" };
+    let ring = if lit { "marked" } else { "" };
+    let tone = if lit { cat::abilities::tone_style(Mark::Hit) } else { String::new() };
     let face = pictures.cut_sized(ATTRIBUTE_SHEET, usize::try_from(held.attribute.unwrap_or(UNIVERSAL)).unwrap_or(UNIVERSAL as usize));
     let layers = [(EFFECT_SHEET, held.content), (GRADE_SHEET, held.grade_id)];
     let scale = face.as_ref().map_or(1.0, |face| if face.width > 0 { size / face.width as f32 } else { 1.0 });
 
     rsx! {
-        div { class: "orb-stack", style: "width: {size}px; height: {size}px;",
-            if let Some(face) = face.as_ref() {
-                Pic { url: Rc::clone(&face.url), class: "orb-face" }
-            }
-            for (sheet, index) in layers {
-                if let Some(over) = index.and_then(|index| usize::try_from(index).ok()).and_then(|index| pictures.cut_sized(sheet, index)) {
-                    Pic {
-                        url: over.url,
-                        class: "orb-layer",
-                        style: format!("width: {}px; height: {}px;", over.width as f32 * scale, over.height as f32 * scale),
+        div { class: "{ring}", style: "{tone}",
+            div { class: "{class}", style: "width: {size}px; height: {size}px;",
+                if let Some(face) = face.as_ref() {
+                    Pic { url: Rc::clone(&face.url), class: "orb-face" }
+                }
+                for (sheet, index) in layers {
+                    if let Some(over) = index.and_then(|index| usize::try_from(index).ok()).and_then(|index| pictures.cut_sized(sheet, index)) {
+                        Pic {
+                            url: over.url,
+                            class: "orb-layer",
+                            style: format!("width: {}px; height: {}px;", over.width as f32 * scale, over.height as f32 * scale),
+                        }
                     }
                 }
             }
@@ -134,9 +179,9 @@ pub(crate) fn Picker(shelf: Shelf, held: Option<u32>, allowance: Allowance, onpi
     let pictures = images::pictures();
     let book = &shelf.0;
     let kind = held.and_then(|orb| orb::kind(&book.orbs, orb));
-    let offered = book.offered(allowance);
+    let offered = book.offered(&allowance);
     let chosen = kind.map(|kind| kind.content).filter(|content| offered.contains(content));
-    let aims = kind.map_or_else(Vec::new, |kind| book.aims(kind.content, allowance));
+    let aims = kind.map_or_else(Vec::new, |kind| book.aims(kind.content, &allowance));
     let aim = kind.and_then(|kind| kind.attribute);
     let grades: Vec<usize> = kind.map_or_else(Vec::new, |kind| {
         let mut offered: Vec<usize> = orb::grades(&book.orbs, kind).into_iter().map(|(grade, _)| grade).collect();
@@ -148,12 +193,13 @@ pub(crate) fn Picker(shelf: Shelf, held: Option<u32>, allowance: Allowance, onpi
     let grade = held.and_then(|orb| orb::grade(&book.orbs, orb));
     let pick_effect = {
         let shelf = shelf.clone();
+        let allowance = allowance.clone();
 
         move |content: i32| {
             let book = &shelf.0;
             let grade = held.and_then(|orb| orb::grade(&book.orbs, orb)).unwrap_or(BEST_GRADE);
             let aimed = held.and_then(|orb| orb::kind(&book.orbs, orb)).and_then(|kind| kind.attribute);
-            let offered = book.aims(content, allowance);
+            let offered = book.aims(content, &allowance);
             let attribute = offered.iter().find(|attribute| Some(**attribute) == aimed).or_else(|| offered.first()).copied();
 
             onpick.call(orb::pick(&book.orbs, Kind { content, attribute }, grade));
@@ -209,7 +255,7 @@ pub(crate) fn Picker(shelf: Shelf, held: Option<u32>, allowance: Allowance, onpi
                         }
                     },
                     option { value: "{NONE}", selected: chosen.is_none(), disabled: true, "{NONE}" }
-                    for content in book.offered(allowance) {
+                    for content in book.offered(&allowance) {
                         option { value: "{book.effect_label(content)}", selected: chosen == Some(content), "{book.effect_label(content)}" }
                     }
                 }

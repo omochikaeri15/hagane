@@ -1,5 +1,6 @@
 use super::abilities::{get_ability, Identity};
 use super::entity::{Entity, Faction};
+use super::orb::{ATTACK_UP, DEFENSE_UP, MASSIVE_UP, STRONG_UP, TOUGH_UP};
 
 const COLOSSUS_DEALT: i64 = 160;
 const COLOSSUS_TAKEN: i64 = 70;
@@ -157,6 +158,7 @@ pub struct Roll {
     pub savage: bool,
     pub strengthened: bool,
     pub rampant: bool,
+    pub hit: usize,
 }
 
 fn flag(stats: &Entity, label: Identity) -> i32 {
@@ -261,8 +263,10 @@ impl Entity {
             damage = damage * (WHOLE + i64::from(self.strengthen_boost)) / WHOLE;
         }
 
-        if roll.rampant && self.faction == Faction::Cat && self.kill_attack_up > 0 {
-            damage = damage * (WHOLE + i64::from(self.kill_attack_up)) / WHOLE;
+        let berserk = if roll.rampant { self.kill_attack_up } else { 0 } + self.orb_terms.berserk;
+
+        if self.faction == Faction::Cat && berserk > 0 {
+            damage = damage * (WHOLE + i64::from(berserk)) / WHOLE;
         }
 
         if roll.savage {
@@ -271,11 +275,15 @@ impl Entity {
 
         if self.targets(foe) {
             if self.strong_against != 0 {
-                damage = damage * (fruit + i64::from(self.effect_up(Identity::StrongAgainst)) * 10 + 1500) / 1000;
+                let orb = i64::from(self.orb_versus(STRONG_UP, 0, foe));
+
+                damage = damage * (fruit + orb + i64::from(self.effect_up(Identity::StrongAgainst)) * 10 + 1500) / 1000;
             }
 
             if self.massive_damage != 0 {
-                damage = damage * (i64::from(self.effect_up(Identity::MassiveDamage)) * 3 + fruit + 900) / 300;
+                let orb = i64::from(self.orb_versus(MASSIVE_UP, 0, foe));
+
+                damage = damage * (i64::from(self.effect_up(Identity::MassiveDamage)) * 3 + fruit + orb + 900) / 300;
             }
 
             if self.insane_damage != 0 {
@@ -303,6 +311,14 @@ impl Entity {
             damage = damage * i64::from(terms.sage_dealt) / 1000;
         }
 
+        let raised = self.orb_versus(ATTACK_UP, 0, foe);
+
+        if raised > 0 {
+            let plain = self.plain_attacks.get(roll.hit).copied().unwrap_or(0);
+
+            damage += i64::from(plain.wrapping_mul(raised) / 100);
+        }
+
         if foe.has(Identity::TraitMetal) && !roll.critical && damage > 0 {
             damage = METAL_FLOOR;
         }
@@ -312,16 +328,16 @@ impl Entity {
 
     pub fn taken(&self, foe: Foe, terms: Terms) -> f64 {
         let fruit = f64::from(terms.fruit);
-        let eased = |identity: Identity| f64::from(100 - self.effect_up(identity)) / 100.0;
+        let eased = |identity: Identity, orb: i32| f64::from(100 - (orb + self.effect_up(identity))) / 100.0;
         let mut share = 1.0;
 
         if self.targets(foe) {
             if self.strong_against != 0 {
-                share *= (1500.0 - fruit) / 3000.0 * eased(Identity::StrongAgainst);
+                share *= (1500.0 - fruit) / 3000.0 * eased(Identity::StrongAgainst, self.orb_versus(STRONG_UP, 1, foe));
             }
 
             if self.resist != 0 {
-                share *= (1500.0 - fruit) / 6000.0 * eased(Identity::Resist);
+                share *= (1500.0 - fruit) / 6000.0 * eased(Identity::Resist, self.orb_versus(TOUGH_UP, 0, foe));
             }
 
             if self.insanely_tough != 0 {
@@ -347,6 +363,12 @@ impl Entity {
 
         if self.sage_slayer != 0 && foe.has(Identity::TraitSage) {
             share *= f64::from(terms.sage_taken) / 1000.0;
+        }
+
+        let defense = self.orb_versus(DEFENSE_UP, 0, foe);
+
+        if defense > 0 {
+            share *= f64::from(100 - defense) / 100.0;
         }
 
         share
@@ -402,6 +424,55 @@ mod tests {
         assert!(!Entity { attack_1_abilities: 0, ..unit.clone() }.crits(), "a chance on a hit that carries no abilities never fires");
     }
 
+    // Strong Up joins the treasure share, and Attack Up adds a share of the level 1 hit after every multiplier.
+    #[test]
+    fn trait_orbs_raise_a_landing_against_their_traits() {
+        use super::super::orb::{Worn, ATTACK_UP, DEFENSE_UP, STRONG_UP};
+        use super::super::output::{Mode, Switches};
+
+        let mut unit = Entity { trait_red: 1, strong_against: 1, ..Entity::default() };
+        let red = foe(&[Identity::TraitRed]);
+        let land = |unit: &Entity, against: Foe| unit.landing(against, TERMS, 1000, Carrier::Direct, Roll::default());
+
+        assert_eq!(land(&unit, red), 1800);
+
+        unit.wear(
+            vec![
+                Worn { slot: 0, id: 0, content: STRONG_UP, mask: 0b1, grade: 4, values: vec![100, 0] },
+                Worn { slot: 1, id: 1, content: ATTACK_UP, mask: 0b1, grade: 4, values: vec![500] },
+                Worn { slot: 2, id: 2, content: DEFENSE_UP, mask: 0b10, grade: 4, values: vec![30] },
+            ],
+            [100, 0, 0],
+            Switches::default(),
+            Mode::Maximum,
+        );
+
+        assert_eq!(land(&unit, red), 1900 + 500, "Attack Up S adds five times the level 1 attack");
+        assert_eq!(land(&unit, foe(&[Identity::TraitAngel])), 1000);
+        assert!((unit.taken(foe(&[Identity::TraitFloating]), TERMS) - 0.7).abs() < 1e-9);
+    }
+
+    // Attack Up adds the whole level 1 hit to every carrier: a mini-surge, a mini-wave or an explosion ring
+    // shrinks the hit itself, never the orb's share, and a crit doubles the hit but not the orb.
+    #[test]
+    fn attack_up_rides_every_carrier_in_full() {
+        use super::super::orb::{Worn, ATTACK_UP};
+        use super::super::output::{Mode, Switches};
+
+        let mut unit = Entity { trait_red: 1, ..Entity::default() };
+        let red = foe(&[Identity::TraitRed]);
+
+        unit.wear(vec![Worn { slot: 0, id: 0, content: ATTACK_UP, mask: 0b1, grade: 4, values: vec![500] }], [100, 0, 0], Switches::default(), Mode::Maximum);
+
+        let land = |carrier: Carrier, critical: bool| unit.landing(red, TERMS, 1000, carrier, Roll { critical, ..Roll::default() });
+
+        assert_eq!(land(Carrier::MiniSurge, false), 200 + 500);
+        assert_eq!(land(Carrier::MiniWave(20), false), 200 + 500);
+        assert_eq!(land(Carrier::Explosion(70), false), 700 + 500);
+        assert_eq!(land(Carrier::Surge, false), 1000 + 500);
+        assert_eq!(land(Carrier::Direct, true), 2000 + 500);
+    }
+
     // A carrier is scaled before the crit doubles it and savage multiplies it, each step rounded down.
     #[test]
     fn carriers_scale_before_the_rolls() {
@@ -420,7 +491,7 @@ mod tests {
     #[test]
     fn boosts_land_between_the_crit_and_savage() {
         let unit = Entity { strengthen_threshold: 50, strengthen_boost: 100, kill_attack_up: 50, savage_blow_boost: 200, ..Entity::default() };
-        let land = |unit: &Entity, boosted: bool| unit.landing(Foe::default(), TERMS, 1000, Carrier::Direct, Roll { critical: true, savage: true, strengthened: boosted, rampant: boosted });
+        let land = |unit: &Entity, boosted: bool| unit.landing(Foe::default(), TERMS, 1000, Carrier::Direct, Roll { critical: true, savage: true, strengthened: boosted, rampant: boosted, hit: 0 });
 
         assert_eq!(land(&unit, true), 1000 * 2 * 2 * 3 / 2 * 3);
         assert_eq!(land(&unit, false), 1000 * 2 * 3);

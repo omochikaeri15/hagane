@@ -6,7 +6,10 @@ use slint::Image;
 use codex::cat::unit::Equipment;
 use codex::combat::Identity;
 use foundry::Vault;
-use foundry::domains::sandbox::orb::{self, Allowance, GRADES, Kind};
+use foundry::domains::cat::orbs::{self as orb, Allowance, GRADES, Kind};
+use foundry::domains::cat::scanner::CatEntry;
+use foundry::systems::combat::Mark;
+use foundry::systems::statblock::mark_ring;
 
 use crate::context::Globals;
 use crate::images::Images;
@@ -15,6 +18,7 @@ use crate::OrbSlot;
 const EXPLANATION: &str = "equipment_explonation.tsv";
 const PLACEHOLDER: &str = "%@";
 const UNIVERSAL: i32 = 12;
+const DARKENED: f32 = 0.4;
 pub const BEST_GRADE: usize = 4;
 const ATTRIBUTE_SHEET: &str = "equipment_attribute";
 const EFFECT_SHEET: &str = "equipment_effect";
@@ -36,6 +40,7 @@ const TRAITS: [Identity; 12] = [
 
 pub struct Book {
     pub orbs: Arc<Vec<Equipment>>,
+    pub masks: Arc<Vec<u32>>,
     kinds: Vec<Kind>,
     effects: Vec<String>,
     traits: Vec<String>,
@@ -60,11 +65,12 @@ fn effect_names(vault: &Vault) -> Vec<String> {
 impl Book {
     pub fn load(vault: &Vault, globals: &Globals) -> Self {
         let orbs = vault.vds.cats.orbs(&vault.vfs);
+        let masks = vault.vds.cats.orb_masks(&vault.vfs);
         let kinds = orb::kinds(&orbs);
         let effects = effect_names(vault);
         let traits = TRAITS.iter().map(|identity| globals.names.trait_label(*identity).to_owned()).collect();
 
-        Self { orbs, kinds, effects, traits }
+        Self { orbs, masks, kinds, effects, traits }
     }
 
     pub fn effect_label(&self, content: i32) -> String {
@@ -75,11 +81,15 @@ impl Book {
         usize::try_from(attribute).ok().and_then(|index| self.traits.get(index)).map_or_else(|| format!("Trait {attribute}"), Clone::clone)
     }
 
-    pub fn aims(&self, content: i32, allowance: Allowance) -> Vec<i32> {
+    pub fn allowance(&self, cat: &CatEntry) -> Allowance {
+        Allowance::of(cat, Arc::clone(&self.masks))
+    }
+
+    pub fn aims(&self, content: i32, allowance: &Allowance) -> Vec<i32> {
         orb::attributes(&self.kinds, content).into_iter().filter(|attribute| allowance.permits(Kind { content, attribute: Some(*attribute) })).collect()
     }
 
-    pub fn offered(&self, allowance: Allowance) -> Vec<i32> {
+    pub fn offered(&self, allowance: &Allowance) -> Vec<i32> {
         orb::effects(&self.kinds).into_iter().filter(|content| orb::attributes(&self.kinds, *content).is_empty() || !self.aims(*content, allowance).is_empty()).collect()
     }
 
@@ -96,21 +106,29 @@ impl Book {
     }
 
     pub fn picture(&self, images: &Images, vault: &Vault, orb: Option<u32>) -> OrbSlot {
-        let icon = orb.and_then(|orb| self.face(images, vault, orb));
+        self.shaded(images, vault, orb, false, false)
+    }
 
-        OrbSlot { has_icon: icon.is_some(), icon: icon.unwrap_or_default() }
+    pub fn shaded(&self, images: &Images, vault: &Vault, orb: Option<u32>, dim: bool, lit: bool) -> OrbSlot {
+        let icon = orb.and_then(|orb| self.drawn(images, vault, orb, (dim, lit)));
+
+        OrbSlot { has_icon: icon.is_some(), icon: icon.unwrap_or_default(), shut: false }
     }
 
     pub fn face(&self, images: &Images, vault: &Vault, orb: u32) -> Option<Image> {
+        self.drawn(images, vault, orb, (false, false))
+    }
+
+    fn drawn(&self, images: &Images, vault: &Vault, orb: u32, shade: (bool, bool)) -> Option<Image> {
         let held = self.orbs.get(orb as usize)?;
         let index = |value: Option<i32>| value.and_then(|value| usize::try_from(value).ok());
 
-        compose(images, vault, index(Some(held.attribute.unwrap_or(UNIVERSAL)))?, index(held.content), index(held.grade_id))
+        compose(images, vault, index(Some(held.attribute.unwrap_or(UNIVERSAL)))?, index(held.content), index(held.grade_id), shade)
     }
 }
 
-fn compose(images: &Images, vault: &Vault, attribute: usize, content: Option<usize>, grade: Option<usize>) -> Option<Image> {
-    let key = format!("orb:{attribute}:{}:{}", content.map_or(-1, |value| value as i64), grade.map_or(-1, |value| value as i64));
+fn compose(images: &Images, vault: &Vault, attribute: usize, content: Option<usize>, grade: Option<usize>, (dim, lit): (bool, bool)) -> Option<Image> {
+    let key = format!("orb:{attribute}:{}:{}:{dim}:{lit}", content.map_or(-1, |value| value as i64), grade.map_or(-1, |value| value as i64));
     let layers = [(ATTRIBUTE_SHEET, Some(attribute)), (EFFECT_SHEET, content), (GRADE_SHEET, grade)];
     let sheets: Vec<_> = layers.iter().map(|(sheet, index)| (images.sheets(vault, sheet), *index)).collect();
 
@@ -123,6 +141,18 @@ fn compose(images: &Images, vault: &Vault, attribute: usize, content: Option<usi
 
                 imageops::overlay(&mut face, &over, i64::from(across), i64::from(down));
             }
+        }
+
+        if dim {
+            for pixel in face.pixels_mut() {
+                for channel in &mut pixel.0[..3] {
+                    *channel = (f32::from(*channel) * DARKENED) as u8;
+                }
+            }
+        }
+
+        if lit && let Some(ring) = mark_ring(Mark::Hit, face.width(), face.height()) {
+            imageops::overlay(&mut face, &ring, 0, 0);
         }
 
         Some(face)

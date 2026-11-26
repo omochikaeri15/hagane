@@ -4,6 +4,7 @@ use codex::combat::{Foe, Mode, Switches};
 use codex::files::img015;
 use foundry::common::context::GlobalContext;
 use foundry::domains::cat::game::stats::get_final_stats;
+use foundry::domains::cat::orbs as orb;
 use foundry::domains::cat::versus::{self, Felt};
 use foundry::domains::cat::waiter::unitid;
 use foundry::systems::combat::abilities::collect_ability_data;
@@ -42,8 +43,11 @@ pub(crate) fn Abilities(selected: Picked, globals: Shared) -> Element {
     let treasure = state.treasure_or(globals.0.treasure);
     let mut final_stats = get_final_stats(base, cat.curve.as_ref(), level, talent_data, levels.as_ref(), &treasure);
 
-    if let Some(grants) = state.granted.read().as_ref() {
-        grants.apply(&mut final_stats);
+    let worn = state.worn(cat, form, globals.0.vault());
+
+    match state.granted.read().as_ref() {
+        Some(grants) => grants.apply(&mut final_stats),
+        None => orb::dress(&mut final_stats, base, form, state.sight(cat, form).0, &worn),
     }
     let ctx = RenderContext {
         global: GlobalContext { treasure: &treasure, ..globals.0.context() },
@@ -125,7 +129,7 @@ pub(crate) fn Abilities(selected: Picked, globals: Shared) -> Element {
     }
 }
 
-fn tone_style(mark: Mark) -> String {
+pub(crate) fn tone_style(mark: Mark) -> String {
     let color = |tone: [u8; 4]| format!("rgba({}, {}, {}, {})", tone[0], tone[1], tone[2], f32::from(tone[3]) / 255.0);
 
     mark.tones().map_or_else(String::new, |(upper, lower)| format!("--mark-upper: {}; --mark-lower: {};", color(upper), color(lower)))

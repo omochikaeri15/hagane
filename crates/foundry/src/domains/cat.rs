@@ -4,6 +4,7 @@ pub mod filter;
 pub mod game;
 pub mod grants;
 pub mod level;
+pub mod orbs;
 pub mod scanner;
 pub mod statblock;
 pub mod versus;

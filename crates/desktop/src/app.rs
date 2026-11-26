@@ -269,6 +269,8 @@ enum ActivePopup {
     HomeChangelog,
     CatExport,
     CatFilter,
+    CatOrb,
+    CatMore,
     EnemyExport,
     EnemyFilter,
     StageFilter,
@@ -301,17 +303,22 @@ enum ActivePopup {
     SandboxJailbreakUnit,
     SandboxJailbreakExport,
     SandboxJailbreakFilter,
+    SandboxLineupMore,
+    SandboxReplayMore,
+    SandboxJailbreakMore,
 }
 
 impl ActivePopup {
     #[cfg(test)]
-    const ALL: [Self; 38] = [
+    const ALL: [Self; 43] = [
         Self::InitErrors,
         Self::Updater,
         Self::VersionNotice,
         Self::HomeChangelog,
         Self::CatExport,
         Self::CatFilter,
+        Self::CatOrb,
+        Self::CatMore,
         Self::EnemyExport,
         Self::EnemyFilter,
         Self::StageFilter,
@@ -344,6 +351,9 @@ impl ActivePopup {
         Self::SandboxJailbreakUnit,
         Self::SandboxJailbreakExport,
         Self::SandboxJailbreakFilter,
+        Self::SandboxLineupMore,
+        Self::SandboxReplayMore,
+        Self::SandboxJailbreakMore,
     ];
 
     fn kind(self) -> popup::Kind {
@@ -354,6 +364,11 @@ impl ActivePopup {
             Self::HomeChangelog => popup::Kind::Changelog,
             Self::CatExport => popup::Kind::CatAnimationExport,
             Self::CatFilter => popup::Kind::CatFilter,
+            Self::CatOrb => popup::Kind::CatOrb,
+            Self::CatMore => popup::Kind::CatMore,
+            Self::SandboxLineupMore => popup::Kind::SandboxMore,
+            Self::SandboxReplayMore => popup::Kind::ReplayMore,
+            Self::SandboxJailbreakMore => popup::Kind::JailbreakMore,
             Self::EnemyExport => popup::Kind::EnemyAnimationExport,
             Self::EnemyFilter => popup::Kind::EnemyFilter,
             Self::StageFilter => popup::Kind::StageFilter,
@@ -1689,6 +1704,8 @@ impl HaganeApp {
 
                 self.sync_popup(ActivePopup::CatExport, self.cat_state.export_popup_open());
                 self.sync_popup(ActivePopup::CatFilter, self.cat_state.filter_popup_open());
+                self.sync_popup(ActivePopup::CatOrb, self.cat_state.orb_popup_open());
+                self.sync_popup(ActivePopup::CatMore, self.cat_state.more_popup_open());
 
                 if loaded {
                     let started = Instant::now();
@@ -2451,6 +2468,9 @@ impl HaganeApp {
         self.sync_popup(ActivePopup::SandboxJailbreakUnit, self.sandbox_state.jailbreak_unit_open());
         self.sync_popup(ActivePopup::SandboxJailbreakExport, self.sandbox_state.jailbreak_export_open());
         self.sync_popup(ActivePopup::SandboxJailbreakFilter, self.sandbox_state.jailbreak_filter_open());
+        self.sync_popup(ActivePopup::SandboxLineupMore, self.sandbox_state.lineup_more_open());
+        self.sync_popup(ActivePopup::SandboxReplayMore, self.sandbox_state.replay_more_open());
+        self.sync_popup(ActivePopup::SandboxJailbreakMore, self.sandbox_state.jailbreak_more_open());
     }
 
     fn adopt_sandbox_cats(&mut self) -> Task<Message> {
@@ -2528,6 +2548,49 @@ impl HaganeApp {
                         }
 
                         self.cat_state.filter_popup_view(self.window_size, &self.names).map(|view| view.map(Message::Cat))
+                    }
+                    ActivePopup::CatOrb => {
+                        if !matches!(self.current_page, Page::Cats) {
+                            return None;
+                        }
+
+                        self.cat_state.orb_popup_view(self.window_size, &self.names).map(|view| view.map(Message::Cat))
+                    }
+                    ActivePopup::CatMore => {
+                        if !matches!(self.current_page, Page::Cats) {
+                            return None;
+                        }
+
+                        let global = GlobalContext { param: &self.param, localizable: &self.localizable, vault: &self.vault, treasure: &self.treasure, names: &self.names };
+
+                        self.cat_state.more_popup_view(self.window_size, global).map(|view| view.map(Message::Cat))
+                    }
+                    ActivePopup::SandboxLineupMore => {
+                        if !matches!(self.current_page, Page::Sandbox) || self.app_state.sandbox.tab != crate::app::state::SandboxTab::Lineup {
+                            return None;
+                        }
+
+                        let global = GlobalContext { param: &self.param, localizable: &self.localizable, vault: &self.vault, treasure: &self.sandbox_treasure, names: &self.names };
+
+                        self.sandbox_state.lineup_more_view(self.window_size, global).map(|view| view.map(Message::Sandbox))
+                    }
+                    ActivePopup::SandboxReplayMore => {
+                        if !matches!(self.current_page, Page::Sandbox) || self.app_state.sandbox.tab != crate::app::state::SandboxTab::Replay {
+                            return None;
+                        }
+
+                        let global = GlobalContext { param: &self.param, localizable: &self.localizable, vault: &self.vault, treasure: &self.sandbox_treasure, names: &self.names };
+
+                        self.sandbox_state.replay_more_view(self.window_size, global).map(|view| view.map(Message::Sandbox))
+                    }
+                    ActivePopup::SandboxJailbreakMore => {
+                        if !matches!(self.current_page, Page::Sandbox) || self.app_state.sandbox.tab != crate::app::state::SandboxTab::Lineup || !self.sandbox_state.jailbreak_ready() {
+                            return None;
+                        }
+
+                        let global = GlobalContext { param: &self.param, localizable: &self.localizable, vault: &self.vault, treasure: &self.sandbox_treasure, names: &self.names };
+
+                        self.sandbox_state.jailbreak_more_view(self.window_size, global).map(|view| view.map(Message::Sandbox))
                     }
                     ActivePopup::EnemyExport => {
                         if !matches!(self.current_page, Page::Enemies) || !self.enemy_state.export_popup_visible() {
@@ -2737,7 +2800,7 @@ impl HaganeApp {
                             return None;
                         }
 
-                        self.sandbox_state.orb_popup_view(self.window_size, &self.app_state).map(|view| view.map(Message::Sandbox))
+                        self.sandbox_state.orb_popup_view(self.window_size, &self.names).map(|view| view.map(Message::Sandbox))
                     }
                     ActivePopup::SandboxReplayUnit => {
                         if !matches!(self.current_page, Page::Sandbox)

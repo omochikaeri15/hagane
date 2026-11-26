@@ -6,7 +6,8 @@ use crate::domains::enemy::files as enemy_files;
 use crate::domains::enemy::scanner::EnemyEntry;
 use crate::common::architecture;
 use crate::domains::mods;
-use crate::domains::sandbox::{base, orb};
+use crate::domains::cat::orbs;
+use crate::domains::sandbox::base;
 use crate::domains::stage::files as stage_files;
 use crate::domains::stage::materials as stage_materials;
 use crate::domains::stage::{names, GlobalMapId, GlobalStageId};
@@ -619,7 +620,7 @@ fn orb_grade_targets(sources: &Sources<'_>, focus: &Focus, line: Option<usize>) 
         return Vec::new();
     }
 
-    let grade = line.checked_sub(1).and_then(|at| orb::GRADES.get(at)).copied().unwrap_or_default();
+    let grade = line.checked_sub(1).and_then(|at| orbs::GRADES.get(at)).copied().unwrap_or_default();
     let label = format!("{ORB_GRADE_LABEL} {grade}");
 
     vec![LevelTarget {
