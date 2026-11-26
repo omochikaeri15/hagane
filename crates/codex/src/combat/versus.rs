@@ -155,7 +155,8 @@ pub enum Carrier {
 pub struct Roll {
     pub critical: bool,
     pub savage: bool,
-    pub boosted: bool,
+    pub strengthened: bool,
+    pub rampant: bool,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -273,11 +274,11 @@ impl Entity {
             damage *= CRITICAL;
         }
 
-        if roll.boosted && self.strengthen_threshold > 0 {
+        if roll.strengthened && self.strengthen_threshold > 0 {
             damage = damage * (WHOLE + i64::from(self.strengthen_boost)) / WHOLE;
         }
 
-        if roll.boosted && self.faction == Faction::Cat && self.kill_attack_up > 0 {
+        if roll.rampant && self.faction == Faction::Cat && self.kill_attack_up > 0 {
             damage = damage * (WHOLE + i64::from(self.kill_attack_up)) / WHOLE;
         }
 
@@ -397,11 +398,11 @@ mod tests {
     fn trait_damage_needs_a_shared_trait() {
         let unit = Entity { attack_1_damage: 1000, trait_red: 1, massive_damage: 1, ..Entity::default() };
 
-        assert_eq!(unit.landing(foe(&[Identity::TraitRed]), TERMS, 1000, Carrier::Direct, Roll { critical: false, savage: false, boosted: false }), 4000);
-        assert_eq!(unit.landing(foe(&[Identity::TraitRed, Identity::TraitAngel]), TERMS, 1000, Carrier::Direct, Roll { critical: false, savage: false, boosted: false }), 4000);
-        assert_eq!(unit.landing(foe(&[Identity::TraitAngel]), TERMS, 1000, Carrier::Direct, Roll { critical: false, savage: false, boosted: false }), 1000);
-        assert_eq!(unit.landing(Foe::default(), TERMS, 1000, Carrier::Direct, Roll { critical: false, savage: false, boosted: false }), 1000);
-        assert_eq!(Entity { strong_against: 1, ..unit }.landing(foe(&[Identity::TraitRed]), TERMS, 1000, Carrier::Direct, Roll { critical: false, savage: false, boosted: false }), 7200, "strong first, then massive, each rounded down on its own");
+        assert_eq!(unit.landing(foe(&[Identity::TraitRed]), TERMS, 1000, Carrier::Direct, Roll { critical: false, savage: false, ..Roll::default() }), 4000);
+        assert_eq!(unit.landing(foe(&[Identity::TraitRed, Identity::TraitAngel]), TERMS, 1000, Carrier::Direct, Roll { critical: false, savage: false, ..Roll::default() }), 4000);
+        assert_eq!(unit.landing(foe(&[Identity::TraitAngel]), TERMS, 1000, Carrier::Direct, Roll { critical: false, savage: false, ..Roll::default() }), 1000);
+        assert_eq!(unit.landing(Foe::default(), TERMS, 1000, Carrier::Direct, Roll { critical: false, savage: false, ..Roll::default() }), 1000);
+        assert_eq!(Entity { strong_against: 1, ..unit }.landing(foe(&[Identity::TraitRed]), TERMS, 1000, Carrier::Direct, Roll { critical: false, savage: false, ..Roll::default() }), 7200, "strong first, then massive, each rounded down on its own");
     }
 
     // Against Metal a landing that is not a critical hit deals 1, whatever came before; a critical one is doubled first and then multiplied.
@@ -409,7 +410,7 @@ mod tests {
     fn metal_takes_one_unless_the_hit_is_critical() {
         let unit = Entity { attack_1_damage: 1000, attack_1_abilities: 1, trait_metal: 1, massive_damage: 1, critical_chance: 30, ..Entity::default() };
         let metal = foe(&[Identity::TraitMetal]);
-        let land = |carrier: Carrier, critical: bool, savage: bool| unit.landing(metal, TERMS, 1000, carrier, Roll { critical, savage, boosted: false });
+        let land = |carrier: Carrier, critical: bool, savage: bool| unit.landing(metal, TERMS, 1000, carrier, Roll { critical, savage, ..Roll::default() });
 
         assert_eq!((land(Carrier::Direct, false, false), land(Carrier::Direct, true, false)), (1, 8000));
         assert_eq!(land(Carrier::Direct, false, true), 1, "savage alone is still 1 against Metal");
@@ -422,7 +423,7 @@ mod tests {
     #[test]
     fn carriers_scale_before_the_rolls() {
         let unit = Entity { savage_blow_boost: 200, ..Entity::default() };
-        let land = |carrier: Carrier, critical: bool, savage: bool| unit.landing(Foe::default(), TERMS, 1001, carrier, Roll { critical, savage, boosted: false });
+        let land = |carrier: Carrier, critical: bool, savage: bool| unit.landing(Foe::default(), TERMS, 1001, carrier, Roll { critical, savage, ..Roll::default() });
 
         assert_eq!(land(Carrier::Direct, true, true), 1001 * 2 * 3);
         assert_eq!(land(Carrier::MiniWave(20), false, false), 200);
@@ -436,7 +437,7 @@ mod tests {
     #[test]
     fn boosts_land_between_the_crit_and_savage() {
         let unit = Entity { strengthen_threshold: 50, strengthen_boost: 100, kill_attack_up: 50, savage_blow_boost: 200, ..Entity::default() };
-        let land = |unit: &Entity, boosted: bool| unit.landing(Foe::default(), TERMS, 1000, Carrier::Direct, Roll { critical: true, savage: true, boosted });
+        let land = |unit: &Entity, boosted: bool| unit.landing(Foe::default(), TERMS, 1000, Carrier::Direct, Roll { critical: true, savage: true, strengthened: boosted, rampant: boosted });
 
         assert_eq!(land(&unit, true), 1000 * 2 * 2 * 3 / 2 * 3);
         assert_eq!(land(&unit, false), 1000 * 2 * 3);
@@ -459,10 +460,10 @@ mod tests {
     fn killers_need_only_the_label() {
         let unit = Entity { attack_1_damage: 1000, witch_killer: 1, colossus_slayer: 1, behemoth_slayer: 1, sage_slayer: 1, ..Entity::default() };
 
-        assert_eq!(unit.landing(foe(&[Identity::TraitWitch]), TERMS, 1000, Carrier::Direct, Roll { critical: false, savage: false, boosted: false }), 5000);
-        assert_eq!(unit.landing(foe(&[Identity::TraitColossus]), TERMS, 1000, Carrier::Direct, Roll { critical: false, savage: false, boosted: false }), 1600);
-        assert_eq!(unit.landing(foe(&[Identity::TraitBehemoth]), TERMS, 1000, Carrier::Direct, Roll { critical: false, savage: false, boosted: false }), 2500);
-        assert_eq!(unit.landing(foe(&[Identity::TraitSage]), TERMS, 1000, Carrier::Direct, Roll { critical: false, savage: false, boosted: false }), 1200);
+        assert_eq!(unit.landing(foe(&[Identity::TraitWitch]), TERMS, 1000, Carrier::Direct, Roll { critical: false, savage: false, ..Roll::default() }), 5000);
+        assert_eq!(unit.landing(foe(&[Identity::TraitColossus]), TERMS, 1000, Carrier::Direct, Roll { critical: false, savage: false, ..Roll::default() }), 1600);
+        assert_eq!(unit.landing(foe(&[Identity::TraitBehemoth]), TERMS, 1000, Carrier::Direct, Roll { critical: false, savage: false, ..Roll::default() }), 2500);
+        assert_eq!(unit.landing(foe(&[Identity::TraitSage]), TERMS, 1000, Carrier::Direct, Roll { critical: false, savage: false, ..Roll::default() }), 1200);
         assert_eq!(unit.taken(foe(&[Identity::TraitWitch]), TERMS), 0.1);
         assert_eq!(unit.taken(foe(&[Identity::TraitColossus]), TERMS), 0.7);
         assert_eq!(unit.touched(foe(&[Identity::TraitWitch])), [(Identity::WitchKiller, Bearing::Full)]);
@@ -491,7 +492,7 @@ mod tests {
         assert_eq!(bearing(&critter, Identity::MassiveDamage), Some(Bearing::Full));
         assert_eq!(bearing(&critter, Identity::StrongAgainst), Some(Bearing::Full));
         assert_eq!(unit.touched(foe(&[Identity::TraitRed])), [], "a unit that targets only Metal has nothing against Red");
-        assert_eq!(critter.landing(metal, TERMS, 1000, Carrier::Direct, Roll { critical: true, savage: false, boosted: false }), 1000 * 2 * 1800 / 1000 * 1200 / 300, "a crit keeps Strong and Massive, Metal fruit included");
+        assert_eq!(critter.landing(metal, TERMS, 1000, Carrier::Direct, Roll { critical: true, savage: false, ..Roll::default() }), 1000 * 2 * 1800 / 1000 * 1200 / 300, "a crit keeps Strong and Massive, Metal fruit included");
     }
 
     // A Sage shrugs off most of every status a unit without Sage Slayer lands, so those count against the unit,

@@ -26,6 +26,80 @@ pub enum Mode {
     Maximum,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum Switch {
+    Critical,
+    Savage,
+    Wave,
+    Surge,
+    Explosion,
+    Strengthen,
+    Kills,
+}
+
+impl Switch {
+    pub const ALL: [Switch; 7] = [Switch::Critical, Switch::Savage, Switch::Wave, Switch::Surge, Switch::Explosion, Switch::Strengthen, Switch::Kills];
+
+    pub fn by_default(self, mode: Mode) -> bool {
+        match self {
+            Switch::Strengthen | Switch::Kills => mode == Mode::Maximum,
+            _ => mode != Mode::Minimum,
+        }
+    }
+
+    fn bit(self) -> u16 {
+        1 << Self::ALL.iter().position(|held| *held == self).unwrap_or_default()
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub struct Switches {
+    on: u16,
+    off: u16,
+}
+
+impl Switches {
+    pub fn from_bits(on: u16, off: u16) -> Self {
+        let all = (1 << Switch::ALL.len()) - 1;
+
+        Self { on: on & all, off: off & all & !on }
+    }
+
+    pub fn bits(self) -> (u16, u16) {
+        (self.on, self.off)
+    }
+
+    pub fn is_empty(self) -> bool {
+        self.on == 0 && self.off == 0
+    }
+
+    pub fn set(self, switch: Switch, lit: bool) -> Self {
+        let bit = switch.bit();
+
+        if lit { Self { on: self.on | bit, off: self.off & !bit } } else { Self { on: self.on & !bit, off: self.off | bit } }
+    }
+
+    pub fn held(self, switch: Switch) -> Option<bool> {
+        let bit = switch.bit();
+
+        (self.on & bit != 0).then_some(true).or((self.off & bit != 0).then_some(false))
+    }
+
+    pub fn lit(self, switch: Switch, mode: Mode) -> bool {
+        self.held(switch).unwrap_or_else(|| switch.by_default(mode))
+    }
+
+    pub fn cleared(self, switch: Switch) -> Self {
+        let bit = switch.bit();
+
+        Self { on: self.on & !bit, off: self.off & !bit }
+    }
+
+    pub fn flipped(self, switch: Switch, mode: Mode) -> Self {
+        self.set(switch, !self.lit(switch, mode))
+    }
+}
+
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 pub enum Hits {
     #[default]
@@ -244,6 +318,10 @@ impl Entity {
         (self.attack_count_state == DIES_AFTER && self.attack_count_total > -1).then_some(self.attack_count_total)
     }
 
+    pub fn cadence(&self, cycle: i32, recharge: i32) -> (i32, i32) {
+        self.swings().map_or((cycle, 1), |swings| (recharge, swings.clamp(0, MOST_SWINGS)))
+    }
+
     pub fn exposure(&self, cycle: i32, recharge: i32, hits: Hits, rules: &Rules) -> Exposure {
         let flags = [self.attack_1_abilities, self.attack_2_abilities, self.attack_3_abilities];
         let strikes = self.strike_frames();
@@ -260,7 +338,7 @@ impl Entity {
         let lands: [bool; HITS] = std::array::from_fn(|attack| counted.contains(&attack) && (forced || bands.get(attack).is_some_and(|(near, far)| (*near..=*far).contains(&spot))));
         let able: [bool; HITS] = std::array::from_fn(|attack| flags[attack] != 0);
 
-        let (period, swings) = self.swings().map_or((cycle, 1), |swings| (recharge, swings.clamp(0, MOST_SWINGS)));
+        let (period, swings) = self.cadence(cycle, recharge);
         let frames = &strikes;
         let swings: Vec<(i32, usize)> = (0..swings).flat_map(|swing| counted.iter().map(move |attack| (frames[*attack] + swing * cycle, *attack))).collect();
 
@@ -328,24 +406,27 @@ impl Exposure {
         (0..RINGS).filter(|ring| mask & (1 << ring) != 0 && self.rings[*ring].is_some()).collect()
     }
 
-    pub fn damage(&self, stats: &Entity, attacks: [i32; HITS], foe: Foe, terms: Terms, mode: Mode) -> f64 {
+    pub fn damage(&self, stats: &Entity, attacks: [i32; HITS], foe: Foe, terms: Terms, mode: Mode, switches: Switches) -> f64 {
+        let lit = |switch: Switch| switches.lit(switch, mode);
+        let most = mode == Mode::Maximum;
+        let odds = |held: Switch, chance: f64| match (lit(held), most) {
+            (false, _) => 0.0,
+            (true, true) => f64::from(u8::from(chance > 0.0)),
+            (true, false) => chance,
+        };
+        let (strengthened, rampant) = (lit(Switch::Strengthen), lit(Switch::Kills));
         let mut total = 0.0;
 
         for attack in self.counted() {
             let able = self.able[attack];
-            let (critical, savage) = match mode {
-                Mode::Minimum => (0.0, 0.0),
-                _ if !able => (0.0, 0.0),
-                Mode::Average => (self.critical, self.savage),
-                Mode::Maximum => (f64::from(u8::from(self.critical > 0.0)), f64::from(u8::from(self.savage > 0.0))),
-            };
+            let (critical, savage) = if able { (odds(Switch::Critical, self.critical), odds(Switch::Savage, self.savage)) } else { (0.0, 0.0) };
             let expect = |carrier: Carrier| -> f64 {
                 [(false, false), (false, true), (true, false), (true, true)]
                     .into_iter()
                     .map(|(crit, sav)| {
                         let odds = if crit { critical } else { 1.0 - critical } * if sav { savage } else { 1.0 - savage };
 
-                        odds * stats.landing(foe, terms, attacks[attack], carrier, Roll { critical: crit, savage: sav, boosted: mode == Mode::Maximum }) as f64
+                        odds * stats.landing(foe, terms, attacks[attack], carrier, Roll { critical: crit, savage: sav, strengthened, rampant }) as f64
                     })
                     .sum()
             };
@@ -354,33 +435,31 @@ impl Exposure {
                 total += expect(Carrier::Direct);
             }
 
-            if mode == Mode::Minimum || !able {
+            if !able {
                 continue;
             }
 
-            let most = mode == Mode::Maximum;
-
-            if let (Some(_), Some(carrier)) = (self.wave, self.wave_carrier) {
+            if let (Some(_), Some(carrier), true) = (self.wave, self.wave_carrier, lit(Switch::Wave)) {
                 total += if most { 1.0 } else { self.wave_chance } * expect(carrier);
             }
 
-            if let (true, Some(carrier)) = (self.surge > 0.0, self.surge_carrier) {
+            if let (true, Some(carrier), true) = (self.surge > 0.0, self.surge_carrier, lit(Switch::Surge)) {
                 total += if most { 1.0 } else { self.surge_chance * self.surge } * self.ticks.len() as f64 * expect(carrier);
             }
 
             let blast = |mask: u8| self.ringed(mask).into_iter().map(|ring| expect(Carrier::Explosion(self.damages[ring]))).sum::<f64>();
 
-            total += if most {
-                self.blasts.iter().map(|(mask, _)| blast(*mask)).fold(0.0, f64::max)
-            } else {
-                self.blasts.iter().map(|(mask, share)| self.blast_chance * share * blast(*mask)).sum()
+            total += match (lit(Switch::Explosion), most) {
+                (false, _) => 0.0,
+                (true, true) => self.blasts.iter().map(|(mask, _)| blast(*mask)).fold(0.0, f64::max),
+                (true, false) => self.blasts.iter().map(|(mask, share)| self.blast_chance * share * blast(*mask)).sum(),
             };
         }
 
         total
     }
 
-    pub fn uptime(&self, chance: i32, duration: i32, mode: Mode) -> Option<f64> {
+    pub fn uptime(&self, chance: i32, duration: i32, mode: Mode, switches: Switches) -> Option<f64> {
         let lasting = duration - 1;
 
         if self.period <= 0 || lasting <= 0 || self.swings.is_empty() {
@@ -392,29 +471,32 @@ impl Exposure {
             _ => chance_of(chance),
         };
 
+        let lit = |switch: Switch| switches.lit(switch, mode);
+        let blasting = lit(Switch::Explosion) && !self.blasts.is_empty();
+
         Some(match mode {
-            Mode::Minimum => self.share(&[], rolled, lasting),
-            Mode::Average => self.share(&self.outcomes(None), rolled, lasting),
-            Mode::Maximum if self.blasts.is_empty() => self.share(&self.outcomes(Some(0)), rolled, lasting),
-            Mode::Maximum => self.blasts.iter().map(|(mask, _)| self.share(&self.outcomes(Some(*mask)), rolled, lasting)).fold(0.0, f64::max),
+            Mode::Maximum if blasting => self.blasts.iter().map(|(mask, _)| self.share(&self.outcomes(Some(*mask), &lit), rolled, lasting)).fold(0.0, f64::max),
+            Mode::Maximum => self.share(&self.outcomes(Some(0), &lit), rolled, lasting),
+            _ => self.share(&self.outcomes(None, &lit), rolled, lasting),
         })
     }
 
-    fn outcomes(&self, best: Option<u8>) -> Vec<Vec<Outcome>> {
+    fn outcomes(&self, best: Option<u8>, lit: &dyn Fn(Switch) -> bool) -> Vec<Vec<Outcome>> {
         let most = best.is_some();
         let mut groups = Vec::new();
 
-        if let Some(delay) = self.wave {
+        if let (Some(delay), true) = (self.wave, lit(Switch::Wave)) {
             groups.push(vec![Outcome { chance: if most { 1.0 } else { self.wave_chance }, delays: vec![delay] }]);
         }
 
-        if self.surge > 0.0 {
+        if self.surge > 0.0 && lit(Switch::Surge) {
             groups.push(vec![Outcome { chance: if most { 1.0 } else { self.surge_chance * self.surge }, delays: self.ticks.clone() }]);
         }
 
         let delays = |mask: u8| -> Vec<i32> { self.ringed(mask).into_iter().filter_map(|ring| self.rings[ring]).collect() };
 
         match best {
+            _ if !lit(Switch::Explosion) => {}
             Some(mask) if mask != 0 => groups.push(vec![Outcome { chance: 1.0, delays: delays(mask) }]),
             Some(_) => {}
             None if !self.blasts.is_empty() => groups.push(self.blasts.iter().map(|(mask, share)| Outcome { chance: self.blast_chance * share, delays: delays(*mask) }).collect()),
@@ -506,7 +588,7 @@ mod tests {
     }
 
     fn uptime(unit: &Entity, chance: i32, duration: i32, mode: Mode) -> f64 {
-        unit.exposure(100, 0, Hits::Standing, &RULES).uptime(chance, duration, mode).unwrap_or(-1.0)
+        unit.exposure(100, 0, Hits::Standing, &RULES).uptime(chance, duration, mode, Switches::default()).unwrap_or(-1.0)
     }
 
     // The timer is set after the target has moved that frame, so a proc holds it one frame less
@@ -519,7 +601,7 @@ mod tests {
         assert_eq!(uptime(&unit, 100, 100, Mode::Average), 0.99);
         assert!(close(uptime(&unit, 50, 201, Mode::Average), 0.75), "two cycles cover every frame, missed only when both rolls fail");
         assert_eq!(uptime(&unit, 50, 51, Mode::Maximum), 0.5, "at most every roll lands");
-        assert_eq!(unit.exposure(100, 0, Hits::Standing, &RULES).uptime(100, 1, Mode::Average), None);
+        assert_eq!(unit.exposure(100, 0, Hits::Standing, &RULES).uptime(100, 1, Mode::Average, Switches::default()), None);
     }
 
     // Each hit of a multi-hit rolls on its own, so where their windows overlap a frame is only missed
@@ -566,6 +648,26 @@ mod tests {
         assert!(close(uptime(&surge, 100, 31, Mode::Maximum), 0.44));
     }
 
+    // A switch only changes what the mode would have done with that ability: Strengthen joins an average,
+    // a wave the foe shrugs off leaves it, and a proc switched on in the minimum counts at its real chance.
+    #[test]
+    fn switches_override_the_mode() {
+        let unit = Entity { attack_1_damage: 1000, strengthen_threshold: 50, strengthen_boost: 100, wave_chance: 50, wave_level: 1, ..freezer(100) };
+        let exposure = unit.exposure(100, 0, Hits::Standing, &RULES);
+        let dealt = |mode: Mode, switches: Switches| exposure.damage(&unit, [1000, 0, 0], Foe::default(), Terms::default(), mode, switches);
+        let none = Switches::default();
+
+        assert_eq!((dealt(Mode::Average, none), dealt(Mode::Maximum, none)), (1500.0, 4000.0));
+        assert_eq!(dealt(Mode::Average, none.set(Switch::Strengthen, true)), 3000.0, "an average with Strengthen on");
+        assert_eq!(dealt(Mode::Maximum, none.set(Switch::Wave, false)), 2000.0);
+        assert_eq!(dealt(Mode::Minimum, none.set(Switch::Wave, true)), 1500.0);
+        assert!(close(exposure.uptime(100, 31, Mode::Average, none.set(Switch::Wave, false)).unwrap_or(-1.0), 0.3), "and its procs with it");
+
+        let flipped = none.flipped(Switch::Strengthen, Mode::Average);
+        assert_eq!((flipped.held(Switch::Strengthen), flipped.flipped(Switch::Strengthen, Mode::Average).held(Switch::Strengthen)), (Some(true), Some(false)));
+        assert_eq!(Switches::from_bits(flipped.bits().0, flipped.bits().1), flipped);
+    }
+
     // An explosion goes off at its spawn point and reaches a foe with the ring it stands in.
     #[test]
     fn explosions_land_with_their_ring() {
@@ -582,11 +684,12 @@ mod tests {
     #[test]
     fn a_unit_that_dies_repeats_on_its_recharge() {
         let bomber = Entity { attack_count_total: 1, attack_count_state: DIES_AFTER, ..freezer(100) };
-        let pace = |unit: &Entity, recharge: i32| unit.exposure(100, recharge, Hits::Standing, &RULES).uptime(100, 31, Mode::Average);
+        let pace = |unit: &Entity, recharge: i32| unit.exposure(100, recharge, Hits::Standing, &RULES).uptime(100, 31, Mode::Average, Switches::default());
 
         assert_eq!(pace(&bomber, 300).map(|share| close(share, 0.1)), Some(true));
         assert_eq!(pace(&Entity { attack_count_total: 2, ..bomber.clone() }, 300).map(|share| close(share, 0.2)), Some(true), "both swings land before it goes");
         assert_eq!(pace(&bomber, 0), None, "no recharge, nothing to measure by");
+        assert_eq!((bomber.cadence(100, 300), freezer(100).cadence(100, 300)), ((300, 1), (100, 1)));
     }
 
     // At standing range only the hits whose band reaches it land; a picked hit lands wherever its band is,
@@ -606,7 +709,7 @@ mod tests {
             long_distance_2_span: 900,
             ..freezer(100)
         };
-        let dealt = |hits: Hits| split.exposure(100, 0, hits, &RULES).damage(&split, [1000, 3000, 0], Foe::default(), Terms::default(), Mode::Minimum);
+        let dealt = |hits: Hits| split.exposure(100, 0, hits, &RULES).damage(&split, [1000, 3000, 0], Foe::default(), Terms::default(), Mode::Minimum, Switches::default());
 
         assert_eq!(dealt(Hits::Standing), 3000.0, "the first hit's band starts past standing range");
         assert_eq!(dealt(Hits::All), 4000.0);
@@ -620,7 +723,7 @@ mod tests {
     fn metal_averages_each_landing() {
         let metal = Foe::default().with(Identity::TraitMetal);
         let mixed = Entity { attack_1_damage: 3000, attack_2_damage: 1000, time_until_attack_2: 20, attack_1_abilities: 1, attack_2_abilities: 0, critical_chance: 50, ..freezer(0) };
-        let dealt = |unit: &Entity, mode: Mode| unit.exposure(100, 0, Hits::Standing, &RULES).damage(unit, [unit.attack_1_damage, unit.attack_2_damage, 0], metal, Terms::default(), mode);
+        let dealt = |unit: &Entity, mode: Mode| unit.exposure(100, 0, Hits::Standing, &RULES).damage(unit, [unit.attack_1_damage, unit.attack_2_damage, 0], metal, Terms::default(), mode, Switches::default());
 
         assert_eq!((dealt(&mixed, Mode::Minimum), dealt(&mixed, Mode::Average), dealt(&mixed, Mode::Maximum)), (2.0, 3001.5, 6001.0));
 
@@ -632,7 +735,7 @@ mod tests {
         let strong = Entity { attack_1_damage: 1000, strengthen_threshold: 50, strengthen_boost: 100, ..freezer(0) };
 
         assert_eq!((dealt(&strong, Mode::Average), dealt(&strong, Mode::Maximum)), (1.0, 1.0), "against Metal even Strengthen is held to 1");
-        assert_eq!(strong.exposure(100, 0, Hits::Standing, &RULES).damage(&strong, [1000, 0, 0], Foe::default(), Terms::default(), Mode::Maximum), 2000.0, "only the maximum counts Strengthen");
+        assert_eq!(strong.exposure(100, 0, Hits::Standing, &RULES).damage(&strong, [1000, 0, 0], Foe::default(), Terms::default(), Mode::Maximum, Switches::default()), 2000.0, "only the maximum counts Strengthen");
 
         let mini = Entity { attack_1_damage: 1000, critical_chance: 50, wave_chance: 100, wave_level: 1, mini_wave_flag: 1, ..freezer(0) };
 

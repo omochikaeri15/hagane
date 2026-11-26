@@ -12,7 +12,7 @@ use std::sync::Arc;
 use dioxus::prelude::*;
 use dioxus::router::Navigator;
 
-use codex::combat::{Entity, Foe};
+use codex::combat::{Entity, Foe, Switches};
 use foundry::common::context::GlobalContext;
 use foundry::domains::cat::filter::CatFilterState;
 use foundry::domains::cat::game::stats::seeded_level;
@@ -79,6 +79,7 @@ pub(crate) struct CatState {
     pub(crate) versus: Signal<bool>,
     pub(crate) foe: Signal<Foe>,
     pub(crate) lens: Signal<Lens>,
+    pub(crate) switches: Signal<Switches>,
     ultra_active: Signal<bool>,
     saved_level: Signal<Option<(i32, String)>>,
 }
@@ -112,6 +113,7 @@ fn provided(locked: bool) -> CatState {
         versus: Signal::new(false),
         foe: Signal::new(Foe::default()),
         lens: Signal::new(Lens::default()),
+        switches: Signal::new(Switches::default()),
         ultra_active: Signal::new(false),
         saved_level: Signal::new(None),
     })
@@ -494,7 +496,11 @@ fn shot_request(cat: Rc<CatEntry>, globals: Shared, settings: Signal<Settings>, 
             is_conjure_expanded,
             global: GlobalContext { treasure: &treasure, ..globals.0.context() },
             grants: granted.as_deref(),
-            lens: settled(&cat, form, *state.lens.peek()),
+            lens: {
+                let on = *state.versus.peek();
+
+                Lens { switches: if on { *state.switches.peek() } else { Switches::default() }, switching: on, ..settled(&cat, form, *state.lens.peek()) }
+            },
         };
         let sheets = icons::sheets(&pictures, &globals, icons::IMG015);
         let foe = state.versus.peek().then(|| *state.foe.peek()).unwrap_or_default();
@@ -640,7 +646,7 @@ pub(crate) fn Detail(cat: SelectedCat, globals: Shared, #[props(default)] extra:
                     if tab == DetailTab::Abilities && !packed {
                         div { class: "vrule tall" }
                         div { class: "dials",
-                            Dials { stats: dial_stats.clone(), lens: state.lens }
+                            Dials { stats: dial_stats.clone(), lens: state.lens, on_mode: move |()| { let mut switches = state.switches; switches.set(Switches::default()); } }
                             {versus_button.clone()}
                         }
                     }
@@ -674,7 +680,7 @@ pub(crate) fn Detail(cat: SelectedCat, globals: Shared, #[props(default)] extra:
                 Popup { title: "More Actions", open: more, width: MORE_WIDTH,
                     div { class: "dialog-body more-actions",
                         div { class: "dials",
-                            Dials { stats: dial_stats, lens: state.lens }
+                            Dials { stats: dial_stats, lens: state.lens, on_mode: move |()| { let mut switches = state.switches; switches.set(Switches::default()); } }
                             {versus_button}
                         }
                     }

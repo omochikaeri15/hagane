@@ -268,7 +268,8 @@ fn uptime(ctx: &FormatContext<'_>, identity: Identity, gap: &str) -> String {
     let (shortest, longest) = held_span(ctx, identity);
     let exposure = ctx.stats.exposure(rhythm.cycle, rhythm.recharge, ctx.lens.hits, &rhythm.rules);
     let chance = finite(ctx.value);
-    let (Some(least), Some(most)) = (exposure.uptime(chance, shortest, ctx.lens.mode), exposure.uptime(chance, longest, ctx.lens.mode)) else {
+    let (mode, switches) = (ctx.lens.mode, ctx.lens.switches);
+    let (Some(least), Some(most)) = (exposure.uptime(chance, shortest, mode, switches), exposure.uptime(chance, longest, mode, switches)) else {
         return String::new();
     };
     let (low, high) = (percent(least), percent(most));

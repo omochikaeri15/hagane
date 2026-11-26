@@ -5,6 +5,7 @@ use std::path::Path;
 use image::{ImageFormat, RgbaImage};
 use tracing::warn;
 
+use codex::combat::Entity;
 use foundry::Source;
 
 use foundry::domains::cat::scanner::CatEntry;
@@ -46,6 +47,10 @@ impl<'a> Shown<'a> {
             lens: Lens::default(),
         }
     }
+}
+
+pub(crate) fn cat_stats(library: &Library, shown: Shown<'_>) -> Option<Entity> {
+    cat_statblock::final_stats(&shown.subject(library))
 }
 
 pub(crate) fn cat(library: &Library, cache: &Cache, shown: Shown<'_>, versus: Versus, lens: Lens) -> Result<Vec<u8>, Trouble> {

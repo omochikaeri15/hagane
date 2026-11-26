@@ -6,7 +6,7 @@ export struct Seg { text: string, raised: bool, symbol: bool }
 export struct Word { segs: [Seg] }
 export struct Line { segs: [Seg], words: [Word] }
 export struct AbilityIcon { icon: image, has-icon: bool, border: image, has-border: bool, fallback: string, tip: string, ring: image, has-ring: bool, dimmed: bool }
-export struct AbilityLine { icon: AbilityIcon, lines: [Line], conjure: bool }
+export struct AbilityLine { icon: AbilityIcon, lines: [Line], conjure: bool, switch: int }
 export struct StatCell { header: string, value: [Line], tip: string }
 export struct HeaderBtn { label: string, available: bool }
 export struct RosterRow { id: int, banner: image, has-banner: bool, tooltip: string }
@@ -125,30 +125,38 @@ export component AbilityRows inherits VerticalLayout {
     in property <[AbilityLine]> items;
     in property <bool> conjure-open;
     in property <length> text-size: 13px;
+    in property <bool> picking;
     callback conjure-toggled;
+    callback switched(int);
     spacing: 5px;
-    for item in root.items: HorizontalLayout {
-        spacing: 8px;
-        alignment: start;
-        IconBox { icon: item.icon; size: 40px; y: (parent.height - self.height) / 2; }
-        Lines { lines: item.lines; size: root.text-size; vertical-stretch: 0; y: (parent.height - self.height) / 2; }
-        if item.conjure: Rectangle {
-            width: 70px;
-            height: 24px;
-            y: (parent.height - self.height) / 2;
-            border-radius: Theme.radius-sm;
-            background: root.conjure-open ? Theme.primary : Theme.bg-strong;
-            Text {
-                text: "Details";
-                color: root.conjure-open ? Theme.white : Theme.text;
-                font-size: 11px;
-                horizontal-alignment: center;
-                vertical-alignment: center;
-                width: parent.width;
-                height: parent.height;
+    for item in root.items: Rectangle {
+        height: line.preferred-height;
+        line := HorizontalLayout {
+            width: parent.width;
+            height: parent.height;
+            spacing: 8px;
+            alignment: start;
+            IconBox { icon: item.icon; size: 40px; y: (parent.height - self.height) / 2; }
+            Lines { lines: item.lines; size: root.text-size; vertical-stretch: 0; y: (parent.height - self.height) / 2; }
+            if item.conjure: Rectangle {
+                width: 70px;
+                height: 24px;
+                y: (parent.height - self.height) / 2;
+                border-radius: Theme.radius-sm;
+                background: root.conjure-open ? Theme.primary : Theme.bg-strong;
+                Text {
+                    text: "Details";
+                    color: root.conjure-open ? Theme.white : Theme.text;
+                    font-size: 11px;
+                    horizontal-alignment: center;
+                    vertical-alignment: center;
+                    width: parent.width;
+                    height: parent.height;
+                }
+                Tap { enabled: !Shell.swiping; tapped => { root.conjure-toggled(); } }
             }
-            Tap { enabled: !Shell.swiping; tapped => { root.conjure-toggled(); } }
         }
+        if root.picking && item.switch >= 0: Tap { width: parent.width; height: parent.height; enabled: !Shell.swiping; tapped => { root.switched(item.switch); } }
     }
 }
 

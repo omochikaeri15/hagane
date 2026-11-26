@@ -126,7 +126,7 @@ fn labeled(ctx: &RenderContext<'_>, label: Identity, mark: Mark) -> AbilityItem 
         AbilityIcon::None => (None, CustomIcon::None),
     };
 
-    AbilityItem { identity: label, icon_id, text: ctx.global.names.trait_label(label).to_owned(), custom_icon, border_id: None, mark, added: true, dimmed: false }
+    AbilityItem { identity: label, icon_id, text: ctx.global.names.trait_label(label).to_owned(), custom_icon, border_id: None, mark, added: true, dimmed: false, switchable: false }
 }
 
 fn owns(stats: &Entity, label: Identity) -> bool {

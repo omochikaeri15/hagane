@@ -2,7 +2,7 @@ use iced::alignment::Vertical;
 use iced::widget::{container, pick_list, text};
 use iced::{Element, Length, Padding};
 
-use codex::combat::Entity;
+use codex::combat::{Entity, Mode};
 use foundry::systems::combat::lens::{self, Lens, MODES, ONE_HIT};
 
 use crate::app::theme;
@@ -30,6 +30,10 @@ impl State {
             Message::Mode(label) => self.lens.mode = lens::mode_named(label),
             Message::Hits(label) => self.lens.hits = lens::hits_of(label),
         }
+    }
+
+    pub(crate) fn mode(&self) -> Mode {
+        self.lens.mode
     }
 
     pub(crate) fn lens(&self, stats: &Entity) -> Lens {

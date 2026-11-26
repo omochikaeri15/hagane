@@ -169,6 +169,8 @@ pub(crate) const OVERSIZED: Line = Line::new("That one comes out at {size} MB, o
 pub(crate) const OVER_LIMIT: Line = Line::new("That one went past Discord's 20 MB upload limit, so I stopped encoding it. Try `--format avif`, which is far smaller", "That one blew past Discord's 20 MB limit, so I stopped! Try `--format avif`, it's far smaller... n-not that I'm helping you or anything!");
 pub(crate) const SEARCH_PICK: Line = Line::new("Here's everything close to `{name}`. Pick one:", "You don't even know its name?! Fine, here's everything close to `{name}`. Pick one already!");
 pub(crate) const EITHER_PICK: Line = Line::new("`{name}` could be more than one thing. Pick one:", "`{name}` could be more than one thing, so which is it?! Pick one already!");
+pub(crate) const RESOLVE_PANEL: Line = Line::new("How the statblock above is worked out. Only you can see this", "How the statblock above is worked out. Only you can see this, so don't go bragging!");
+pub(crate) const RESOLVE_GONE: Line = Line::new("That panel is too old to change the statblock. Press Resolve again", "That panel went stale! Press Resolve again, dummy!");
 pub(crate) const LIST_GONE: Line = Line::new("That list is too old to turn. Ask again for a fresh one", "That list is ancient history! Ask again if you want a fresh one, dummy!");
 pub(crate) const SEARCH_ABORT: Line = Line::new("Okay! I've dropped that request", "Fine, forget it then! I-It's not like I wanted to look it up for you anyway!");
 pub(crate) const SEARCH_LONG: Line = Line::new("That request is too long to search with. Find the unit first, then ask again with its ID", "That's way too much to search with! Find the unit first, then ask again with its ID, dummy!");
@@ -230,7 +232,7 @@ pub(crate) const ALIAS_CLEARED: Line = Line::new("Every alias is removed", "They
 pub(crate) const ALIAS_RESET: Line = Line::new("Your aliases are back to the built-in ones", "Your aliases are back to the built-in ones. D-Don't mess them up again!");
 
 #[cfg(test)]
-pub(crate) const LINES: [&Line; 94] = [
+pub(crate) const LINES: [&Line; 96] = [
     &NOT_A_TRAIT,
     &ALIAS_TITLE,
     &ALIAS_NONE,
@@ -252,6 +254,8 @@ pub(crate) const LINES: [&Line; 94] = [
     &ALIAS_RESET,
     &PICK_LAPSED,
     &LIST_GONE,
+    &RESOLVE_PANEL,
+    &RESOLVE_GONE,
     &NO_PLACE,
     &NO_MAP,
     &EMPTY_MAP,

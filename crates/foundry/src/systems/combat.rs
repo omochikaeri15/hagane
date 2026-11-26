@@ -70,6 +70,7 @@ pub struct AbilityItem {
     pub mark: Mark,
     pub added: bool,
     pub dimmed: bool,
+    pub switchable: bool,
 }
 
 pub type AbilityGroups = (Vec<AbilityItem>, Vec<AbilityItem>, Vec<AbilityItem>, Vec<AbilityItem>, Vec<AbilityItem>, Vec<AbilityItem>);

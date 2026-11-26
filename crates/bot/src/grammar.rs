@@ -1,7 +1,7 @@
 use std::mem;
 
 use codex::chapter::Category;
-use codex::combat::{Entity, Foe, Hits, Identity, Mode as Gauge};
+use codex::combat::{Entity, Foe, Hits, Identity, Mode as Gauge, Switch, Switches};
 use foundry::systems::combat::lens::Lens;
 
 use super::fuzzy::CLOSENESS;
@@ -93,6 +93,7 @@ pub(crate) struct Stats {
     pub(crate) versus: Option<Vec<String>>,
     pub(crate) gauge: Option<Gauge>,
     pub(crate) hits: Option<Hits>,
+    pub(crate) switches: Switches,
 }
 
 pub(crate) enum Lookup<'a> {
@@ -266,6 +267,7 @@ const TRAITS: [(Identity, &[&str]); 15] = [
     (Identity::TraitBehemoth, &["behemoth"]),
     (Identity::TraitSage, &["sage"]),
 ];
+const SWITCH_HINT: &str = "`--on` and `--off` take crit, savage, wave, surge, explosion, strengthen or kills";
 const GAUGE_HINT: &str = "`--mode` (`-m`) takes min, avg or max";
 const HITS_HINT: &str = "`--hits` (`-h`) takes 1, 2, 3, avg or all";
 const FORM_HINT: &str = "`form` (`f`) takes 1-4, n e t u, f c s u, or Normal, Evolved, True, Ultra";
@@ -275,10 +277,29 @@ fn versus_flag(token: &str) -> bool {
 }
 
 fn lens_flag(token: &str) -> bool {
-    matches!(lower(token).as_str(), "--mode" | "-m" | "--hits" | "-h")
+    matches!(lower(token).as_str(), "--mode" | "-m" | "--hits" | "-h" | "--on" | "--off")
 }
 
-fn gauge_of(word: &str) -> Option<Gauge> {
+const SWITCH_FILLER: [&str; 5] = ["mini", "blow", "hit", "attack", "up"];
+
+pub(crate) fn switch_of(word: &str) -> Option<Switch> {
+    match lower(word).trim_end_matches('s') {
+        "crit" | "critical" => Some(Switch::Critical),
+        "savage" => Some(Switch::Savage),
+        "wave" | "miniwave" => Some(Switch::Wave),
+        "surge" | "minisurge" => Some(Switch::Surge),
+        "explosion" | "blast" => Some(Switch::Explosion),
+        "strengthen" | "strengthened" => Some(Switch::Strengthen),
+        "kill" => Some(Switch::Kills),
+        _ => None,
+    }
+}
+
+fn switched(switches: Switches, words: &[&str], lit: bool) -> Result<Switches, String> {
+    words.iter().filter(|word| !SWITCH_FILLER.contains(&lower(word).as_str())).try_fold(switches, |held, word| switch_of(word).map(|switch| held.set(switch, lit)).ok_or_else(|| SWITCH_HINT.to_owned()))
+}
+
+pub(crate) fn gauge_of(word: &str) -> Option<Gauge> {
     match lower(word).as_str() {
         "min" | "minimum" => Some(Gauge::Minimum),
         "avg" | "average" => Some(Gauge::Average),
@@ -287,7 +308,7 @@ fn gauge_of(word: &str) -> Option<Gauge> {
     }
 }
 
-fn hits_of(word: &str) -> Option<Hits> {
+pub(crate) fn hits_of(word: &str) -> Option<Hits> {
     match lower(word).as_str() {
         "1" | "1st" | "first" => Some(Hits::Only(0)),
         "2" | "2nd" | "second" => Some(Hits::Only(1)),
@@ -295,6 +316,38 @@ fn hits_of(word: &str) -> Option<Hits> {
         "avg" | "average" => Some(Hits::Standing),
         "all" => Some(Hits::All),
         _ => None,
+    }
+}
+
+pub(crate) const SWITCH_WORDS: [(Switch, &str); 7] = [
+    (Switch::Critical, "crit"),
+    (Switch::Savage, "savage"),
+    (Switch::Wave, "wave"),
+    (Switch::Surge, "surge"),
+    (Switch::Explosion, "explosion"),
+    (Switch::Strengthen, "strengthen"),
+    (Switch::Kills, "kills"),
+];
+
+pub(crate) fn switch_word(switch: Switch) -> &'static str {
+    SWITCH_WORDS.iter().find(|(held, _)| *held == switch).map_or("", |(_, word)| word)
+}
+
+pub(crate) fn hits_word(hits: Hits) -> &'static str {
+    match hits {
+        Hits::Only(0) => "1",
+        Hits::Only(1) => "2",
+        Hits::Only(_) => "3",
+        Hits::Standing => "avg",
+        Hits::All => "all",
+    }
+}
+
+pub(crate) fn gauge_word(mode: Gauge) -> &'static str {
+    match mode {
+        Gauge::Minimum => "min",
+        Gauge::Average => "avg",
+        Gauge::Maximum => "max",
     }
 }
 
@@ -312,7 +365,10 @@ pub(crate) fn lens_tag(lens: Lens) -> String {
         Hits::All => 'l',
     };
 
-    format!("{gauge}{hits}")
+    match lens.switches.bits() {
+        (0, 0) => format!("{gauge}{hits}"),
+        (on, off) => format!("{gauge}{hits}{on:x}.{off:x}"),
+    }
 }
 
 pub(crate) fn lens_tagged(tag: &str) -> Lens {
@@ -330,7 +386,10 @@ pub(crate) fn lens_tagged(tag: &str) -> Lens {
         _ => Hits::Standing,
     };
 
-    Lens { mode, hits }
+    let (on, off) = chars.as_str().split_once('.').unwrap_or_default();
+    let bits = |held: &str| u16::from_str_radix(held, 16).unwrap_or_default();
+
+    Lens { mode, hits, switches: Switches::from_bits(bits(on), bits(off)), switching: false }
 }
 
 fn trait_of(word: &str) -> Option<Identity> {
@@ -846,6 +905,16 @@ fn stats_of(tokens: &[&str], kind: Kind) -> Result<Stats, String> {
                 stats.versus = Some(tokens[at..end].iter().map(|token| (*token).to_owned()).collect());
                 at = end;
             }
+            "--on" | "--off" => {
+                let end = tokens[at..].iter().position(|next| is_flag(next)).map_or(tokens.len(), |offset| at + offset);
+
+                if at == end {
+                    return Err(SWITCH_HINT.to_owned());
+                }
+
+                stats.switches = switched(stats.switches, &tokens[at..end], lower(token) == "--on")?;
+                at = end;
+            }
             "--mode" | "-m" => {
                 let word = tokens.get(at).ok_or(GAUGE_HINT)?;
 
@@ -1078,6 +1147,21 @@ fn motion_of(tokens: &[&str]) -> Result<Motion, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // The switches ride in a button with the hits and the mode, and a button from before them still reads.
+    #[test]
+    fn switches_travel_with_the_lens() {
+        let lens = Lens { mode: Gauge::Maximum, hits: Hits::All, switches: Switches::default().set(Switch::Strengthen, true).set(Switch::Surge, false), switching: false };
+
+        assert_eq!(lens_tagged(&lens_tag(lens)), lens);
+        assert_eq!(lens_tagged("as"), Lens::default());
+        assert_eq!(SWITCH_WORDS.iter().map(|(switch, word)| switch_of(word) == Some(*switch)).collect::<Vec<_>>(), [true; 7], "every word reads back as its switch");
+
+        let stats = stats_of(&["--on", "kills", "--off", "crits", "-m", "min"], Kind::Cat).unwrap();
+
+        assert_eq!((stats.switches.held(Switch::Kills), stats.switches.held(Switch::Critical), stats.gauge), (Some(true), Some(false), Some(Gauge::Minimum)));
+        assert!(stats_of(&["--on", "toxic"], Kind::Enemy).is_err());
+    }
 
     // The search flag can sit anywhere after the name, and what is left is what gets asked of the pick.
     #[test]

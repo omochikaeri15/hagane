@@ -1,6 +1,6 @@
 use dioxus::prelude::*;
 
-use codex::combat::Foe;
+use codex::combat::{Foe, Mode, Switches};
 use codex::files::img015;
 use foundry::common::context::GlobalContext;
 use foundry::domains::cat::game::stats::get_final_stats;
@@ -59,7 +59,9 @@ pub(crate) fn Abilities(selected: Picked, globals: Shared) -> Element {
     let versus = (state.versus)().then(|| (state.foe)());
     let stat_ctx = StatContext::cat(&final_stats, cat.atk_anim_frames[form], Some(&cat.unitbuy), &treasure);
     let held = (state.lens)();
-    let lens = lens::Lens { hits: lens::settled(&final_stats, held.hits), ..held };
+    let on = versus.is_some();
+    let switches = if on { (state.switches)() } else { Switches::default() };
+    let lens = lens::Lens { hits: lens::settled(&final_stats, held.hits), switches, switching: on, ..held };
     let (traits, headline_1, headline_2, body_1, body_2, footer) = match versus {
         Some(foe) => versus::palette(&ctx, foe, versus::spirit_controls(&ctx), Pace::of(&stat_ctx), lens),
         None => lens::plain(&ctx, Pace::of(&stat_ctx), lens),
@@ -105,6 +107,8 @@ pub(crate) fn Abilities(selected: Picked, globals: Shared) -> Element {
                                     if conjure_open {
                                         {spirit_card(&pictures, &globals, Spirited { treasure: &treasure, conjure_id, curve: cat.curve.as_ref(), level, foe: versus })}
                                     }
+                                } else if item.switchable {
+                                    {switch_row(&pictures, item, state.switches, held.mode)}
                                 } else {
                                     {ability_row(&pictures, item)}
                                 }
@@ -207,6 +211,24 @@ fn pick_row(pictures: &Pictures, items: &[AbilityItem], mut foe: Signal<Foe>) ->
                     }
                 }
             }
+        }
+    }
+}
+
+fn switch_row(pictures: &Pictures, item: &AbilityItem, mut switches: Signal<Switches>, mode: Mode) -> Element {
+    let switch = lens::switch_of(item.identity);
+
+    rsx! {
+        button {
+            class: "row-pick",
+            onclick: move |_| {
+                if let Some(switch) = switch {
+                    let flipped = switches.peek().flipped(switch, mode);
+
+                    switches.set(flipped);
+                }
+            },
+            {ability_row(pictures, item)}
         }
     }
 }

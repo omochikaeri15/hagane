@@ -9,7 +9,7 @@ use tokio::sync::{OwnedRwLockReadGuard, RwLock, Semaphore};
 use tokio::task;
 use tracing::{debug, error, info, warn};
 
-use codex::combat::Foe;
+use codex::combat::{Entity, Foe, Switches};
 use foundry::common::architecture;
 use foundry::domains::cat::animation as cat_animation;
 use foundry::domains::cat::level;
@@ -19,7 +19,8 @@ use foundry::domains::enemy::animation as enemy_animation;
 use foundry::domains::settings::lang;
 use foundry::domains::stage::{Stage, sheet};
 use foundry::systems::animation::MotionSet;
-use foundry::systems::combat::lens::Lens;
+use foundry::systems::combat::lens::{self as combat_lens, Lens};
+use foundry::systems::combat::registry::get_display_def;
 use foundry::systems::combat::registry::Magnification;
 
 use super::alias::{self, Aliases, Target};
@@ -60,8 +61,12 @@ const LABEL: &str = "label";
 const CARD_PAGE: &str = "ep";
 const CARD_ASK: &str = "em";
 const CARD_SET: &str = "ev";
+const CARD_RESOLVE: &str = "er";
+const DIAL: &str = "rv|";
+const PANEL_LIFE: Duration = Duration::from_secs(14 * 60);
 const TALENT_HINT: &str = "all, standard, ultra, none, 10 10 5 or Attack Buff 5";
-const MODE_HELP: &str = "`--mode` is `min` for the plain numbers, `avg` for what the procs average out to (the default) and `max` for every proc landing: crits, savage blows, waves, surges and explosions count toward Attack and DPS outside `min`, and `max` also counts Strengthen and the attack boost from kills.\n`--hits` is `1`, `2` or `3` for one hit alone, `avg` for the hits that reach a foe at standing range (the default) and `all` for every hit.";
+const MODE_HELP: &str = "`--mode`: `min` for the plain numbers, `avg` for procs averaged in (the default), `max` for every proc landing plus Strengthen and the kill boost\n`--hits`: `1`, `2` or `3` for one hit, `avg` for the hits that reach standing range (the default), `all` for every hit";
+const SWITCH_HELP: &str = "Counts an ability or leaves it out, whatever the mode says: crit, savage, wave, surge, explosion, strengthen, kills. `-m avg --on strengthen` is an average with Strengthen";
 const VERSUS_HINT: &str = "red metal, an enemy, targets, traits, subtraits or all";
 const EMBED_COLOR: u32 = 0x2468A8;
 const OPEN_SETTINGS: &str = "set|open";
@@ -125,6 +130,7 @@ pub(crate) struct Data {
     encoder: Arc<Semaphore>,
     book: Arc<Book>,
     lists: Mutex<Lists>,
+    panels: Mutex<Panels>,
     usage: Mutex<Ledger>,
     waits: Waits,
     commands: Vec<String>,
@@ -160,6 +166,67 @@ impl Lists {
     }
 }
 
+#[derive(Clone)]
+enum Dialed {
+    Sheet(Sheet),
+    Card(Card),
+}
+
+impl Dialed {
+    fn lens(&self) -> Lens {
+        match self {
+            Dialed::Sheet(sheet) => sheet.lens,
+            Dialed::Card(card) => card.lens,
+        }
+    }
+
+    fn with(self, lens: Lens) -> Self {
+        match self {
+            Dialed::Sheet(sheet) => Dialed::Sheet(Sheet { lens, ..sheet }),
+            Dialed::Card(card) => Dialed::Card(Card { lens, ..card }),
+        }
+    }
+}
+
+struct Panel {
+    owner: u64,
+    token: String,
+    dialed: Dialed,
+    due: Instant,
+}
+
+#[derive(Default)]
+struct Panels {
+    next: u64,
+    held: HashMap<u64, Panel>,
+}
+
+impl Panels {
+    fn keep(&mut self, owner: u64, token: String, dialed: Dialed) -> u64 {
+        let now = Instant::now();
+        let key = self.next;
+
+        self.held.retain(|_, panel| panel.due > now);
+        self.next += 1;
+        self.held.insert(key, Panel { owner, token, dialed, due: now + PANEL_LIFE });
+        key
+    }
+
+    fn find(&self, key: u64, owner: u64) -> Option<(String, Dialed)> {
+        self.held.get(&key).filter(|panel| panel.owner == owner && panel.due > Instant::now()).map(|panel| (panel.token.clone(), panel.dialed.clone()))
+    }
+
+    fn turn(&mut self, key: u64, dialed: Dialed) {
+        if let Some(panel) = self.held.get_mut(&key) {
+            panel.dialed = dialed;
+        }
+    }
+}
+
+fn panels(data: &Data) -> MutexGuard<'_, Panels> {
+    data.panels.lock().unwrap_or_else(PoisonError::into_inner)
+}
+
 fn lists(data: &Data) -> MutexGuard<'_, Lists> {
     data.lists.lock().unwrap_or_else(PoisonError::into_inner)
 }
@@ -175,6 +242,7 @@ pub(crate) async fn run(config: Config, cache: Cache) -> Result<(), Error> {
         encoder: Arc::new(Semaphore::new(1)),
         book: Arc::new(Book::open()),
         lists: Mutex::new(Lists::new(born)),
+        panels: Mutex::new(Panels::default()),
         usage: Mutex::new(Ledger::default()),
         waits: Arc::new(Mutex::new(HashMap::new())),
         commands: commands.iter().flat_map(|command| std::iter::once(command.name.to_string()).chain(command.aliases.iter().map(|word| word.to_string()))).collect(),
@@ -1277,7 +1345,7 @@ struct Card {
 }
 
 impl Card {
-    const TAGS: [&'static str; 3] = [CARD_PAGE, CARD_ASK, CARD_SET];
+    const TAGS: [&'static str; 4] = [CARD_PAGE, CARD_ASK, CARD_SET, CARD_RESOLVE];
 
     fn turned(&self, tag: &str, page: Page) -> String {
         format!("{tag}|{}|{}|{}|{}|{}", self.owner, self.id, page.tag(), self.magnification.map(percents).unwrap_or_default(), grammar::lens_tag(self.lens))
@@ -1298,6 +1366,113 @@ impl Card {
 
 fn percents((hitpoints, attack): (i32, i32)) -> String {
     if hitpoints == attack { format!("{hitpoints}%") } else { format!("{hitpoints}%/{attack}%") }
+}
+
+fn dialed_stats(library: &Library, dialed: &Dialed) -> Option<Entity> {
+    match dialed {
+        Dialed::Card(card) => library.enemy(card.id).map(|enemy| enemy.stats.clone()),
+        Dialed::Sheet(sheet) => {
+            let cat = library.cat(sheet.id)?;
+            let caps = cat.unitbuy.level_caps();
+            let levels = sheet.talents.as_deref().and_then(talents::decoded);
+            let shown = sheet.level.as_deref().map_or_else(|| library.level_for(cat, sheet.form, levels.as_ref()), |level| level::capped(level, caps));
+            let asked = statblock::Shown { cat, form: sheet.form, level: level::total(&shown, caps), level_input: &shown, talents: levels.as_ref() };
+
+            statblock::cat_stats(library, asked)
+        }
+    }
+}
+
+fn panel_rows(key: u64, lens: Lens, stats: &Entity) -> Vec<serenity::CreateActionRow> {
+    let custom = |part: &str| format!("{DIAL}{key:x}|{part}");
+    let shown = combat_lens::shown_hits(stats, lens.hits);
+    let hits = combat_lens::hit_choices(stats).into_iter().map(|hits| serenity::CreateSelectMenuOption::new(combat_lens::hits_label(hits), grammar::hits_word(hits)).default_selection(hits == shown)).collect();
+    let modes = combat_lens::MODES.into_iter().map(|mode| serenity::CreateSelectMenuOption::new(combat_lens::mode_label(mode), grammar::gauge_word(mode)).default_selection(mode == lens.mode)).collect();
+    let mut rows = vec![
+        serenity::CreateActionRow::SelectMenu(serenity::CreateSelectMenu::new(custom("h"), serenity::CreateSelectMenuKind::String { options: hits }).disabled(!combat_lens::picks_hits(stats))),
+        serenity::CreateActionRow::SelectMenu(serenity::CreateSelectMenu::new(custom("m"), serenity::CreateSelectMenuKind::String { options: modes })),
+    ];
+    let held = combat_lens::held_switches(stats);
+
+    if !held.is_empty() {
+        let options: Vec<serenity::CreateSelectMenuOption> = held
+            .iter()
+            .map(|(switch, identity)| serenity::CreateSelectMenuOption::new(get_display_def(*identity).name, grammar::switch_word(*switch)).default_selection(lens.switches.lit(*switch, lens.mode)))
+            .collect();
+        let most = u8::try_from(options.len()).unwrap_or(u8::MAX);
+
+        rows.push(serenity::CreateActionRow::SelectMenu(serenity::CreateSelectMenu::new(custom("s"), serenity::CreateSelectMenuKind::String { options }).placeholder("Nothing counted").min_values(0).max_values(most)));
+    }
+
+    rows
+}
+
+async fn open_panel(ctx: &serenity::Context, press: &serenity::ComponentInteraction, data: &Data, dialed: Dialed) -> Result<(), Error> {
+    press.create_response(ctx, serenity::CreateInteractionResponse::Acknowledge).await?;
+
+    let owner = press.user.id.get();
+    let prefs = data.book.get(owner);
+    let Some((_guard, library)) = open(data, &prefs.language).await? else { return Ok(()) };
+    let Some(stats) = dialed_stats(&library, &dialed) else { return Ok(()) };
+    let lens = dialed.lens();
+    let key = panels(data).keep(owner, press.token.clone(), dialed);
+    let panel = serenity::CreateInteractionResponseFollowup::new().content(prose::RESOLVE_PANEL.said(prefs.prose)).components(panel_rows(key, lens, &stats)).ephemeral(true);
+
+    press.create_followup(ctx, panel).await?;
+    Ok(())
+}
+
+async fn on_dial(ctx: &serenity::Context, press: &serenity::ComponentInteraction, data: &Data, rest: &str) -> Result<(), Error> {
+    let owner = press.user.id.get();
+    let prefs = data.book.get(owner);
+    let (key, part) = rest.split_once('|').unwrap_or((rest, ""));
+    let found = u64::from_str_radix(key, 16).ok().and_then(|key| panels(data).find(key, owner).map(|(token, dialed)| (key, token, dialed)));
+    let Some((key, token, dialed)) = found else {
+        let gone = serenity::CreateInteractionResponseMessage::new().content(prose::RESOLVE_GONE.said(prefs.prose)).ephemeral(true);
+
+        press.create_response(ctx, serenity::CreateInteractionResponse::Message(gone)).await?;
+        return Ok(());
+    };
+    let serenity::ComponentInteractionDataKind::StringSelect { values } = &press.data.kind else { return Ok(()) };
+    let Some((_guard, library)) = open(data, &prefs.language).await? else { return Ok(()) };
+    let Some(stats) = dialed_stats(&library, &dialed) else { return Ok(()) };
+    let held = dialed.lens();
+    let picked = values.first().map(String::as_str).unwrap_or_default();
+    let lens = match part {
+        "h" => Lens { hits: grammar::hits_of(picked).unwrap_or(held.hits), ..held },
+        "m" => Lens { mode: grammar::gauge_of(picked).unwrap_or(held.mode), switches: Switches::default(), ..held },
+        _ => {
+            let switches = combat_lens::held_switches(&stats).into_iter().fold(held.switches, |switches, (switch, _)| {
+                let lit = values.iter().any(|value| value == grammar::switch_word(switch));
+
+                if lit == switch.by_default(held.mode) { switches.cleared(switch) } else { switches.set(switch, lit) }
+            });
+
+            Lens { switches, ..held }
+        }
+    };
+    let dialed = dialed.with(lens);
+    let turned = serenity::CreateInteractionResponseMessage::new().content(prose::RESOLVE_PANEL.said(prefs.prose)).components(panel_rows(key, lens, &stats));
+
+    panels(data).turn(key, dialed.clone());
+    drop(_guard);
+    press.create_response(ctx, serenity::CreateInteractionResponse::UpdateMessage(turned)).await?;
+
+    let edit = match &dialed {
+        Dialed::Sheet(sheet) => redrawn(data, sheet).await?,
+        Dialed::Card(card) => recarded(data, card).await?,
+    };
+    let Some(edit) = edit else { return Ok(()) };
+
+    if let Err(err) = edit.execute(&ctx.http, &token).await {
+        warn!(key, "A Resolve panel could not redraw its statblock: {}", err);
+
+        let gone = serenity::EditInteractionResponse::new().content(prose::RESOLVE_GONE.said(prefs.prose)).components(Vec::new());
+
+        press.edit_response(ctx, gone).await?;
+    }
+
+    Ok(())
 }
 
 fn talented(cat: &CatEntry, form: usize) -> bool {
@@ -1321,7 +1496,7 @@ fn sheet_png(library: &Library, cache: &Cache, sheet: &Sheet) -> Result<(Vec<u8>
 
     match sheet.page {
         Page::Talents => Ok((statblock::talents(library, cache, asked)?, format!("{id}.talents.png"))),
-        _ => Ok((statblock::cat(library, cache, asked, sheet.versus, sheet.lens)?, format!("{id}.png"))),
+        _ => Ok((statblock::cat(library, cache, asked, sheet.versus, Lens { switching: !sheet.versus.is_empty() || !sheet.lens.switches.is_empty(), ..sheet.lens })?, format!("{id}.png"))),
     }
 }
 
@@ -1335,7 +1510,7 @@ fn card_png(library: &Library, cache: &Cache, card: &Card) -> Result<(Vec<u8>, S
             let plain = Magnification::default();
             let (hitpoints, attack) = card.magnification.unwrap_or((plain.hitpoints, plain.attack));
 
-            Ok((statblock::enemy(library, cache, enemy, Magnification::pair(hitpoints, attack), card.lens)?, format!("{id}.png")))
+            Ok((statblock::enemy(library, cache, enemy, Magnification::pair(hitpoints, attack), Lens { switching: !card.lens.switches.is_empty(), ..card.lens })?, format!("{id}.png")))
         }
     }
 }
@@ -1347,7 +1522,11 @@ fn lit(on: bool) -> serenity::ButtonStyle {
 fn card_rows(card: &Card) -> Vec<serenity::CreateActionRow> {
     let turn = |page: Page, label: &str| pick(card.page == page, card.turned(CARD_PAGE, page), label);
     let pages = vec![caption(format!("{LABEL}|0"), "Page"), turn(Page::Stats, "Stats"), turn(Page::Details, "Details")];
-    let tuning = vec![caption(format!("{LABEL}|1"), "Apply"), serenity::CreateButton::new(card.turned(CARD_ASK, card.page)).label("Magnification").style(lit(card.magnification.is_some()))];
+    let tuning = vec![
+        caption(format!("{LABEL}|1"), "Apply"),
+        serenity::CreateButton::new(card.turned(CARD_ASK, card.page)).label("Magnification").style(lit(card.magnification.is_some())),
+        serenity::CreateButton::new(card.turned(CARD_RESOLVE, card.page)).label("Resolve").style(lit(card.lens != Lens::default())),
+    ];
 
     vec![serenity::CreateActionRow::Buttons(pages), serenity::CreateActionRow::Buttons(tuning)]
 }
@@ -1372,6 +1551,7 @@ fn sheet_rows(library: &Library, sheet: &Sheet) -> Vec<serenity::CreateActionRow
         serenity::CreateButton::new(sheet.custom("sl", sheet.form)).label("Level").style(lit(sheet.level.is_some())),
         serenity::CreateButton::new(sheet.custom("st", sheet.form)).label("Talents").style(lit(sheet.talents.is_some())).disabled(!gifted),
         serenity::CreateButton::new(sheet.custom("sx", sheet.form)).label("Versus").style(lit(!sheet.versus.is_empty())),
+        serenity::CreateButton::new(sheet.custom("sr", sheet.form)).label("Resolve").style(lit(sheet.lens != Lens::default())),
     ];
 
     vec![serenity::CreateActionRow::Buttons(forms), serenity::CreateActionRow::Buttons(pages), serenity::CreateActionRow::Buttons(tuning)]
@@ -1826,7 +2006,7 @@ async fn serve_cat(voice: Voice<'_>, request: Request) -> Result<(), Error> {
                 return Ok(());
             }
 
-            let lens = Lens { mode: stats.gauge.unwrap_or_default(), hits: stats.hits.unwrap_or_default() };
+            let lens = Lens { mode: stats.gauge.unwrap_or_default(), hits: stats.hits.unwrap_or_default(), switches: stats.switches, switching: false };
             let sheet = Sheet { owner, id: cat.id, form, level: stats.level, talents, page: stats.page, versus, lens };
 
             send_sheet(voice, Arc::clone(&library), sheet, stats.mode.unwrap_or(prefs.mode)).await
@@ -1878,7 +2058,7 @@ async fn serve_enemy(voice: Voice<'_>, request: Request) -> Result<(), Error> {
 
     match request.want {
         Want::Stats(stats) => {
-            let lens = Lens { mode: stats.gauge.unwrap_or_default(), hits: stats.hits.unwrap_or_default() };
+            let lens = Lens { mode: stats.gauge.unwrap_or_default(), hits: stats.hits.unwrap_or_default(), switches: stats.switches, switching: false };
             let card = Card { owner: voice.user().get(), id: enemy.id, page: stats.page, magnification: stats.magnification, lens };
 
             send_card(voice, Arc::clone(&library), card, stats.mode.unwrap_or(prefs.mode)).await
@@ -1987,14 +2167,13 @@ fn page(title: &str, description: &str) -> serenity::CreateEmbed {
     serenity::CreateEmbed::new().title(title).description(description).color(EMBED_COLOR)
 }
 
-const CLIPS: &str = "`attack` (`atk`, `a`), `idle` (`i`), `walk` (`w`), `knockback` (`kb`, `k`), `showcase` (`sh`, `sc`), `burrow` (`bur`, `b`), `surface` (`su`, `sf`, `rise`, `r`), `dig` (`d`), `spirit` (`sp`, `c`, `conjure`), `model` (`m`) for a single picture of the unit with no animation. Attack if none is given.";
-const MOTION_FLAGS: &str = "`--range 0~30` or `--range 0 30` (`-r`): frames to export, wrapping around the loop, and one number alone is a single frame; not for showcases or models
-`--loop` (`-l`), walk and idle only: finds a perfect loop; `min 15`, `max 200` and `diff 30` tune it, and with `--range` it only searches that window
-`--format webp` (`-f`): `avif` (`a`), `webp` (`w`) or `gif` (`g`), this time only, over your default
-`--background` (`-b`): a solid gray background instead of a transparent one
-`--quality 90` (`-q`): 0 to 100, 80 to start
-`--compress 30` (`-p`): 0 to 100, 0 to start; higher takes longer
-`--cull 40` (`-u`): bounds cull %, for long beams and faint effects; spirits are never culled
+const CLIPS: &str = "`attack` (`atk`, `a`), `idle` (`i`), `walk` (`w`), `knockback` (`kb`, `k`), `showcase` (`sh`, `sc`), `burrow` (`bur`, `b`), `surface` (`su`, `sf`, `rise`, `r`), `dig` (`d`), `spirit` (`sp`, `c`, `conjure`), `model` (`m`, a still picture). Attack if none is given";
+const MOTION_FLAGS: &str = "`--range 0~30` (`-r`): frames to export, wrapping the loop; one number is one frame (not showcases or models)
+`--loop` (`-l`): walk and idle only, finds a perfect loop; `min 15`, `max 200` and `diff 30` tune it
+`--format webp` (`-f`): `avif` (`a`), `webp` (`w`) or `gif` (`g`), this time only
+`--background` (`-b`): solid gray instead of transparent
+`--quality 90` (`-q`), `--compress 30` (`-p`): 0 to 100, 80 and 0 to start; more compression takes longer
+`--cull 40` (`-u`): bounds cull %, for long beams and faint effects
 `--combat` (`-c`), `--rig` (`-g`), `--world` (`-w`), `--origin` (`-o`): debug overlays";
 
 const DEFAULT_PREFIX: &str = "{default}";
@@ -2018,80 +2197,79 @@ impl<'a> Voiced<'a> {
     }
 }
 
-const NAMES: &str = "Spaces are fine, and close spellings still match. One the game has no English name for also answers to the name the Battle Cats Wiki gives it";
-const SEARCHING: &str = "After a name: lists the closest matches for you to pick from, 24 to a page. ◀ and ▶ under the list turn its pages, and the page number between them opens a box to jump to one. A number after it, 1 to 100, is how close a name has to be: 86 to start, lower finds more";
+const NAMES: &str = "Spaces are fine and close spellings match. A unit with no English name also answers to its Battle Cats Wiki name";
+const SEARCHING: &str = "After a name: the closest matches to pick from, 24 to a page. A number after it, 1 to 100, sets how close a name must be (86 to start, lower finds more)";
 
 fn help_page(page_name: &str, section: &str, prefix: &str, prose: Prose) -> serenity::CreateEmbed {
     let voiced = match (page_name, section) {
         ("cat", "unit") => Voiced::new(prefix, "hg!cat (c) • Unit", "What goes where `<unit>` is in `hg!cat <unit> ...`")
-            .field("ID", "`25-3`, `25_t` or `25_s`: an ID and a form (1-4, n t u, or f c s u)\n`25` or `025`: your default form, or the next one down if it has none\nAn ID ending in `-e` is an enemy's, so Evolved is `-2` or `-c`", false)
+            .field("ID", "`25-3`, `25_t` or `25_s`: an ID and a form (1-4, n t u or f c s u)\n`25` or `025`: your default form, or the next one down\nAn ID ending in `-e` is an enemy, so Evolved is `-2` or `-c`", false)
             .field("Name", NAMES, false)
             .field("`--search` (`-s`)", SEARCHING, false)
-            .field("`form` (`f`)", "After an ID or a name, picks a form: 1-4, n e t u, f c s u, or Normal, Evolved, True, Ultra", false),
+            .field("`form` (`f`)", "After an ID or a name: 1-4, n e t u, f c s u, or Normal, Evolved, True, Ultra", false),
         ("cat", "stats") => Voiced::new(prefix, "hg!cat (c) • Stats", "`hg!cat <unit> [s | t | d] ...`")
-            .field("Pages", "`stats` (`s`, `stat`): the statblock, and what you get without a page\n`talents` (`t`, `talent`): every talent with its description, its level and what it changes. True and Ultra forms only, so a Normal or Evolved form is lifted to True. What follows it is read as talents, the same as after `--talents`: `t all`, `t 10 10 5`, `t attack buff 5`\n`details` (`d`, `detail`, `description`): the description, what evolving costs, and its cat combos\nA level and `--talents` go with any of them", false)
-            .field("A level after `talents`", "A plain number there is a talent's level, so `t 30` sets the first talent to 30. The cat's own level keeps its mark, as everywhere: `t lv30`, `t level 30` or `t 50+70`.", false)
-            .field("Level", "`lv50`, `lvl50`, `l50`, `level 50` or `50+70`. A plain `50` isn't read as a level, so give it its mark. Without one, a typical level for its rarity, raised to the level its form or its ultra talents unlock at if that's higher.", false)
-            .field("`--talents` (`-t`)", "`all` (`a`), `standard` (`s`), `ultra` (`u`), `none` (`n`), levels in order like `10 10 5`, or names like `Attack Buff 5`, written the way the talents page shows them. Talents lift a Normal or Evolved form to True. The talents page (`t`) lists every one with its max level.", false)
-            .field("`--versus` (`-v`)", "Trait names like `-v red` or `-v black metal`, or an enemy's name like `-v teacher bear` for all of its traits: the stats against one enemy with every one of them, by the game's own math. `targets` is every trait the cat has something for, `traits` every trait, `subtraits` every subtrait and `all` both, Metal aside in each; `none` clears them.\nAttack, DPS and Hitpoints change where the cat has something against it, and Hitpoints become the damage it takes to kill it. Against Metal a hit that isn't critical deals 1. A Sage shortens a cat's crowd control and its knockbacks unless the cat has Sage Slayer.\nOutlines: green does something, red does nothing or holds the cat back, orange is a picked trait the cat has nothing for. Half red, half green works only partly, and half green, half orange helps without being the whole story.", false)
+            .field("Pages", "`stats` (`s`): the statblock, the default\n`talents` (`t`): every talent, its level and what it does; lifts Normal or Evolved to True. Words after it are talents: `t all`, `t 10 10 5`, `t attack buff 5`\n`details` (`d`): description, evolve costs and combos", false)
+            .field("Level", "`lv50`, `l50`, `level 50` or `50+70`. A bare `50` needs its mark, and after `t` it's a talent level. Without one, a typical level for its rarity", false)
+            .field("`--talents` (`-t`)", "`all`, `standard`, `ultra`, `none`, levels in order (`10 10 5`) or names (`Attack Buff 5`). Lifts Normal or Evolved to True", false)
+            .field("`--versus` (`-v`)", "Traits (`-v red`, `-v black metal`) or an enemy's name (`-v teacher bear`): the stats against that enemy, by the game's math. `targets` is every trait the cat has something for; `traits`, `subtraits` and `all` leave Metal out; `none` clears them\nHitpoints become what it takes to kill the cat. Non-crit hits deal 1 to Metal. A Sage cuts crowd control unless the cat has Sage Slayer\nOutlines: green works, red doesn't or holds the cat back, orange means it has nothing for that trait; half and half works partly", false)
             .field("`--mode` (`-m`), `--hits` (`-h`)", MODE_HELP, false)
-            .field("Uptime", "Freeze, Slow, Weaken and Curse say how much of the time they keep a target under. The low end is the hits alone with the shortest time, since some enemies shrug off waves, surges and explosions; the high end adds them with the longest time. With `--versus` the time is that enemy's. A cat that dies after attacking goes by its recharge.", false)
-            .field("`--interactive` (`-i`), `--dormant` (`-d`)", "With or without the buttons under the picture this time, whatever your Blocks setting says.", false),
+            .field("`--on`, `--off`", SWITCH_HELP, false)
+            .field("Uptime", "Freeze, Slow, Weaken and Curse show how much of the time they hold a target, by `--mode`. A unit that dies after attacking goes by its recharge", false)
+            .field("`--interactive` (`-i`), `--dormant` (`-d`)", "Buttons or none, this time only", false),
         ("cat", "animation") => Voiced::new(prefix, "hg!cat (c) • Animation", "`hg!cat <unit> [a | anim] [type] ...`").field("Types", CLIPS, false).field("Flags", MOTION_FLAGS, false),
-        ("cat", "buttons") => Voiced::new(prefix, "hg!cat (c) • Buttons", "With your Blocks setting on Interactive, or `--interactive` (`-i`) after a request, three rows sit under the picture. Form picks a form, Page turns between Stats, Talents and Details, and Apply sets a Level, Talents or the traits to show the stats Versus. The one you're on is green, and so are Level, Talents and Versus once you've set them. A form the cat doesn't have is grayed out, and so is Talents below the True form or on a cat without any. Only the person who asked can press them."),
+        ("cat", "buttons") => Voiced::new(prefix, "hg!cat (c) • Buttons", "With Blocks on Interactive, or `-i`, three rows sit under the picture: Form, Page, and Apply (Level, Talents, Versus, Resolve). Resolve opens a panel only you can see, with the hits, the mode and which abilities count. Green is what's set or shown, gray isn't available. Only you can press them"),
         ("cat", _) => Voiced::new(prefix, "hg!cat (c)", "`hg!cat <unit> [stats | animation] ...`")
-            .field("Stats or animation", "Worked out from what you type: an animation name or flag means animation, a level or `--talents` means stats. `s` or `a` still decides outright, and stats is the default. `t` and `d` open the Talents and Details pages, so the dig animation is `dig` or `a d`.", false)
+            .field("Stats or animation", "An animation name or flag means animation, a level or `--talents` stats, and `s` or `a` decides outright. `t` and `d` open Talents and Details, so the dig animation is `dig` or `a d`", false)
             .field("Examples", "`hg!c 137_u lv50+70 -t all`\n`hg!c 44 t 10 5 lv40`\n`hg!c bahamut cat d`\n`hg!c bahamut cat form normal`\n`hg!c jamiera cat a showcase -f webp`\n`hg!c 008 a walk -l -r 10~120`", false),
         ("enemy", "unit") => Voiced::new(prefix, "hg!enemy (e) • Unit", "What goes where `<unit>` is in `hg!enemy <unit> ...`")
-            .field("ID", "`763` or `0763`, and `763-e` or `763_E` the way its statblock writes it. Without a command, the `e` is what says enemy and not cat", false)
+            .field("ID", "`763`, `0763`, `763-e` or `763_E`. Without a command, the `e` says enemy", false)
             .field("Name", NAMES, false)
             .field("`--search` (`-s`)", SEARCHING, false),
         ("enemy", "stats") => Voiced::new(prefix, "hg!enemy (e) • Stats", "`hg!enemy <unit> [s | d] ...`")
-            .field("Pages", "`stats` (`s`, `stat`): the statblock, and what you get without a page\n`details` (`d`, `detail`, `description`): its description", false)
-            .field("Magnification", "`400%`, or `400%/200%` for hitpoints and attack. 100% without one.", false)
+            .field("Pages", "`stats` (`s`): the statblock, the default\n`details` (`d`): its description", false)
+            .field("Magnification", "`400%`, or `400%/200%` for hitpoints and attack", false)
             .field("`--mode` (`-m`), `--hits` (`-h`)", MODE_HELP, false)
-            .field("`--interactive` (`-i`), `--dormant` (`-d`)", "With or without the buttons under the picture this time, whatever your Blocks setting says.", false),
+            .field("`--on`, `--off`", SWITCH_HELP, false)
+            .field("`--interactive` (`-i`), `--dormant` (`-d`)", "Buttons or none, this time only", false),
         ("enemy", "animation") => Voiced::new(prefix, "hg!enemy (e) • Animation", "`hg!enemy <unit> [a | anim] [type] ...`").field("Types", CLIPS, false).field("Flags", MOTION_FLAGS, false),
-        ("enemy", "buttons") => Voiced::new(prefix, "hg!enemy (e) • Buttons", "With your Blocks setting on Interactive, or `--interactive` (`-i`) after a request, two rows sit under the picture. Page turns between Stats and Details, and Apply sets a Magnification. The page you're on is green, and so is Magnification once you've set one. Only the person who asked can press them."),
+        ("enemy", "buttons") => Voiced::new(prefix, "hg!enemy (e) • Buttons", "With Blocks on Interactive, or `-i`, two rows sit under the picture: Page, and Apply (Magnification, Resolve). Resolve works as it does for cats. Green is what's set or shown. Only you can press them"),
         ("enemy", _) => Voiced::new(prefix, "hg!enemy (e)", "`hg!enemy <unit> [stats | animation] ...`")
-            .field("Stats or animation", "Worked out from what you type: an animation name or flag means animation, a percentage means stats. `s` or `a` still decides outright, and stats is the default. `d` opens the Details page, so the dig animation is `dig` or `a d`.", false)
+            .field("Stats or animation", "An animation name or flag means animation, a percentage stats, and `s` or `a` decides outright. `d` opens Details, so the dig animation is `dig` or `a d`", false)
             .field("Examples", "`hg!e akaza 400%`, `hg!e akaza s 400`\n`hg!e akaza d`\n`hg!e 763 a attack -c -w`", false),
         ("stage", _) => Voiced::new(prefix, "hg!stage (s)", "`hg!stage <name> ...`")
             .field("What you get", prose::PAGE_STAGE.said(prose), false)
-            .field("Name", "Spaces are fine, and close spellings still match. A name several stages share gets a list to pick from.\n`--search` (`-s`) after it lists the closest matches, 24 to a page, and a number after that, 1 to 100, is how close a name has to be", false)
-            .field("ID", "A category's prefix, the map and the stage: `R 001 02`, `R-1-2`, `r001_02` and `R1 2` are all the same stage. A file's prefix works too, so `RN 0 7` is `N 0 7` and `EX 70 9` is `RE 70 9`.", false)
-            .field("`--crowns 2` (`-c`)", "1 to 4, and the lowest one the stage is open at without it. A stage that doesn't have the one you ask for says so.", false)
-            .field("`--interactive` (`-i`), `--dormant` (`-d`)", "With or without the buttons under the picture this time, whatever your Blocks setting says.", false)
-            .field("Buttons", "With your Blocks setting on Interactive, or `--interactive` (`-i`) after a request, a stage with more than one crown gets a button for each under the picture. The one shown is green, and one the stage isn't open at is grayed out. Only the person who asked can press them.", false)
+            .field("Name", "Spaces are fine and close spellings match; a name several stages share lists them. `--search` (`-s`) lists the closest, 24 to a page, and a number after it, 1 to 100, sets how close", false)
+            .field("ID", "Prefix, map and stage: `R 001 02`, `R-1-2`, `r001_02` and `R1 2` are the same. A file's prefix works too, so `RN 0 7` is `N 0 7`", false)
+            .field("`--crowns 2` (`-c`)", "1 to 4; the lowest open one without it", false)
+            .field("`--interactive` (`-i`), `--dormant` (`-d`)", "Crown buttons or none, this time only. Only you can press them", false)
             .field("Examples", "`hg!stage earthshaker`\n`hg!s sleeping lion -c 4`\n`hg!s moon -s`", false),
         ("map", _) => Voiced::new(prefix, "hg!map (m)", "`hg!map <name | ID> ...`")
             .field("What you get", prose::PAGE_MAP.said(prose), false)
-            .field("Name", "Spaces are fine, and close spellings still match. A name several maps share gets a list to pick from, each with its category and top crown.\n`--search` (`-s`) after it lists the closest matches, 24 to a page", false)
-            .field("ID", "A category's prefix and the map: `R 100`, `R-100`, `r100`. A file's prefix works too, so `RN 0` is `N 0`.", false)
-            .field("`--crowns 2` (`-c`)", "1 to 4. The stage you pick comes at that crown, and says so if it doesn't have it.", false)
-            .field("`--interactive` (`-i`), `--dormant` (`-d`)", "The stage you pick comes with or without its crown buttons, whatever your Blocks setting says.", false)
-            .field("Stages", "The list holds 24 stages at a time. ◀ and ▶ under it turn its pages, and the page number between them opens a box to jump to one.", false)
-            .field("Invasions", "An invasion is a map of its own, named after the map it invades and marked Invasion. So `hg!map laboratory of relics` offers the map and its invasion, and the Filibuster's is Cats of the Cosmos Ch. 3 with every stage invaded.", false)
+            .field("Name", "Spaces are fine and close spellings match; a name several maps share lists them. `--search` (`-s`) lists the closest, 24 to a page", false)
+            .field("ID", "Prefix and map: `R 100`, `R-100`, `r100`. `RN 0` is `N 0`", false)
+            .field("`--crowns 2` (`-c`)", "1 to 4, for the stage you pick", false)
+            .field("`--interactive` (`-i`), `--dormant` (`-d`)", "The stage you pick comes with crown buttons or without, this time only", false)
+            .field("Invasions", "An invasion is a map of its own, marked Invasion: `hg!map laboratory of relics` offers both", false)
             .field("Examples", "`hg!map the legend begins`\n`hg!m N 0 -c 4`\n`hg!m empire of cats ch. 1`", false),
         ("background", _) => Voiced::new(prefix, "hg!background (bg, b)", "`hg!background <ID | stage | map> ...`")
             .field("What you get", prose::PAGE_BACKGROUND.said(prose), false)
-            .field("Flags", "`--seed 100` (`-e`): which random run a moving background plays, 100 to start\n`--range 0~299` or `--range 0 299` (`-r`): frames of a moving background, 0~299 to start; one number alone is a single frame\n`--offset 100 50` (`-o`): moves the view right and up from the middle of the screen; negative numbers go left and down\n`--dimensions 800x600` (`-d`): the picture's size, growing outward from that middle; `800 600` and `800×600` work too. 960x640 to start, up to 4096 on a side and 4 megapixels in all\n`--format webp` (`-f`): `avif` (`a`), `webp` (`w`) or `gif` (`g`), this time only, over your default\n`--quality 90` (`-q`): 0 to 100, 80 to start\n`--compress 30` (`-p`): 0 to 100, 0 to start; higher takes longer", false)
-            .field("Stage or map", "A stage's name, or its ID like `N 0 7`, finds it the way `hg!stage` does and sends the background that stage uses.\nA map's name, or its ID like `N 0`, lists its stages the way `hg!map` does, and the one you pick sends its background. Your flags carry over.\nStages and maps are looked through together, and `--search` (`-s`) works here too.", false)
+            .field("Flags", "`--seed 100` (`-e`): which random run a moving background plays\n`--range 0~299` (`-r`): frames of a moving one; one number is one frame\n`--offset 100 50` (`-o`): moves the view right and up; negatives go left and down\n`--dimensions 800x600` (`-d`): the size, 960x640 to start, up to 4096 a side and 4 megapixels\n`--format webp` (`-f`), `--quality 90` (`-q`), `--compress 30` (`-p`): as for animations", false)
+            .field("Stage or map", "A stage's name or ID (`N 0 7`) sends its background; a map's name or ID (`N 0`) lists its stages first. Your flags carry over, and `--search` (`-s`) works here too", false)
             .field("Examples", "`hg!bg 0`\n`hg!bg 12 -f gif -d 1920x640`\n`hg!bg 197 -e 7 -r 0~149`\n`hg!bg 2 -o 400 100 -d 800x600`\n`hg!bg earthshaker -f webp`\n`hg!bg the legend begins`", false),
         ("audio", _) => Voiced::new(prefix, "hg!audio (a)", "`hg!audio <ID | stage | map> ...`")
             .field("What you get", prose::PAGE_AUDIO.said(prose), false)
-            .field("Stage or map", "A stage's name, or its ID like `N 0 7`, finds it the way `hg!stage` does and sends the music it starts with.\nA map's name, or its ID like `N 0`, lists its stages the way `hg!map` does, and the one you pick sends its music.\nStages and maps are looked through together, `--search` (`-s`) included.", false)
-            .field("`--boss` (`-b`)", "Sends the stage's boss theme instead. A stage that has both gets Standard and Boss buttons under the track; only the person who asked can press them.", false)
+            .field("Stage or map", "A stage's name or ID (`N 0 7`) sends the music it starts with; a map's lists its stages first. `--search` (`-s`) works here too", false)
+            .field("`--boss` (`-b`)", "The boss theme instead. A stage with both gets Standard and Boss buttons", false)
             .field("Examples", "`hg!audio 5`\n`hg!a 7`\n`hg!a earthshaker`\n`hg!a earthshaker -b`\n`hg!a the legend begins`", false),
         ("settings", _) => Voiced::new(prefix, "hg!settings (set)", prose::PAGE_SETTINGS.said(prose))
-            .field("Language", "Every language the game data has. It also changes which names searches match. English to start.", false)
-            .field("Format", "AVIF, WebP or GIF, for animations. AVIF to start, and the smallest by far. `--format` overrides it for one request.", false)
-            .field("Default form", "The form a bare ID gets, or a name that matches several forms of one cat. True to start; a cat without it gets the next form down.", false)
-            .field("Search", "Exact (to start): a form's exact name gets that form, anything else is a close search. Preferred: a found cat always gets your default form.", false)
-            .field("Blocks", "Dormant (to start): a cat's, an enemy's or a stage's picture comes alone. Interactive: it comes with buttons under it to change it. `--dormant` (`-d`) and `--interactive` (`-i`) override it for one request.", false)
-            .field("Prefix", "What you type in front of a command, which is `hg!` for you right now. Up to 16 characters, no spaces; leave it empty to go back to `{default}`. Mentioning me and `/` always work.", false)
-            .field("Prose", "Human (to start) or Tsundere: how I word what I say. What I tell you stays the same.", false)
-            .field("Aliases", "Your own names for things, 50 at most. Add takes an alias and what it goes to, like `Dasli` and `Kasli the Bane`. Typing the alias where a name goes then works as if you had typed that instead, and whatever comes after it carries over. An alias beats a real name, and `--search` lists the ones close to what you typed above everything else.\nShow lists them. Remove takes one out, and its Remove All and Set to Default buttons clear them or bring back the ones I come with.", false),
+            .field("Language", "Every language the game data has; it also sets which names searches match", false)
+            .field("Format", "AVIF (to start, and smallest), WebP or GIF, for animations", false)
+            .field("Default form", "What a bare ID gets. True to start, or the next form down", false)
+            .field("Search", "Exact (to start): a form's exact name gets that form. Preferred: always your default form", false)
+            .field("Blocks", "Dormant (to start): pictures come alone. Interactive: with buttons to change them", false)
+            .field("Prefix", "What goes before a command, `hg!` for you now. Up to 16 characters, no spaces; leave it empty to go back to `{default}`. Mentioning me and `/` always work", false)
+            .field("Prose", "Human (to start) or Tsundere: how I word things. The facts stay the same", false)
+            .field("Aliases", "Your own names for things, up to 50, like `Dasli` for `Kasli the Bane`. An alias beats a real name and keeps what follows it. Show lists them; Remove takes one out or resets them", false),
         ("website", _) => Voiced::new(prefix, "hg!website (web, w)", prose::PAGE_WEBSITE.said(prose)),
         ("invite", _) => Voiced::new(prefix, "hg!invite (inv, i)", prose::PAGE_INVITE.said(prose)),
         ("legal", _) => Voiced::new(prefix, "hg!legal (license, l)", prose::PAGE_LEGAL.said(prose)),
@@ -2532,6 +2710,10 @@ async fn on_press(ctx: &serenity::Context, press: &serenity::ComponentInteractio
         return on_setting(ctx, press, data, rest).await;
     }
 
+    if let Some(rest) = custom.strip_prefix(DIAL) {
+        return on_dial(ctx, press, data, rest).await;
+    }
+
     if let Some(rest) = custom.strip_prefix(FIND) {
         return on_found(ctx, press, data, rest).await;
     }
@@ -2571,6 +2753,10 @@ async fn on_press(ctx: &serenity::Context, press: &serenity::ComponentInteractio
     if let Some((tag, card)) = Card::read(custom) {
         if press.user.id.get() != card.owner {
             return refuse(ctx, press, data).await;
+        }
+
+        if tag == CARD_RESOLVE {
+            return open_panel(ctx, press, data, Dialed::Card(card)).await;
         }
 
         if tag == CARD_ASK {
@@ -2619,6 +2805,7 @@ async fn on_press(ctx: &serenity::Context, press: &serenity::ComponentInteractio
             press.create_response(ctx, serenity::CreateInteractionResponse::Modal(modal)).await?;
             Ok(())
         }
+        "sr" => open_panel(ctx, press, data, Dialed::Sheet(sheet)).await,
         "sx" => {
             let input = serenity::CreateInputText::new(serenity::InputTextStyle::Short, "Traits (none or empty turns them off)", "traits").placeholder(VERSUS_HINT).value(grammar::versus_names(sheet.versus)).required(false);
             let modal = serenity::CreateModal::new(sheet.custom("sw", sheet.form), "Versus").components(vec![serenity::CreateActionRow::InputText(input)]);
@@ -2980,7 +3167,7 @@ async fn on_setting(ctx: &serenity::Context, press: &serenity::ComponentInteract
 #[cfg(test)]
 mod tests {
     use super::*;
-    use codex::combat::{Hits, Mode as Gauge};
+    use codex::combat::{Hits, Mode as Gauge, Switch, Switches};
 
     const ME: serenity::UserId = serenity::UserId::new(42);
 
@@ -3337,7 +3524,7 @@ mod tests {
 
     #[test]
     fn a_sheet_survives_its_button_id() {
-        let sheet = Sheet { owner: 1, id: 25, form: 2, level: Some("50+70".to_owned()), talents: Some("10.0.5".to_owned()), page: Page::Talents, versus: Versus { foe: Foe::from_bits(0b1001), aimed: true }, lens: Lens { mode: Gauge::Maximum, hits: Hits::Only(1) } };
+        let sheet = Sheet { owner: 1, id: 25, form: 2, level: Some("50+70".to_owned()), talents: Some("10.0.5".to_owned()), page: Page::Talents, versus: Versus { foe: Foe::from_bits(0b1001), aimed: true }, lens: Lens { mode: Gauge::Maximum, hits: Hits::Only(1), switches: Switches::default().set(Switch::Strengthen, true).set(Switch::Wave, false), switching: false } };
         let custom = sheet.custom("sb", 3);
         let (tag, read) = Sheet::read(&custom).unwrap();
 
@@ -3368,7 +3555,7 @@ mod tests {
 
     #[test]
     fn a_card_survives_its_button_id() {
-        let card = Card { owner: u64::MAX, id: 763, page: Page::Details, magnification: Some((400, 200)), lens: Lens { mode: Gauge::Minimum, hits: Hits::All } };
+        let card = Card { owner: u64::MAX, id: 763, page: Page::Details, magnification: Some((400, 200)), lens: Lens { mode: Gauge::Minimum, hits: Hits::All, ..Lens::default() } };
         let custom = card.turned(CARD_SET, Page::Stats);
         let (tag, read) = Card::read(&custom).unwrap();
 
@@ -3383,7 +3570,7 @@ mod tests {
     #[test]
     fn panel_button_ids_never_repeat() {
         let card = Card { owner: 1, id: 2, page: Page::Stats, magnification: None, lens: Lens::default() };
-        let ids = [card.turned(CARD_PAGE, Page::Stats), card.turned(CARD_PAGE, Page::Details), card.turned(CARD_ASK, card.page), format!("{LABEL}|0"), format!("{LABEL}|1")];
+        let ids = [card.turned(CARD_PAGE, Page::Stats), card.turned(CARD_PAGE, Page::Details), card.turned(CARD_ASK, card.page), card.turned(CARD_RESOLVE, card.page), format!("{LABEL}|0"), format!("{LABEL}|1")];
 
         for (at, id) in ids.iter().enumerate() {
             assert!(!ids[..at].contains(id), "{id} is used twice");
@@ -3392,7 +3579,7 @@ mod tests {
         let sheet = Sheet { owner: 1, id: 25, form: 2, level: None, talents: None, page: Page::Stats, versus: Versus::default(), lens: Lens::default() };
         let forms = (0..FORMS.len()).map(|form| sheet.turned("sb", form, sheet.page));
         let pages = [Page::Stats, Page::Talents, Page::Details].into_iter().map(|page| sheet.turned("sp", sheet.form, page));
-        let ids: Vec<String> = forms.chain(pages).chain([sheet.custom("sl", sheet.form), sheet.custom("st", sheet.form)]).collect();
+        let ids: Vec<String> = forms.chain(pages).chain([sheet.custom("sl", sheet.form), sheet.custom("st", sheet.form), sheet.custom("sx", sheet.form), sheet.custom("sr", sheet.form)]).collect();
 
         for (at, id) in ids.iter().enumerate() {
             assert!(!ids[..at].contains(id), "{id} is used twice");

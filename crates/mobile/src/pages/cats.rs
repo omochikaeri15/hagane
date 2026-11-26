@@ -9,7 +9,7 @@ use ab_glyph::{Font, FontRef, PxScale, ScaleFont};
 use slint::{Color, ComponentHandle, Image, Model, ModelRc, Rgba8Pixel, SharedPixelBuffer, SharedString, VecModel};
 
 use codex::cat::unit::{Talent, TalentGroup};
-use codex::combat::{AttrUnit, Entity, Faction, Foe, Identity, REGISTRY, get_talent};
+use codex::combat::{AttrUnit, Entity, Faction, Foe, Identity, Switch, Switches, REGISTRY, get_talent};
 use codex::files::{img015, img022};
 use foundry::common::context::GlobalContext;
 use foundry::common::{glyphs, io};
@@ -127,6 +127,7 @@ pub struct State {
     versus: bool,
     foe: Foe,
     lens: Lens,
+    switches: Switches,
 }
 
 pub type Edited = Rc<dyn Fn(&AppWindow)>;
@@ -246,6 +247,7 @@ pub fn ability_rows(images: &Images, vault: &Vault, items: &[AbilityItem]) -> Mo
             icon: item_icon(images, vault, item),
             lines: detail::lines(&item.text),
             conjure: item.icon_id == Some(img015::ICON_CONJURE) && item.custom_icon == CustomIcon::None,
+            switch: lens::switch_key(item.identity).filter(|_| item.switchable).map_or(-1, |key| key as i32),
         })
         .collect();
 
@@ -549,6 +551,7 @@ impl State {
             versus: false,
             foe: Foe::default(),
             lens: Lens::default(),
+            switches: Switches::default(),
             edited: None,
             locked: false,
             granted: None,
@@ -879,12 +882,34 @@ pub fn wire(window: &AppWindow, context: &Rc<Context>) -> Shared {
     });
 
     let (held, ctx, weak) = on(&state, context, window);
+    cats.on_ability_switched(move |key| {
+        let Some(switch) = usize::try_from(key).ok().and_then(|key| Switch::ALL.get(key).copied()) else {
+            return;
+        };
+
+        {
+            let mut state = held.borrow_mut();
+
+            state.switches = state.switches.flipped(switch, state.lens.mode);
+        }
+
+        if let Some(ui) = weak.upgrade() {
+            refresh(&ui, &held, &ctx);
+        }
+    });
+
+    let (held, ctx, weak) = on(&state, context, window);
     cats.on_mode_picked(move |index| {
         let Some(mode) = usize::try_from(index).ok().and_then(|index| MODES.get(index).copied()) else {
             return;
         };
 
-        held.borrow_mut().lens.mode = mode;
+        {
+            let mut state = held.borrow_mut();
+
+            state.lens.mode = mode;
+            state.switches = Switches::default();
+        }
 
         if let Some(ui) = weak.upgrade() {
             refresh(&ui, &held, &ctx);
@@ -1453,8 +1478,12 @@ fn refresh_abilities(ui: &AppWindow, state: &Shared, context: &Rc<Context>, glob
         held.versus.then_some(held.foe)
     };
     let stat_ctx = StatContext::cat(&final_stats, cat.atk_anim_frames[form], Some(&cat.unitbuy), &treasure);
-    let held = state.borrow().lens;
-    let lens = Lens { hits: lens::settled(&final_stats, held.hits), ..held };
+    let (held, switches) = {
+        let state = state.borrow();
+
+        (state.lens, if picked.is_some() { state.switches } else { Switches::default() })
+    };
+    let lens = Lens { hits: lens::settled(&final_stats, held.hits), switches, switching: picked.is_some(), ..held };
     let (traits, headline_1, headline_2, body_1, body_2, footer) = match picked {
         Some(foe) => versus::palette(&ctx, foe, versus::spirit_controls(&ctx), Pace::of(&stat_ctx), lens),
         None => lens::plain(&ctx, Pace::of(&stat_ctx), lens),
@@ -1900,9 +1929,10 @@ fn export(ui: &AppWindow, state: &Shared, context: &Rc<Context>) {
         global,
         grants: granted.as_deref(),
         lens: {
-            let held = state.borrow().lens;
+            let held = state.borrow();
+            let switches = if held.versus { held.switches } else { Switches::default() };
 
-            Lens { hits: cat.stats.get(form).and_then(Option::as_ref).map_or(held.hits, |stats| lens::settled(stats, held.hits)), ..held }
+            Lens { hits: cat.stats.get(form).and_then(Option::as_ref).map_or(held.lens.hits, |stats| lens::settled(stats, held.lens.hits)), switches, switching: held.versus, ..held.lens }
         },
     };
 

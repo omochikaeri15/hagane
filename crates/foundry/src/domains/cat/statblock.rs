@@ -122,7 +122,7 @@ pub fn talents(subject: Subject<'_>) -> Option<TalentsData> {
             let picture = group.name_image();
 
             TalentCard {
-                item: AbilityItem { identity: known.map_or(Identity::Unknown, |def| def.identity), icon_id, text: name, custom_icon, border_id: None, mark: Mark::None, added: false, dimmed: false },
+                item: AbilityItem { identity: known.map_or(Identity::Unknown, |def| def.identity), icon_id, text: name, custom_icon, border_id: None, mark: Mark::None, added: false, dimmed: false, switchable: false },
                 plate: (picture > 0).then(|| vfs.find(&format!("Skill_name_{picture:03}.png"))).flatten().map(|path| vfs.source(&path)),
                 description: talent_logic::describe(group, &cat.skill_descriptions, &combo_names),
                 ultra: group.is_ultra(),
@@ -145,19 +145,33 @@ pub fn build(subject: Subject<'_>) -> Option<StatblockData> {
     build_against(subject, |_| Foe::default())
 }
 
-pub fn build_against(subject: Subject<'_>, versus: impl FnOnce(&Entity) -> Foe) -> Option<StatblockData> {
-    let cat = subject.cat;
-    let dynamic_stats = unitid(&subject.global.vault.vfs, cat.id as i32);
-    let base_stats = dynamic_stats.as_ref().and_then(|forms| forms.get(subject.form))?;
-
+fn resolved(subject: &Subject<'_>, base_stats: &Entity) -> Entity {
     let form_allows_talents = subject.grants.is_some() || subject.form >= 2;
-    let talent_data = if form_allows_talents { cat.talent_data.as_ref() } else { None };
+    let talent_data = if form_allows_talents { subject.cat.talent_data.as_ref() } else { None };
     let talent_levels = if form_allows_talents { subject.talent_levels } else { None };
-    let mut final_stats = get_final_stats(base_stats, cat.curve.as_ref(), subject.current_level, talent_data, talent_levels, subject.global.treasure);
+    let mut final_stats = get_final_stats(base_stats, subject.cat.curve.as_ref(), subject.current_level, talent_data, talent_levels, subject.global.treasure);
 
     if let Some(grants) = subject.grants {
         grants.apply(&mut final_stats);
     }
+
+    final_stats
+}
+
+pub fn final_stats(subject: &Subject<'_>) -> Option<Entity> {
+    let dynamic_stats = unitid(&subject.global.vault.vfs, subject.cat.id as i32)?;
+
+    dynamic_stats.get(subject.form).map(|base_stats| resolved(subject, base_stats))
+}
+
+pub fn build_against(subject: Subject<'_>, versus: impl FnOnce(&Entity) -> Foe) -> Option<StatblockData> {
+    let cat = subject.cat;
+    let dynamic_stats = unitid(&subject.global.vault.vfs, cat.id as i32);
+    let base_stats = dynamic_stats.as_ref().and_then(|forms| forms.get(subject.form))?;
+    let form_allows_talents = subject.grants.is_some() || subject.form >= 2;
+    let talent_data = if form_allows_talents { cat.talent_data.as_ref() } else { None };
+    let talent_levels = if form_allows_talents { subject.talent_levels } else { None };
+    let final_stats = resolved(&subject, base_stats);
 
     let foe = versus(&final_stats);
     let ctx = RenderContext {

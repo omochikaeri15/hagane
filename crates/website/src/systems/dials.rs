@@ -6,7 +6,7 @@ use foundry::systems::combat::lens::{self, Lens, MODES, ONE_HIT};
 use crate::widget::Tip;
 
 #[component]
-pub(crate) fn Dials(stats: Entity, lens: Signal<Lens>) -> Element {
+pub(crate) fn Dials(stats: Entity, lens: Signal<Lens>, on_mode: Option<EventHandler<()>>) -> Element {
     let held = lens();
     let shown = lens::hits_label(lens::shown_hits(&stats, held.hits));
     let mode = lens::mode_label(held.mode);
@@ -26,7 +26,13 @@ pub(crate) fn Dials(stats: Entity, lens: Signal<Lens>) -> Element {
             }
         }
         select { class: "combo dial", value: "{mode}",
-            onchange: move |event| lens.write().mode = lens::mode_named(&event.value()),
+            onchange: move |event| {
+                lens.write().mode = lens::mode_named(&event.value());
+
+                if let Some(on_mode) = on_mode {
+                    on_mode.call(());
+                }
+            },
             for choice in MODES.map(lens::mode_label) {
                 option { value: "{choice}", selected: choice == mode, "{choice}" }
             }

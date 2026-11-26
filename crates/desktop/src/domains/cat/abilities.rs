@@ -6,7 +6,7 @@ use codex::cat::unit::LevelCurve;
 use codex::files::img015;
 
 use foundry::common::context::GlobalContext;
-use codex::combat::{Entity, Faction, Foe, Identity};
+use codex::combat::{Entity, Faction, Foe, Identity, Switches};
 use foundry::domains::cat::versus;
 use foundry::systems::combat::lens::{self, Lens, Pace};
 use foundry::domains::settings::Settings;
@@ -48,6 +48,7 @@ pub struct State {
     versus: bool,
     foe: Foe,
     dials: dials::State,
+    switches: Switches,
 }
 
 
@@ -63,13 +64,24 @@ impl State {
                 self.conjure_overrides.insert(cat_id, !current.unwrap_or(false));
             }
             Message::ToggleVersus => self.versus = !self.versus,
-            Message::Pick(label) => self.foe = if self.foe.has(label) { self.foe.without(label) } else { self.foe.with(label) },
-            Message::Dials(message) => self.dials.update(message),
+            Message::Pick(picked) => match lens::switch_of(picked) {
+                Some(switch) => self.switches = self.switches.flipped(switch, self.dials.mode()),
+                None => self.foe = if self.foe.has(picked) { self.foe.without(picked) } else { self.foe.with(picked) },
+            },
+            Message::Dials(message) => {
+                if matches!(message, dials::Message::Mode(_)) {
+                    self.switches = Switches::default();
+                }
+
+                self.dials.update(message);
+            }
         }
     }
 
     pub(super) fn lens(&self, stats: &Entity) -> Lens {
-        self.dials.lens(stats)
+        let switches = if self.versus { self.switches } else { Switches::default() };
+
+        Lens { switches, switching: self.versus, ..self.dials.lens(stats) }
     }
 
     pub(super) fn header(&self, stats: &Entity) -> Element<'_, Message> {
@@ -135,7 +147,9 @@ impl State {
             let item_row = if is_conjure {
                 self.conjure_row(item, spirit, sheets, assets, settings)
             } else {
-                self.shared.ability_row(item, sheets, assets, layout, Faction::Cat)
+                let row = self.shared.ability_row(item, sheets, assets, layout, Faction::Cat);
+
+                if item.switchable { button(row).padding(0).style(button::text).on_press(Message::Pick(item.identity)).into() } else { row }
             };
 
             col = col.push(item_row);

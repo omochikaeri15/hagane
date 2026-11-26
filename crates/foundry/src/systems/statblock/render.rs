@@ -315,7 +315,7 @@ pub fn build_statblock_image(
         draw_bottom_rounded_rect_mut(canvas_image, spirit_rect, px(RADIUS_LG), COLOR_CARD);
 
         let mut current_y_offset = card_inner_y + card_padding;
-        let area_item = AbilityItem { identity: Identity::AreaAttack, icon_id: Some(img015::ICON_AREA_ATTACK), border_id: None, custom_icon: CustomIcon::None, text: String::new(), mark: Mark::None, added: false, dimmed: false };
+        let area_item = AbilityItem { identity: Identity::AreaAttack, icon_id: Some(img015::ICON_AREA_ATTACK), border_id: None, custom_icon: CustomIcon::None, text: String::new(), mark: Mark::None, added: false, dimmed: false, switchable: false };
         let area_icon = get_icon_image(&area_item, layers, &custom_assets, icon_size as u32);
         let area_icon_y = current_y_offset + overflow_padding(&spirit.dmg_text);
         image::imageops::overlay(canvas_image, &area_icon, start_x_absolute as i64, area_icon_y as i64);

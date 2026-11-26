@@ -12,6 +12,7 @@ use crate::systems::combat::{AbilityItem, CustomIcon, Mark};
 
 use super::board::{px, RADIUS_SM};
 
+const DIMMED_ALPHA: f32 = 0.4;
 const COLOR_CLEAR: Rgba<u8> = Rgba([0, 0, 0, 0]);
 pub(super) const MARK_WIDTH: f32 = 2.0;
 
@@ -203,6 +204,13 @@ pub(super) fn get_icon_image(
     if let Some(colors) = mark_colors(item.mark) {
         image::imageops::overlay(&mut icon, &ring(export_size, export_size, px(RADIUS_SM), px(MARK_WIDTH), colors), 0, 0);
     }
+
+    if item.dimmed {
+        for pixel in icon.pixels_mut() {
+            pixel[3] = (f32::from(pixel[3]) * DIMMED_ALPHA) as u8;
+        }
+    }
+
     icon
 }
 

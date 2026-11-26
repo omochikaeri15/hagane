@@ -1,4 +1,4 @@
-use codex::combat::{Entity, Faction, Foe, Hits, Mode, Rules, Terms};
+use codex::combat::{Entity, Faction, Foe, Hits, Identity, Mode, Rules, Switch, Switches, Terms, REGISTRY};
 
 use crate::common::context::GlobalContext;
 use crate::common::decimal::trimmed;
@@ -15,6 +15,8 @@ pub const ONE_HIT: &str = "This unit only has one hit!";
 pub struct Lens {
     pub mode: Mode,
     pub hits: Hits,
+    pub switches: Switches,
+    pub switching: bool,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -37,11 +39,35 @@ pub struct Measure {
     pub dps: f64,
 }
 
+pub fn switch_of(identity: Identity) -> Option<Switch> {
+    match identity {
+        Identity::CriticalHit => Some(Switch::Critical),
+        Identity::SavageBlow => Some(Switch::Savage),
+        Identity::WaveAttack | Identity::MiniWave => Some(Switch::Wave),
+        Identity::SurgeAttack | Identity::MiniSurge => Some(Switch::Surge),
+        Identity::Explosion => Some(Switch::Explosion),
+        Identity::Strengthen => Some(Switch::Strengthen),
+        Identity::KillAttackUp => Some(Switch::Kills),
+        _ => None,
+    }
+}
+
+pub fn held_switches(stats: &Entity) -> Vec<(Switch, Identity)> {
+    REGISTRY
+        .iter()
+        .filter_map(|ability| switch_of(ability.identity).filter(|_| !(ability.attributes)(stats).is_empty()).map(|switch| (switch, ability.identity)))
+        .collect()
+}
+
+pub fn switch_key(identity: Identity) -> Option<usize> {
+    switch_of(identity).and_then(|switch| Switch::ALL.iter().position(|held| *held == switch))
+}
+
 pub fn mode_label(mode: Mode) -> &'static str {
     match mode {
-        Mode::Minimum => "Minimum",
-        Mode::Average => "Average",
-        Mode::Maximum => "Maximum",
+        Mode::Minimum => "Min Stats",
+        Mode::Average => "Avg Stats",
+        Mode::Maximum => "Max Stats",
     }
 }
 
@@ -113,8 +139,12 @@ pub fn measure(stats: &StatContext<'_>, rules: &Rules, foe: Foe, terms: Terms, l
     let unit = stats.stats;
     let pace = Pace::of(stats);
     let exposure = unit.exposure(pace.cycle, pace.recharge, settled(unit, lens.hits), rules);
-    let attack = exposure.damage(unit, stats.strikes(), foe, terms, lens.mode);
-    let dps = if pace.cycle > 0 { attack * FRAMES_PER_SECOND / f64::from(pace.cycle) } else { 0.0 };
+    let attack = exposure.damage(unit, stats.strikes(), foe, terms, lens.mode, lens.switches);
+    let (period, swings) = match unit.cadence(pace.cycle, pace.recharge) {
+        (period, swings) if period > 0 => (period, swings),
+        _ => (pace.cycle, 1),
+    };
+    let dps = if period > 0 { attack * f64::from(swings) * FRAMES_PER_SECOND / f64::from(period) } else { 0.0 };
 
     Measure { attack, dps }
 }
@@ -137,8 +167,28 @@ mod tests {
         assert_eq!(hit_choices(&triple).iter().map(|hits| hits_label(*hits)).collect::<Vec<_>>(), ["1st Hit", "2nd Hit", "3rd Hit", "Avg Hits", "All Hits"]);
         assert_eq!((settled(&single, Hits::All), shown_hits(&single, Hits::All)), (Hits::Only(0), Hits::Only(0)), "one hit is measured as the 1st Hit it shows");
         assert_eq!(settled(&Entity { time_until_attack_3: 0, ..triple.clone() }, Hits::Only(2)), Hits::Standing, "a picked hit the next unit lacks falls back");
-        assert_eq!((mode_named("Maximum"), hits_of("2nd Hit"), hits_of("Avg Hits")), (Mode::Maximum, Hits::Only(1), Hits::Standing));
-        assert_eq!((tag(&triple, Lens::default()), tag(&triple, Lens { mode: Mode::Maximum, hits: Hits::All }), tag(&single, Lens { mode: Mode::Minimum, hits: Hits::All })), ("Avg Hits\nAverage".to_owned(), "All Hits\nMaximum".to_owned(), "1st Hit\nMinimum".to_owned()), "the tag reads in the order the two combos sit");
+        assert_eq!((mode_named("Max Stats"), hits_of("2nd Hit"), hits_of("Avg Hits")), (Mode::Maximum, Hits::Only(1), Hits::Standing));
+        assert_eq!((tag(&triple, Lens::default()), tag(&triple, Lens { mode: Mode::Maximum, hits: Hits::All, ..Lens::default() }), tag(&single, Lens { mode: Mode::Minimum, hits: Hits::All, ..Lens::default() })), ("Avg Hits\nAvg Stats".to_owned(), "All Hits\nMax Stats".to_owned(), "1st Hit\nMin Stats".to_owned()), "the tag reads in the order the two combos sit");
+    }
+
+    // A unit that dies after its attack deals it once a deploy, so its DPS runs on its recharge; one that
+    // cannot be deployed again keeps its attack cycle.
+    #[test]
+    fn a_unit_that_dies_spreads_its_damage_over_its_recharge() {
+        let treasure = crate::systems::treasure::Bonus::default();
+        let bomber = Entity { attack_1_damage: 3000, time_until_attack_1: 10, attack_1_abilities: 1, standing_range: 100, cooldown: 600, attack_count_total: 1, attack_count_state: 2, ..Entity::default() };
+        let stats = StatContext::cat(&bomber, 60, None, &treasure);
+        let pace = Pace::of(&stats);
+        let measured = measure(&stats, &Rules::default(), Foe::default(), Terms::default(), Lens { mode: Mode::Minimum, ..Lens::default() });
+
+        assert!(pace.recharge > 0 && pace.recharge != pace.cycle);
+        assert!((measured.dps - 3000.0 * 30.0 / f64::from(pace.recharge)).abs() < 1e-9);
+
+        let spirit = Entity { cooldown: 0, ..bomber };
+        let spirited = StatContext::cat(&spirit, 60, None, &treasure);
+        let measured = measure(&spirited, &Rules::default(), Foe::default(), Terms::default(), Lens { mode: Mode::Minimum, ..Lens::default() });
+
+        assert!((measured.dps - 3000.0 * 30.0 / f64::from(Pace::of(&spirited).cycle)).abs() < 1e-9);
     }
 
     // Decimals only show up where a whole number would round a real rate down to nothing.
