@@ -269,7 +269,7 @@ const TRAITS: [(Identity, &[&str]); 15] = [
     (Identity::TraitSage, &["sage"]),
 ];
 const SWITCH_HINT: &str = "`--on` and `--off` take crit, savage, wave, surge, explosion, strengthen or kills";
-const GAUGE_HINT: &str = "`--mode` (`-m`) takes base, avg or max";
+const GAUGE_HINT: &str = "`--mode` (`-m`) takes base, avg or max, or b, a or m";
 const HITS_HINT: &str = "`--hits` (`-h`) takes 1, 2, 3, avg or all";
 const FORM_HINT: &str = "`form` (`f`) takes 1-4, n e t u, f c s u, or Normal, Evolved, True, Ultra";
 
@@ -302,9 +302,9 @@ fn switched(switches: Switches, words: &[&str], lit: bool) -> Result<Switches, S
 
 pub(crate) fn gauge_of(word: &str) -> Option<Gauge> {
     match lower(word).as_str() {
-        "base" => Some(Gauge::Base),
-        "avg" | "average" => Some(Gauge::Average),
-        "max" | "maximum" => Some(Gauge::Maximum),
+        "base" | "b" => Some(Gauge::Base),
+        "avg" | "average" | "a" => Some(Gauge::Average),
+        "max" | "maximum" | "m" => Some(Gauge::Maximum),
         _ => None,
     }
 }
@@ -1173,6 +1173,7 @@ mod tests {
         let stats = stats_of(&["--on", "kills", "--off", "crits", "-m", "base"], Kind::Cat).unwrap();
 
         assert_eq!((stats.switches.held(Switch::Kills), stats.switches.held(Switch::Critical), stats.gauge), (Some(true), Some(false), Some(Gauge::Base)));
+        assert_eq!(["b", "A", "m"].map(gauge_of), [Some(Gauge::Base), Some(Gauge::Average), Some(Gauge::Maximum)], "each mode has a one-letter form");
         assert!(stats_of(&["--on", "toxic"], Kind::Enemy).is_err());
     }
 
