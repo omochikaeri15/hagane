@@ -67,7 +67,9 @@ const PANEL_LIFE: Duration = Duration::from_secs(14 * 60);
 const TALENT_HINT: &str = "all, standard, ultra, none, 10 10 5 or Attack Buff 5";
 const MODE_HELP: &str = "`--mode`: `min` for the plain numbers, `avg` for procs averaged in (the default), `max` for every proc landing plus Strengthen and the kill boost\n`--hits`: `1`, `2` or `3` for one hit, `avg` for the hits that reach standing range (the default), `all` for every hit";
 const SWITCH_HELP: &str = "Counts an ability or leaves it out, whatever the mode says: crit, savage, wave, surge, explosion, strengthen, kills. `-m avg --on strengthen` is an average with Strengthen";
-const VERSUS_HINT: &str = "red metal, an enemy, targets, traits, subtraits or all";
+const ENEMY_HINT: &str = "teacher bear, 12-e or an alias";
+const PANEL_PICKS: usize = 25;
+const ENEMY_LIMIT: u16 = 100;
 const EMBED_COLOR: u32 = 0x2468A8;
 const OPEN_SETTINGS: &str = "set|open";
 const SET_PREFIX: &str = "set|prefix";
@@ -180,19 +182,81 @@ impl Dialed {
         }
     }
 
+    fn versus(&self) -> Versus {
+        match self {
+            Dialed::Sheet(sheet) => sheet.versus,
+            Dialed::Card(_) => Versus::default(),
+        }
+    }
+
     fn with(self, lens: Lens) -> Self {
         match self {
             Dialed::Sheet(sheet) => Dialed::Sheet(Sheet { lens, ..sheet }),
             Dialed::Card(card) => Dialed::Card(Card { lens, ..card }),
         }
     }
+
+    fn against(self, versus: Versus) -> Self {
+        match self {
+            Dialed::Sheet(sheet) => Dialed::Sheet(Sheet { versus, ..sheet }),
+            Dialed::Card(card) => Dialed::Card(card),
+        }
+    }
+}
+
+#[derive(Clone, Copy)]
+enum Board {
+    Resolve,
+    Versus,
+}
+
+impl Board {
+    fn of(part: &str) -> Self {
+        match part {
+            "v" | "e" | "f" | "p" => Board::Versus,
+            _ => Board::Resolve,
+        }
+    }
+
+    fn said(self, prose: Prose, note: Option<&str>) -> String {
+        let line = match self {
+            Board::Resolve => &prose::RESOLVE_PANEL,
+            Board::Versus => &prose::VERSUS_PANEL,
+        };
+
+        note.map_or_else(|| line.said(prose).to_owned(), |note| format!("{}\n{note}", line.said(prose)))
+    }
+
+    fn gone(self, prose: Prose) -> String {
+        let button = match self {
+            Board::Resolve => "Resolve",
+            Board::Versus => "Versus",
+        };
+
+        prose::PANEL_GONE.filled(prose, &[("button", button)])
+    }
+
+    fn rows(self, key: u64, dialed: &Dialed, stats: &Entity) -> Vec<serenity::CreateActionRow> {
+        match self {
+            Board::Resolve => panel_rows(key, dialed.lens(), stats),
+            Board::Versus => versus_rows(key, dialed.versus(), &[]),
+        }
+    }
 }
 
 struct Panel {
     owner: u64,
+    message: u64,
     token: String,
     dialed: Dialed,
     due: Instant,
+}
+
+struct Opened {
+    key: u64,
+    token: String,
+    message: u64,
+    dialed: Dialed,
 }
 
 #[derive(Default)]
@@ -202,23 +266,25 @@ struct Panels {
 }
 
 impl Panels {
-    fn keep(&mut self, owner: u64, token: String, dialed: Dialed) -> u64 {
+    fn keep(&mut self, owner: u64, message: u64, token: String, dialed: Dialed) -> u64 {
         let now = Instant::now();
         let key = self.next;
 
         self.held.retain(|_, panel| panel.due > now);
         self.next += 1;
-        self.held.insert(key, Panel { owner, token, dialed, due: now + PANEL_LIFE });
+        self.held.insert(key, Panel { owner, message, token, dialed, due: now + PANEL_LIFE });
         key
     }
 
-    fn find(&self, key: u64, owner: u64) -> Option<(String, Dialed)> {
-        self.held.get(&key).filter(|panel| panel.owner == owner && panel.due > Instant::now()).map(|panel| (panel.token.clone(), panel.dialed.clone()))
+    fn find(&self, key: &str, owner: u64) -> Option<Opened> {
+        let key = u64::from_str_radix(key, 16).ok()?;
+
+        self.held.get(&key).filter(|panel| panel.owner == owner && panel.due > Instant::now()).map(|panel| Opened { key, token: panel.token.clone(), message: panel.message, dialed: panel.dialed.clone() })
     }
 
-    fn turn(&mut self, key: u64, dialed: Dialed) {
-        if let Some(panel) = self.held.get_mut(&key) {
-            panel.dialed = dialed;
+    fn follow(&mut self, message: u64, dialed: &Dialed) {
+        for panel in self.held.values_mut().filter(|panel| panel.message == message) {
+            panel.dialed = dialed.clone();
         }
     }
 }
@@ -1407,69 +1473,177 @@ fn panel_rows(key: u64, lens: Lens, stats: &Entity) -> Vec<serenity::CreateActio
     rows
 }
 
-async fn open_panel(ctx: &serenity::Context, press: &serenity::ComponentInteraction, data: &Data, dialed: Dialed) -> Result<(), Error> {
+fn versus_rows(key: u64, versus: Versus, found: &[&EnemyEntry]) -> Vec<serenity::CreateActionRow> {
+    let custom = |part: &str| format!("{DIAL}{key:x}|{part}");
+    let aimed = serenity::CreateSelectMenuOption::new("Targets", grammar::TARGETS).description("Every trait this cat has something for, but Metal").default_selection(versus.aimed);
+    let traits = Foe::LABELS.into_iter().map(|label| serenity::CreateSelectMenuOption::new(get_display_def(label).name, grammar::trait_word(label)).default_selection(versus.foe.has(label)));
+    let options: Vec<serenity::CreateSelectMenuOption> = std::iter::once(aimed).chain(traits).collect();
+    let most = u8::try_from(options.len()).unwrap_or(u8::MAX);
+    let search = serenity::CreateButton::new(custom("e")).label("Search for Enemy").style(serenity::ButtonStyle::Secondary);
+    let mut rows = vec![
+        serenity::CreateActionRow::SelectMenu(serenity::CreateSelectMenu::new(custom("v"), serenity::CreateSelectMenuKind::String { options }).placeholder("No traits").min_values(0).max_values(most)),
+        serenity::CreateActionRow::Buttons(vec![search]),
+    ];
+
+    if !found.is_empty() {
+        let options = found.iter().map(|enemy| serenity::CreateSelectMenuOption::new(enemy.display_name(), enemy.id.to_string()).description(enemy.id_str())).collect();
+
+        rows.push(serenity::CreateActionRow::SelectMenu(serenity::CreateSelectMenu::new(custom("p"), serenity::CreateSelectMenuKind::String { options }).placeholder("Pick an enemy")));
+    }
+
+    rows
+}
+
+async fn open_panel(ctx: &serenity::Context, press: &serenity::ComponentInteraction, data: &Data, dialed: Dialed, board: Board) -> Result<(), Error> {
     press.create_response(ctx, serenity::CreateInteractionResponse::Acknowledge).await?;
 
     let owner = press.user.id.get();
     let prefs = data.book.get(owner);
     let Some((_guard, library)) = open(data, &prefs.language).await? else { return Ok(()) };
     let Some(stats) = dialed_stats(&library, &dialed) else { return Ok(()) };
-    let lens = dialed.lens();
-    let key = panels(data).keep(owner, press.token.clone(), dialed);
-    let panel = serenity::CreateInteractionResponseFollowup::new().content(prose::RESOLVE_PANEL.said(prefs.prose)).components(panel_rows(key, lens, &stats)).ephemeral(true);
+    let key = panels(data).keep(owner, press.message.id.get(), press.token.clone(), dialed.clone());
+    let panel = serenity::CreateInteractionResponseFollowup::new().content(board.said(prefs.prose, None)).components(board.rows(key, &dialed, &stats)).ephemeral(true);
 
     press.create_followup(ctx, panel).await?;
     Ok(())
+}
+
+async fn redial(ctx: &serenity::Context, data: &Data, opened: &Opened) -> Result<bool, Error> {
+    panels(data).follow(opened.message, &opened.dialed);
+
+    let edit = match &opened.dialed {
+        Dialed::Sheet(sheet) => redrawn(data, sheet).await?,
+        Dialed::Card(card) => recarded(data, card).await?,
+    };
+    let Some(edit) = edit else { return Ok(true) };
+
+    if let Err(err) = edit.execute(&ctx.http, &opened.token).await {
+        warn!(key = opened.key, "A panel could not redraw its statblock: {}", err);
+        return Ok(false);
+    }
+
+    Ok(true)
 }
 
 async fn on_dial(ctx: &serenity::Context, press: &serenity::ComponentInteraction, data: &Data, rest: &str) -> Result<(), Error> {
     let owner = press.user.id.get();
     let prefs = data.book.get(owner);
     let (key, part) = rest.split_once('|').unwrap_or((rest, ""));
-    let found = u64::from_str_radix(key, 16).ok().and_then(|key| panels(data).find(key, owner).map(|(token, dialed)| (key, token, dialed)));
-    let Some((key, token, dialed)) = found else {
-        let gone = serenity::CreateInteractionResponseMessage::new().content(prose::RESOLVE_GONE.said(prefs.prose)).ephemeral(true);
+    let board = Board::of(part);
+    let found = panels(data).find(key, owner);
+    let Some(Opened { key, token, message, dialed }) = found else {
+        let gone = serenity::CreateInteractionResponseMessage::new().content(board.gone(prefs.prose)).ephemeral(true);
 
         press.create_response(ctx, serenity::CreateInteractionResponse::Message(gone)).await?;
         return Ok(());
     };
+
+    if part == "e" {
+        let input = serenity::CreateInputText::new(serenity::InputTextStyle::Short, "Name, ID or alias", "enemy").placeholder(ENEMY_HINT).max_length(ENEMY_LIMIT);
+        let modal = serenity::CreateModal::new(format!("{DIAL}{key:x}|f"), "Search for Enemy").components(vec![serenity::CreateActionRow::InputText(input)]);
+
+        press.create_response(ctx, serenity::CreateInteractionResponse::Modal(modal)).await?;
+        return Ok(());
+    }
+
     let serenity::ComponentInteractionDataKind::StringSelect { values } = &press.data.kind else { return Ok(()) };
-    let Some((_guard, library)) = open(data, &prefs.language).await? else { return Ok(()) };
+    let Some((guard, library)) = open(data, &prefs.language).await? else { return Ok(()) };
     let Some(stats) = dialed_stats(&library, &dialed) else { return Ok(()) };
     let held = dialed.lens();
     let picked = values.first().map(String::as_str).unwrap_or_default();
-    let lens = match part {
-        "h" => Lens { hits: grammar::hits_of(picked).unwrap_or(held.hits), ..held },
-        "m" => Lens { mode: grammar::gauge_of(picked).unwrap_or(held.mode), switches: Switches::default(), ..held },
-        _ => {
+    let (dialed, note) = match part {
+        "h" => (dialed.with(Lens { hits: grammar::hits_of(picked).unwrap_or(held.hits), ..held }), None),
+        "m" => (dialed.with(Lens { mode: grammar::gauge_of(picked).unwrap_or(held.mode), switches: Switches::default(), ..held }), None),
+        "s" => {
             let switches = combat_lens::held_switches(&stats).into_iter().fold(held.switches, |switches, (switch, _)| {
                 let lit = values.iter().any(|value| value == grammar::switch_word(switch));
 
                 if lit == switch.by_default(held.mode) { switches.cleared(switch) } else { switches.set(switch, lit) }
             });
 
-            Lens { switches, ..held }
+            (dialed.with(Lens { switches, ..held }), None)
         }
-    };
-    let dialed = dialed.with(lens);
-    let turned = serenity::CreateInteractionResponseMessage::new().content(prose::RESOLVE_PANEL.said(prefs.prose)).components(panel_rows(key, lens, &stats));
+        "v" => (dialed.against(grammar::versus_picked(values)), None),
+        "p" => {
+            let Some(enemy) = picked.parse().ok().and_then(|id| library.enemy(id)) else { return Ok(()) };
 
-    panels(data).turn(key, dialed.clone());
-    drop(_guard);
+            (dialed.against(Versus { foe: Foe::of(&enemy.stats), aimed: false }), Some(prose::VERSUS_FOUND.filled(prefs.prose, &[("enemy", &enemy.display_name())])))
+        }
+        _ => return Ok(()),
+    };
+    let turned = serenity::CreateInteractionResponseMessage::new().content(board.said(prefs.prose, note.as_deref())).components(board.rows(key, &dialed, &stats));
+
+    drop(guard);
     press.create_response(ctx, serenity::CreateInteractionResponse::UpdateMessage(turned)).await?;
 
-    let edit = match &dialed {
-        Dialed::Sheet(sheet) => redrawn(data, sheet).await?,
-        Dialed::Card(card) => recarded(data, card).await?,
-    };
-    let Some(edit) = edit else { return Ok(()) };
-
-    if let Err(err) = edit.execute(&ctx.http, &token).await {
-        warn!(key, "A Resolve panel could not redraw its statblock: {}", err);
-
-        let gone = serenity::EditInteractionResponse::new().content(prose::RESOLVE_GONE.said(prefs.prose)).components(Vec::new());
+    if !redial(ctx, data, &Opened { key, token, message, dialed }).await? {
+        let gone = serenity::EditInteractionResponse::new().content(board.gone(prefs.prose)).components(Vec::new());
 
         press.edit_response(ctx, gone).await?;
+    }
+
+    Ok(())
+}
+
+enum Foes<'a> {
+    Nothing,
+    One(&'a EnemyEntry),
+    Several(Vec<&'a EnemyEntry>),
+}
+
+fn foes_like<'a>(library: &'a Library, aliases: &Aliases, typed: &str) -> Foes<'a> {
+    let direct = grammar::enemy_number(typed).and_then(|id| library.enemy(id)).or_else(|| aliased(library, aliases, typed)).or_else(|| library.enemy_named(typed));
+
+    if let Some(enemy) = direct {
+        return Foes::One(enemy);
+    }
+
+    let found = library.search_enemies(typed, fuzzy::CLOSENESS);
+    let best = found.first().map(|(_, score)| *score);
+
+    match (found.first(), found.iter().filter(|(_, score)| Some(*score) == best).count()) {
+        (None, _) => Foes::Nothing,
+        (Some((enemy, _)), 1) => Foes::One(enemy),
+        _ => Foes::Several(found.into_iter().take(PANEL_PICKS).map(|(enemy, _)| enemy).collect()),
+    }
+}
+
+async fn on_search(ctx: &serenity::Context, form: &serenity::ModalInteraction, data: &Data, rest: &str) -> Result<(), Error> {
+    let owner = form.user.id.get();
+    let prefs = data.book.get(owner);
+    let notice = |text: String| serenity::CreateInteractionResponse::Message(serenity::CreateInteractionResponseMessage::new().content(text).ephemeral(true));
+    let found = panels(data).find(rest.split_once('|').map_or(rest, |(key, _)| key), owner);
+    let Some(Opened { key, token, message, dialed }) = found else {
+        form.create_response(ctx, notice(Board::Versus.gone(prefs.prose))).await?;
+        return Ok(());
+    };
+    let Some((guard, library)) = open(data, &prefs.language).await? else {
+        form.create_response(ctx, notice(prose::WARMING.said(prefs.prose).to_owned())).await?;
+        return Ok(());
+    };
+    let typed = typed(form);
+    let current = dialed.versus();
+    let (dialed, note, picks) = match foes_like(&library, &prefs.aliases, typed.trim()) {
+        Foes::Nothing => {
+            drop(guard);
+            form.create_response(ctx, notice(prose::NO_ENEMY.said(prefs.prose).to_owned())).await?;
+            return Ok(());
+        }
+        Foes::One(enemy) => (Some(dialed.against(Versus { foe: Foe::of(&enemy.stats), aimed: false })), prose::VERSUS_FOUND.filled(prefs.prose, &[("enemy", &enemy.display_name())]), Vec::new()),
+        Foes::Several(picks) => (None, prose::SEARCH_PICK.filled(prefs.prose, &[("name", typed.trim())]), picks),
+    };
+    let versus = dialed.as_ref().map_or(current, Dialed::versus);
+    let turned = serenity::CreateInteractionResponseMessage::new().content(Board::Versus.said(prefs.prose, Some(&note))).components(versus_rows(key, versus, &picks));
+
+    drop(guard);
+    form.create_response(ctx, serenity::CreateInteractionResponse::UpdateMessage(turned)).await?;
+
+    let Some(dialed) = dialed else { return Ok(()) };
+
+    if !redial(ctx, data, &Opened { key, token, message, dialed }).await? {
+        let gone = serenity::EditInteractionResponse::new().content(Board::Versus.gone(prefs.prose)).components(Vec::new());
+
+        form.edit_response(ctx, gone).await?;
     }
 
     Ok(())
@@ -2217,7 +2391,7 @@ fn help_page(page_name: &str, section: &str, prefix: &str, prose: Prose) -> sere
             .field("Uptime", "Freeze, Slow, Weaken and Curse show how much of the time they hold a target, by `--mode`. A unit that dies after attacking goes by its recharge", false)
             .field("`--interactive` (`-i`), `--dormant` (`-d`)", "Buttons or none, this time only", false),
         ("cat", "animation") => Voiced::new(prefix, "hg!cat (c) • Animation", "`hg!cat <unit> [a | anim] [type] ...`").field("Types", CLIPS, false).field("Flags", MOTION_FLAGS, false),
-        ("cat", "buttons") => Voiced::new(prefix, "hg!cat (c) • Buttons", "With Blocks on Interactive, or `-i`, three rows sit under the picture: Form, Page, and Apply (Level, Talents, Versus, Resolve). Resolve opens a panel only you can see, with the hits, the mode and which abilities count. Green is what's set or shown, gray isn't available. Only you can press them"),
+        ("cat", "buttons") => Voiced::new(prefix, "hg!cat (c) • Buttons", "With Blocks on Interactive, or `-i`, three rows sit under the picture: Form, Page, and Apply (Level, Talents, Versus, Resolve). Versus and Resolve open a panel only you can see: Versus has the traits and an enemy search, Resolve the hits, the mode and which abilities count. Green is what's set or shown, gray isn't available. Only you can press them"),
         ("cat", _) => Voiced::new(prefix, "hg!cat (c)", "`hg!cat <unit> [stats | animation] ...`")
             .field("Stats or animation", "An animation name or flag means animation, a level or `--talents` stats, and `s` or `a` decides outright. `t` and `d` open Talents and Details, so the dig animation is `dig` or `a d`", false)
             .field("Examples", "`hg!c 137_u lv50+70 -t all`\n`hg!c 44 t 10 5 lv40`\n`hg!c bahamut cat d`\n`hg!c bahamut cat form normal`\n`hg!c jamiera cat a showcase -f webp`\n`hg!c 008 a walk -l -r 10~120`", false),
@@ -2756,7 +2930,7 @@ async fn on_press(ctx: &serenity::Context, press: &serenity::ComponentInteractio
         }
 
         if tag == CARD_RESOLVE {
-            return open_panel(ctx, press, data, Dialed::Card(card)).await;
+            return open_panel(ctx, press, data, Dialed::Card(card), Board::Resolve).await;
         }
 
         if tag == CARD_ASK {
@@ -2775,6 +2949,7 @@ async fn on_press(ctx: &serenity::Context, press: &serenity::ComponentInteractio
         press.create_response(ctx, serenity::CreateInteractionResponse::Acknowledge).await?;
 
         if let Some(edit) = recarded(data, &card).await? {
+            panels(data).follow(press.message.id.get(), &Dialed::Card(card));
             press.edit_response(ctx, edit).await?;
         }
 
@@ -2792,6 +2967,7 @@ async fn on_press(ctx: &serenity::Context, press: &serenity::ComponentInteractio
             press.create_response(ctx, serenity::CreateInteractionResponse::Acknowledge).await?;
 
             if let Some(edit) = redrawn(data, &sheet).await? {
+                panels(data).follow(press.message.id.get(), &Dialed::Sheet(sheet));
                 press.edit_response(ctx, edit).await?;
             }
 
@@ -2805,14 +2981,8 @@ async fn on_press(ctx: &serenity::Context, press: &serenity::ComponentInteractio
             press.create_response(ctx, serenity::CreateInteractionResponse::Modal(modal)).await?;
             Ok(())
         }
-        "sr" => open_panel(ctx, press, data, Dialed::Sheet(sheet)).await,
-        "sx" => {
-            let input = serenity::CreateInputText::new(serenity::InputTextStyle::Short, "Traits (none or empty turns them off)", "traits").placeholder(VERSUS_HINT).value(grammar::versus_names(sheet.versus)).required(false);
-            let modal = serenity::CreateModal::new(sheet.custom("sw", sheet.form), "Versus").components(vec![serenity::CreateActionRow::InputText(input)]);
-
-            press.create_response(ctx, serenity::CreateInteractionResponse::Modal(modal)).await?;
-            Ok(())
-        }
+        "sr" => open_panel(ctx, press, data, Dialed::Sheet(sheet), Board::Resolve).await,
+        "sx" => open_panel(ctx, press, data, Dialed::Sheet(sheet), Board::Versus).await,
         "sl" => {
             let prefs = data.book.get(sheet.owner);
             let Some((_guard, library)) = open(data, &prefs.language).await? else { return Ok(()) };
@@ -2879,10 +3049,17 @@ async fn on_level(ctx: &serenity::Context, form: &serenity::ModalInteraction, da
     sheet.level = level;
 
     if let Some(edit) = redrawn(data, &sheet).await? {
+        followed(data, form, Dialed::Sheet(sheet));
         form.edit_response(ctx, edit).await?;
     }
 
     Ok(())
+}
+
+fn followed(data: &Data, form: &serenity::ModalInteraction, dialed: Dialed) {
+    if let Some(message) = &form.message {
+        panels(data).follow(message.id.get(), &dialed);
+    }
 }
 
 fn aliased<'a>(library: &'a Library, aliases: &Aliases, name: &str) -> Option<&'a EnemyEntry> {
@@ -2905,39 +3082,6 @@ fn foes<'a>(library: &'a Library, aliases: &'a Aliases) -> impl Fn(Lookup<'_>) -
     }
 }
 
-async fn on_versus(ctx: &serenity::Context, form: &serenity::ModalInteraction, data: &Data, mut sheet: Sheet, typed: &str) -> Result<(), Error> {
-    let words: Vec<&str> = typed.split_whitespace().collect();
-    let prefs = data.book.get(sheet.owner);
-    let read = {
-        let Some((_guard, library)) = open(data, &prefs.language).await? else {
-            let notice = serenity::CreateInteractionResponseMessage::new().content(prose::WARMING.said(prefs.prose)).ephemeral(true);
-
-            form.create_response(ctx, serenity::CreateInteractionResponse::Message(notice)).await?;
-            return Ok(());
-        };
-
-        grammar::versus_of(&words, &foes(&library, &prefs.aliases))
-    };
-
-    sheet.versus = match read {
-        Ok(versus) => versus,
-        Err(word) => {
-            let notice = serenity::CreateInteractionResponseMessage::new().content(prose::NOT_A_TRAIT.filled(data.book.prose(sheet.owner), &[("name", &word)])).ephemeral(true);
-
-            form.create_response(ctx, serenity::CreateInteractionResponse::Message(notice)).await?;
-            return Ok(());
-        }
-    };
-
-    form.create_response(ctx, serenity::CreateInteractionResponse::Acknowledge).await?;
-
-    if let Some(edit) = redrawn(data, &sheet).await? {
-        form.edit_response(ctx, edit).await?;
-    }
-
-    Ok(())
-}
-
 async fn on_modal(ctx: &serenity::Context, form: &serenity::ModalInteraction, data: &Data) -> Result<(), Error> {
     if form.data.custom_id == SET_PREFIX {
         return on_prefix(ctx, form, data).await;
@@ -2945,6 +3089,10 @@ async fn on_modal(ctx: &serenity::Context, form: &serenity::ModalInteraction, da
 
     if form.data.custom_id == SET_ALIAS {
         return on_alias_add(ctx, form, data).await;
+    }
+
+    if let Some(rest) = form.data.custom_id.strip_prefix(DIAL) {
+        return on_search(ctx, form, data, rest).await;
     }
 
     if let Some(rest) = form.data.custom_id.strip_prefix(ALIAS_JUMP) {
@@ -3012,6 +3160,7 @@ async fn on_modal(ctx: &serenity::Context, form: &serenity::ModalInteraction, da
         card.magnification = asked;
 
         if let Some(edit) = recarded(data, &card).await? {
+            followed(data, form, Dialed::Card(card));
             form.edit_response(ctx, edit).await?;
         }
 
@@ -3028,7 +3177,6 @@ async fn on_modal(ctx: &serenity::Context, form: &serenity::ModalInteraction, da
 
     match tag {
         "sv" => return on_level(ctx, form, data, sheet, &typed).await,
-        "sw" => return on_versus(ctx, form, data, sheet, &typed).await,
         "sm" => {}
         _ => return Ok(()),
     }
@@ -3055,6 +3203,7 @@ async fn on_modal(ctx: &serenity::Context, form: &serenity::ModalInteraction, da
     };
 
     if let Some(edit) = redrawn(data, &sheet).await? {
+        followed(data, form, Dialed::Sheet(sheet));
         form.edit_response(ctx, edit).await?;
     }
 
@@ -3583,6 +3732,27 @@ mod tests {
 
         for (at, id) in ids.iter().enumerate() {
             assert!(!ids[..at].contains(id), "{id} is used twice");
+        }
+    }
+
+    // The Versus panel offers every trait and reads each one back, inside Discord's 25-option limit, and both
+    // panels on one key keep their parts apart.
+    #[test]
+    fn the_versus_panel_offers_every_trait() {
+        let every = Versus { foe: Foe::from_bits(u16::MAX), aimed: true };
+        let rows = serde_json::to_value(versus_rows(7, every, &[])).unwrap();
+        let picks = rows[0]["components"][0]["options"].as_array().unwrap();
+        let values: Vec<String> = picks.iter().map(|pick| pick["value"].as_str().unwrap().to_owned()).collect();
+
+        assert!(picks.len() <= 25 && picks.iter().all(|pick| pick["default"] == true));
+        assert_eq!(grammar::versus_picked(&values), every);
+
+        let both = serde_json::to_value(panel_rows(7, Lens::default(), &Entity::default()).into_iter().chain(versus_rows(7, every, &[])).collect::<Vec<_>>()).unwrap();
+        let ids: Vec<&str> = both.as_array().unwrap().iter().flat_map(|row| row["components"].as_array().unwrap().iter().map(|part| part["custom_id"].as_str().unwrap())).collect();
+
+        for (at, id) in ids.iter().enumerate() {
+            assert!(!ids[..at].contains(id), "{id} is used twice");
+            assert_eq!(matches!(Board::of(id.rsplit('|').next().unwrap()), Board::Versus), ["v", "e"].iter().any(|part| id.ends_with(&format!("|{part}"))));
         }
     }
 }

@@ -122,7 +122,7 @@ pub fn talents(subject: Subject<'_>) -> Option<TalentsData> {
             let picture = group.name_image();
 
             TalentCard {
-                item: AbilityItem { identity: known.map_or(Identity::Unknown, |def| def.identity), icon_id, text: name, custom_icon, border_id: None, mark: Mark::None, added: false, dimmed: false, switchable: false },
+                item: AbilityItem { identity: known.map_or(Identity::Unknown, |def| def.identity), icon_id, text: name, custom_icon, border_id: None, mark: Mark::None, dimmed: false, switchable: false },
                 plate: (picture > 0).then(|| vfs.find(&format!("Skill_name_{picture:03}.png"))).flatten().map(|path| vfs.source(&path)),
                 description: talent_logic::describe(group, &cat.skill_descriptions, &combo_names),
                 ultra: group.is_ultra(),

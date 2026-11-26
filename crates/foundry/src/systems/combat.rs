@@ -16,6 +16,7 @@ use crate::systems::combat::registry::Magnification;
 pub const ABILITY_X: f32 = 3.0;
 pub const ABILITY_Y: f32 = 5.0;
 pub const TRAIT_Y: f32 = 7.0;
+pub const TRAITS_PER_ROW: usize = 10;
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Default, Debug)]
 pub enum CustomIcon {
@@ -68,7 +69,6 @@ pub struct AbilityItem {
     pub custom_icon: CustomIcon,
     pub border_id: Option<usize>,
     pub mark: Mark,
-    pub added: bool,
     pub dimmed: bool,
     pub switchable: bool,
 }

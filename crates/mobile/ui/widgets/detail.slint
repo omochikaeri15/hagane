@@ -164,24 +164,29 @@ export component IconRow inherits Rectangle {
     in property <[AbilityIcon]> items;
     in property <length> size: 40px;
     in property <bool> picking;
+    in property <int> most;
+    in property <length> avail: Shell.app-width - 20px;
     in-out property <int> open: -1;
     callback picked(int);
-    height: flow.preferred-height;
-    flow := HorizontalLayout {
-        spacing: 3px;
-        alignment: start;
-        for item[index] in root.items: Rectangle {
-            width: root.size;
-            height: root.size;
-            IconBox { icon: item; size: root.size; }
-            Tap { enabled: !Shell.swiping; tapped => { if root.picking { root.picked(index); } else { root.open = root.open == index ? -1 : index; } } }
-        }
+    property <length> gap: 3px;
+    property <length> row-gap: 5px;
+    property <int> fits: max(1, floor((root.avail + root.gap) / (root.size + root.gap)));
+    property <int> per-row: root.most > 0 ? min(root.most, root.fits) : root.fits;
+    property <int> rows: ceil(root.items.length / root.per-row);
+    height: root.rows * root.size + max(0, root.rows - 1) * root.row-gap;
+    for item[index] in root.items: Rectangle {
+        x: mod(index, root.per-row) * (root.size + root.gap);
+        y: floor(index / root.per-row) * (root.size + root.row-gap);
+        width: root.size;
+        height: root.size;
+        IconBox { icon: item; size: root.size; }
+        Tap { enabled: !Shell.swiping; tapped => { if root.picking { root.picked(index); } else { root.open = root.open == index ? -1 : index; } } }
     }
     if root.open >= 0 && root.open < root.items.length: Tip {
         text: root.items[root.open].tip;
         shown: true;
-        x: min(max(0px, root.open * (root.size + 3px) + root.size / 2 - self.width / 2), root.width - self.width);
-        y: -self.height - 4px;
+        x: min(max(0px, mod(root.open, root.per-row) * (root.size + root.gap) + root.size / 2 - self.width / 2), root.width - self.width);
+        y: floor(root.open / root.per-row) * (root.size + root.row-gap) - self.height - 4px;
     }
 }
 

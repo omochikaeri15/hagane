@@ -12,7 +12,7 @@ use foundry::systems::combat::registry::{
     Magnification, STAT_ATK_CYCLE, STAT_ATTACK, STAT_COOLDOWN, STAT_COST, STAT_DPS, STAT_HITPOINTS, STAT_KNOCKBACKS, STAT_RANGE, STAT_RARITY, STAT_SPEED,
     StatContext, format_stat,
 };
-use foundry::systems::combat::{AbilityItem, CustomIcon, Mark, RenderContext};
+use foundry::systems::combat::{AbilityItem, CustomIcon, Mark, RenderContext, TRAITS_PER_ROW};
 use foundry::systems::treasure::Bonus;
 
 use crate::systems::context::{self, Shared};
@@ -79,7 +79,7 @@ pub(crate) fn Abilities(selected: Picked, globals: Shared) -> Element {
                 if versus.is_some() {
                     {pick_row(&pictures, &traits, state.foe)}
                 } else if !traits.is_empty() {
-                    {icon_row(&pictures, &traits)}
+                    {trait_rows(&pictures, &traits)}
                 }
                 if !headline_1.is_empty() {
                     {icon_row(&pictures, &headline_1)}
@@ -191,7 +191,27 @@ pub(crate) fn icon_row(pictures: &Pictures, items: &[AbilityItem]) -> Element {
     }
 }
 
-fn pick_row(pictures: &Pictures, items: &[AbilityItem], mut foe: Signal<Foe>) -> Element {
+fn trait_rows(pictures: &Pictures, items: &[AbilityItem]) -> Element {
+    rsx! {
+        div { class: "icon-rows",
+            for chunk in items.chunks(TRAITS_PER_ROW) {
+                {icon_row(pictures, chunk)}
+            }
+        }
+    }
+}
+
+fn pick_row(pictures: &Pictures, items: &[AbilityItem], foe: Signal<Foe>) -> Element {
+    rsx! {
+        div { class: "icon-rows",
+            for chunk in items.chunks(TRAITS_PER_ROW) {
+                {pick_chunk(pictures, chunk, foe)}
+            }
+        }
+    }
+}
+
+fn pick_chunk(pictures: &Pictures, items: &[AbilityItem], mut foe: Signal<Foe>) -> Element {
     rsx! {
         div { class: "icon-row",
             for item in items {
@@ -282,7 +302,7 @@ fn spirit_card(pictures: &Pictures, globals: &Shared, spirited: Spirited<'_>) ->
                 Superscript { text: damage, size: DESCRIPTION_TEXT_SIZE }
             }
             if !traits.is_empty() {
-                {icon_row(pictures, &traits)}
+                {trait_rows(pictures, &traits)}
             }
             if !headline_1.is_empty() {
                 {icon_row(pictures, &headline_1)}

@@ -170,7 +170,9 @@ pub(crate) const OVER_LIMIT: Line = Line::new("That one went past Discord's 20 M
 pub(crate) const SEARCH_PICK: Line = Line::new("Here's everything close to `{name}`. Pick one:", "You don't even know its name?! Fine, here's everything close to `{name}`. Pick one already!");
 pub(crate) const EITHER_PICK: Line = Line::new("`{name}` could be more than one thing. Pick one:", "`{name}` could be more than one thing, so which is it?! Pick one already!");
 pub(crate) const RESOLVE_PANEL: Line = Line::new("How the statblock above is worked out. Only you can see this", "How the statblock above is worked out. Only you can see this, so don't go bragging!");
-pub(crate) const RESOLVE_GONE: Line = Line::new("That panel is too old to change the statblock. Press Resolve again", "That panel went stale! Press Resolve again, dummy!");
+pub(crate) const PANEL_GONE: Line = Line::new("That panel is too old to change the statblock. Press {button} again", "That panel went stale! Press {button} again, dummy!");
+pub(crate) const VERSUS_PANEL: Line = Line::new("What the statblock above is up against. Only you can see this", "What the statblock above is up against. Only you can see this, so don't get any ideas!");
+pub(crate) const VERSUS_FOUND: Line = Line::new("Against **{enemy}**, with its traits picked below", "Against **{enemy}**?! Fine, its traits are picked below!");
 pub(crate) const LIST_GONE: Line = Line::new("That list is too old to turn. Ask again for a fresh one", "That list is ancient history! Ask again if you want a fresh one, dummy!");
 pub(crate) const SEARCH_ABORT: Line = Line::new("Okay! I've dropped that request", "Fine, forget it then! I-It's not like I wanted to look it up for you anyway!");
 pub(crate) const SEARCH_LONG: Line = Line::new("That request is too long to search with. Find the unit first, then ask again with its ID", "That's way too much to search with! Find the unit first, then ask again with its ID, dummy!");
@@ -232,7 +234,7 @@ pub(crate) const ALIAS_CLEARED: Line = Line::new("Every alias is removed", "They
 pub(crate) const ALIAS_RESET: Line = Line::new("Your aliases are back to the built-in ones", "Your aliases are back to the built-in ones. D-Don't mess them up again!");
 
 #[cfg(test)]
-pub(crate) const LINES: [&Line; 96] = [
+pub(crate) const LINES: [&Line; 98] = [
     &NOT_A_TRAIT,
     &ALIAS_TITLE,
     &ALIAS_NONE,
@@ -255,7 +257,9 @@ pub(crate) const LINES: [&Line; 96] = [
     &PICK_LAPSED,
     &LIST_GONE,
     &RESOLVE_PANEL,
-    &RESOLVE_GONE,
+    &PANEL_GONE,
+    &VERSUS_PANEL,
+    &VERSUS_FOUND,
     &NO_PLACE,
     &NO_MAP,
     &EMPTY_MAP,

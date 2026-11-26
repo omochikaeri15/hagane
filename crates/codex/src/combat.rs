@@ -16,5 +16,5 @@ pub use crate::common::Separator;
 pub use entity::{Column, Entity, EntityError, Faction};
 pub use scaling::{crowned, deploy_cost, magnified};
 pub use output::{Exposure, Hits, Mode, Rules, Switch, Switches};
-pub use versus::{resisted, Bearing, Carrier, Foe, Roll, Shortfall, Terms};
+pub use versus::{resisted, Bearing, Carrier, Foe, Roll, Terms};
 pub use glossary::{AttributeIndex, AttributeIndexError, AttributeRow, DictionaryIndex, DictionaryIndexError, DictionaryRow, Glossary, GlossaryEntry, GlossaryError, TraitLabel, TraitLabelError, TraitLabels};

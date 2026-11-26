@@ -13,7 +13,7 @@ use codex::files::img015;
 use crate::common::assets;
 use crate::common::frames;
 use crate::common::formats::SpriteSheet;
-use crate::systems::combat::{AbilityItem, CustomIcon, Mark};
+use crate::systems::combat::{AbilityItem, CustomIcon, Mark, TRAITS_PER_ROW};
 
 use super::draw::*;
 use super::board::*;
@@ -114,7 +114,6 @@ pub fn build_statblock_image(
         (CONTENT_PADDING * 2.0) + (held as f32 * (ABILITY_ICON_SIZE + ICON_GAP_X)) - ICON_GAP_X
     };
     let check_icon_row_width = |items: &Vec<AbilityItem>| -> f32 { icon_row_width(items.len()) };
-    let own_traits = data.traits.iter().filter(|item| !item.added).count();
 
     let calc_spirit_width = |spirit: &SpiritData| -> f32 {
         let mut spirit_max = 0.0_f32;
@@ -159,7 +158,7 @@ pub fn build_statblock_image(
     let mut max_needed_width = base_grid_width;
     max_needed_width = max_needed_width.max(header_width + tag_width(font, &data.tag));
     max_needed_width = max_needed_width.max(list_max_width);
-    max_needed_width = max_needed_width.max(icon_row_width(own_traits));
+    max_needed_width = max_needed_width.max(icon_row_width(data.traits.len().min(TRAITS_PER_ROW)));
     max_needed_width = max_needed_width.max(check_icon_row_width(&data.h1));
     max_needed_width = max_needed_width.max(check_icon_row_width(&data.h2));
     max_needed_width = max_needed_width.max(check_icon_row_width(&data.footer));
@@ -214,12 +213,12 @@ pub fn build_statblock_image(
     let ability_line_height = px(ABILITY_TEXT_SIZE + ABILITY_LINE_GAP);
     let ability_offset = line_offset(font, ability_style.base, ability_line_height);
 
-    let draw_icon_row = |canvas_image: &mut RgbaImage, items: &Vec<AbilityItem>, start_y: i32, start_x: i32| -> i32 {
+    let draw_icon_row = |canvas_image: &mut RgbaImage, items: &Vec<AbilityItem>, start_y: i32, start_x: i32, most: usize| -> i32 {
         if items.is_empty() { return start_y; }
         let mut current_x = start_x;
         let mut current_y = start_y;
-        for ability_item in items {
-            if current_x + icon_size > canvas_width - padding {
+        for (index, ability_item) in items.iter().enumerate() {
+            if current_x + icon_size > canvas_width - padding || (index > 0 && index % most == 0) {
                 current_x = start_x;
                 current_y += icon_size + icon_gap_y;
             }
@@ -315,7 +314,7 @@ pub fn build_statblock_image(
         draw_bottom_rounded_rect_mut(canvas_image, spirit_rect, px(RADIUS_LG), COLOR_CARD);
 
         let mut current_y_offset = card_inner_y + card_padding;
-        let area_item = AbilityItem { identity: Identity::AreaAttack, icon_id: Some(img015::ICON_AREA_ATTACK), border_id: None, custom_icon: CustomIcon::None, text: String::new(), mark: Mark::None, added: false, dimmed: false, switchable: false };
+        let area_item = AbilityItem { identity: Identity::AreaAttack, icon_id: Some(img015::ICON_AREA_ATTACK), border_id: None, custom_icon: CustomIcon::None, text: String::new(), mark: Mark::None, dimmed: false, switchable: false };
         let area_icon = get_icon_image(&area_item, layers, &custom_assets, icon_size as u32);
         let area_icon_y = current_y_offset + overflow_padding(&spirit.dmg_text);
         image::imageops::overlay(canvas_image, &area_icon, start_x_absolute as i64, area_icon_y as i64);
@@ -373,17 +372,17 @@ pub fn build_statblock_image(
     };
 
     if !data.traits.is_empty() {
-        current_y_global = draw_icon_row(target_image, &data.traits, current_y_global, padding);
+        current_y_global = draw_icon_row(target_image, &data.traits, current_y_global, padding, TRAITS_PER_ROW);
         previously_drew_section = true;
         last_main_section_was_trait = true;
     }
     if !data.h1.is_empty() {
         draw_section_gap(&mut current_y_global, &mut previously_drew_section, false, &mut last_main_section_was_trait);
-        current_y_global = draw_icon_row(target_image, &data.h1, current_y_global, padding);
+        current_y_global = draw_icon_row(target_image, &data.h1, current_y_global, padding, usize::MAX);
     }
     if !data.h2.is_empty() {
         draw_section_gap(&mut current_y_global, &mut previously_drew_section, false, &mut last_main_section_was_trait);
-        current_y_global = draw_icon_row(target_image, &data.h2, current_y_global, padding);
+        current_y_global = draw_icon_row(target_image, &data.h2, current_y_global, padding, usize::MAX);
     }
     if !data.b1.is_empty() || !data.b2.is_empty() {
         draw_section_gap(&mut current_y_global, &mut previously_drew_section, false, &mut last_main_section_was_trait);
@@ -393,7 +392,7 @@ pub fn build_statblock_image(
     }
     if !data.footer.is_empty() {
         draw_section_gap(&mut current_y_global, &mut previously_drew_section, false, &mut last_main_section_was_trait);
-        current_y_global = draw_icon_row(target_image, &data.footer, current_y_global, padding);
+        current_y_global = draw_icon_row(target_image, &data.footer, current_y_global, padding, usize::MAX);
     }
 
     board.at = current_y_global;

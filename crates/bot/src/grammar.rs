@@ -244,7 +244,8 @@ const SEARCH_HINT: &str = "`--search` (`-s`) looks a name up, so give it a name 
 const ENEMY_MARK: &str = "e";
 const VERSUS_HINT: &str = "`--versus` (`-v`) takes trait names like `red metal`, an enemy's name, `targets`, `traits`, `subtraits` or `all`";
 const EVERY: &str = "all";
-const OWN: [&str; 3] = ["targets", "target", "targeted"];
+pub(crate) const TARGETS: &str = "targets";
+const OWN: [&str; 3] = [TARGETS, "target", "targeted"];
 const PLAIN: [&str; 2] = ["traits", "trait"];
 const SUBTLE: [&str; 2] = ["subtraits", "subtrait"];
 const SUBTRAITS: [Identity; 5] = [Identity::TraitWitch, Identity::TraitEva, Identity::TraitColossus, Identity::TraitBehemoth, Identity::TraitSage];
@@ -466,11 +467,12 @@ pub(crate) fn versus_of(tokens: &[&str], enemy: &dyn Fn(Lookup<'_>) -> Option<Fo
     settled(versus, &mut pending, enemy)
 }
 
-pub(crate) fn versus_names(versus: Versus) -> String {
-    let named = TRAITS.iter().filter(|(label, _)| versus.foe.has(*label)).filter_map(|(_, names)| names.first().copied());
-    let named: Vec<&str> = OWN.iter().copied().take(usize::from(versus.aimed)).chain(named).collect();
+pub(crate) fn trait_word(label: Identity) -> &'static str {
+    TRAITS.iter().find(|(held, _)| *held == label).and_then(|(_, names)| names.first().copied()).unwrap_or_default()
+}
 
-    named.join(" ")
+pub(crate) fn versus_picked(values: &[String]) -> Versus {
+    values.iter().fold(Versus::default(), |versus, value| read_word(versus, value).unwrap_or(versus))
 }
 
 fn search_flag(token: &str) -> bool {
@@ -602,6 +604,10 @@ fn enemy_id(token: &str) -> Option<u32> {
     let (id, mark) = token.split_once(['-', '_'])?;
 
     (lower(mark) == ENEMY_MARK).then(|| id.parse::<u32>().ok()).flatten()
+}
+
+pub(crate) fn enemy_number(text: &str) -> Option<u32> {
+    text.parse().ok().or_else(|| enemy_id(text))
 }
 
 pub(crate) fn names_an_enemy(text: &str) -> bool {
@@ -1432,11 +1438,12 @@ mod tests {
         assert_eq!(labels("red none"), Ok(Vec::new()));
         assert_eq!(labels(""), Ok(Vec::new()));
         assert_eq!(picked("a"), Err("a".to_owned()), "angel, alien and aku all start that way");
-        assert_eq!(versus_names(picked("dark flo metal").unwrap()), "floating black metal");
 
         let every = Versus { foe: Foe::from_bits(u16::MAX), aimed: true };
+        let offered: Vec<String> = [TARGETS].into_iter().chain(Foe::LABELS.into_iter().map(trait_word)).map(str::to_owned).collect();
 
-        assert_eq!(picked(&versus_names(every)), Ok(every), "what the box shows can be typed back");
+        assert_eq!(versus_picked(&offered), every, "every trait the panel offers is read back");
+        assert_eq!(versus_picked(&offered[3..5]), Versus { foe: Foe::default().with(Identity::TraitDark).with(Identity::TraitMetal), aimed: false });
         assert_eq!(Versus::from_bits(every.bits()), every);
     }
 
@@ -1463,7 +1470,7 @@ mod tests {
         assert_eq!(picked("target").map(|held| held.against(&Entity::default()).is_empty()), Ok(true), "a cat with nothing to target is drawn as it is");
         assert_eq!(picked("targets none"), Ok(Versus::default()));
         assert!(!picked("targeted").unwrap().is_empty());
-        assert_eq!(versus_names(chosen), "targets red");
+        assert_eq!(versus_picked(&[TARGETS.to_owned(), "red".to_owned()]), chosen);
     }
 
     // The flag says stats, so it never turns a request into an animation, and it takes everything up to the next flag;

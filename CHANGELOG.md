@@ -1,2 +1,3 @@
 Changes:
-- Overhauled the stats views on all front ends, now you can see stats from specific hits, with specific proc's, and at theoretical max potential.
+- Trait icons now enter a new row when the total trait count is above 10.
+- Removed some redundant reasoning lines.

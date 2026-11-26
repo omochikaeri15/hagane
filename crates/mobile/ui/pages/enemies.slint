@@ -283,7 +283,7 @@ component Abilities inherits VerticalLayout {
     StatGrid { headers-1: Enemies.stat-headers-1; values-1: Enemies.stat-values-1; headers-2: Enemies.stat-headers-2; values-2: Enemies.stat-values-2; }
     VerticalLayout {
         spacing: 7px;
-        if Enemies.traits.length > 0: IconRow { items: Enemies.traits; }
+        if Enemies.traits.length > 0: IconRow { items: Enemies.traits; most: Theme.traits-per-row; }
         if Enemies.headline-1.length > 0: IconRow { items: Enemies.headline-1; }
         if Enemies.headline-2.length > 0: IconRow { items: Enemies.headline-2; }
         if Enemies.body-1.length > 0: AbilityRows { items: Enemies.body-1; }

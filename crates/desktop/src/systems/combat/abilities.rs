@@ -7,7 +7,7 @@ use iced::{Alignment, Element, Length, Size};
 
 use codex::combat::{Faction, Identity};
 use foundry::systems::combat::registry::{get_fallback_by_icon, AbilityIcon};
-use foundry::systems::combat::{AbilityGroups, AbilityItem, CustomIcon, Mark, ABILITY_X, ABILITY_Y, TRAIT_Y};
+use foundry::systems::combat::{AbilityGroups, AbilityItem, CustomIcon, Mark, ABILITY_X, ABILITY_Y, TRAITS_PER_ROW, TRAIT_Y};
 use foundry::systems::statblock::mark_ring;
 
 use crate::common::ability_icon;
@@ -64,7 +64,7 @@ impl State {
             let mut last_was_trait = false;
 
             if !grp_trait.is_empty() {
-                col = col.push(self.icon_row(&grp_trait, sheets, assets, per_row, faction, pick));
+                col = col.push(self.icon_row(&grp_trait, sheets, assets, per_row.min(TRAITS_PER_ROW), faction, pick));
                 previous_content = true;
                 last_was_trait = true;
             }

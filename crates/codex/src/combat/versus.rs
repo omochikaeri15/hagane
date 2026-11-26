@@ -159,12 +159,6 @@ pub struct Roll {
     pub rampant: bool,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Shortfall {
-    Metal,
-    Sage,
-}
-
 fn flag(stats: &Entity, label: Identity) -> i32 {
     match label {
         Identity::TraitRed => stats.trait_red,
@@ -244,17 +238,6 @@ impl Entity {
         let labeled = ON_LABEL.iter().filter(|(label, _)| foe.has(*label)).map(|(_, ability)| *ability);
 
         aimed.iter().copied().chain(labeled).filter(|ability| self.holds(*ability)).map(|ability| (ability, bearing(ability))).collect()
-    }
-
-    pub fn shortfall(&self, foe: Foe, ability: Identity) -> Option<Shortfall> {
-        let blunted = foe.has(Identity::TraitMetal) && !self.crits();
-        let soothed = foe.has(Identity::TraitSage) && self.sage_slayer == 0;
-
-        match ability {
-            _ if blunted && (DEALT_ONLY.contains(&ability) || DEALT_AND_TAKEN.contains(&ability)) => Some(Shortfall::Metal),
-            _ if soothed && CONTROLS.contains(&ability) => Some(Shortfall::Sage),
-            _ => None,
-        }
     }
 
     pub fn landing(&self, foe: Foe, terms: Terms, attack: i32, carrier: Carrier, roll: Roll) -> i64 {
@@ -442,17 +425,6 @@ mod tests {
         assert_eq!(land(&unit, true), 1000 * 2 * 2 * 3 / 2 * 3);
         assert_eq!(land(&unit, false), 1000 * 2 * 3);
         assert_eq!(land(&Entity { faction: Faction::Enemy, ..unit.clone() }, true), 1000 * 2 * 2 * 3, "an enemy has no kill boost");
-    }
-
-    // Only Metal without a crit and a Sage without a slayer hold an ability back.
-    #[test]
-    fn a_shortfall_names_its_cause() {
-        let unit = Entity { attack_1_damage: 1000, attack_1_abilities: 1, trait_metal: 1, massive_damage: 1, freeze_chance: 30, freeze_duration: 30, ..Entity::default() };
-
-        assert_eq!(unit.shortfall(foe(&[Identity::TraitMetal]), Identity::MassiveDamage), Some(Shortfall::Metal));
-        assert_eq!(unit.shortfall(foe(&[Identity::TraitSage]), Identity::Freeze), Some(Shortfall::Sage));
-        assert_eq!(Entity { critical_chance: 10, ..unit.clone() }.shortfall(foe(&[Identity::TraitMetal]), Identity::MassiveDamage), None);
-        assert_eq!(unit.shortfall(foe(&[Identity::TraitRed]), Identity::Freeze), None);
     }
 
     // The killers and slayers read the enemy's label alone, with no trait of the unit's own needed.

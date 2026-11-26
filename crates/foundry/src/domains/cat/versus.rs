@@ -1,4 +1,4 @@
-use codex::combat::{Bearing, Entity, Foe, Identity, Shortfall, Terms};
+use codex::combat::{Bearing, Entity, Foe, Identity, Terms};
 
 use crate::systems::combat::abilities::collect_ability_data_against;
 use crate::systems::combat::lens::{self, Lens, Pace};
@@ -70,26 +70,6 @@ fn against(ctx: &RenderContext<'_>, foe: Foe) -> Option<Against> {
     (stats.targets(foe) || sage).then(|| Against { fruit: treasure.fruit_against(stats, foe), push: treasure.push_fruit(foe), sage })
 }
 
-fn sage_cut(ctx: &RenderContext<'_>, ability: Identity) -> i32 {
-    let param = ctx.global.param;
-
-    match ability {
-        Identity::Freeze => param.sage_type_resist_freeze(),
-        Identity::Slow => param.sage_type_resist_slow(),
-        Identity::Weaken => param.sage_type_resist_weaken(),
-        Identity::Curse => param.sage_type_resist_curse(),
-        _ => param.sage_type_resist_knockback(),
-    }
-}
-
-fn reason(ctx: &RenderContext<'_>, foe: Foe, ability: Identity, bearing: Bearing) -> Option<String> {
-    match (ctx.final_stats.shortfall(foe, ability)?, bearing) {
-        (Shortfall::Metal, Bearing::Partial) => Some("Deals 1 to Metal without a critical hit\nStill cuts the damage it takes".to_owned()),
-        (Shortfall::Metal, _) => Some("Deals 1 to Metal without a critical hit".to_owned()),
-        (Shortfall::Sage, _) => Some(format!("A Sage cuts it by {}%", sage_cut(ctx, ability))),
-    }
-}
-
 fn metal_mark(stats: &Entity) -> Mark {
     let kept = || stats.touched(Foe::default().with(Identity::TraitMetal)).iter().any(|(_, bearing)| *bearing != Bearing::Lost);
 
@@ -126,7 +106,7 @@ fn labeled(ctx: &RenderContext<'_>, label: Identity, mark: Mark) -> AbilityItem 
         AbilityIcon::None => (None, CustomIcon::None),
     };
 
-    AbilityItem { identity: label, icon_id, text: ctx.global.names.trait_label(label).to_owned(), custom_icon, border_id: None, mark, added: true, dimmed: false, switchable: false }
+    AbilityItem { identity: label, icon_id, text: ctx.global.names.trait_label(label).to_owned(), custom_icon, border_id: None, mark, dimmed: false, switchable: false }
 }
 
 fn owns(stats: &Entity, label: Identity) -> bool {
@@ -147,10 +127,6 @@ fn marked(ctx: &RenderContext<'_>, foe: Foe, spirit: bool, groups: &mut [&mut Ve
             shown.push(item.identity);
         } else if let Some((_, bearing)) = touched.iter().find(|(ability, _)| *ability == item.identity) {
             item.mark = bearing_mark(*bearing);
-
-            if let Some(reason) = reason(ctx, foe, item.identity, *bearing) {
-                item.text = format!("{}\n{reason}", item.text);
-            }
         }
     }
 
