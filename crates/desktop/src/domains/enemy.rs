@@ -24,6 +24,7 @@ use codex::combat::Faction;
 use foundry::systems::combat::NameBook;
 use foundry::common::formats::SpriteSheet as CoreSpriteSheet;
 use foundry::systems::combat::registry::{format_stat, Magnification, StatContext, STAT_ATK_CYCLE, STAT_ATTACK, STAT_CASH_DROP, STAT_DPS, STAT_HITPOINTS, STAT_KNOCKBACKS, STAT_RANGE, STAT_SPEED};
+use foundry::systems::combat::abilities::collect_ability_data;
 use foundry::systems::combat::RenderContext;
 use foundry::domains::enemy::animation as enemy_animation;
 use foundry::domains::enemy::scanner::{self, EnemyEntry};
@@ -834,7 +835,7 @@ impl EnemyState {
             column![
                 self.view_stats(enemy, stats, global_ctx.treasure),
                 Space::new().height(Length::Fixed(8.0)),
-                self.abilities.view(&enemy_ctx, &self.img015_sheets, &self.custom_assets, |items, layout| {
+                self.abilities.view(collect_ability_data(&enemy_ctx), Faction::Enemy, None, &self.img015_sheets, &self.custom_assets, |items, layout| {
                     self.abilities.ability_list(items, &self.img015_sheets, &self.custom_assets, layout, Faction::Enemy)
                 })
             ]

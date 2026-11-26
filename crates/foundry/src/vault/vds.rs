@@ -4,6 +4,7 @@ mod content;
 mod enemy;
 mod item;
 mod names;
+mod skill;
 mod stage;
 mod treasure;
 
@@ -19,6 +20,7 @@ pub use content::ContentStore;
 pub use enemy::EnemyStore;
 pub use item::ItemStore;
 pub use names::NameStore;
+pub use skill::SkillStore;
 pub use stage::StageStore;
 pub use treasure::TreasureStore;
 
@@ -53,6 +55,7 @@ pub struct Vds {
     pub enemies: EnemyStore,
     pub items: ItemStore,
     pub names: NameStore,
+    pub skills: SkillStore,
     pub stages: StageStore,
     pub treasures: TreasureStore,
 }
@@ -61,13 +64,14 @@ impl Vds {
     pub fn evict(&self, filename: &str) -> Evicted {
         let items = self.items.evict(filename);
         let names = self.names.evict(filename);
+        let skills = self.skills.evict(filename);
         let treasures = self.treasures.evict(filename);
 
         Evicted {
             cats: self.cats.evict(filename),
             enemies: self.enemies.evict(filename),
             stages: self.stages.evict(filename),
-            other: items || names || treasures,
+            other: items || names || skills || treasures,
         }
     }
 
@@ -82,6 +86,7 @@ impl Vds {
         self.enemies.clear();
         self.items.clear();
         self.names.clear();
+        self.skills.clear();
         self.stages.clear();
         self.treasures.clear();
     }

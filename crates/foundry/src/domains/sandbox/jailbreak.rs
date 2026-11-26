@@ -483,7 +483,7 @@ impl Board {
             told.entry(group.ability_id).or_insert((group.text_id, group.name_id));
         }
 
-        Some(Self { map_id, starters, cats: listed, bonuses, texts: told, registered_plus: ctx.param.registered_plus_levels, picks, preset })
+        Some(Self { map_id, starters, cats: listed, bonuses, texts: told, registered_plus: ctx.param.registered_plus_levels(), picks, preset })
     }
 
     pub fn cat(&self, unit: u32) -> Option<&Cat> {

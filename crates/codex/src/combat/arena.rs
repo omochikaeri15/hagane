@@ -1,9 +1,9 @@
 use super::{Entity, Faction};
 
-const RANGE_STEPS: f32 = 4.0;
+pub(super) const RANGE_STEPS: i32 = 4;
+pub(super) const WAVE_STRIDE: i32 = 800;
+pub(super) const WAVE_LEAD: i32 = 270;
 const STEPS_PER_PIXEL: f32 = 10.0;
-const WAVE_STRIDE: i32 = 800;
-const WAVE_LEAD: i32 = 270;
 const KNOCKBACK_STEP: i32 = 10;
 
 pub const KNOCKBACK_FRAMES: i32 = 12;
@@ -28,7 +28,7 @@ impl Entity {
             .collect()
     }
 
-    pub fn strike_reach(&self, attack: usize) -> Span {
+    pub(super) fn strike_band(&self, attack: usize) -> (i32, i32) {
         let first = (self.long_distance_1_anchor, self.long_distance_1_span);
 
         let (flag, own) = match attack {
@@ -40,10 +40,18 @@ impl Entity {
         let (anchor, span) = if flag != 0 { own } else { first };
 
         if anchor == 0 {
-            return Span { near: 0.0, far: pixels(self.standing_range) };
+            return (0, self.standing_range);
         }
 
-        Span::ordered(pixels(anchor), pixels(anchor.wrapping_add(span)))
+        let end = anchor.wrapping_add(span);
+
+        (anchor.min(end), anchor.max(end))
+    }
+
+    pub fn strike_reach(&self, attack: usize) -> Span {
+        let (near, far) = self.strike_band(attack);
+
+        Span { near: pixels(near), far: pixels(far) }
     }
 
     pub fn standing_reach(&self) -> f32 {
@@ -69,7 +77,7 @@ impl Entity {
 }
 
 pub fn range_of(position: i32) -> f32 {
-    position as f32 / RANGE_STEPS
+    position as f32 / RANGE_STEPS as f32
 }
 
 pub fn knockback_push(fruit: i32, raise: i32, resist: i32) -> i32 {
@@ -89,7 +97,7 @@ pub fn knockback_reach(fruit: i32, raise: i32, resist: i32) -> f32 {
 }
 
 fn pixels(range: i32) -> f32 {
-    range as f32 * RANGE_STEPS / STEPS_PER_PIXEL
+    range as f32 * RANGE_STEPS as f32 / STEPS_PER_PIXEL
 }
 
 #[cfg(test)]

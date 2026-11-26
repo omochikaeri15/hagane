@@ -1,16 +1,17 @@
 use dioxus::prelude::*;
 
-use codex::combat::Entity;
+use codex::combat::Foe;
 use codex::files::img015;
 use foundry::common::context::GlobalContext;
 use foundry::domains::cat::game::stats::get_final_stats;
+use foundry::domains::cat::versus::{self, Felt, Pace};
 use foundry::domains::cat::waiter::unitid;
 use foundry::systems::combat::abilities::collect_ability_data;
 use foundry::systems::combat::registry::{
     Magnification, STAT_ATK_CYCLE, STAT_ATTACK, STAT_COOLDOWN, STAT_COST, STAT_DPS, STAT_HITPOINTS, STAT_KNOCKBACKS, STAT_RANGE, STAT_RARITY, STAT_SPEED,
     StatContext, format_stat,
 };
-use foundry::systems::combat::{AbilityItem, CustomIcon, RenderContext};
+use foundry::systems::combat::{AbilityItem, CustomIcon, Mark, RenderContext};
 use foundry::systems::treasure::Bonus;
 
 use crate::systems::context::{self, Shared};
@@ -54,7 +55,14 @@ pub(crate) fn Abilities(selected: Picked, globals: Shared) -> Element {
         talent_levels: levels.as_ref(),
         is_conjure_unit: false,
     };
-    let (traits, headline_1, headline_2, body_1, body_2, footer) = collect_ability_data(&ctx);
+    let versus = (state.versus)().then(|| (state.foe)());
+    let stat_ctx = StatContext::cat(&final_stats, cat.atk_anim_frames[form], Some(&cat.unitbuy), &treasure);
+    let cycle = (STAT_ATK_CYCLE.get_value)(&stat_ctx);
+    let (traits, headline_1, headline_2, body_1, body_2, footer) = match versus {
+        Some(foe) => versus::palette(&ctx, foe, versus::spirit_controls(&ctx), Pace::of(&stat_ctx)),
+        None => versus::plain(&ctx, Pace::of(&stat_ctx)),
+    };
+    let felt = versus.map(|foe| versus::felt(&ctx, cycle, foe)).unwrap_or_default();
     let conjure_id = base.conjure_unit_id;
     let conjure_open = state.conjure_expanded.read().get(&cat.id).copied().unwrap_or(settings.read().cat_data.expand_spirit_details);
     let cat_id = cat.id;
@@ -62,9 +70,11 @@ pub(crate) fn Abilities(selected: Picked, globals: Shared) -> Element {
     rsx! {
         FitWidth { natural: span(STAT_COLUMNS),
         div { class: "abilities",
-            {stats_grid(cat, &final_stats, form, &treasure)}
+            {stats_grid(&stat_ctx, &felt)}
             div { class: "ability-groups",
-                if !traits.is_empty() {
+                if versus.is_some() {
+                    {pick_row(&pictures, &traits, state.foe)}
+                } else if !traits.is_empty() {
                     {icon_row(&pictures, &traits)}
                 }
                 if !headline_1.is_empty() {
@@ -79,7 +89,7 @@ pub(crate) fn Abilities(selected: Picked, globals: Shared) -> Element {
                             for item in items.iter() {
                                 if item.icon_id == Some(img015::ICON_CONJURE) && item.custom_icon == CustomIcon::None {
                                     div { class: "ability-row",
-                                        {icons::item_icon(&pictures, item, ICON_SIZE)}
+                                        {shown_icon(&pictures, item)}
                                         Superscript { text: item.text.clone(), size: DESCRIPTION_TEXT_SIZE }
                                         button {
                                             class: if conjure_open { "btn btn-toggle active conjure-toggle" } else { "btn btn-toggle conjure-toggle" },
@@ -91,7 +101,7 @@ pub(crate) fn Abilities(selected: Picked, globals: Shared) -> Element {
                                         }
                                     }
                                     if conjure_open {
-                                        {spirit_card(&pictures, &globals, &treasure, conjure_id, cat.curve.as_ref(), level)}
+                                        {spirit_card(&pictures, &globals, Spirited { treasure: &treasure, conjure_id, curve: cat.curve.as_ref(), level, foe: versus })}
                                     }
                                 } else {
                                     {ability_row(&pictures, item)}
@@ -109,42 +119,59 @@ pub(crate) fn Abilities(selected: Picked, globals: Shared) -> Element {
     }
 }
 
-fn stats_grid(cat: &foundry::domains::cat::scanner::CatEntry, final_stats: &Entity, form: usize, treasure: &Bonus) -> Element {
-    let ctx = StatContext::cat(final_stats, cat.atk_anim_frames[form], Some(&cat.unitbuy), treasure);
-    let cycle = (STAT_ATK_CYCLE.get_value)(&ctx);
-    let cooldown = (STAT_COOLDOWN.get_value)(&ctx);
+fn tone_style(mark: Mark) -> String {
+    let color = |tone: [u8; 4]| format!("rgba({}, {}, {}, {})", tone[0], tone[1], tone[2], f32::from(tone[3]) / 255.0);
+
+    mark.tones().map_or_else(String::new, |(upper, lower)| format!("--mark-upper: {}; --mark-lower: {};", color(upper), color(lower)))
+}
+
+fn pair(header: Element, value: Element, felt: Option<&(String, Mark)>) -> Element {
+    let mark = felt.map_or(Mark::None, |(_, mark)| *mark);
+    let class = if mark == Mark::None { "stat-pair" } else { "stat-pair marked" };
+
+    rsx! {
+        div { class, style: tone_style(mark), {header} {value} }
+    }
+}
+
+fn stats_grid(ctx: &StatContext<'_>, felt: &Felt) -> Element {
+    let cycle = (STAT_ATK_CYCLE.get_value)(ctx);
+    let cooldown = (STAT_COOLDOWN.get_value)(ctx);
+    let shown = |held: &Option<(String, Mark)>, plain: String| held.as_ref().map_or(plain, |(text, _)| text.clone());
+    let head = |label: &'static str| rsx! { StatHeader { label } };
+    let value = |header: &'static str, value: String| rsx! { StatValue { header, value } };
+    let frames = |header: &'static str, frames: i32| rsx! { StatFrames { header, frames } };
 
     rsx! {
         div { class: "stat-grid",
             div { class: "stat-row",
-                StatHeader { label: STAT_ATTACK.display_name }
-                StatHeader { label: STAT_DPS.display_name }
-                StatHeader { label: STAT_RANGE.display_name }
-                StatHeader { label: STAT_ATK_CYCLE.display_name }
-                StatHeader { label: STAT_RARITY.display_name }
+                {pair(head(STAT_ATTACK.display_name), value(STAT_ATTACK.display_name, shown(&felt.attack, format_stat(&STAT_ATTACK, ctx))), felt.attack.as_ref())}
+                {pair(head(STAT_DPS.display_name), value(STAT_DPS.display_name, shown(&felt.dps, format_stat(&STAT_DPS, ctx))), felt.dps.as_ref())}
+                {pair(head(STAT_RANGE.display_name), value(STAT_RANGE.display_name, format_stat(&STAT_RANGE, ctx)), None)}
+                {pair(head(STAT_ATK_CYCLE.display_name), frames(STAT_ATK_CYCLE.display_name, cycle), None)}
+                {pair(head(STAT_RARITY.display_name), value(STAT_RARITY.display_name, format_stat(&STAT_RARITY, ctx)), None)}
             }
             div { class: "stat-row",
-                StatValue { header: STAT_ATTACK.display_name, value: format_stat(&STAT_ATTACK, &ctx) }
-                StatValue { header: STAT_DPS.display_name, value: format_stat(&STAT_DPS, &ctx) }
-                StatValue { header: STAT_RANGE.display_name, value: format_stat(&STAT_RANGE, &ctx) }
-                StatFrames { header: STAT_ATK_CYCLE.display_name, frames: cycle }
-                StatValue { header: STAT_RARITY.display_name, value: format_stat(&STAT_RARITY, &ctx) }
-            }
-            div { class: "stat-row",
-                StatHeader { label: STAT_HITPOINTS.display_name }
-                StatHeader { label: STAT_KNOCKBACKS.display_name }
-                StatHeader { label: STAT_SPEED.display_name }
-                StatHeader { label: STAT_COOLDOWN.display_name }
-                StatHeader { label: STAT_COST.display_name }
-            }
-            div { class: "stat-row",
-                StatValue { header: STAT_HITPOINTS.display_name, value: format_stat(&STAT_HITPOINTS, &ctx) }
-                StatValue { header: STAT_KNOCKBACKS.display_name, value: format_stat(&STAT_KNOCKBACKS, &ctx) }
-                StatValue { header: STAT_SPEED.display_name, value: format_stat(&STAT_SPEED, &ctx) }
-                StatFrames { header: STAT_COOLDOWN.display_name, frames: cooldown }
-                StatValue { header: STAT_COST.display_name, value: format_stat(&STAT_COST, &ctx) }
+                {pair(head(STAT_HITPOINTS.display_name), value(STAT_HITPOINTS.display_name, shown(&felt.hitpoints, format_stat(&STAT_HITPOINTS, ctx))), felt.hitpoints.as_ref())}
+                {pair(head(STAT_KNOCKBACKS.display_name), value(STAT_KNOCKBACKS.display_name, format_stat(&STAT_KNOCKBACKS, ctx)), None)}
+                {pair(head(STAT_SPEED.display_name), value(STAT_SPEED.display_name, format_stat(&STAT_SPEED, ctx)), None)}
+                {pair(head(STAT_COOLDOWN.display_name), frames(STAT_COOLDOWN.display_name, cooldown), None)}
+                {pair(head(STAT_COST.display_name), value(STAT_COST.display_name, format_stat(&STAT_COST, ctx)), None)}
             }
         }
+    }
+}
+
+fn shown_icon(pictures: &Pictures, item: &AbilityItem) -> Element {
+    let icon = icons::item_icon(pictures, item, ICON_SIZE);
+    let classes: Vec<&str> = [item.mark.tones().map(|_| "marked"), item.dimmed.then_some("dimmed")].into_iter().flatten().collect();
+
+    if classes.is_empty() {
+        return icon;
+    }
+
+    rsx! {
+        div { class: classes.join(" "), style: tone_style(item.mark), {icon} }
     }
 }
 
@@ -152,7 +179,31 @@ pub(crate) fn icon_row(pictures: &Pictures, items: &[AbilityItem]) -> Element {
     rsx! {
         div { class: "icon-row",
             for item in items {
-                Tip { text: item.text.clone(), {icons::item_icon(pictures, item, ICON_SIZE)} }
+                Tip { text: item.text.clone(), {shown_icon(pictures, item)} }
+            }
+        }
+    }
+}
+
+fn pick_row(pictures: &Pictures, items: &[AbilityItem], mut foe: Signal<Foe>) -> Element {
+    rsx! {
+        div { class: "icon-row",
+            for item in items {
+                Tip { text: item.text.clone(),
+                    button {
+                        class: "icon-pick",
+                        onclick: {
+                            let label = item.identity;
+
+                            move |_| {
+                                let held = *foe.peek();
+
+                                foe.set(if held.has(label) { held.without(label) } else { held.with(label) });
+                            }
+                        },
+                        {shown_icon(pictures, item)}
+                    }
+                }
             }
         }
     }
@@ -161,13 +212,22 @@ pub(crate) fn icon_row(pictures: &Pictures, items: &[AbilityItem]) -> Element {
 pub(crate) fn ability_row(pictures: &Pictures, item: &AbilityItem) -> Element {
     rsx! {
         div { class: "ability-row",
-            {icons::item_icon(pictures, item, ICON_SIZE)}
+            {shown_icon(pictures, item)}
             Superscript { text: item.text.clone(), size: DESCRIPTION_TEXT_SIZE }
         }
     }
 }
 
-fn spirit_card(pictures: &Pictures, globals: &Shared, treasure: &Bonus, conjure_id: i32, curve: Option<&codex::cat::unit::LevelCurve>, level: i32) -> Element {
+struct Spirited<'a> {
+    treasure: &'a Bonus,
+    conjure_id: i32,
+    curve: Option<&'a codex::cat::unit::LevelCurve>,
+    level: i32,
+    foe: Option<Foe>,
+}
+
+fn spirit_card(pictures: &Pictures, globals: &Shared, spirited: Spirited<'_>) -> Element {
+    let Spirited { treasure, conjure_id, curve, level, foe } = spirited;
     let vfs = &globals.0.vault().vfs;
     let Some(stats) = unitid(vfs, conjure_id).and_then(|forms| forms.into_iter().next()) else {
         return rsx! { div { class: "note", "Spirit data not found" } };
@@ -184,7 +244,10 @@ fn spirit_card(pictures: &Pictures, globals: &Shared, treasure: &Bonus, conjure_
         talent_levels: None,
         is_conjure_unit: true,
     };
-    let (traits, headline_1, headline_2, body_1, body_2, footer) = collect_ability_data(&ctx);
+    let (traits, headline_1, headline_2, body_1, body_2, footer) = match foe {
+        Some(foe) => versus::spirit_abilities(&ctx, foe),
+        None => collect_ability_data(&ctx),
+    };
     let area = icons::sheet_url(pictures, IMG015, img015::ICON_AREA_ATTACK);
     let damage = format!("Damage {}\nRange {}", final_stats.attack_1_damage, final_stats.standing_range);
 

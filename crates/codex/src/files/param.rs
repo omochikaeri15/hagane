@@ -21,105 +21,105 @@ impl std::error::Error for ParamError {}
 
 #[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
 pub struct Param {
-    pub unknown_1: i32,
-    pub unknown_2: i32,
-    pub unknown_3: i32,
-    pub unknown_4: i32,
-    pub unknown_5: i32,
-    pub unknown_6: i32,
-    pub unknown_7: i32,
-    pub unknown_8: i32,
-    pub unknown_9: i32,
-    pub unknown_10: i32,
-    pub unknown_11: i32,
-    pub unknown_12: i32,
-    pub unknown_13: i32,
-    pub unknown_14: i32,
-    pub unknown_15: i32,
-    pub unknown_16: i32,
-    pub unknown_17: i32,
-    pub hold_cat_details_time: i32,
-    pub time_until_death_surge: i32,
-    pub behemoth_slayer_attack_multiplier: i32,
-    pub behemoth_slayer_defense_multiplier: i32,
-    pub unknown_22: i32,
-    pub logo_superfeline_roll_timer: i32,
-    pub logo_superfeline_chance_success: i32,
-    pub logo_superfeline_failure_increase: i32,
-    pub unknown_26: i32,
-    pub unknown_27: i32,
-    pub unknown_28: i32,
-    pub unknown_29: i32,
-    pub unknown_30: i32,
-    pub unknown_31: i32,
-    pub unknown_32: i32,
-    pub unknown_33: i32,
-    pub volume_setting_percent_small: i32,
-    pub volume_setting_percent_medium: i32,
-    pub volume_setting_percent_large: i32,
-    pub spirit_position_offset: i32,
-    pub sage_type_resist_weaken: i32,
-    pub sage_type_resist_freeze: i32,
-    pub sage_type_resist_slow: i32,
-    pub sage_type_resist_curse: i32,
-    pub sage_type_resist_knockback: i32,
-    pub sage_slayer_resist_weaken: i32,
-    pub sage_slayer_resist_freeze: i32,
-    pub sage_slayer_resist_slow: i32,
-    pub sage_slayer_resist_curse: i32,
-    pub sage_slayer_resist_other: i32,
-    pub sage_slayer_resist_warp: i32,
-    pub sage_slayer_attack_multiplier: i32,
-    pub sage_slayer_defense_multiplier: i32,
-    pub metal_killer_hitpoint_behavior: i32,
-    pub unknown_52: i32,
-    pub unknown_53: i32,
-    pub story_sequence_hold_speed: i32,
-    pub explosion_start_time: i32,
-    pub explosion_hitbox_duration: i32,
-    pub explosion_delay_before_deletion: i32,
-    pub explosion_delay_until_spike: i32,
-    pub explosion_big_width: i32,
-    pub explosion_medium_width: i32,
-    pub explosion_small_width: i32,
-    pub explosion_big_damage_multiplier: i32,
-    pub explosion_medium_damage_multiplier: i32,
-    pub explosion_small_damage_multiplier: i32,
-    pub unknown_65: i32,
-    pub unknown_66: i32,
-    pub unknown_67: i32,
-    pub unknown_68: i32,
-    pub unknown_69: i32,
-    pub unknown_70: i32,
-    pub unknown_71: i32,
-    pub unknown_72: i32,
-    pub unknown_73: i32,
-    pub unknown_74: i32,
-    pub unknown_75: i32,
-    pub unknown_76: i32,
-    pub unknown_77: i32,
-    pub powerup_kills: i32,
-    pub comeback_treasure_festival_days: i32,
-    pub unknown_80: i32,
-    pub unknown_81: i32,
-    pub tutorial_money: i32,
-    pub tutorial_duration_0: i32,
-    pub tutorial_duration_1: i32,
-    pub tutorial_duration_2: i32,
-    pub tutorial_duration_3: i32,
-    pub vibration_power_ios: i32,
-    pub vibration_power_android: i32,
-    pub vibration_time_ios: i32,
-    pub vibration_time_android: i32,
-    pub vibration_sharpness_ios: i32,
-    pub registered_plus_levels: i32,
-    pub registered_point_rate_0: i32,
-    pub registered_point_rate_1: i32,
-    pub registered_point_rate_2: i32,
-    pub registered_point_rate_3: i32,
-    pub registered_point_rate_4: i32,
-    pub registered_point_rate_5: i32,
-    pub rest: Vec<i32>,
+    pub unknown_1: Option<i32>,
+    pub unknown_2: Option<i32>,
+    pub unknown_3: Option<i32>,
+    pub unknown_4: Option<i32>,
+    pub unknown_5: Option<i32>,
+    pub unknown_6: Option<i32>,
+    pub unknown_7: Option<i32>,
+    pub unknown_8: Option<i32>,
+    pub unknown_9: Option<i32>,
+    pub mini_wave_interval: Option<i32>,
+    pub mini_wave_first_frame: Option<i32>,
+    pub mini_wave_last_frame: Option<i32>,
+    pub unknown_13: Option<i32>,
+    pub unknown_14: Option<i32>,
+    pub unknown_15: Option<i32>,
+    pub unknown_16: Option<i32>,
+    pub unknown_17: Option<i32>,
+    pub hold_cat_details_time: Option<i32>,
+    pub time_until_death_surge: Option<i32>,
+    pub behemoth_slayer_attack_multiplier: Option<i32>,
+    pub behemoth_slayer_defense_multiplier: Option<i32>,
+    pub unknown_22: Option<i32>,
+    pub logo_superfeline_roll_timer: Option<i32>,
+    pub logo_superfeline_chance_success: Option<i32>,
+    pub logo_superfeline_failure_increase: Option<i32>,
+    pub unknown_26: Option<i32>,
+    pub unknown_27: Option<i32>,
+    pub unknown_28: Option<i32>,
+    pub unknown_29: Option<i32>,
+    pub unknown_30: Option<i32>,
+    pub unknown_31: Option<i32>,
+    pub unknown_32: Option<i32>,
+    pub unknown_33: Option<i32>,
+    pub volume_setting_percent_small: Option<i32>,
+    pub volume_setting_percent_medium: Option<i32>,
+    pub volume_setting_percent_large: Option<i32>,
+    pub spirit_position_offset: Option<i32>,
+    pub sage_type_resist_weaken: Option<i32>,
+    pub sage_type_resist_freeze: Option<i32>,
+    pub sage_type_resist_slow: Option<i32>,
+    pub sage_type_resist_curse: Option<i32>,
+    pub sage_type_resist_knockback: Option<i32>,
+    pub sage_slayer_resist_weaken: Option<i32>,
+    pub sage_slayer_resist_freeze: Option<i32>,
+    pub sage_slayer_resist_slow: Option<i32>,
+    pub sage_slayer_resist_curse: Option<i32>,
+    pub sage_slayer_resist_other: Option<i32>,
+    pub sage_slayer_resist_warp: Option<i32>,
+    pub sage_slayer_attack_multiplier: Option<i32>,
+    pub sage_slayer_defense_multiplier: Option<i32>,
+    pub metal_killer_hitpoint_behavior: Option<i32>,
+    pub unknown_52: Option<i32>,
+    pub unknown_53: Option<i32>,
+    pub story_sequence_hold_speed: Option<i32>,
+    pub explosion_start_time: Option<i32>,
+    pub explosion_hitbox_duration: Option<i32>,
+    pub explosion_delay_before_deletion: Option<i32>,
+    pub explosion_delay_until_spike: Option<i32>,
+    pub explosion_big_width: Option<i32>,
+    pub explosion_medium_width: Option<i32>,
+    pub explosion_small_width: Option<i32>,
+    pub explosion_big_damage_multiplier: Option<i32>,
+    pub explosion_medium_damage_multiplier: Option<i32>,
+    pub explosion_small_damage_multiplier: Option<i32>,
+    pub unknown_65: Option<i32>,
+    pub unknown_66: Option<i32>,
+    pub unknown_67: Option<i32>,
+    pub unknown_68: Option<i32>,
+    pub unknown_69: Option<i32>,
+    pub unknown_70: Option<i32>,
+    pub unknown_71: Option<i32>,
+    pub unknown_72: Option<i32>,
+    pub unknown_73: Option<i32>,
+    pub unknown_74: Option<i32>,
+    pub unknown_75: Option<i32>,
+    pub unknown_76: Option<i32>,
+    pub unknown_77: Option<i32>,
+    pub powerup_kills: Option<i32>,
+    pub comeback_treasure_festival_days: Option<i32>,
+    pub unknown_80: Option<i32>,
+    pub unknown_81: Option<i32>,
+    pub tutorial_money: Option<i32>,
+    pub tutorial_duration_0: Option<i32>,
+    pub tutorial_duration_1: Option<i32>,
+    pub tutorial_duration_2: Option<i32>,
+    pub tutorial_duration_3: Option<i32>,
+    pub vibration_power_ios: Option<i32>,
+    pub vibration_power_android: Option<i32>,
+    pub vibration_time_ios: Option<i32>,
+    pub vibration_time_android: Option<i32>,
+    pub vibration_sharpness_ios: Option<i32>,
+    pub registered_plus_levels: Option<i32>,
+    pub registered_point_rate_0: Option<i32>,
+    pub registered_point_rate_1: Option<i32>,
+    pub registered_point_rate_2: Option<i32>,
+    pub registered_point_rate_3: Option<i32>,
+    pub registered_point_rate_4: Option<i32>,
+    pub registered_point_rate_5: Option<i32>,
+    pub rest: Vec<Option<i32>>,
 }
 
 impl Param {
@@ -129,6 +129,72 @@ impl Param {
 }
 
 const NAMED_ROWS: usize = 98;
+const SAGE_RESIST: i32 = 50;
+const SAGE_SLAYER_WARP_RESIST: i32 = 70;
+const SLAYER_ATTACK: i32 = 1600;
+const SLAYER_DEFENSE: i32 = 700;
+const MINI_WAVE_INTERVAL: i32 = 4;
+const MINI_WAVE_FIRST_FRAME: i32 = 3;
+const MINI_WAVE_LAST_FRAME: i32 = 7;
+const EXPLOSION_START: i32 = 15;
+const EXPLOSION_WINDOW: i32 = 20;
+const EXPLOSION_LINGER: i32 = 10;
+const EXPLOSION_SPREAD: i32 = 15;
+const EXPLOSION_BIG_WIDTH: i32 = 800;
+const EXPLOSION_MEDIUM_WIDTH: i32 = 500;
+const EXPLOSION_SMALL_WIDTH: i32 = 400;
+const POWERUP_KILLS: i32 = 15;
+const REGISTERED_PLUS: i32 = 5;
+
+macro_rules! settled {
+    ($($field:ident: $fallback:expr),* $(,)?) => {
+        impl Param {
+            $(pub fn $field(&self) -> i32 { self.$field.unwrap_or($fallback) })*
+        }
+    };
+}
+
+settled! {
+    behemoth_slayer_attack_multiplier: SLAYER_ATTACK,
+    behemoth_slayer_defense_multiplier: SLAYER_DEFENSE,
+    sage_type_resist_weaken: SAGE_RESIST,
+    sage_type_resist_freeze: SAGE_RESIST,
+    sage_type_resist_slow: SAGE_RESIST,
+    sage_type_resist_curse: SAGE_RESIST,
+    sage_type_resist_knockback: SAGE_RESIST,
+    sage_slayer_resist_weaken: SAGE_RESIST,
+    sage_slayer_resist_freeze: SAGE_RESIST,
+    sage_slayer_resist_slow: SAGE_RESIST,
+    sage_slayer_resist_curse: SAGE_RESIST,
+    sage_slayer_resist_other: SAGE_RESIST,
+    sage_slayer_resist_warp: SAGE_SLAYER_WARP_RESIST,
+    sage_slayer_attack_multiplier: SLAYER_ATTACK,
+    sage_slayer_defense_multiplier: SLAYER_DEFENSE,
+    mini_wave_interval: MINI_WAVE_INTERVAL,
+    mini_wave_first_frame: MINI_WAVE_FIRST_FRAME,
+    mini_wave_last_frame: MINI_WAVE_LAST_FRAME,
+    explosion_start_time: EXPLOSION_START,
+    explosion_hitbox_duration: EXPLOSION_WINDOW,
+    explosion_delay_before_deletion: EXPLOSION_LINGER,
+    explosion_delay_until_spike: EXPLOSION_SPREAD,
+    explosion_big_width: EXPLOSION_BIG_WIDTH,
+    explosion_medium_width: EXPLOSION_MEDIUM_WIDTH,
+    explosion_small_width: EXPLOSION_SMALL_WIDTH,
+    powerup_kills: POWERUP_KILLS,
+    registered_plus_levels: REGISTERED_PLUS,
+}
+
+fn number(text: &str) -> Option<i32> {
+    let text = text.trim_start();
+    let unsigned = text.strip_prefix(['+', '-']).unwrap_or(text);
+    let digits = unsigned.bytes().take_while(u8::is_ascii_digit).count();
+
+    if digits == 0 {
+        return None;
+    }
+
+    text[..text.len() - unsigned.len() + digits].parse().ok()
+}
 
 fn parse_inner(bytes: &[u8]) -> Result<Param, ParamError> {
     let file_content = file::scrub(bytes);
@@ -147,7 +213,7 @@ fn parse_inner(bytes: &[u8]) -> Result<Param, ParamError> {
         let Some(key) = parts.next() else { continue; };
         let Some(val_str) = parts.last() else { continue; };
 
-        let val = val_str.parse::<i32>().unwrap_or(0);
+        let val = number(val_str);
 
         map.insert(key, val);
         raw_ordered_values.push(val);
@@ -157,8 +223,8 @@ fn parse_inner(bytes: &[u8]) -> Result<Param, ParamError> {
         return Err(ParamError::EmptyFile);
     }
 
-    let get_val = |target_key: &str| -> i32 {
-        map.get(target_key).copied().unwrap_or(0)
+    let get_val = |target_key: &str| -> Option<i32> {
+        map.get(target_key).copied().flatten()
     };
 
     let mut rest = Vec::new();
@@ -176,9 +242,9 @@ fn parse_inner(bytes: &[u8]) -> Result<Param, ParamError> {
         unknown_7: get_val("slot_name_margin_top2"),
         unknown_8: get_val("slot_name_margin_left2"),
         unknown_9: get_val("battle_wave_s_st"),
-        unknown_10: get_val("battle_wave_s_inter"),
-        unknown_11: get_val("battle_wave_s_frame1"),
-        unknown_12: get_val("battle_wave_s_frame2"),
+        mini_wave_interval: get_val("battle_wave_s_inter"),
+        mini_wave_first_frame: get_val("battle_wave_s_frame1"),
+        mini_wave_last_frame: get_val("battle_wave_s_frame2"),
         unknown_13: get_val("battle_slot_2lines_line"),
         unknown_14: get_val("battle_slot_2lines_y"),
         unknown_15: get_val("battle_zoom_y"),
@@ -267,4 +333,22 @@ fn parse_inner(bytes: &[u8]) -> Result<Param, ParamError> {
         registered_point_rate_5: get_val("roguelike_charabonus_pointvalue5"),
         rest,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Param;
+
+    // The game falls back to its own number for a key the file leaves out, and reads a value
+    // the way stoi does, so trailing junk after the digits is ignored.
+    #[test]
+    fn a_missing_key_takes_the_games_own_number() {
+        let param = Param::parse("battle_super_sage_freeze\t70\nbattle_explosion_frame1\t11abc\nbattle_wave_s_inter\tx\n").unwrap();
+
+        assert_eq!((param.sage_type_resist_freeze, param.sage_type_resist_freeze()), (Some(70), 70));
+        assert_eq!((param.sage_type_resist_slow, param.sage_type_resist_slow()), (None, 50));
+        assert_eq!(param.explosion_start_time(), 11);
+        assert_eq!((param.mini_wave_interval, param.mini_wave_interval()), (None, 4), "a value that is no number is left as none");
+        assert_eq!(Param::default().sage_slayer_resist_warp(), 70);
+    }
 }

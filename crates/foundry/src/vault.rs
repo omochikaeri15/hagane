@@ -7,7 +7,7 @@ use std::iter;
 use crate::common::io::cache;
 use crate::domains::settings::{ScannerConfig, Settings};
 
-pub use vds::{CatStore, ContentStore, EnemyStore, Evicted, ItemStore, NameStore, StageStore, TreasureStore, Vds};
+pub use vds::{CatStore, ContentStore, EnemyStore, Evicted, ItemStore, NameStore, SkillStore, StageStore, TreasureStore, Vds};
 pub use vfs::{Conflict, Lazy, Listing, Loader, Memory, Mount, Source, Target, Vfs, VfsError};
 
 pub struct Vault {

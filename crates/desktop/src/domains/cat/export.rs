@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 
+use codex::combat::Foe;
 use foundry::common::context::GlobalContext;
 use foundry::domains::cat::grants::Grants;
 use foundry::domains::cat::scanner::CatEntry;
@@ -24,6 +25,7 @@ pub(super) struct Ctx<'a> {
     pub(super) global: GlobalContext<'a>,
     pub(super) settings: &'a Settings,
     pub(super) grants: Option<&'a Grants>,
+    pub(super) foe: Foe,
 }
 
 pub(super) fn request(ctx: Ctx<'_>) -> Option<Request> {
@@ -39,7 +41,7 @@ pub(super) fn request(ctx: Ctx<'_>) -> Option<Request> {
     };
 
     match ctx.tab {
-        DetailTab::Abilities => Some(Request::statblock(statblock::build(subject)?, ctx.sheets, ctx.settings)),
+        DetailTab::Abilities => Some(Request::statblock(statblock::build_against(subject, |_| ctx.foe)?, ctx.sheets, ctx.settings)),
         DetailTab::Talents => Some(Request::talents(statblock::talents(subject)?, ctx.sheets, ctx.coins, ctx.settings)),
         DetailTab::Details => Some(Request::details(statblock::details(ctx.cat, ctx.form, ctx.global), ctx.settings)),
         DetailTab::Animation => None,

@@ -6,10 +6,10 @@ use std::time::Instant;
 use std::sync::{Arc, OnceLock};
 
 use ab_glyph::{Font, FontRef, PxScale, ScaleFont};
-use slint::{ComponentHandle, Image, Model, ModelRc, SharedString, VecModel};
+use slint::{Color, ComponentHandle, Image, Model, ModelRc, Rgba8Pixel, SharedPixelBuffer, SharedString, VecModel};
 
 use codex::cat::unit::{Talent, TalentGroup};
-use codex::combat::{AttrUnit, Entity, Faction, Identity, REGISTRY, get_talent};
+use codex::combat::{AttrUnit, Entity, Faction, Foe, Identity, REGISTRY, get_talent};
 use codex::files::{img015, img022};
 use foundry::common::context::GlobalContext;
 use foundry::common::{glyphs, io};
@@ -22,13 +22,15 @@ use foundry::domains::cat::level;
 use foundry::domains::cat::game::talents as talent_logic;
 use foundry::domains::cat::scanner::CatEntry;
 use foundry::domains::cat::statblock::{self as cat_statblock, Subject};
+use foundry::domains::cat::versus::{self, Pace};
 use foundry::domains::cat::waiter::unitid;
 use foundry::systems::combat::abilities::collect_ability_data;
 use foundry::systems::combat::registry::{
     AbilityIcon as RegistryIcon, DisplayGroup, Magnification, STAT_ATK_CYCLE, STAT_ATTACK, STAT_COOLDOWN, STAT_COST, STAT_DPS, STAT_HITPOINTS, STAT_KNOCKBACKS,
     STAT_RANGE, STAT_RARITY, STAT_SPEED, StatContext, StatsDef, format_stat, get_display_def, get_fallback_by_icon,
 };
-use foundry::systems::combat::{AbilityItem, CustomIcon, RenderContext, TalentIdentities, present_identities, talent_identities};
+use foundry::systems::combat::{AbilityItem, CustomIcon, Mark, RenderContext, TalentIdentities, present_identities, talent_identities};
+use foundry::systems::statblock::mark_ring;
 use foundry::systems::treasure::Bonus;
 use foundry::Vault;
 
@@ -54,6 +56,11 @@ const EVOLVE_TEXT_LINES: usize = 3;
 const STAT_KEYS: [&str; 9] = ["Attack", "Dps", "Range", "Atk Cycle (f)", "Hitpoints", "Knockbacks", "Speed", "Cooldown (f)", "Cost"];
 const TALENT_MODES: [TalentFilterMode; 3] = [TalentFilterMode::Ignore, TalentFilterMode::Consider, TalentFilterMode::Only];
 const MISSING_ICON_ID: usize = 9999;
+const RING_SIDE: u32 = 80;
+
+thread_local! {
+    static RINGS: RefCell<HashMap<Mark, Image>> = RefCell::default();
+}
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum Tab {
@@ -116,6 +123,8 @@ pub struct State {
     locked: bool,
     granted: Option<Rc<Grants>>,
     treasure: Option<Bonus>,
+    versus: bool,
+    foe: Foe,
 }
 
 pub type Edited = Rc<dyn Fn(&AppWindow)>;
@@ -167,16 +176,40 @@ pub fn icon_of(images: &Images, vault: &Vault, icon: RegistryIcon, fallback: &st
     };
 
     match image {
-        Some(image) => AbilityIcon { icon: image, has_icon: true, border: Image::default(), has_border: false, fallback: fallback.into(), tip: tip.into() },
-        None => AbilityIcon { icon: Image::default(), has_icon: false, border: Image::default(), has_border: false, fallback: fallback.into(), tip: tip.into() },
+        Some(image) => AbilityIcon { icon: image, has_icon: true, border: Image::default(), has_border: false, fallback: fallback.into(), tip: tip.into(), ..AbilityIcon::default() },
+        None => AbilityIcon { icon: Image::default(), has_icon: false, border: Image::default(), has_border: false, fallback: fallback.into(), tip: tip.into(), ..AbilityIcon::default() },
     }
 }
 
+fn ring_of(mark: Mark) -> Option<Image> {
+    RINGS.with(|rings| {
+        if let Some(held) = rings.borrow().get(&mark) {
+            return Some(held.clone());
+        }
+
+        let drawn = mark_ring(mark, RING_SIDE, RING_SIDE)?;
+        let image = Image::from_rgba8(SharedPixelBuffer::<Rgba8Pixel>::clone_from_slice(drawn.as_raw(), drawn.width(), drawn.height()));
+
+        rings.borrow_mut().insert(mark, image.clone());
+        Some(image)
+    })
+}
+
+fn tone_of(mark: Mark) -> Color {
+    mark.tones().map_or(Color::from_argb_u8(0, 0, 0, 0), |(upper, _)| Color::from_argb_u8(upper[3], upper[0], upper[1], upper[2]))
+}
+
 pub fn item_icon(images: &Images, vault: &Vault, item: &AbilityItem) -> AbilityIcon {
+    let ring = ring_of(item.mark);
+
+    AbilityIcon { has_ring: ring.is_some(), ring: ring.unwrap_or_default(), dimmed: item.dimmed, ..plain_icon(images, vault, item) }
+}
+
+fn plain_icon(images: &Images, vault: &Vault, item: &AbilityItem) -> AbilityIcon {
     if item.custom_icon != CustomIcon::None
         && let Some(image) = custom_image(images, item.custom_icon)
     {
-        return AbilityIcon { icon: image, has_icon: true, border: Image::default(), has_border: false, fallback: SharedString::default(), tip: item.text.as_str().into() };
+        return AbilityIcon { icon: image, has_icon: true, border: Image::default(), has_border: false, fallback: SharedString::default(), tip: item.text.as_str().into(), ..AbilityIcon::default() };
     }
 
     if let Some(icon_id) = item.icon_id
@@ -191,12 +224,13 @@ pub fn item_icon(images: &Images, vault: &Vault, item: &AbilityItem) -> AbilityI
             border: border.unwrap_or_default(),
             fallback: SharedString::default(),
             tip: item.text.as_str().into(),
+            ..AbilityIcon::default()
         };
     }
 
     let icon = if item.custom_icon != CustomIcon::None { RegistryIcon::Custom(item.custom_icon) } else { RegistryIcon::Standard(item.icon_id.unwrap_or(MISSING_ICON_ID)) };
 
-    AbilityIcon { icon: Image::default(), has_icon: false, border: Image::default(), has_border: false, fallback: get_fallback_by_icon(icon).into(), tip: item.text.as_str().into() }
+    AbilityIcon { icon: Image::default(), has_icon: false, border: Image::default(), has_border: false, fallback: get_fallback_by_icon(icon).into(), tip: item.text.as_str().into(), ..AbilityIcon::default() }
 }
 
 pub fn icon_row(images: &Images, vault: &Vault, items: &[AbilityItem]) -> ModelRc<AbilityIcon> {
@@ -510,6 +544,8 @@ impl State {
             available: None,
             roster,
             exporting: false,
+            versus: false,
+            foe: Foe::default(),
             edited: None,
             locked: false,
             granted: None,
@@ -819,6 +855,36 @@ pub fn wire(window: &AppWindow, context: &Rc<Context>) -> Shared {
             let next = !state.conjure_expanded.get(&id).copied().unwrap_or(default);
 
             state.conjure_expanded.insert(id, next);
+        }
+
+        if let Some(ui) = weak.upgrade() {
+            refresh(&ui, &held, &ctx);
+        }
+    });
+
+    let (held, ctx, weak) = on(&state, context, window);
+    cats.on_versus_toggled(move || {
+        {
+            let mut state = held.borrow_mut();
+
+            state.versus = !state.versus;
+        }
+
+        if let Some(ui) = weak.upgrade() {
+            refresh(&ui, &held, &ctx);
+        }
+    });
+
+    let (held, ctx, weak) = on(&state, context, window);
+    cats.on_trait_picked(move |index| {
+        let Some(label) = usize::try_from(index).ok().and_then(|index| Foe::LABELS.get(index).copied()) else {
+            return;
+        };
+
+        {
+            let mut state = held.borrow_mut();
+
+            state.foe = if state.foe.has(label) { state.foe.without(label) } else { state.foe.with(label) };
         }
 
         if let Some(ui) = weak.upgrade() {
@@ -1352,25 +1418,40 @@ fn refresh_abilities(ui: &AppWindow, state: &Shared, context: &Rc<Context>, glob
         talent_levels: levels.as_ref(),
         is_conjure_unit: false,
     };
-    let (traits, headline_1, headline_2, body_1, body_2, footer) = collect_ability_data(&ctx);
-    let stat_ctx = StatContext::cat(&final_stats, cat.atk_anim_frames[form], Some(&cat.unitbuy), &treasure);
+    let picked = {
+        let held = state.borrow();
 
+        held.versus.then_some(held.foe)
+    };
+    let stat_ctx = StatContext::cat(&final_stats, cat.atk_anim_frames[form], Some(&cat.unitbuy), &treasure);
+    let cycle = (STAT_ATK_CYCLE.get_value)(&stat_ctx);
+    let (traits, headline_1, headline_2, body_1, body_2, footer) = match picked {
+        Some(foe) => versus::palette(&ctx, foe, versus::spirit_controls(&ctx), Pace::of(&stat_ctx)),
+        None => versus::plain(&ctx, Pace::of(&stat_ctx)),
+    };
+    let felt = picked.map(|foe| versus::felt(&ctx, cycle, foe)).unwrap_or_default();
+    let felt_cell = |def: &StatsDef, held: &Option<(String, Mark)>| held.as_ref().map_or_else(|| value_cell(def, &stat_ctx), |(text, _)| text_cell(def.display_name, text));
+    let marks = |held: [&Option<(String, Mark)>; 5]| ModelRc::new(VecModel::from(held.iter().map(|held| tone_of(held.as_ref().map_or(Mark::None, |(_, mark)| *mark))).collect::<Vec<_>>()));
+
+    cats.set_versus(picked.is_some());
     cats.set_stat_headers_1(headers(&[&STAT_ATTACK, &STAT_DPS, &STAT_RANGE, &STAT_ATK_CYCLE, &STAT_RARITY]));
     cats.set_stat_values_1(ModelRc::new(VecModel::from(vec![
-        value_cell(&STAT_ATTACK, &stat_ctx),
-        value_cell(&STAT_DPS, &stat_ctx),
+        felt_cell(&STAT_ATTACK, &felt.attack),
+        felt_cell(&STAT_DPS, &felt.dps),
         value_cell(&STAT_RANGE, &stat_ctx),
         frames_cell(&STAT_ATK_CYCLE, &stat_ctx),
         value_cell(&STAT_RARITY, &stat_ctx),
     ])));
+    cats.set_stat_marks_1(marks([&felt.attack, &felt.dps, &None, &None, &None]));
     cats.set_stat_headers_2(headers(&[&STAT_HITPOINTS, &STAT_KNOCKBACKS, &STAT_SPEED, &STAT_COOLDOWN, &STAT_COST]));
     cats.set_stat_values_2(ModelRc::new(VecModel::from(vec![
-        value_cell(&STAT_HITPOINTS, &stat_ctx),
+        felt_cell(&STAT_HITPOINTS, &felt.hitpoints),
         value_cell(&STAT_KNOCKBACKS, &stat_ctx),
         value_cell(&STAT_SPEED, &stat_ctx),
         frames_cell(&STAT_COOLDOWN, &stat_ctx),
         value_cell(&STAT_COST, &stat_ctx),
     ])));
+    cats.set_stat_marks_2(marks([&felt.hitpoints, &None, &None, &None, &None]));
     cats.set_traits(icon_row(images, vault, &traits));
     cats.set_headline_1(icon_row(images, vault, &headline_1));
     cats.set_headline_2(icon_row(images, vault, &headline_2));
@@ -1400,7 +1481,10 @@ fn refresh_abilities(ui: &AppWindow, state: &Shared, context: &Rc<Context>, glob
                 talent_levels: None,
                 is_conjure_unit: true,
             };
-            let (traits, headline_1, headline_2, body_1, body_2, footer) = collect_ability_data(&ctx);
+            let (traits, headline_1, headline_2, body_1, body_2, footer) = match picked {
+                Some(foe) => versus::spirit_abilities(&ctx, foe),
+                None => collect_ability_data(&ctx),
+            };
             cats.set_has_spirit(true);
             cats.set_spirit_icon(icon_of(images, vault, RegistryIcon::Standard(img015::ICON_AREA_ATTACK), "AoE", "Area Attack"));
             cats.set_spirit_damage(detail::lines(&format!("Damage {}\nRange {}", final_spirit.attack_1_damage, final_spirit.standing_range)));
@@ -1428,7 +1512,7 @@ fn skill_name(images: &Images, vault: &Arc<Vault>, group: &TalentGroup) -> Optio
 
 fn talent_icon(images: &Images, vault: &Vault, group: &TalentGroup) -> AbilityIcon {
     let Some(def) = get_talent(group.ability_id) else {
-        return AbilityIcon { icon: Image::default(), has_icon: false, border: Image::default(), has_border: false, fallback: "?".into(), tip: SharedString::default() };
+        return AbilityIcon { icon: Image::default(), has_icon: false, border: Image::default(), has_border: false, fallback: "?".into(), tip: SharedString::default(), ..AbilityIcon::default() };
     };
     let display = get_display_def(def.identity);
 
@@ -1795,7 +1879,12 @@ fn export(ui: &AppWindow, state: &Shared, context: &Rc<Context>) {
         return detail::export_talents(ui, context, data, face, finished);
     }
 
-    let Some(data) = cat_statblock::build(subject) else {
+    let foe = {
+        let held = state.borrow();
+
+        if held.versus { held.foe } else { Foe::default() }
+    };
+    let Some(data) = cat_statblock::build_against(subject, |_| foe) else {
         context.toast(ui, "The statblock could not be built", true);
         return;
     };

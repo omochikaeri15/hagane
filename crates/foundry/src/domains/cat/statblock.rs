@@ -6,7 +6,6 @@ use crate::common::context::GlobalContext;
 use crate::common::io;
 use crate::domains::cat::combo;
 use crate::domains::cat::game::talents as talent_logic;
-use crate::systems::combat::abilities::collect_ability_data_against;
 use crate::systems::combat::registry::{get_display_def, AbilityIcon, format_stat, Magnification, StatContext, STAT_ATK_CYCLE, STAT_ATTACK, STAT_COOLDOWN, STAT_COST, STAT_DPS, STAT_HITPOINTS, STAT_KNOCKBACKS, STAT_RANGE, STAT_RARITY, STAT_SPEED};
 use crate::systems::combat::{AbilityItem, CustomIcon, Mark, RenderContext};
 use crate::systems::statblock::{ComboCard, ComboSeat, DetailsData, EvolveCost, EvolveData, EvolveItem, SheetHead, SpiritData, StatCell, StatblockData, TalentCard, TalentsData};
@@ -15,7 +14,7 @@ use super::files;
 use super::game::stats::get_final_stats;
 use super::grants::Grants;
 use super::scanner::CatEntry;
-use super::versus;
+use super::versus::{self, Pace};
 use super::waiter::unitid;
 
 pub struct Subject<'a> {
@@ -121,7 +120,7 @@ pub fn talents(subject: Subject<'_>) -> Option<TalentsData> {
             let picture = group.name_image();
 
             TalentCard {
-                item: AbilityItem { identity: known.map_or(Identity::Unknown, |def| def.identity), icon_id, text: name, custom_icon, border_id: None, mark: Mark::None, added: false },
+                item: AbilityItem { identity: known.map_or(Identity::Unknown, |def| def.identity), icon_id, text: name, custom_icon, border_id: None, mark: Mark::None, added: false, dimmed: false },
                 plate: (picture > 0).then(|| vfs.find(&format!("Skill_name_{picture:03}.png"))).flatten().map(|path| vfs.source(&path)),
                 description: talent_logic::describe(group, &cat.skill_descriptions, &combo_names),
                 ultra: group.is_ultra(),
@@ -182,16 +181,13 @@ fn assemble(
     is_conjure_expanded: bool,
     foe: Foe,
 ) -> StatblockData {
-    let (mut traits, mut h1, mut h2, mut b1, mut b2, mut footer) = collect_ability_data_against(ctx, versus::against(ctx, foe));
-    let spirit = if is_conjure_expanded { build_spirit_data(ctx, foe) } else { None };
-
-    versus::tag(ctx, foe, spirit.as_ref().is_some_and(|(_, controls)| *controls), [&mut traits, &mut h1, &mut h2, &mut b1, &mut b2, &mut footer]);
-
-    let spirit_data = spirit.map(|(data, _)| data);
-
     let anim_frames = cat_entry.atk_anim_frames[current_form];
     let stat_ctx = StatContext::cat(ctx.final_stats, anim_frames, Some(&cat_entry.unitbuy), ctx.global.treasure);
     let cycle = (STAT_ATK_CYCLE.get_value)(&stat_ctx);
+
+    let spirit = if is_conjure_expanded { build_spirit_data(ctx, foe) } else { None };
+    let (traits, h1, h2, b1, b2, footer) = versus::abilities(ctx, foe, spirit.as_ref().is_some_and(|(_, controls)| *controls), Pace::of(&stat_ctx));
+    let spirit_data = spirit.map(|(data, _)| data);
 
     let headers_1 = vec![
         STAT_ATTACK.display_name.to_string(),
@@ -251,37 +247,25 @@ fn assemble(
 }
 
 fn build_spirit_data(ctx: &RenderContext<'_>, foe: Foe) -> Option<(SpiritData, bool)> {
-    if ctx.base_stats.conjure_unit_id <= 0 {
-        return None;
-    }
-
-    let conjure_stats_vec = unitid(&ctx.global.vault.vfs, ctx.base_stats.conjure_unit_id)?;
-    let conjure_stats = conjure_stats_vec.first()?;
-
-    let conjure_final = get_final_stats(conjure_stats, ctx.level_curve, ctx.current_level, None, None, ctx.global.treasure);
-
+    let (base, stats) = versus::spirit(ctx)?;
     let spirit_ctx = RenderContext {
-        base_stats: conjure_stats,
-        final_stats: &conjure_final,
+        base_stats: &base,
+        final_stats: &stats,
         talent_data: None,
         talent_levels: None,
         is_conjure_unit: true,
         ..*ctx
     };
-
-    let (mut s_traits, mut s_h1, mut s_h2, mut s_b1, mut s_b2, mut s_footer) = collect_ability_data_against(&spirit_ctx, versus::against(&spirit_ctx, foe));
-
-    versus::mark(&spirit_ctx, foe, [&mut s_traits, &mut s_h1, &mut s_h2, &mut s_b1, &mut s_b2, &mut s_footer]);
-
+    let (traits, h1, h2, b1, b2, footer) = versus::spirit_abilities(&spirit_ctx, foe);
     let data = SpiritData {
-        dmg_text: format!("Damage {}\nRange {}", conjure_final.attack_1_damage, conjure_final.standing_range),
-        traits: s_traits,
-        h1: s_h1,
-        h2: s_h2,
-        b1: s_b1,
-        b2: s_b2,
-        footer: s_footer,
+        dmg_text: format!("Damage {}\nRange {}", stats.attack_1_damage, stats.standing_range),
+        traits,
+        h1,
+        h2,
+        b1,
+        b2,
+        footer,
     };
 
-    Some((data, conjure_final.controls()))
+    Some((data, stats.controls()))
 }

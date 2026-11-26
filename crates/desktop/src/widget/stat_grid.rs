@@ -1,7 +1,7 @@
 use iced::alignment::{Horizontal, Vertical};
 use iced::theme::palette::{darken, lighten, mix};
 use iced::{border, Color, Element, Length, Theme};
-use iced::widget::{container, text, tooltip};
+use iced::widget::{column, container, stack, text, tooltip, Space};
 
 use crate::widget::text_with_superscript;
 
@@ -13,6 +13,8 @@ const TOOLTIP_TEXT_SIZE: f32 = 14.0;
 const CELL_BORDER_WIDTH: f32 = 2.0;
 const CELL_RADIUS: f32 = 4.0;
 const CELL_CLIP_INSET: f32 = CELL_BORDER_WIDTH;
+const PAIR_GAP: f32 = 4.0;
+const MARK_WIDTH: f32 = 2.0;
 const HEADER_SHADE: f32 = 0.08;
 const VALUE_SHADE: f32 = 0.1;
 
@@ -75,6 +77,19 @@ pub fn grid_frames<'a, Message: 'a>(header: &str, frames: i32) -> Element<'a, Me
     let content = cell(text_with_superscript(&raw, CELL_TEXT_SIZE), false);
 
     with_tooltip(content, header, &raw)
+}
+
+pub fn grid_pair<'a, Message: 'a>(header: Element<'a, Message>, value: Element<'a, Message>, tone: Option<Color>) -> Element<'a, Message> {
+    let pair = column![header, value].spacing(PAIR_GAP);
+    let Some(tone) = tone else {
+        return pair.into();
+    };
+    let outline = container(Space::new())
+        .width(Length::Fixed(CELL_WIDTH))
+        .height(Length::Fixed(CELL_HEIGHT * 2.0 + PAIR_GAP))
+        .style(move |_: &Theme| container::Style { border: border::rounded(CELL_RADIUS).color(tone).width(MARK_WIDTH), ..Default::default() });
+
+    stack![pair, outline].into()
 }
 
 fn frame_text(frames: i32) -> String {

@@ -32,7 +32,11 @@ pub enum CustomIcon {
     Unknown,
 }
 
-#[derive(Clone, Copy, PartialEq, Eq, Default, Debug)]
+const TONE_HIT: [u8; 4] = [76, 196, 100, 255];
+const TONE_MISS: [u8; 4] = [222, 76, 76, 255];
+const TONE_INERT: [u8; 4] = [236, 164, 44, 255];
+
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Default, Debug)]
 pub enum Mark {
     #[default] None,
     Hit,
@@ -40,6 +44,19 @@ pub enum Mark {
     Inert,
     Mixed,
     Glancing,
+}
+
+impl Mark {
+    pub fn tones(self) -> Option<([u8; 4], [u8; 4])> {
+        match self {
+            Mark::None => None,
+            Mark::Hit => Some((TONE_HIT, TONE_HIT)),
+            Mark::Miss => Some((TONE_MISS, TONE_MISS)),
+            Mark::Inert => Some((TONE_INERT, TONE_INERT)),
+            Mark::Mixed => Some((TONE_MISS, TONE_HIT)),
+            Mark::Glancing => Some((TONE_HIT, TONE_INERT)),
+        }
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -51,6 +68,7 @@ pub struct AbilityItem {
     pub border_id: Option<usize>,
     pub mark: Mark,
     pub added: bool,
+    pub dimmed: bool,
 }
 
 pub type AbilityGroups = (Vec<AbilityItem>, Vec<AbilityItem>, Vec<AbilityItem>, Vec<AbilityItem>, Vec<AbilityItem>, Vec<AbilityItem>);

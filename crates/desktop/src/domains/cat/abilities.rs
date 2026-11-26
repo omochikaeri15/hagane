@@ -1,23 +1,30 @@
 use std::collections::HashMap;
 
-use iced::widget::column;
-use iced::Element;
+use iced::widget::{button, column};
+use iced::{Element, Length, Theme};
 use codex::cat::unit::LevelCurve;
 use codex::files::img015;
 
 use foundry::common::context::GlobalContext;
-use codex::combat::Faction;
-use foundry::domains::cat::scanner::CatEntry;
+use codex::combat::{Faction, Foe, Identity};
+use foundry::domains::cat::versus::{self, Pace};
 use foundry::domains::settings::Settings;
 use foundry::systems::combat::{AbilityItem, CustomIcon, RenderContext, ABILITY_Y};
 
+use crate::app::theme;
 use crate::common::{CustomAssets, SpriteSheet};
 use crate::systems::combat::abilities::{self as shared, ListLayout};
 use crate::widget::ability_spacer;
 
+const VERSUS_WIDTH: f32 = 100.0;
+const VERSUS_HEIGHT: f32 = 24.0;
+const VERSUS_TEXT_SIZE: f32 = 12.0;
+
 #[derive(Debug, Clone)]
 pub enum Message {
     ToggleConjureExpand(u32),
+    ToggleVersus,
+    Pick(Identity),
 }
 
 #[derive(Clone, Copy)]
@@ -27,12 +34,15 @@ pub(super) struct SpiritContext<'a> {
     pub(super) level_curve: Option<&'a LevelCurve>,
     pub(super) current_level: i32,
     pub(super) conjure_unit_id: i32,
+    pub(super) foe: Option<Foe>,
 }
 
 #[derive(Default)]
 pub struct State {
     pub(super) shared: shared::State,
     conjure_overrides: HashMap<u32, bool>,
+    versus: bool,
+    foe: Foe,
 }
 
 
@@ -47,27 +57,42 @@ impl State {
                 let current = self.conjure_overrides.get(&cat_id).copied();
                 self.conjure_overrides.insert(cat_id, !current.unwrap_or(false));
             }
+            Message::ToggleVersus => self.versus = !self.versus,
+            Message::Pick(label) => self.foe = if self.foe.has(label) { self.foe.without(label) } else { self.foe.with(label) },
         }
     }
 
-    pub fn view<'a>(
+    pub(super) fn versus(&self) -> Option<Foe> {
+        self.versus.then_some(self.foe)
+    }
+
+    pub(super) fn versus_card(&self) -> Element<'_, Message> {
+        let active = self.versus;
+
+        button(theme::centered_text("Versus Mode").size(VERSUS_TEXT_SIZE))
+            .width(Length::Fixed(VERSUS_WIDTH))
+            .height(Length::Fixed(VERSUS_HEIGHT))
+            .style(move |t: &Theme, status| theme::toggle_button(t, status, active))
+            .on_press(Message::ToggleVersus)
+            .into()
+    }
+
+    pub(super) fn view<'a>(
         &'a self,
         ctx: &RenderContext<'_>,
-        cat: &'a CatEntry,
-        global_ctx: GlobalContext<'a>,
+        pace: Pace,
+        spirit: SpiritContext<'a>,
         sheets: &'a [SpriteSheet],
         assets: &'a CustomAssets,
         settings: &'a Settings,
     ) -> Element<'a, Message> {
-        let spirit = SpiritContext {
-            cat_id: cat.id,
-            global: global_ctx,
-            level_curve: cat.curve.as_ref(),
-            current_level: ctx.current_level,
-            conjure_unit_id: ctx.base_stats.conjure_unit_id,
+        let groups = match spirit.foe {
+            Some(foe) => versus::palette(ctx, foe, versus::spirit_controls(ctx), pace),
+            None => versus::plain(ctx, pace),
         };
+        let pick: Option<fn(Identity) -> Message> = spirit.foe.map(|_| Message::Pick as fn(Identity) -> Message);
 
-        self.shared.view(ctx, sheets, assets, move |items, layout| {
+        self.shared.view(groups, Faction::Cat, pick, sheets, assets, move |items, layout| {
             self.ability_list(items, spirit, sheets, assets, settings, layout)
         })
     }

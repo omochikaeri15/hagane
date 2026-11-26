@@ -11,6 +11,7 @@ const COUNT_CAP: usize = 1 << 16;
 
 const BREAK: u8 = b'\n';
 
+#[cfg(feature = "graphics")]
 const SPAN: usize = 64;
 
 #[derive(Clone, Debug, Default)]
@@ -61,12 +62,14 @@ impl<'a> Reader<'a> {
     }
 }
 
+#[cfg(feature = "graphics")]
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct Cursor<'a> {
     rest: &'a [u8],
     row: &'a [u8],
 }
 
+#[cfg(feature = "graphics")]
 impl<'a> Cursor<'a> {
     pub(crate) fn new(bytes: &'a [u8]) -> Self {
         Self { rest: bytes, row: &[] }
@@ -113,6 +116,7 @@ impl<'a> Cursor<'a> {
     }
 }
 
+#[cfg(feature = "graphics")]
 fn nth_break(bytes: &[u8], mut nth: usize) -> Option<usize> {
     let mut start = 0;
 
@@ -130,6 +134,7 @@ fn nth_break(bytes: &[u8], mut nth: usize) -> Option<usize> {
     None
 }
 
+#[cfg(feature = "graphics")]
 fn next_line<'a>(rest: &mut &'a [u8]) -> Option<&'a [u8]> {
     if rest.is_empty() { return None; }
 
@@ -260,6 +265,7 @@ mod tests {
         assert_eq!(cell_value("tail"), 0);
     }
 
+    #[cfg(feature = "graphics")]
     #[test]
     fn a_cursor_reads_the_values_a_reader_does() {
         // the cursor only skips the work, so every value it reports has to match the reader's
@@ -279,6 +285,7 @@ mod tests {
         }
     }
 
+    #[cfg(feature = "graphics")]
     #[test]
     fn skipping_lands_where_reading_row_by_row_does() {
         for text in ["a\n1\n2\r\n\n3,4\n5", "a\n1\n2\n3,4\n\n"] {

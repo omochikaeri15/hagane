@@ -1,17 +1,33 @@
-use codex::combat::{Bearing, Entity, Foe, Identity, Terms};
+use codex::combat::{Bearing, Entity, Foe, Identity, Terms, Timing};
 
 use crate::common::decimal::trimmed;
-use crate::systems::combat::registry::{get_display_def, AbilityIcon, Against};
-use crate::systems::combat::{AbilityItem, CustomIcon, Mark, RenderContext};
+use crate::systems::combat::abilities::collect_ability_data_against;
+use crate::systems::combat::registry::{get_display_def, AbilityIcon, Against, Rhythm, StatContext, STAT_ATK_CYCLE, STAT_COOLDOWN};
+use crate::systems::combat::{AbilityGroups, AbilityItem, CustomIcon, Mark, RenderContext};
+
+use super::game::stats::get_final_stats;
+use super::waiter::unitid;
 
 const FRAMES_PER_SECOND: f64 = 30.0;
 const UNCHANGED: f64 = 1e-9;
 
-#[derive(Default)]
-pub(super) struct Felt {
-    pub(super) attack: Option<(String, Mark)>,
-    pub(super) dps: Option<(String, Mark)>,
-    pub(super) hitpoints: Option<(String, Mark)>,
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Pace {
+    pub cycle: i32,
+    pub recharge: i32,
+}
+
+impl Pace {
+    pub fn of(stats: &StatContext<'_>) -> Self {
+        Self { cycle: (STAT_ATK_CYCLE.get_value)(stats), recharge: (STAT_COOLDOWN.get_value)(stats) }
+    }
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Felt {
+    pub attack: Option<(String, Mark)>,
+    pub dps: Option<(String, Mark)>,
+    pub hitpoints: Option<(String, Mark)>,
 }
 
 fn rate(per_second: f64) -> String {
@@ -23,14 +39,14 @@ fn terms(ctx: &RenderContext<'_>, foe: Foe) -> Terms {
 
     Terms {
         fruit: ctx.global.treasure.fruit_against(ctx.final_stats, foe).0,
-        behemoth_dealt: param.behemoth_slayer_attack_multiplier,
-        behemoth_taken: param.behemoth_slayer_defense_multiplier,
-        sage_dealt: param.sage_slayer_attack_multiplier,
-        sage_taken: param.sage_slayer_defense_multiplier,
+        behemoth_dealt: param.behemoth_slayer_attack_multiplier(),
+        behemoth_taken: param.behemoth_slayer_defense_multiplier(),
+        sage_dealt: param.sage_slayer_attack_multiplier(),
+        sage_taken: param.sage_slayer_defense_multiplier(),
     }
 }
 
-pub(super) fn felt(ctx: &RenderContext<'_>, cycle: i32, foe: Foe) -> Felt {
+pub fn felt(ctx: &RenderContext<'_>, cycle: i32, foe: Foe) -> Felt {
     if foe.is_empty() {
         return Felt::default();
     }
@@ -63,12 +79,25 @@ fn bearing_mark(bearing: Bearing) -> Mark {
     }
 }
 
-pub(super) fn against(ctx: &RenderContext<'_>, foe: Foe) -> Option<Against> {
+fn against(ctx: &RenderContext<'_>, foe: Foe) -> Option<Against> {
     let stats = ctx.final_stats;
     let treasure = ctx.global.treasure;
     let sage = foe.has(Identity::TraitSage) && stats.sage_slayer == 0;
 
     (stats.targets(foe) || sage).then(|| Against { fruit: treasure.fruit_against(stats, foe), push: treasure.push_fruit(foe), sage })
+}
+
+fn rhythm(ctx: &RenderContext<'_>, pace: Pace) -> Option<Rhythm> {
+    (pace.cycle > 0 && !ctx.is_conjure_unit).then(|| {
+        let vault = ctx.global.vault;
+        let [wave, mini] = vault.vds.skills.wave_frames(&vault.vfs);
+
+        Rhythm { cycle: pace.cycle, recharge: pace.recharge, timing: Timing::new(ctx.global.param, wave, mini) }
+    })
+}
+
+pub fn plain(ctx: &RenderContext<'_>, pace: Pace) -> AbilityGroups {
+    collect_ability_data_against(ctx, None, rhythm(ctx, pace))
 }
 
 fn metal_mark(stats: &Entity) -> Mark {
@@ -100,14 +129,21 @@ fn label_mark(stats: &Entity, label: Identity, spirit: bool) -> Mark {
     }
 }
 
-fn labeled(label: Identity, mark: Mark) -> AbilityItem {
+fn labeled(ctx: &RenderContext<'_>, label: Identity, mark: Mark) -> AbilityItem {
     let (icon_id, custom_icon) = match get_display_def(label).icon {
         AbilityIcon::Standard(id) => (Some(id), CustomIcon::None),
         AbilityIcon::Custom(custom) => (None, custom),
         AbilityIcon::None => (None, CustomIcon::None),
     };
 
-    AbilityItem { identity: label, icon_id, text: String::new(), custom_icon, border_id: None, mark, added: true }
+    AbilityItem { identity: label, icon_id, text: ctx.global.names.trait_label(label).to_owned(), custom_icon, border_id: None, mark, added: true, dimmed: false }
+}
+
+fn owns(stats: &Entity, label: Identity) -> bool {
+    match label {
+        Identity::TraitMetal => stats.aims_at(label),
+        _ => stats.answers(label),
+    }
 }
 
 fn marked(stats: &Entity, foe: Foe, spirit: bool, groups: &mut [&mut Vec<AbilityItem>; 6]) -> Vec<Identity> {
@@ -126,22 +162,55 @@ fn marked(stats: &Entity, foe: Foe, spirit: bool, groups: &mut [&mut Vec<Ability
     shown
 }
 
-pub(super) fn mark(ctx: &RenderContext<'_>, foe: Foe, mut groups: [&mut Vec<AbilityItem>; 6]) {
-    if !foe.is_empty() {
-        marked(ctx.final_stats, foe, false, &mut groups);
-    }
+fn gathered(ctx: &RenderContext<'_>, foe: Foe, spirit: bool, pace: Pace) -> (AbilityGroups, Vec<Identity>) {
+    let (mut traits, mut h1, mut h2, mut b1, mut b2, mut footer) = collect_ability_data_against(ctx, against(ctx, foe), rhythm(ctx, pace));
+    let shown = if foe.is_empty() { Vec::new() } else { marked(ctx.final_stats, foe, spirit, &mut [&mut traits, &mut h1, &mut h2, &mut b1, &mut b2, &mut footer]) };
+
+    ((traits, h1, h2, b1, b2, footer), shown)
 }
 
-pub(super) fn tag(ctx: &RenderContext<'_>, foe: Foe, spirit: bool, mut groups: [&mut Vec<AbilityItem>; 6]) {
-    if foe.is_empty() {
-        return;
+pub fn abilities(ctx: &RenderContext<'_>, foe: Foe, spirit: bool, pace: Pace) -> AbilityGroups {
+    let ((mut traits, h1, h2, b1, b2, footer), shown) = gathered(ctx, foe, spirit, pace);
+    let stats = ctx.final_stats;
+
+    traits.extend(foe.labels().filter(|label| !shown.contains(label)).map(|label| labeled(ctx, label, label_mark(stats, label, spirit))));
+
+    (traits, h1, h2, b1, b2, footer)
+}
+
+pub fn palette(ctx: &RenderContext<'_>, foe: Foe, spirit: bool, pace: Pace) -> AbilityGroups {
+    let ((_, h1, h2, b1, b2, footer), _) = gathered(ctx, foe, spirit, pace);
+    let stats = ctx.final_stats;
+    let picks = Foe::LABELS
+        .into_iter()
+        .map(|label| {
+            let picked = foe.has(label);
+            let mark = if picked { label_mark(stats, label, spirit) } else { Mark::None };
+
+            AbilityItem { dimmed: !picked && !owns(stats, label), ..labeled(ctx, label, mark) }
+        })
+        .collect();
+
+    (picks, h1, h2, b1, b2, footer)
+}
+
+pub fn spirit(ctx: &RenderContext<'_>) -> Option<(Entity, Entity)> {
+    if ctx.base_stats.conjure_unit_id <= 0 {
+        return None;
     }
 
-    let stats = ctx.final_stats;
-    let shown = marked(stats, foe, spirit, &mut groups);
-    let absent: Vec<AbilityItem> = foe.labels().filter(|label| !shown.contains(label)).map(|label| labeled(label, label_mark(stats, label, spirit))).collect();
+    let base = unitid(&ctx.global.vault.vfs, ctx.base_stats.conjure_unit_id)?.into_iter().next()?;
+    let stats = get_final_stats(&base, ctx.level_curve, ctx.current_level, None, None, ctx.global.treasure);
 
-    groups[0].extend(absent);
+    Some((base, stats))
+}
+
+pub fn spirit_controls(ctx: &RenderContext<'_>) -> bool {
+    spirit(ctx).is_some_and(|(_, stats)| stats.controls())
+}
+
+pub fn spirit_abilities(ctx: &RenderContext<'_>, foe: Foe) -> AbilityGroups {
+    gathered(ctx, foe, false, Pace::default()).0
 }
 
 #[cfg(test)]
@@ -168,6 +237,19 @@ mod tests {
         assert_eq!(label_mark(&aimed, Identity::TraitAngel, false), Mark::Inert);
         assert_eq!(label_mark(&slayer, Identity::TraitColossus, false), Mark::Hit);
         assert_eq!(label_mark(&slayer, Identity::TraitSage, false), Mark::Inert);
+    }
+
+    // In Versus Mode every label is offered, and only the ones the cat has nothing for are dimmed;
+    // a crit lands on Metal, but it is not a target.
+    #[test]
+    fn untargeted_labels_are_dimmed() {
+        let critter = Entity { attack_1_damage: 100, attack_1_abilities: 1, critical_chance: 10, trait_red: 1, colossus_slayer: 1, ..Entity::default() };
+
+        assert!(owns(&critter, Identity::TraitRed) && owns(&critter, Identity::TraitColossus));
+        assert!(!owns(&critter, Identity::TraitMetal) && !owns(&critter, Identity::TraitAngel));
+        assert!(owns(&Entity { trait_metal: 1, ..critter.clone() }, Identity::TraitMetal));
+        assert_eq!(Mark::Mixed.tones().map(|(upper, lower)| upper != lower), Some(true));
+        assert_eq!(Mark::None.tones(), None);
     }
 
     // A Sage only matters to a cat through its crowd control, which it shrugs off unless the cat is a Sage Slayer.

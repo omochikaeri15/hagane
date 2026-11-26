@@ -3,7 +3,7 @@ use std::collections::HashMap;
 
 use codex::cat::unit::UnitBuy;
 use codex::chapter::stage::BattlegroundEntry;
-use codex::combat::{crowned, deploy_cost, knockback_reach, magnified, resisted, AttrValue, Entity, Faction, Identity, KNOCKBACK_FRAMES, REGISTRY};
+use codex::combat::{crowned, deploy_cost, knockback_reach, magnified, resisted, AttrValue, Entity, Faction, Identity, Timing, KNOCKBACK_FRAMES, REGISTRY};
 use codex::chapter::treasure::TraitBonus;
 use codex::files::{img015, Param};
 use serde::{Deserialize, Serialize};
@@ -14,6 +14,7 @@ use crate::systems::treasure::Bonus;
 
 const WHOLE: i32 = 100;
 const SHARES: i64 = 10_000;
+const TENTHS: f64 = 1000.0;
 const SPLITS: [char; 3] = ['/', '|', '\\'];
 const CROWNS: [char; 4] = ['x', 'X', '*', '\u{d7}'];
 
@@ -123,6 +124,7 @@ pub struct FormatContext<'a> {
     pub treasure: &'a Bonus,
     pub names: &'a NameBook,
     pub against: Option<Against>,
+    pub rhythm: Option<Rhythm>,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -130,6 +132,13 @@ pub struct Against {
     pub fruit: TraitBonus,
     pub push: i32,
     pub sage: bool,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Rhythm {
+    pub cycle: i32,
+    pub recharge: i32,
+    pub timing: Timing,
 }
 
 pub struct AbilityDisplayDef {
@@ -196,20 +205,64 @@ fn sage_resist(ctx: &FormatContext<'_>, against: Against, identity: Identity) ->
     }
 
     match identity {
-        Identity::Freeze => ctx.param.sage_type_resist_freeze,
-        Identity::Slow => ctx.param.sage_type_resist_slow,
-        Identity::Weaken => ctx.param.sage_type_resist_weaken,
-        Identity::Curse => ctx.param.sage_type_resist_curse,
-        Identity::Knockback => ctx.param.sage_type_resist_knockback,
+        Identity::Freeze => ctx.param.sage_type_resist_freeze(),
+        Identity::Slow => ctx.param.sage_type_resist_slow(),
+        Identity::Weaken => ctx.param.sage_type_resist_weaken(),
+        Identity::Curse => ctx.param.sage_type_resist_curse(),
+        Identity::Knockback => ctx.param.sage_type_resist_knockback(),
         _ => 0,
     }
+}
+
+fn held_frames(ctx: &FormatContext<'_>, against: Against, identity: Identity) -> i32 {
+    resisted(against.fruit.scale_duration(ctx.duration, ctx.stats.effect_up(identity)), sage_resist(ctx, against, identity))
+}
+
+fn percent(share: f64) -> String {
+    let mut tenths = (share * TENTHS).round() as i64;
+
+    if share < 1.0 {
+        tenths = tenths.min(TENTHS as i64 - 1);
+    }
+
+    if share > 0.0 {
+        tenths = tenths.max(1);
+    }
+
+    match tenths % 10 {
+        0 => format!("{}%", tenths / 10),
+        rest => format!("{}.{rest}%", tenths / 10),
+    }
+}
+
+fn uptime(ctx: &FormatContext<'_>, identity: Identity, gap: &str) -> String {
+    let Some(rhythm) = ctx.rhythm else {
+        return String::new();
+    };
+
+    let (shortest, longest) = match ctx.against {
+        Some(against) => {
+            let held = held_frames(ctx, against, identity);
+
+            (held, held)
+        }
+        None => ctx.treasure.fruit_frames(ctx.stats, ctx.duration, ctx.stats.effect_up(identity)),
+    };
+    let exposure = ctx.stats.exposure(rhythm.cycle, rhythm.recharge, &rhythm.timing);
+    let chance = finite(ctx.value);
+    let (Some((least, _)), Some((_, most))) = (exposure.uptime(chance, shortest), exposure.uptime(chance, longest)) else {
+        return String::new();
+    };
+    let (low, high) = (percent(least), percent(most));
+
+    if low == high { format!("{gap}with {low} uptime") } else { format!("{gap}with {low}~{high} uptime") }
 }
 
 fn fruit_time(ctx: &FormatContext<'_>, identity: Identity) -> String {
     let raise = ctx.stats.effect_up(identity);
 
     match ctx.against {
-        Some(against) => frames::label(resisted(against.fruit.scale_duration(ctx.duration, raise), sage_resist(ctx, against, identity))),
+        Some(against) => frames::label(held_frames(ctx, against, identity)),
         None => {
             let (shortest, longest) = ctx.treasure.fruit_frames(ctx.stats, ctx.duration, raise);
 
@@ -393,19 +446,19 @@ fn fmt_sage_slayer(ctx: &FormatContext<'_>) -> String {
     let param = ctx.param;
     let mut groups: HashMap<i32, Vec<&str>> = HashMap::new();
 
-    groups.entry(param.sage_slayer_resist_weaken).or_default().push(named(ctx, Identity::Weaken));
-    groups.entry(param.sage_slayer_resist_freeze).or_default().push(named(ctx, Identity::Freeze));
-    groups.entry(param.sage_slayer_resist_slow).or_default().push(named(ctx, Identity::Slow));
-    groups.entry(param.sage_slayer_resist_curse).or_default().push(named(ctx, Identity::Curse));
-    groups.entry(param.sage_slayer_resist_other).or_default().push(named(ctx, Identity::Knockback));
-    groups.entry(param.sage_slayer_resist_other).or_default().push(named(ctx, Identity::Drain));
-    groups.entry(param.sage_slayer_resist_warp).or_default().push(named(ctx, Identity::Warp));
+    groups.entry(param.sage_slayer_resist_weaken()).or_default().push(named(ctx, Identity::Weaken));
+    groups.entry(param.sage_slayer_resist_freeze()).or_default().push(named(ctx, Identity::Freeze));
+    groups.entry(param.sage_slayer_resist_slow()).or_default().push(named(ctx, Identity::Slow));
+    groups.entry(param.sage_slayer_resist_curse()).or_default().push(named(ctx, Identity::Curse));
+    groups.entry(param.sage_slayer_resist_other()).or_default().push(named(ctx, Identity::Knockback));
+    groups.entry(param.sage_slayer_resist_other()).or_default().push(named(ctx, Identity::Drain));
+    groups.entry(param.sage_slayer_resist_warp()).or_default().push(named(ctx, Identity::Warp));
 
     let sages = ctx.names.trait_plural(Identity::TraitSage);
     let base_description = format!(
         "Deals {:.1}× Damage to and takes {:.1}× Damage from {sages}\nIgnores the Crowd Control resistance of {sages}\nCrowd Control effects originating from {sages} reduced by",
-        param.sage_slayer_attack_multiplier as f32 / 1000.0,
-        param.sage_slayer_defense_multiplier as f32 / 1000.0
+        param.sage_slayer_attack_multiplier() as f32 / 1000.0,
+        param.sage_slayer_defense_multiplier() as f32 / 1000.0
     );
 
     fmt_resistance_groups(&base_description, groups)
@@ -415,11 +468,11 @@ fn fmt_sage_trait(ctx: &FormatContext<'_>) -> String {
     let param = ctx.param;
     let mut groups: HashMap<i32, Vec<&str>> = HashMap::new();
 
-    groups.entry(param.sage_type_resist_weaken).or_default().push(named(ctx, Identity::Weaken));
-    groups.entry(param.sage_type_resist_freeze).or_default().push(named(ctx, Identity::Freeze));
-    groups.entry(param.sage_type_resist_slow).or_default().push(named(ctx, Identity::Slow));
-    groups.entry(param.sage_type_resist_curse).or_default().push(named(ctx, Identity::Curse));
-    groups.entry(param.sage_type_resist_knockback).or_default().push(named(ctx, Identity::Knockback));
+    groups.entry(param.sage_type_resist_weaken()).or_default().push(named(ctx, Identity::Weaken));
+    groups.entry(param.sage_type_resist_freeze()).or_default().push(named(ctx, Identity::Freeze));
+    groups.entry(param.sage_type_resist_slow()).or_default().push(named(ctx, Identity::Slow));
+    groups.entry(param.sage_type_resist_curse()).or_default().push(named(ctx, Identity::Curse));
+    groups.entry(param.sage_type_resist_knockback()).or_default().push(named(ctx, Identity::Knockback));
 
     fmt_resistance_groups(&format!("Crowd Control effects inflicted upon {} are reduced by", ctx.names.trait_plural(Identity::TraitSage)), groups)
 }
@@ -806,8 +859,8 @@ pub fn get_display_def(identity: Identity) -> AbilityDisplayDef {
                 let behemoths = ctx.names.trait_plural(Identity::TraitBehemoth);
                 let mut formatted_text = format!(
                     "Deals {:.1}× Damage to and takes {:.1}× Damage from {}",
-                    ctx.param.behemoth_slayer_attack_multiplier as f32 / 1000.0,
-                    ctx.param.behemoth_slayer_defense_multiplier as f32 / 1000.0,
+                    ctx.param.behemoth_slayer_attack_multiplier() as f32 / 1000.0,
+                    ctx.param.behemoth_slayer_defense_multiplier() as f32 / 1000.0,
                     behemoths
                 );
                 if ctx.stats.behemoth_dodge_chance > 0 {
@@ -1095,7 +1148,7 @@ pub fn get_display_def(identity: Identity) -> AbilityDisplayDef {
             group: DisplayGroup::Body2,
             formatter: |ctx| {
                 let dodged = pick(ctx.stats.faction, ctx.target, "attacks");
-                format!("{}% Chance to {} against {} for {}", finite(ctx.value), named(ctx, Identity::Dodge), dodged, fruit_time(ctx, Identity::Dodge))
+                format!("{}% Chance to {} against {}\nfor {}", finite(ctx.value), named(ctx, Identity::Dodge), dodged, fruit_time(ctx, Identity::Dodge))
             },
         },
         Identity::RechargeCut => AbilityDisplayDef {
@@ -1124,7 +1177,7 @@ pub fn get_display_def(identity: Identity) -> AbilityDisplayDef {
             fallback: "KillAtk",
             icon: AbilityIcon::Standard(img015::ICON_KILL_ATTACK_UP),
             group: DisplayGroup::Body2,
-            formatter: |ctx| format!("Gains +{}% Attack Power\nonce this Cat defeats {} enemies", finite(ctx.value), ctx.param.powerup_kills),
+            formatter: |ctx| format!("Gains +{}% Attack Power\nonce this Cat defeats {} enemies", finite(ctx.value), ctx.param.powerup_kills()),
         },
         Identity::StrongUp => AbilityDisplayDef {
             name: "Strong Effect Up",
@@ -1181,12 +1234,13 @@ pub fn get_display_def(identity: Identity) -> AbilityDisplayDef {
             icon: AbilityIcon::Standard(img015::ICON_WEAKEN),
             group: DisplayGroup::Body2,
             formatter: |ctx| format!(
-                "{}% Chance to {} {}\nto {}% Attack Power for {}",
+                "{}% Chance to {} {}\nto {}% Attack Power for {}{}",
                 finite(ctx.value),
                 named(ctx, Identity::Weaken),
                 ctx.target,
                 ctx.stats.weaken_to,
-                fruit_time(ctx, Identity::Weaken)
+                fruit_time(ctx, Identity::Weaken),
+                uptime(ctx, Identity::Weaken, "\n")
             ),
         },
         Identity::Freeze => AbilityDisplayDef {
@@ -1194,14 +1248,14 @@ pub fn get_display_def(identity: Identity) -> AbilityDisplayDef {
             fallback: "Freez",
             icon: AbilityIcon::Standard(img015::ICON_FREEZE),
             group: DisplayGroup::Body2,
-            formatter: |ctx| format!("{}% Chance to {} {} for {}", finite(ctx.value), named(ctx, Identity::Freeze), ctx.target, fruit_time(ctx, Identity::Freeze)),
+            formatter: |ctx| format!("{}% Chance to {} {}\nfor {}{}", finite(ctx.value), named(ctx, Identity::Freeze), ctx.target, fruit_time(ctx, Identity::Freeze), uptime(ctx, Identity::Freeze, " ")),
         },
         Identity::Slow => AbilityDisplayDef {
             name: "Slow",
             fallback: "Slow",
             icon: AbilityIcon::Standard(img015::ICON_SLOW),
             group: DisplayGroup::Body2,
-            formatter: |ctx| format!("{}% Chance to {} {} for {}", finite(ctx.value), named(ctx, Identity::Slow), ctx.target, fruit_time(ctx, Identity::Slow)),
+            formatter: |ctx| format!("{}% Chance to {} {}\nfor {}{}", finite(ctx.value), named(ctx, Identity::Slow), ctx.target, fruit_time(ctx, Identity::Slow), uptime(ctx, Identity::Slow, " ")),
         },
         Identity::Knockback => AbilityDisplayDef {
             name: "Knockback",
@@ -1222,7 +1276,7 @@ pub fn get_display_def(identity: Identity) -> AbilityDisplayDef {
             fallback: "Curse",
             icon: AbilityIcon::Standard(img015::ICON_CURSE),
             group: DisplayGroup::Body2,
-            formatter: |ctx| format!("{}% Chance to {} {} for {}", finite(ctx.value), named(ctx, Identity::Curse), ctx.target, fruit_time(ctx, Identity::Curse)),
+            formatter: |ctx| format!("{}% Chance to {} {}\nfor {}{}", finite(ctx.value), named(ctx, Identity::Curse), ctx.target, fruit_time(ctx, Identity::Curse), uptime(ctx, Identity::Curse, " ")),
         },
         Identity::Warp => AbilityDisplayDef {
             name: "Warp",
@@ -1687,15 +1741,19 @@ mod control_tests {
     use codex::combat::{AttrValue, Entity, Identity};
     use codex::files::Param;
 
-    use super::{get_display_def, Against, FormatContext, Magnification};
+    use super::{get_display_def, Against, FormatContext, Magnification, Rhythm};
     use crate::systems::combat::NameBook;
     use crate::systems::treasure::Bonus;
 
     fn said(identity: Identity, stats: &Entity, against: Option<Against>) -> String {
-        let param = Param { sage_type_resist_freeze: 50, sage_type_resist_knockback: 50, ..Param::default() };
+        paced(identity, stats, against, None)
+    }
+
+    fn paced(identity: Identity, stats: &Entity, against: Option<Against>, rhythm: Option<Rhythm>) -> String {
+        let param = Param { sage_type_resist_freeze: Some(50), sage_type_resist_knockback: Some(50), ..Param::default() };
         let (treasure, names) = (Bonus::default(), NameBook::default());
         let duration = stats.freeze_duration;
-        let ctx = FormatContext { value: AttrValue::Finite(100), stats, target: "Red", duration, magnification: Magnification::default(), param: &param, treasure: &treasure, names: &names, against };
+        let ctx = FormatContext { value: AttrValue::Finite(100), stats, target: "Red", duration, magnification: Magnification::default(), param: &param, treasure: &treasure, names: &names, against, rhythm };
 
         (get_display_def(identity).formatter)(&ctx)
     }
@@ -1704,7 +1762,7 @@ mod control_tests {
     #[test]
     fn knockback_says_how_far_and_how_long() {
         let cat = Entity { knockback_chance: 100, ..Entity::default() };
-        let sage = Against { fruit: TraitBonus(0), push: 0, sage: true };
+        let sage = Against { fruit: TraitBonus(0), sage: true, ..Against::default() };
 
         assert!(said(Identity::Knockback, &cat, None).ends_with("Red\n165 Range for 0.40s^12f"), "laid out like Warp");
         assert!(said(Identity::Knockback, &cat, Some(sage)).ends_with("Red\n82.5 Range for 0.40s^12f"));
@@ -1716,8 +1774,25 @@ mod control_tests {
     fn a_status_against_one_enemy_lasts_one_time() {
         let cat = Entity { freeze_chance: 100, freeze_duration: 90, ..Entity::default() };
 
-        assert!(said(Identity::Freeze, &cat, Some(Against { fruit: TraitBonus(300), push: 0, sage: false })).ends_with("for 3.60s^108f"));
-        assert!(said(Identity::Freeze, &cat, Some(Against { fruit: TraitBonus(300), push: 0, sage: true })).ends_with("for 1.80s^54f"));
+        assert!(said(Identity::Freeze, &cat, Some(Against { fruit: TraitBonus(300), ..Against::default() })).ends_with("Red\nfor 3.60s^108f"), "the time takes the second line, as Weaken's does");
+        assert!(said(Identity::Freeze, &cat, Some(Against { fruit: TraitBonus(300), sage: true, ..Against::default() })).ends_with("for 1.80s^54f"));
+    }
+
+    // Uptime follows the time on its line, with or without a picked foe, once there is a cycle to
+    // measure it by; a Sage's cut shortens it like the time.
+    #[test]
+    fn uptime_follows_the_time() {
+        let cat = Entity { freeze_chance: 100, freeze_duration: 90, standing_range: 300, time_until_attack_1: 10, attack_1_abilities: 1, ..Entity::default() };
+        let rhythm = |cycle: i32| Some(Rhythm { cycle, ..Rhythm::default() });
+
+        assert!(paced(Identity::Freeze, &cat, None, rhythm(300)).ends_with("Red\nfor 3.00s^90f with 29.7% uptime"));
+        assert!(paced(Identity::Freeze, &cat, Some(Against { sage: true, ..Against::default() }), rhythm(300)).ends_with("for 1.50s^45f with 14.7% uptime"));
+        assert!(paced(Identity::Freeze, &cat, None, rhythm(60)).ends_with("with 100% uptime"));
+        assert!(said(Identity::Freeze, &cat, None).ends_with("for 3.00s^90f"));
+
+        let weakener = Entity { weaken_chance: 100, freeze_duration: 90, weaken_to: 50, ..cat.clone() };
+        assert!(paced(Identity::Weaken, &weakener, None, rhythm(300)).ends_with("to 50% Attack Power for 3.00s^90f\nwith 29.7% uptime"), "Weaken's line is long enough already");
+        assert_eq!((super::percent(0.9996), super::percent(0.0004), super::percent(0.0)), ("99.9%".to_owned(), "0.1%".to_owned(), "0%".to_owned()));
     }
 }
 

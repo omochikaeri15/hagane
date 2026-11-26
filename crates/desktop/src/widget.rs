@@ -51,7 +51,7 @@ pub(crate) use section::{section, subsection};
 pub(crate) use slide::{slide, Slide, SLIDE_DURATION};
 pub(crate) use toast::{headline, toast, Tone};
 pub(crate) use smooth_scroll::{smooth_scroll, BOOTSTRAP_DT, DECAY_RATE, EPSILON, LINE_PIXELS};
-pub(crate) use stat_grid::{grid_frames, grid_header, grid_value};
+pub(crate) use stat_grid::{grid_frames, grid_header, grid_pair, grid_value};
 pub(crate) use status::status;
 pub(crate) use superscript::{strong_superscript, text_with_superscript, tinted_superscript};
 pub(crate) use uniform_grid::uniform_grid;

@@ -5,7 +5,7 @@ use tracing::trace;
 
 use crate::systems::combat::{AbilityGroups, AbilityItem, CustomIcon, Mark};
 use crate::domains::cat::game::talents;
-use crate::systems::combat::registry::{self, AbilityIcon, Against, DisplayGroup, FormatContext, StatContext};
+use crate::systems::combat::registry::{self, AbilityIcon, Against, DisplayGroup, FormatContext, Rhythm, StatContext};
 use crate::systems::combat::RenderContext;
 
 const TRAIT: usize = 0;
@@ -16,10 +16,10 @@ const BODY_2: usize = 4;
 const FOOTER: usize = 5;
 
 pub fn collect_ability_data(ctx: &RenderContext<'_>) -> AbilityGroups {
-    collect_ability_data_against(ctx, None)
+    collect_ability_data_against(ctx, None, None)
 }
 
-pub fn collect_ability_data_against(ctx: &RenderContext<'_>, against: Option<Against>) -> AbilityGroups {
+pub fn collect_ability_data_against(ctx: &RenderContext<'_>, against: Option<Against>, rhythm: Option<Rhythm>) -> AbilityGroups {
     trace!("collecting ability rendering data");
 
     let faction = ctx.final_stats.faction;
@@ -60,6 +60,7 @@ pub fn collect_ability_data_against(ctx: &RenderContext<'_>, against: Option<Aga
             treasure: ctx.global.treasure,
             names: ctx.global.names,
             against,
+            rhythm,
         };
 
         groups[slot].push(AbilityItem {
@@ -73,6 +74,7 @@ pub fn collect_ability_data_against(ctx: &RenderContext<'_>, against: Option<Aga
                 .or_else(|| run_border(ctx, pure_def.identity)),
             mark: Mark::None,
             added: false,
+            dimmed: false,
         });
     }
 
@@ -94,7 +96,7 @@ pub fn collect_ability_data_against(ctx: &RenderContext<'_>, against: Option<Aga
             match group.ability_id {
                 25 | 26 | 27 | 31 | 32 | 61 | 70 | 71 | 82 => {
                     if let Some(text) = talents::calculate_linked_display(talent_data, levels, index, ctx.base_stats, talents::Scaling { curve: ctx.level_curve, level: ctx.current_level, treasure: ctx.global.treasure }, ctx.final_stats) {
-                        talent_headline.push(AbilityItem { identity, icon_id, text, custom_icon: custom, border_id, mark: Mark::None, added: false });
+                        talent_headline.push(AbilityItem { identity, icon_id, text, custom_icon: custom, border_id, mark: Mark::None, added: false, dimmed: false });
                     }
                 },
                 18 | 19 | 20 | 21 | 22 | 24 | 30 | 52 | 54 => {
@@ -108,10 +110,11 @@ pub fn collect_ability_data_against(ctx: &RenderContext<'_>, against: Option<Aga
                         treasure: ctx.global.treasure,
                         names: ctx.global.names,
                         against,
+                        rhythm: None,
                     };
 
                     let text = (display_def.formatter)(&format_ctx);
-                    groups[FOOTER].push(AbilityItem { identity, icon_id, text, custom_icon: custom, border_id, mark: Mark::None, added: false });
+                    groups[FOOTER].push(AbilityItem { identity, icon_id, text, custom_icon: custom, border_id, mark: Mark::None, added: false, dimmed: false });
                 },
                 _ => {}
             }
@@ -128,7 +131,7 @@ pub fn collect_ability_data_against(ctx: &RenderContext<'_>, against: Option<Aga
         let value = (stat.get_value)(&StatContext::cat(ctx.final_stats, 0, None, ctx.global.treasure));
         let text = format!("{}: {} (-{cut}%)", stat.display_name, stat.under_talent(value));
 
-        groups[HEADLINE_2].push(AbilityItem { identity, icon_id: standard_icon(icon), text, custom_icon: custom_icon(icon), border_id: Some(border_id), mark: Mark::None, added: false });
+        groups[HEADLINE_2].push(AbilityItem { identity, icon_id: standard_icon(icon), text, custom_icon: custom_icon(icon), border_id: Some(border_id), mark: Mark::None, added: false, dimmed: false });
     }
 
     let [group_trait, headline_1, headline_2, body_1, body_2, footer] = groups;

@@ -5,6 +5,7 @@ use codex::files::img015;
 
 use foundry::domains::cat::game::stats::get_final_stats;
 use codex::combat::Faction;
+use foundry::domains::cat::versus;
 use foundry::domains::cat::waiter::unitid;
 use foundry::domains::settings::Settings;
 use foundry::systems::combat::abilities::collect_ability_data;
@@ -85,7 +86,10 @@ impl State {
             text(format!("Damage {}\nRange {}", conjure_final.attack_1_damage, conjure_final.standing_range)).size(DESCRIPTION_TEXT_SIZE)
         ].spacing(ICON_TEXT_GAP).align_y(Alignment::Center);
 
-        let (s_traits, s_h1, s_h2, s_b1, s_b2, s_footer) = collect_ability_data(&spirit_ctx);
+        let (s_traits, s_h1, s_h2, s_b1, s_b2, s_footer) = match spirit.foe {
+            Some(foe) => versus::spirit_abilities(&spirit_ctx, foe),
+            None => collect_ability_data(&spirit_ctx),
+        };
 
         let mut col = column![dmg_row].spacing(0).width(Length::Shrink);
         let mut prev = false;
@@ -93,7 +97,7 @@ impl State {
 
         if !s_traits.is_empty() {
             col = col.push(ability_spacer(ABILITY_Y));
-            col = col.push(self.shared.icon_row(&s_traits, sheets, assets, per_row, Faction::Cat));
+            col = col.push(self.shared.icon_row(&s_traits, sheets, assets, per_row, Faction::Cat, None));
             prev = true;
             last_was_trait = true;
         }
@@ -102,7 +106,7 @@ impl State {
             if headline.is_empty() { continue; }
 
             col = col.push(ability_spacer(if last_was_trait { TRAIT_Y } else { ABILITY_Y }));
-            col = col.push(self.shared.icon_row(headline, sheets, assets, per_row, Faction::Cat));
+            col = col.push(self.shared.icon_row(headline, sheets, assets, per_row, Faction::Cat, None));
             prev = true;
             last_was_trait = false;
         }
@@ -125,7 +129,7 @@ impl State {
             if prev {
                 col = col.push(ability_spacer(if last_was_trait { TRAIT_Y } else { ABILITY_Y }));
             }
-            col = col.push(self.shared.icon_row(&s_footer, sheets, assets, per_row, Faction::Cat));
+            col = col.push(self.shared.icon_row(&s_footer, sheets, assets, per_row, Faction::Cat, None));
         }
 
         container(col).width(Length::Shrink).padding(8).style(spirit_card_container).into()

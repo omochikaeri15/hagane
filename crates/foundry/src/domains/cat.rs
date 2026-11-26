@@ -6,7 +6,7 @@ pub mod grants;
 pub mod level;
 pub mod scanner;
 pub mod statblock;
-mod versus;
+pub mod versus;
 pub mod files;
 #[cfg(feature = "import")]
 pub(crate) mod patterns;

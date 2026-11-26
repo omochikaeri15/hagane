@@ -30,11 +30,12 @@ use foundry::domains::cat::animation as cat_animation;
 use foundry::domains::cat::game::stats::{get_final_stats, seeded_level};
 use foundry::domains::cat::level;
 use foundry::domains::cat::scanner::{self, CatEntry};
+use foundry::domains::cat::versus::{self, Pace};
 use foundry::domains::cat::waiter::unitid;
 use foundry::domains::cat::CatDataState;
 use foundry::domains::sandbox::jailbreak::Grants;
 use foundry::systems::combat::registry::{format_stat, Magnification, StatContext, STAT_ATK_CYCLE, STAT_ATTACK, STAT_COOLDOWN, STAT_COST, STAT_DPS, STAT_HITPOINTS, STAT_KNOCKBACKS, STAT_RANGE, STAT_RARITY, STAT_SPEED};
-use foundry::systems::combat::RenderContext;
+use foundry::systems::combat::{Mark, RenderContext};
 use foundry::domains::settings::{ScannerConfig, Settings};
 use foundry::systems::treasure::Bonus;
 use foundry::{Vfs, Vault};
@@ -46,7 +47,7 @@ use crate::common::CustomAssets;
 use crate::common::SpriteSheet;
 use crate::common::header_icon::{self, HeaderIcon};
 use crate::editor;
-use crate::widget::{grid_frames, grid_header, grid_value, name_box, popup, roster_list, statblock_export, status};
+use crate::widget::{grid_frames, grid_header, grid_pair, grid_value, name_box, popup, roster_list, statblock_export, status};
 
 const HEADER_BUTTON_WIDTH: f32 = 65.0;
 const HEADER_BUTTON_HEIGHT: f32 = 26.0;
@@ -971,6 +972,7 @@ impl State {
                     global: global_ctx,
                     settings,
                     grants: self.granted.as_ref(),
+                    foe: self.abilities.versus().unwrap_or_default(),
                 });
 
                 self.export.update(msg, || ctx.and_then(export::request)).map(Message::Export)
@@ -1214,6 +1216,10 @@ impl State {
             detail_row = detail_row.push(Space::new().width(Length::Fixed(15.0)));
             detail_row = detail_row.push(container(rule::vertical(1)).height(Length::Fixed(96.0)));
             detail_row = detail_row.push(Space::new().width(Length::Fixed(EXPORT_BUTTON_RULE_GAP)));
+            detail_row = detail_row.push(self.abilities.versus_card().map(Message::Abilities));
+            detail_row = detail_row.push(Space::new().width(Length::Fixed(EXPORT_BUTTON_RULE_GAP)));
+            detail_row = detail_row.push(container(rule::vertical(1)).height(Length::Fixed(96.0)));
+            detail_row = detail_row.push(Space::new().width(Length::Fixed(EXPORT_BUTTON_RULE_GAP)));
             detail_row = detail_row.push(self.export.view().map(Message::Export));
         } else if self.selected_tab == DetailTab::Talents
             && let Some(talent_data) = cat.talent_data.as_ref() {
@@ -1340,11 +1346,21 @@ impl State {
             is_conjure_unit: false,
         };
 
+        let pace = Pace::of(&StatContext::cat(&final_stats, cat.atk_anim_frames[self.selected_form], Some(&cat.unitbuy), global_ctx.treasure));
+        let spirit = abilities::SpiritContext {
+            cat_id: cat.id,
+            global: global_ctx,
+            level_curve: cat.curve.as_ref(),
+            current_level: self.current_level,
+            conjure_unit_id: base_stats.conjure_unit_id,
+            foe: self.abilities.versus(),
+        };
+
         editor::target(
             column![
-                self.view_stats(cat, &final_stats, self.selected_form, global_ctx.treasure),
+                self.view_stats(cat, &cat_ctx, self.selected_form),
                 Space::new().height(Length::Fixed(8.0)),
-                self.abilities.view(&cat_ctx, cat, global_ctx, &self.img015_sheets, &self.custom_assets, settings).map(Message::Abilities)
+                self.abilities.view(&cat_ctx, pace, spirit, &self.img015_sheets, &self.custom_assets, settings).map(Message::Abilities)
             ]
                 .width(Length::Fill)
                 .height(Length::Fill),
@@ -1352,54 +1368,41 @@ impl State {
         )
     }
 
-    fn view_stats(&self, cat: &CatEntry, final_stats: &Entity, form: usize, treasure: &Bonus) -> Element<'_, Message> {
-        let stat_ctx = StatContext::cat(final_stats, cat.atk_anim_frames[form], Some(&cat.unitbuy), treasure);
+    fn view_stats(&self, cat: &CatEntry, ctx: &RenderContext<'_>, form: usize) -> Element<'_, Message> {
+        let stat_ctx = StatContext::cat(ctx.final_stats, cat.atk_anim_frames[form], Some(&cat.unitbuy), ctx.global.treasure);
+        let cycle = (STAT_ATK_CYCLE.get_value)(&stat_ctx);
+        let felt = self.abilities.versus().map(|foe| versus::felt(ctx, cycle, foe)).unwrap_or_default();
+        let shown = |held: &Option<(String, Mark)>, plain: String| held.as_ref().map_or(plain, |(text, _)| text.clone());
+        let tone = |held: &Option<(String, Mark)>| held.as_ref().and_then(|(_, mark)| mark.tones()).map(|(upper, _)| Color::from_rgba8(upper[0], upper[1], upper[2], f32::from(upper[3]) / 255.0));
 
-        let atk_str = format_stat(&STAT_ATTACK, &stat_ctx);
-        let dps_str = format_stat(&STAT_DPS, &stat_ctx);
+        let atk_str = shown(&felt.attack, format_stat(&STAT_ATTACK, &stat_ctx));
+        let dps_str = shown(&felt.dps, format_stat(&STAT_DPS, &stat_ctx));
         let range_str = format_stat(&STAT_RANGE, &stat_ctx);
         let rarity_str = format_stat(&STAT_RARITY, &stat_ctx);
-        let hp_str = format_stat(&STAT_HITPOINTS, &stat_ctx);
+        let hp_str = shown(&felt.hitpoints, format_stat(&STAT_HITPOINTS, &stat_ctx));
         let kb_str = format_stat(&STAT_KNOCKBACKS, &stat_ctx);
         let speed_str = format_stat(&STAT_SPEED, &stat_ctx);
         let cost_str = format_stat(&STAT_COST, &stat_ctx);
 
-        let cycle = (STAT_ATK_CYCLE.get_value)(&stat_ctx);
         let cd_val = (STAT_COOLDOWN.get_value)(&stat_ctx);
 
-        let header_row = row![
-            grid_header(STAT_ATTACK.display_name),
-            grid_header(STAT_DPS.display_name),
-            grid_header(STAT_RANGE.display_name),
-            grid_header(STAT_ATK_CYCLE.display_name),
-            grid_header(STAT_RARITY.display_name),
+        let first_row = row![
+            grid_pair(grid_header(STAT_ATTACK.display_name), grid_value(STAT_ATTACK.display_name, &atk_str), tone(&felt.attack)),
+            grid_pair(grid_header(STAT_DPS.display_name), grid_value(STAT_DPS.display_name, &dps_str), tone(&felt.dps)),
+            grid_pair(grid_header(STAT_RANGE.display_name), grid_value(STAT_RANGE.display_name, &range_str), None),
+            grid_pair(grid_header(STAT_ATK_CYCLE.display_name), grid_frames(STAT_ATK_CYCLE.display_name, cycle), None),
+            grid_pair(grid_header(STAT_RARITY.display_name), grid_value(STAT_RARITY.display_name, &rarity_str), None),
         ].spacing(4);
 
-        let value_row = row![
-            grid_value(STAT_ATTACK.display_name, &atk_str),
-            grid_value(STAT_DPS.display_name, &dps_str),
-            grid_value(STAT_RANGE.display_name, &range_str),
-            grid_frames(STAT_ATK_CYCLE.display_name, cycle),
-            grid_value(STAT_RARITY.display_name, &rarity_str),
+        let second_row = row![
+            grid_pair(grid_header(STAT_HITPOINTS.display_name), grid_value(STAT_HITPOINTS.display_name, &hp_str), tone(&felt.hitpoints)),
+            grid_pair(grid_header(STAT_KNOCKBACKS.display_name), grid_value(STAT_KNOCKBACKS.display_name, &kb_str), None),
+            grid_pair(grid_header(STAT_SPEED.display_name), grid_value(STAT_SPEED.display_name, &speed_str), None),
+            grid_pair(grid_header(STAT_COOLDOWN.display_name), grid_frames(STAT_COOLDOWN.display_name, cd_val), None),
+            grid_pair(grid_header(STAT_COST.display_name), grid_value(STAT_COST.display_name, &cost_str), None),
         ].spacing(4);
 
-        let header_row2 = row![
-            grid_header(STAT_HITPOINTS.display_name),
-            grid_header(STAT_KNOCKBACKS.display_name),
-            grid_header(STAT_SPEED.display_name),
-            grid_header(STAT_COOLDOWN.display_name),
-            grid_header(STAT_COST.display_name),
-        ].spacing(4);
-
-        let value_row2 = row![
-            grid_value(STAT_HITPOINTS.display_name, &hp_str),
-            grid_value(STAT_KNOCKBACKS.display_name, &kb_str),
-            grid_value(STAT_SPEED.display_name, &speed_str),
-            grid_frames(STAT_COOLDOWN.display_name, cd_val),
-            grid_value(STAT_COST.display_name, &cost_str),
-        ].spacing(4);
-
-        column![header_row, value_row, header_row2, value_row2].spacing(4).into()
+        column![first_row, second_row].spacing(4).into()
     }
 
     fn view_talents<'a>(&'a self, cat: &'a CatEntry, global_ctx: GlobalContext<'a>) -> Element<'a, Message> {

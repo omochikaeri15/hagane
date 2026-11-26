@@ -17,6 +17,8 @@ use crate::systems::combat::{AbilityItem, Mark};
 #[cfg(feature = "statblock")]
 pub use details::build_details_image;
 #[cfg(feature = "statblock")]
+pub use draw::mark_ring;
+#[cfg(feature = "statblock")]
 pub use render::{Fonts, PageFonts, build_statblock_image};
 #[cfg(feature = "statblock")]
 pub use talents::build_talents_image;

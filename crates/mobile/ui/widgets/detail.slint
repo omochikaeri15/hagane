@@ -5,7 +5,7 @@ import { Shell, Tap } from "../shell.slint";
 export struct Seg { text: string, raised: bool, symbol: bool }
 export struct Word { segs: [Seg] }
 export struct Line { segs: [Seg], words: [Word] }
-export struct AbilityIcon { icon: image, has-icon: bool, border: image, has-border: bool, fallback: string, tip: string }
+export struct AbilityIcon { icon: image, has-icon: bool, border: image, has-border: bool, fallback: string, tip: string, ring: image, has-ring: bool, dimmed: bool }
 export struct AbilityLine { icon: AbilityIcon, lines: [Line], conjure: bool }
 export struct StatCell { header: string, value: [Line], tip: string }
 export struct HeaderBtn { label: string, available: bool }
@@ -71,6 +71,7 @@ export component IconBox inherits Rectangle {
     in property <length> size: 40px;
     width: root.size;
     height: root.size;
+    opacity: root.icon.dimmed ? 0.4 : 1.0;
     if root.icon.has-icon: Image {
         source: root.icon.icon;
         width: parent.width;
@@ -79,6 +80,12 @@ export component IconBox inherits Rectangle {
     }
     if root.icon.has-icon && root.icon.has-border: Image {
         source: root.icon.border;
+        width: parent.width;
+        height: parent.height;
+        image-fit: fill;
+    }
+    if root.icon.has-ring: Image {
+        source: root.icon.ring;
         width: parent.width;
         height: parent.height;
         image-fit: fill;
@@ -148,7 +155,9 @@ export component AbilityRows inherits VerticalLayout {
 export component IconRow inherits Rectangle {
     in property <[AbilityIcon]> items;
     in property <length> size: 40px;
+    in property <bool> picking;
     in-out property <int> open: -1;
+    callback picked(int);
     height: flow.preferred-height;
     flow := HorizontalLayout {
         spacing: 3px;
@@ -157,7 +166,7 @@ export component IconRow inherits Rectangle {
             width: root.size;
             height: root.size;
             IconBox { icon: item; size: root.size; }
-            Tap { enabled: !Shell.swiping; tapped => { root.open = root.open == index ? -1 : index; } }
+            Tap { enabled: !Shell.swiping; tapped => { if root.picking { root.picked(index); } else { root.open = root.open == index ? -1 : index; } } }
         }
     }
     if root.open >= 0 && root.open < root.items.length: Tip {
@@ -173,6 +182,8 @@ export component StatGrid inherits VerticalLayout {
     in property <[StatCell]> values-1;
     in property <[StatCell]> headers-2;
     in property <[StatCell]> values-2;
+    in property <[color]> marks-1;
+    in property <[color]> marks-2;
     property <int> columns: max(root.headers-1.length, root.values-1.length, root.headers-2.length, root.values-2.length, 1);
     in property <length> avail: Shell.app-width - 20px;
     in property <length> cell-width: min(82px, (root.avail - 4px * (root.columns - 1)) / root.columns);
@@ -213,6 +224,24 @@ export component StatGrid inherits VerticalLayout {
                     }
                 }
             }
+        }
+        for tone[index] in root.marks-1: Rectangle {
+            x: index * (root.cell-width + 4px);
+            y: 0px;
+            width: root.cell-width;
+            height: 28px * 2 + 4px;
+            border-width: 2px;
+            border-color: tone;
+            border-radius: Theme.radius-sm;
+        }
+        for tone[index] in root.marks-2: Rectangle {
+            x: index * (root.cell-width + 4px);
+            y: (28px + 4px) * 2;
+            width: root.cell-width;
+            height: 28px * 2 + 4px;
+            border-width: 2px;
+            border-color: tone;
+            border-radius: Theme.radius-sm;
         }
     }
 }

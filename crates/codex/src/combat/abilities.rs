@@ -905,11 +905,7 @@ pub static REGISTRY: &[Ability] = &[
         dictionary_id: None,
         schema: &[("Attacks", AttrUnit::None)],
         talent_values: &[],
-        attributes: |stats| {
-            if stats.attack_count_total > -1 && stats.attack_count_state == 2 {
-                vec![("Attacks", AttrValue::Finite(stats.attack_count_total), AttrUnit::None)]
-            } else { Vec::new() }
-        },
+        attributes: |stats| stats.swings().map(|total| vec![("Attacks", AttrValue::Finite(total), AttrUnit::None)]).unwrap_or_default(),
         apply_talent: None,
     },
     Ability {

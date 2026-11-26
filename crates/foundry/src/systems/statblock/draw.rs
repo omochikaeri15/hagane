@@ -12,9 +12,6 @@ use crate::systems::combat::{AbilityItem, CustomIcon, Mark};
 
 use super::board::{px, RADIUS_SM};
 
-const COLOR_MARK_HIT: Rgba<u8> = Rgba([76, 196, 100, 255]);
-const COLOR_MARK_MISS: Rgba<u8> = Rgba([222, 76, 76, 255]);
-const COLOR_MARK_INERT: Rgba<u8> = Rgba([236, 164, 44, 255]);
 const COLOR_CLEAR: Rgba<u8> = Rgba([0, 0, 0, 0]);
 pub(super) const MARK_WIDTH: f32 = 2.0;
 
@@ -124,14 +121,7 @@ pub(super) fn draw_bordered_rect_mut(img: &mut RgbaImage, cell: CellShape, fill:
 }
 
 pub(super) fn mark_colors(mark: Mark) -> Option<(Rgba<u8>, Rgba<u8>)> {
-    match mark {
-        Mark::None => None,
-        Mark::Hit => Some((COLOR_MARK_HIT, COLOR_MARK_HIT)),
-        Mark::Miss => Some((COLOR_MARK_MISS, COLOR_MARK_MISS)),
-        Mark::Inert => Some((COLOR_MARK_INERT, COLOR_MARK_INERT)),
-        Mark::Mixed => Some((COLOR_MARK_MISS, COLOR_MARK_HIT)),
-        Mark::Glancing => Some((COLOR_MARK_HIT, COLOR_MARK_INERT)),
-    }
+    mark.tones().map(|(upper, lower)| (Rgba(upper), Rgba(lower)))
 }
 
 pub(super) fn ring(width: u32, height: u32, radius: i32, border: i32, (upper, lower): (Rgba<u8>, Rgba<u8>)) -> RgbaImage {
@@ -149,6 +139,10 @@ pub(super) fn ring(width: u32, height: u32, radius: i32, border: i32, (upper, lo
     }
 
     layer
+}
+
+pub fn mark_ring(mark: Mark, width: u32, height: u32) -> Option<RgbaImage> {
+    mark_colors(mark).map(|colors| ring(width, height, px(RADIUS_SM), px(MARK_WIDTH), colors))
 }
 
 pub(super) fn draw_bottom_rounded_rect_mut(img: &mut RgbaImage, rect: Rect, r: i32, color: Rgba<u8>) {

@@ -12,7 +12,7 @@ use std::sync::Arc;
 use dioxus::prelude::*;
 use dioxus::router::Navigator;
 
-use codex::combat::Entity;
+use codex::combat::{Entity, Foe};
 use foundry::common::context::GlobalContext;
 use foundry::domains::cat::filter::CatFilterState;
 use foundry::domains::cat::game::stats::seeded_level;
@@ -74,6 +74,8 @@ pub(crate) struct CatState {
     pub(crate) locked: bool,
     pub(crate) granted: Signal<Option<Rc<Grants>>>,
     pub(crate) treasure: Signal<Option<Bonus>>,
+    pub(crate) versus: Signal<bool>,
+    pub(crate) foe: Signal<Foe>,
     ultra_active: Signal<bool>,
     saved_level: Signal<Option<(i32, String)>>,
 }
@@ -104,6 +106,8 @@ fn provided(locked: bool) -> CatState {
         locked,
         granted: Signal::new(None),
         treasure: Signal::new(None),
+        versus: Signal::new(false),
+        foe: Signal::new(Foe::default()),
         ultra_active: Signal::new(false),
         saved_level: Signal::new(None),
     })
@@ -488,10 +492,11 @@ fn shot_request(cat: Rc<CatEntry>, globals: Shared, settings: Signal<Settings>, 
             grants: granted.as_deref(),
         };
         let sheets = icons::sheets(&pictures, &globals, icons::IMG015);
+        let foe = state.versus.peek().then(|| *state.foe.peek()).unwrap_or_default();
 
         match tab {
             DetailTab::Talents => Some(Shot::Talents { data: cat_statblock::talents(subject)?, sheets, coins: icons::sheets(&pictures, &globals, icons::IMG022), priority }),
-            _ => Some(Shot::Stats(Box::new(Statblock { data: cat_statblock::build(subject)?, sheets, priority }))),
+            _ => Some(Shot::Stats(Box::new(Statblock { data: cat_statblock::build_against(subject, |_| foe)?, sheets, priority }))),
         }
     })
 }
@@ -567,6 +572,18 @@ pub(crate) fn Detail(cat: SelectedCat, globals: Shared, #[props(default)] extra:
     let shot = shot_request(Rc::clone(&cat), globals.clone(), settings, pictures.clone(), state);
     let level_input = (state.level_input)();
     let caps = cat.unitbuy.level_caps();
+    let versus_on = (state.versus)();
+    let versus_button = rsx! {
+        button {
+            class: if versus_on { "btn btn-toggle active versus-btn" } else { "btn btn-toggle versus-btn" },
+            onclick: move |_| {
+                let on = !*state.versus.peek();
+
+                state.versus.set(on);
+            },
+            "Versus Mode"
+        }
+    };
 
     use_effect(use_reactive!(|caps| {
         let mut state = state;
@@ -610,7 +627,18 @@ pub(crate) fn Detail(cat: SelectedCat, globals: Shared, #[props(default)] extra:
                         div { class: "vrule tall" }
                         crate::systems::animation::DebugToggles {}
                     }
-                    if tab == DetailTab::Abilities || tab == DetailTab::Details {
+                    if tab == DetailTab::Abilities && !packed {
+                        div { class: "vrule tall" }
+                        {versus_button.clone()}
+                    }
+                    if tab == DetailTab::Abilities && packed {
+                        div { class: "vrule tall" }
+                        div { class: "action-stack packed",
+                            export::ExportButtons { request: shot }
+                            button { class: "btn btn-primary talent-btn", onclick: move |_| { let mut more = more; more.set(true); }, "More Actions" }
+                        }
+                    }
+                    if (tab == DetailTab::Abilities && !packed) || tab == DetailTab::Details {
                         div { class: "vrule tall" }
                         export::ExportButtons { request: shot }
                     }
@@ -628,6 +656,13 @@ pub(crate) fn Detail(cat: SelectedCat, globals: Shared, #[props(default)] extra:
                     }
                 }
                 div { class: "rule" }
+            }
+            if packed && tab == DetailTab::Abilities {
+                Popup { title: "More Actions", open: more, width: MORE_WIDTH,
+                    div { class: "dialog-body more-actions",
+                        {versus_button}
+                    }
+                }
             }
             if packed && tab == DetailTab::Talents && cat.talent_data.is_some() {
                 Popup { title: "More Actions", open: more, width: MORE_WIDTH,
