@@ -230,18 +230,18 @@ impl State {
         self.motions.iter().any(|motion| motion.role.is_some() && motion.file.is_some())
     }
 
-    pub fn role_paths(&self) -> Vec<(Role, Source)> {
+    pub fn role_paths(&self) -> Vec<(Role, Loop, Source)> {
         self.motions
             .iter()
-            .filter_map(|motion| Some((motion.role?, motion.file.clone()?)))
+            .filter_map(|motion| Some((motion.role?, motion.looping, motion.file.clone()?)))
             .collect()
     }
 
-    pub fn role_path(&self, role: Role) -> Option<&Source> {
-        self.motions
-            .iter()
-            .find(|motion| motion.role == Some(role))
-            .and_then(|motion| motion.file.as_ref())
+    pub fn loop_first(&self) -> i32 {
+        match self.is_model() {
+            true => 0,
+            false => self.current_anim.as_ref().map_or(0, |anim| self.looping().first(anim)),
+        }
     }
 
     pub fn loop_bound(&self) -> Option<i32> {

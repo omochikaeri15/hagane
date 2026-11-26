@@ -217,15 +217,13 @@ impl State {
     fn sync_playhead(&mut self) {
         let (rig, motion) = self.data.playhead_key();
 
-        if self.playhead_rig == rig && self.playhead_motion == motion {
-            return;
-        }
+        if self.playhead_rig != rig || self.playhead_motion != motion {
+            self.playhead_rig = rig.to_string();
+            self.playhead_motion = motion;
 
-        self.playhead_rig = rig.to_string();
-        self.playhead_motion = motion;
-
-        if std::mem::take(&mut self.playhead_reset) {
-            self.canvas.current_frame = 0.0;
+            if std::mem::take(&mut self.playhead_reset) {
+                self.canvas.current_frame = 0.0;
+            }
         }
 
         controls::clamp_frame(&mut self.canvas, &self.data);

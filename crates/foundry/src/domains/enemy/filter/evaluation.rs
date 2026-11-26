@@ -7,7 +7,7 @@ use crate::domains::enemy::scanner::EnemyEntry;
 use crate::systems::combat::NameBook;
 use crate::systems::treasure::Bonus;
 
-pub(crate) fn get_stat_value(s: &Entity, stat: &str, anim_frames: i32, magnification: Magnification, treasure: &Bonus) -> i32 {
+pub(crate) fn get_stat_value(s: &Entity, stat: &str, anim_frames: Option<i32>, magnification: Magnification, treasure: &Bonus) -> i32 {
     let reg_name = match stat {
         "Atk Cycle (f)" => "Atk Cycle",
         _ => stat,

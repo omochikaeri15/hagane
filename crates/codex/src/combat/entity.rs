@@ -199,19 +199,20 @@ impl Entity {
         identity.effect_up().and_then(|(index, _)| self.effect_ups.get(index).copied()).unwrap_or(0)
     }
 
-    pub fn attack_cycle(&self, frames: i32) -> i32 {
-        let mut effective_foreswing = self.time_until_attack_1;
+    pub fn attack_cycle(&self, length: Option<i32>) -> i32 {
+        let fires = self.fires(length);
 
-        if self.attack_3_damage > 0 && self.time_until_attack_3 > 0 {
-            effective_foreswing = self.time_until_attack_3;
-        }
-        else if self.attack_2_damage > 0 && self.time_until_attack_2 > 0 {
-            effective_foreswing = self.time_until_attack_2;
+        if self.attack_count_total == 0 || !fires.contains(&true) {
+            return 0;
         }
 
-        let cooldown_frames = self.attack_cooldown.saturating_sub(1);
+        let frames = self.strike_frames();
+        let end = length.unwrap_or(0);
 
-        (effective_foreswing + cooldown_frames).max(frames)
+        match frames.len().checked_sub(1).filter(|last| fires[*last]) {
+            Some(last) => frames[last].saturating_add(self.attack_cooldown.saturating_sub(1)).max(end),
+            None => end,
+        }
     }
 
     pub fn legacy_matchup(&self, target: &Self) -> bool {

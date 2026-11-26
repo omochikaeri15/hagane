@@ -202,7 +202,7 @@ impl Entity {
     pub fn crits(&self) -> bool {
         let hits = [(self.attack_1_damage, self.attack_1_abilities), (self.attack_2_damage, self.attack_2_abilities), (self.attack_3_damage, self.attack_3_abilities)];
 
-        self.critical_chance > 0 && hits.iter().any(|(attack, able)| *attack != 0 && *able != 0)
+        self.critical_chance > 0 && hits.iter().take(self.strike_frames().len()).any(|(attack, able)| *attack != 0 && *able != 0)
     }
 
     fn holds(&self, ability: Identity) -> bool {
@@ -391,7 +391,7 @@ mod tests {
     // Against Metal a landing that is not a critical hit deals 1, whatever came before; a critical one is doubled first and then multiplied.
     #[test]
     fn metal_takes_one_unless_the_hit_is_critical() {
-        let unit = Entity { attack_1_damage: 1000, attack_1_abilities: 1, trait_metal: 1, massive_damage: 1, critical_chance: 30, ..Entity::default() };
+        let unit = Entity { attack_1_damage: 1000, time_until_attack_1: 10, attack_1_abilities: 1, trait_metal: 1, massive_damage: 1, critical_chance: 30, ..Entity::default() };
         let metal = foe(&[Identity::TraitMetal]);
         let land = |carrier: Carrier, critical: bool, savage: bool| unit.landing(metal, TERMS, 1000, carrier, Roll { critical, savage, ..Roll::default() });
 
@@ -449,7 +449,7 @@ mod tests {
     // one that also cuts damage taken still does half its job, and a crit brings both back.
     #[test]
     fn metal_without_a_crit_blunts_damage_boosts() {
-        let unit = Entity { attack_1_damage: 1000, attack_1_abilities: 1, trait_metal: 1, massive_damage: 1, strong_against: 1, resist: 1, freeze_chance: 30, freeze_duration: 30, ..Entity::default() };
+        let unit = Entity { attack_1_damage: 1000, time_until_attack_1: 10, attack_1_abilities: 1, trait_metal: 1, massive_damage: 1, strong_against: 1, resist: 1, freeze_chance: 30, freeze_duration: 30, ..Entity::default() };
         let metal = foe(&[Identity::TraitMetal]);
         let bearing = |unit: &Entity, ability: Identity| unit.touched(metal).into_iter().find(|(held, _)| *held == ability).map(|(_, bearing)| bearing);
 

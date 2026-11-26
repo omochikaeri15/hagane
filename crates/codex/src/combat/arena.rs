@@ -28,6 +28,16 @@ impl Entity {
             .collect()
     }
 
+    pub fn fires(&self, length: Option<i32>) -> [bool; 3] {
+        let frames = self.strike_frames();
+
+        std::array::from_fn(|hit| {
+            frames.get(hit).is_some_and(|frame| {
+                *frame >= 1 && length.is_none_or(|end| *frame < end) && !frames[..hit].contains(frame)
+            })
+        })
+    }
+
     pub(super) fn strike_band(&self, attack: usize) -> (i32, i32) {
         let first = (self.long_distance_1_anchor, self.long_distance_1_span);
 
@@ -171,5 +181,29 @@ mod tests {
         let stats = Entity { time_until_attack_1: 5, time_until_attack_3: 30, ..Entity::default() };
 
         assert_eq!(stats.strike_frames(), vec![5]);
+    }
+
+    #[test]
+    fn a_hit_fires_only_inside_the_attack_and_on_a_frame_of_its_own() {
+        // The attack is drawn on frames 1 to length - 1, and on a frame two hits share only
+        // the earlier one goes off.
+        let triple = Entity { time_until_attack_1: 10, time_until_attack_2: 10, time_until_attack_3: 40, ..Entity::default() };
+
+        assert_eq!(triple.fires(Some(30)), [true, false, false]);
+        assert_eq!(triple.fires(Some(41)), [true, false, true]);
+        assert_eq!(triple.fires(None), [true, false, true], "an unknown length takes every frame on trust");
+        assert_eq!(Entity { time_until_attack_1: 5, ..Entity::default() }.fires(Some(1)), [false; 3]);
+    }
+
+    #[test]
+    fn the_wait_starts_on_the_last_hit_or_never() {
+        let unit = Entity { time_until_attack_1: 10, time_until_attack_2: 20, attack_cooldown: 30, attack_count_total: -1, ..Entity::default() };
+
+        assert_eq!(unit.attack_cycle(Some(25)), 49, "the last hit at 20 waits 30 more");
+        assert_eq!(unit.attack_cycle(Some(80)), 80, "a long attack outlasts the wait");
+        assert_eq!(unit.attack_cycle(Some(15)), 15, "the last hit never lands, so the attack just repeats");
+        assert_eq!(unit.attack_cycle(Some(10)), 0, "nothing lands at all");
+        assert_eq!(unit.attack_cycle(None), 49);
+        assert_eq!(Entity { attack_count_total: 0, ..unit }.attack_cycle(Some(25)), 0, "no attacks to make");
     }
 }

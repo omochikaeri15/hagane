@@ -683,7 +683,7 @@ impl State {
             .enumerate()
             .filter(|(_, foe)| !self.surged(foe.enemy_id) && sighted.contains(&foe.enemy_id))
             .map(|(slot, foe)| {
-                let frames = self.foe(foes, foe.enemy_id).map_or((0, 0), |held| (held.atk_anim_frames, held.atk_anim_frames));
+                let frames = self.foe(foes, foe.enemy_id).map_or((None, None), |held| (held.atk_anim_frames, held.atk_anim_frames));
 
                 let diff = forms::compare(&forms::Subject {
                     global,

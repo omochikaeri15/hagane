@@ -9,7 +9,7 @@ use std::io;
 use std::path::{Component, Path, PathBuf};
 use std::sync::Arc;
 
-use codex::graphics::tools::crash::Side;
+use codex::{combat::{Entity, Faction}, graphics::{rig::Pose, tools::crash::Side}};
 use tracing::{debug, info, warn};
 use zip::write::SimpleFileOptions;
 use zip::{CompressionMethod, ZipWriter};
@@ -19,8 +19,8 @@ pub use crate::domains::mods::patch_root;
 
 use crate::common::{architecture::{GAME, MODS, STUDIO}, io::filename};
 use crate::domains::settings::FrameCount;
-use crate::systems::animation::{self, Loop, Motion, MotionSet, Rigging, Role};
-use crate::Source;
+use crate::systems::animation::{self, Loop, Motion, MotionSet, Rigging};
+use crate::{Source, Vfs};
 
 pub use blank::SEED_SUFFIX;
 pub use ledger::{Kind, Ledger, Snapshot};
@@ -115,8 +115,8 @@ impl Set {
             .collect()
     }
 
-    pub fn key(&self, frames: FrameCount) -> String {
-        let mut key = format!("{frames:?}|{}", self.name);
+    pub fn key(&self, frames: FrameCount, stats: Option<&Entity>) -> String {
+        let mut key = format!("{frames:?}|{:?}|{}", stats.map(animation::stance), self.name);
 
         for path in self.files() {
             key.push('|');
@@ -157,7 +157,21 @@ impl Set {
         stem_id(stem).map(|_| stem.to_owned())
     }
 
-    pub fn motions(&self, frames: FrameCount) -> MotionSet {
+    pub fn unit(&self) -> Option<(Faction, u32, usize)> {
+        let stem = self.addressed()?;
+        let id = u32::try_from(stem_id(&stem)?).ok()?;
+        let (_, tail) = stem.split_once('_')?;
+
+        if tail.starts_with(aim::ENEMY_SUFFIX) {
+            return Some((Faction::Enemy, id, 0));
+        }
+
+        let form = aim::FORMS.iter().position(|form| tail.starts_with(*form))?;
+
+        Some((Faction::Cat, id, form))
+    }
+
+    pub fn motions(&self, frames: FrameCount, vfs: &Vfs, stats: Option<&Entity>) -> MotionSet {
         let (Some(sheet), Some(cuts), Some(model)) = (&self.sheet, &self.cuts, &self.model) else {
             return MotionSet::default();
         };
@@ -170,19 +184,28 @@ impl Set {
         });
 
         let unit = self.addressed();
+        let faction = self.unit().map(|(faction, _, _)| faction);
 
         let mut motions: Vec<Motion> = self
             .anims
             .iter()
             .map(|anim| {
                 let named = unit.as_deref().and_then(|unit| slotted(unit, anim));
+                let special = unit
+                    .as_deref()
+                    .and_then(|unit| anim.file_stem()?.to_str()?.strip_prefix(unit))
+                    .zip(stats.zip(faction))
+                    .and_then(|(suffix, (stats, faction))| animation::special_pose(vfs, suffix, stats, faction));
+
+                let soul = matches!(special, Some(Pose::Soul { .. })).then_some(animation::SOUL_NAME);
 
                 Motion {
-                    name: named.map(|(name, _, _)| name.to_owned()),
+                    name: named.map(|(name, _, _)| name).or(soul).map(str::to_owned),
                     slot: named.map(|(_, slot, _)| slot),
                     role: named.map(|(_, _, role)| role),
-                    looping: match named {
-                        Some((_, _, Role::Knockback)) => Loop::Knockback,
+                    looping: match (named, faction, special) {
+                        (Some((_, _, role)), Some(faction), _) => role.looping(faction),
+                        (None, _, Some(pose)) => Loop::Pose(pose),
                         _ => frames.looping(),
                     },
                     rig: Arc::clone(&rig),
@@ -724,7 +747,7 @@ mod tests {
             ],
         };
 
-        let motions = set.motions(FrameCount::Automatic).motions;
+        let motions = set.motions(FrameCount::Automatic, &Vfs::with_priority(&[]), None).motions;
         let labeled: Vec<String> = motions.iter().map(Motion::label).collect();
 
         assert_eq!(labeled, vec!["044_f00", "044_f02", "044_f_zombie00", "Model"]);

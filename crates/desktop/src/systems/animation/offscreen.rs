@@ -394,7 +394,7 @@ pub struct Job {
     pub unit: Arc<Rig>,
     pub animation: Option<Arc<Animation>>,
     pub looping: Loop,
-    pub role_paths: Vec<(Role, Source)>,
+    pub role_paths: Vec<(Role, Loop, Source)>,
     pub offset: Option<usize>,
     pub timing: FrameTiming,
     pub lengths: ShowcaseLengths,
@@ -432,26 +432,20 @@ fn run(job: Job) {
 
     let trails = job.debug.as_ref().map_or_else(Vec::new, diagnostics::Shot::trails);
 
-    let seat = |progress: i32| {
-        let (animation, looping, local_time, attacking) = match &motions {
-            Some(motions) => {
-                let (role, time) = job.lengths.segment(progress);
-                let animation = motions.get(role);
-                let time = match animation {
-                    Some(anim) if anim.declared_frames() > 1 => time,
-                    _ => 0.0,
-                };
-                (animation, role.looping(), time, role == Role::Attack)
-            }
-            None => (
-                job.animation.as_deref(),
-                job.looping,
-                0.0,
-                job.debug.as_ref().and_then(|shot| shot.combat.as_ref()).is_some_and(|staged| staged.combatant.attacking),
-            ),
-        };
+    let seat = |progress: i32| match &motions {
+        Some(motions) => {
+            let (role, time) = job.lengths.segment(progress);
+            let shown = motions.get(role);
+            let at = shown.map_or(0.0, |(anim, looping)| calculate_export_time(&job.timing, Some(anim), looping, time, progress));
 
-        (animation, calculate_export_time(&job.timing, animation, looping, local_time, progress), attacking)
+            (shown.map(|(anim, _)| anim), at, role == Role::Attack)
+        }
+        None => {
+            let animation = job.animation.as_deref();
+            let attacking = job.debug.as_ref().and_then(|shot| shot.combat.as_ref()).is_some_and(|staged| staged.combatant.attacking);
+
+            (animation, calculate_export_time(&job.timing, animation, job.looping, 0.0, progress), attacking)
+        }
     };
 
     for progress in 0..frame_count {
@@ -510,18 +504,19 @@ fn run(job: Job) {
 }
 
 struct ShowcaseMotions {
-    walk: Option<Animation>,
-    idle: Option<Animation>,
-    attack: Option<Animation>,
-    kb: Option<Animation>,
+    walk: Option<(Animation, Loop)>,
+    idle: Option<(Animation, Loop)>,
+    attack: Option<(Animation, Loop)>,
+    kb: Option<(Animation, Loop)>,
 }
 
 impl ShowcaseMotions {
-    fn load(role_paths: &[(Role, Source)]) -> Self {
-        let parse = |role: Role| -> Option<Animation> {
-            let (_, path) = role_paths.iter().find(|(known, _)| *known == role)?;
+    fn load(role_paths: &[(Role, Loop, Source)]) -> Self {
+        let parse = |role: Role| -> Option<(Animation, Loop)> {
+            let (_, looping, path) = role_paths.iter().find(|(known, _, _)| *known == role)?;
             let bytes = path.read().ok()?;
-            Animation::parse(&bytes).ok()
+
+            Animation::parse(&bytes).ok().map(|anim| (anim, *looping))
         };
 
         Self {
@@ -532,13 +527,15 @@ impl ShowcaseMotions {
         }
     }
 
-    fn get(&self, role: Role) -> Option<&Animation> {
-        match role {
-            Role::Walk => self.walk.as_ref(),
-            Role::Idle => self.idle.as_ref(),
-            Role::Attack => self.attack.as_ref(),
-            Role::Knockback => self.kb.as_ref(),
-        }
+    fn get(&self, role: Role) -> Option<(&Animation, Loop)> {
+        let shown = match role {
+            Role::Walk => &self.walk,
+            Role::Idle => &self.idle,
+            Role::Attack => &self.attack,
+            Role::Knockback => &self.kb,
+        };
+
+        shown.as_ref().map(|(anim, looping)| (anim, *looping))
     }
 }
 

@@ -23,13 +23,14 @@ pub struct Lens {
 pub struct Pace {
     pub cycle: i32,
     pub recharge: i32,
+    pub length: Option<i32>,
 }
 
 impl Pace {
     pub fn of(stats: &StatContext<'_>) -> Self {
         let recharge = if stats.stats.faction == Faction::Cat { (STAT_COOLDOWN.get_value)(stats) } else { 0 };
 
-        Self { cycle: (STAT_ATK_CYCLE.get_value)(stats), recharge }
+        Self { cycle: (STAT_ATK_CYCLE.get_value)(stats), recharge, length: stats.attack_length }
     }
 }
 
@@ -128,7 +129,7 @@ pub fn rules(global: &GlobalContext<'_>) -> Rules {
 }
 
 pub fn rhythm(ctx: &RenderContext<'_>, pace: Pace) -> Option<Rhythm> {
-    (pace.cycle > 0 && !ctx.is_conjure_unit).then(|| Rhythm { cycle: pace.cycle, recharge: pace.recharge, rules: rules(&ctx.global) })
+    (pace.cycle > 0 && !ctx.is_conjure_unit).then(|| Rhythm { cycle: pace.cycle, recharge: pace.recharge, length: pace.length, rules: rules(&ctx.global) })
 }
 
 pub fn plain(ctx: &RenderContext<'_>, pace: Pace, lens: Lens) -> AbilityGroups {
@@ -138,7 +139,7 @@ pub fn plain(ctx: &RenderContext<'_>, pace: Pace, lens: Lens) -> AbilityGroups {
 pub fn measure(stats: &StatContext<'_>, rules: &Rules, foe: Foe, terms: Terms, lens: Lens) -> Measure {
     let unit = stats.stats;
     let pace = Pace::of(stats);
-    let exposure = unit.exposure(pace.cycle, pace.recharge, settled(unit, lens.hits), rules);
+    let exposure = unit.exposure(pace.cycle, pace.recharge, pace.length, settled(unit, lens.hits), rules);
     let attack = exposure.damage(unit, stats.strikes(), foe, terms, lens.mode, lens.switches);
     let (period, swings) = match unit.cadence(pace.cycle, pace.recharge) {
         (period, swings) if period > 0 => (period, swings),
@@ -177,7 +178,7 @@ mod tests {
     fn a_unit_that_dies_spreads_its_damage_over_its_recharge() {
         let treasure = crate::systems::treasure::Bonus::default();
         let bomber = Entity { attack_1_damage: 3000, time_until_attack_1: 10, attack_1_abilities: 1, standing_range: 100, cooldown: 600, attack_count_total: 1, attack_count_state: 2, ..Entity::default() };
-        let stats = StatContext::cat(&bomber, 60, None, &treasure);
+        let stats = StatContext::cat(&bomber, Some(60), None, &treasure);
         let pace = Pace::of(&stats);
         let measured = measure(&stats, &Rules::default(), Foe::default(), Terms::default(), Lens { mode: Mode::Base, ..Lens::default() });
 
@@ -185,7 +186,7 @@ mod tests {
         assert!((measured.dps - 3000.0 * 30.0 / f64::from(pace.recharge)).abs() < 1e-9);
 
         let spirit = Entity { cooldown: 0, ..bomber };
-        let spirited = StatContext::cat(&spirit, 60, None, &treasure);
+        let spirited = StatContext::cat(&spirit, Some(60), None, &treasure);
         let measured = measure(&spirited, &Rules::default(), Foe::default(), Terms::default(), Lens { mode: Mode::Base, ..Lens::default() });
 
         assert!((measured.dps - 3000.0 * 30.0 / f64::from(Pace::of(&spirited).cycle)).abs() < 1e-9);

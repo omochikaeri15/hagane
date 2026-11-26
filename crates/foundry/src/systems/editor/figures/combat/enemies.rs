@@ -64,13 +64,7 @@ pub fn note(field: &str) -> Option<&'static str> {
         "legacy_strong_against" => Some(
             "Legacy, does nothing now\nBack in 1.0.0 cats with \"Legacy Weak Against\" set dealt half damage to this enemy",
         ),
-        "spawn_animation_type" => {
-            Some("An animation ID, same idea as the soul one\n-1 means none, 0 means use ID 0")
-        }
-        "spawn_animation_flag" => Some(
-            "Likely means \"use the entry maanim attached to my ID and form\"\nThose files exist, so that is the best read for now",
-        ),
-        _ => None,
+        _ => super::shared_note(field),
     }
 }
 

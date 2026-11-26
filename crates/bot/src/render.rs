@@ -15,7 +15,7 @@ use foundry::domains::settings::{AnimSettings, CombatLook};
 use foundry::systems::animation::export::process::{self, calculate_export_time};
 use foundry::systems::animation::export::{BACKGROUND, BoundsOutcome, EncoderMessage, EncoderStatus, ExportConfig, ExportFormat, ExportMode, FrameTiming, ShowcaseLengths, find_bounds, leader};
 use foundry::systems::animation::collision::{self, Combatant, Mark};
-use foundry::systems::animation::{Loop, Motion, MotionSet, Placement, Role, loop_frame, name_prefix, overlay, paint, playback_frames};
+use foundry::systems::animation::{Loop, Motion, MotionSet, Placement, Role, name_prefix, overlay, paint};
 
 use super::cache::{Cache, Key};
 use super::grammar::{Looping, Overlays};
@@ -50,6 +50,7 @@ pub(crate) enum Clip {
     Surface,
     Dig,
     Spirit,
+    Soul,
     Model,
 }
 
@@ -65,6 +66,7 @@ impl Clip {
             Clip::Surface => "Surface",
             Clip::Dig => "Dig",
             Clip::Spirit => "Spirit",
+            Clip::Soul => "Soul",
             Clip::Model => "Model",
         }
     }
@@ -80,6 +82,7 @@ impl Clip {
             Clip::Surface => "surface",
             Clip::Dig => "dig",
             Clip::Spirit => "spirit",
+            Clip::Soul => "soul",
             Clip::Model => "model",
         }
     }
@@ -144,6 +147,7 @@ struct Track {
     role: Option<Role>,
     anim: Option<Animation>,
     looping: Loop,
+    start: i32,
     length: i32,
     combat: Option<Combatant>,
 }
@@ -174,7 +178,7 @@ pub(crate) enum Planned {
 
 #[derive(Clone, Copy)]
 enum Span {
-    Whole(i32),
+    Whole(i32, i32),
     Range(i32, i32),
     Loop(i32, i32),
     Showcase(ShowcaseLengths),
@@ -183,7 +187,7 @@ enum Span {
 impl Span {
     fn frames(self) -> i32 {
         match self {
-            Span::Whole(length) => length,
+            Span::Whole(_, length) => length,
             Span::Range(from, to) | Span::Loop(from, to) => from.abs_diff(to) as i32 + 1,
             Span::Showcase(lengths) => lengths.walk + lengths.idle + lengths.attack + lengths.kb,
         }
@@ -233,17 +237,18 @@ pub(crate) fn plan(library: &Library, cache: &Cache, set: &MotionSet, options: &
             }
             None => None,
         };
+        let start = anim.as_ref().map_or(0, |anim| motion.looping.first(anim));
         let length = anim.as_ref().map_or(STILL, |anim| match (options.clip, motion.role) {
-            (Clip::Showcase, Some(Role::Walk)) if playback_frames(anim) <= SHORT_LOOP => 0,
+            (Clip::Showcase, Some(Role::Walk)) if motion.looping.frames(anim) - start <= SHORT_LOOP => 0,
             (Clip::Showcase, Some(Role::Walk)) => defaults.default_showcase_walk,
-            (Clip::Showcase, Some(Role::Idle)) if playback_frames(anim) <= SHORT_LOOP => 0,
+            (Clip::Showcase, Some(Role::Idle)) if motion.looping.frames(anim) - start <= SHORT_LOOP => 0,
             (Clip::Showcase, Some(Role::Idle)) => defaults.default_showcase_idle,
             (Clip::Showcase, Some(Role::Knockback)) => defaults.default_showcase_kb,
-            _ => motion.looping.frames(anim),
+            _ => motion.looping.frames(anim) - start,
         });
 
         recipe.add(format!("{:?}", (motion.role, motion.looping, &motion.combat, motion.slug())).as_bytes());
-        tracks.push(Track { role: motion.role, anim, looping: motion.looping, length, combat: motion.combat.clone() });
+        tracks.push(Track { role: motion.role, anim, looping: motion.looping, start, length, combat: motion.combat.clone() });
     }
 
     let (sheet, cuts, model) = (read(&first.rig.png)?, read(&first.rig.cut)?, read(&first.rig.model)?);
@@ -361,13 +366,13 @@ impl Job {
             };
             let cycle = self.rig.calculate_cycle_between(anim, looping.difference as f32, Some(looping.minimum), from, to, searching).ok_or(Trouble::NoLoop)?;
 
-            return Ok(Span::Loop(cycle.start, cycle.end));
+            return Ok(Span::Loop(cycle.start, cycle.end - 1));
         }
 
         Ok(match (self.clip, self.range) {
             (Clip::Showcase, _) => Span::Showcase(self.lengths()),
             (_, Some((from, to))) => Span::Range(from, to),
-            _ => Span::Whole(first.length),
+            _ => Span::Whole(first.start, first.length),
         })
     }
 
@@ -381,7 +386,7 @@ impl Job {
 
     fn file_name(&self, span: Span) -> String {
         let (from, to) = match span {
-            Span::Whole(length) => (0, length - 1),
+            Span::Whole(start, length) => (start, start + length - 1),
             Span::Range(from, to) | Span::Loop(from, to) => (from, to),
             Span::Showcase(_) => (0, span.frames() - 1),
         };
@@ -407,20 +412,19 @@ impl Job {
         progress.total.store(u32::try_from(frames).unwrap_or(0), Ordering::Relaxed);
 
         let abort = AtomicBool::new(false);
-        let swept: Vec<(&Animation, Option<i32>)> = self
+        let swept: Vec<(&Animation, Loop, i32, i32)> = self
             .tracks
             .iter()
             .filter(|track| track.length > 0)
             .filter_map(|track| {
                 let anim = track.anim.as_ref()?;
-                let last = match span {
-                    Span::Showcase(_) => track.length,
-                    Span::Range(..) => track.looping.period(anim) - 1,
-                    Span::Loop(_, end) => end,
-                    Span::Whole(length) => length - 1,
+                let (from, to) = match span {
+                    Span::Showcase(_) => (track.start, track.start + track.length - 1),
+                    Span::Range(from, to) | Span::Loop(from, to) => (from, to),
+                    Span::Whole(start, length) => (start, start + length - 1),
                 };
 
-                Some((anim, Some(last.max(0))))
+                Some((anim, track.looping, from, to))
             })
             .collect();
         let sprite = match find_bounds::search(&self.rig, &swept, self.tolerance, offset, &ProgressCounter::default(), &abort) {
@@ -432,7 +436,8 @@ impl Job {
         let (mode, frame_start, frame_end) = match span {
             Span::Showcase(_) => (ExportMode::Showcase, 0, frames - 1),
             Span::Loop(start, end) => (ExportMode::Loop, start, end),
-            Span::Range(..) | Span::Whole(_) => (ExportMode::Manual, 0, frames - 1),
+            Span::Whole(start, _) => (ExportMode::Manual, start, start + frames - 1),
+            Span::Range(..) => (ExportMode::Manual, 0, frames - 1),
         };
         let timing = FrameTiming { mode, frame_start, frame_end };
         let seat = |at: i32| -> (Option<&Track>, f32) {
@@ -440,26 +445,19 @@ impl Job {
                 Span::Showcase(_) => {
                     let (role, local) = lengths.segment(at);
                     let track = self.track(role);
-                    let anim = track.and_then(|track| track.anim.as_ref());
-                    let local = if anim.is_some_and(|anim| anim.declared_frames() > 1) { local } else { 0.0 };
+                    let time = track
+                        .and_then(|track| track.anim.as_ref().map(|anim| (anim, track.looping)))
+                        .map_or(0.0, |(anim, looping)| calculate_export_time(&timing, Some(anim), looping, local, at));
 
-                    (track, calculate_export_time(&timing, anim, role.looping(), local, at))
+                    (track, time)
                 }
                 Span::Range(from, to) => {
                     let raw = (from + if to >= from { at } else { -at }) as f32;
-                    let time = first.anim.as_ref().map_or(0.0, |anim| {
-                        let inside = raw >= 0.0 && raw < playback_frames(anim) as f32;
-
-                        match first.looping {
-                            Loop::Knockback => first.looping.seat(anim, raw),
-                            looping if inside && looping.native(Some(anim)) => raw,
-                            _ => loop_frame(anim, raw),
-                        }
-                    });
+                    let time = first.anim.as_ref().map_or(0.0, |anim| first.looping.seat(anim, raw));
 
                     (Some(first), time)
                 }
-                Span::Loop(..) | Span::Whole(_) => (Some(first), calculate_export_time(&timing, first.anim.as_ref(), first.looping, 0.0, at)),
+                Span::Loop(..) | Span::Whole(..) => (Some(first), calculate_export_time(&timing, first.anim.as_ref(), first.looping, 0.0, at)),
             }
         };
         let drawn = (sprite.min_x, sprite.max_x, sprite.max_y);

@@ -1978,9 +1978,14 @@ impl HaganeApp {
                 Task::none()
             }
             Message::Studio(msg) => {
+                let muster = studio::Muster {
+                    cats: &self.cat_state.data.cats,
+                    enemies: &self.enemy_state.data.enemies,
+                    vfs: &self.vault.vfs,
+                };
                 let task = self
                     .studio_state
-                    .update(msg, &mut self.settings, &mut self.app_state.animation)
+                    .update(msg, &mut self.settings, &mut self.app_state.animation, &muster)
                     .map(Message::Studio);
 
                 self.studio_state.sync_state(&mut self.app_state.studio);
@@ -1988,6 +1993,7 @@ impl HaganeApp {
                 self.studio_state.aim_at(&studio::Muster {
                     cats: &self.cat_state.data.cats,
                     enemies: &self.enemy_state.data.enemies,
+                    vfs: &self.vault.vfs,
                 });
 
                 self.sync_popup(ActivePopup::StudioOnion, self.studio_state.onioning());

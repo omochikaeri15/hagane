@@ -317,7 +317,7 @@ pub static REGISTRY: &[Ability] = &[
         dictionary_id: None,
         schema: &[],
         talent_values: &[],
-        attributes: |stats| flag(stats.attack_2_damage),
+        attributes: |stats| flag(i32::from(stats.strike_frames().len() > 1)),
         apply_talent: None,
     },
     Ability {

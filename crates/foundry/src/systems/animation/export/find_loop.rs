@@ -53,7 +53,7 @@ pub fn search(
     match cycle_result {
         Some(cycle) => {
             info!("Loop boundary found: {} to {}", cycle.start, cycle.end);
-            emit(LoopStatus::Found(cycle.start, cycle.end));
+            emit(LoopStatus::Found(cycle.start, cycle.end - 1));
         }
         None => {
             if !abort_signal.load(Ordering::Relaxed) && start_time.elapsed().as_secs() <= TIMEOUT_SECONDS {

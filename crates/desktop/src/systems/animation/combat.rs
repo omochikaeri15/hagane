@@ -35,7 +35,7 @@ fn period(data: &data::State, state: &viewer::State) -> Option<i32> {
     state
         .loop_end
         .or_else(|| data.loop_bound().map(|end| end.max(0) as f32))
-        .map(|end| (end - state.loop_start.unwrap_or(0.0)).floor() as i32 + 1)
+        .map(|end| (end - state.loop_start.unwrap_or(data.loop_first() as f32)).floor() as i32 + 1)
 }
 
 #[derive(Clone, Copy, Default)]

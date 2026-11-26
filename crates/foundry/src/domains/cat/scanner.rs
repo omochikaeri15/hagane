@@ -6,7 +6,7 @@ use std::sync::Arc;
 
 use codex::cat::unitid;
 use codex::cat::unit::{LevelCurve, Talent, TalentCost, UnitBuy, UnitEvolve};
-use codex::combat::Entity;
+use codex::combat::{Entity, Faction};
 use codex::graphics::rig::Animation;
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
@@ -33,7 +33,7 @@ pub struct CatEntry {
     pub forms: [bool; 4],
     pub stats: [Option<Entity>; 4],
     pub curve: Option<LevelCurve>,
-    pub atk_anim_frames: [i32; 4],
+    pub atk_anim_frames: [Option<i32>; 4],
     pub egg_ids: Option<(i32, i32)>,
     pub talent_data: Option<Talent>,
     pub unitbuy: UnitBuy,
@@ -420,14 +420,14 @@ fn process_cat_entry(
         return None;
     }
 
-    let mut attack_anim_frames = [0; 4];
+    let mut attack_anim_frames = [None; 4];
     for (i, frames) in attack_anim_frames.iter_mut().enumerate() {
         if !images.forms[i] { continue; }
         let anim_name = files::maanim_file(cat_id, i, egg_ids, 2);
 
         if let Some(resolved) = vfs.find(&anim_name)
             && let Ok(bytes) = vfs.read(&resolved) {
-            *frames = Animation::scan_length(&bytes).unwrap_or(0).max(0);
+            *frames = Animation::scan_attack(&bytes, Faction::Cat);
         }
     }
 

@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
-use codex::combat::Entity;
+use codex::combat::{Entity, Faction};
 use codex::graphics::rig::Animation;
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
@@ -25,7 +25,7 @@ pub struct EnemyEntry {
     pub description: Vec<String>,
     pub stats: Entity,
     pub icon_path: Option<PathBuf>,
-    pub atk_anim_frames: i32,
+    pub atk_anim_frames: Option<i32>,
 }
 
 impl EnemyEntry {
@@ -208,10 +208,10 @@ fn process_enemy_entry(id: u32, vfs: &Vfs, stats: Entity, name: String, descript
         return None;
     }
 
-    let mut atk_anim_frames = 0;
+    let mut atk_anim_frames = None;
     if let Some(resolved_atk) = vfs.find(&files::maanim_file(id, 2))
         && let Ok(bytes) = vfs.read(&resolved_atk) {
-        atk_anim_frames = Animation::scan_length(&bytes).unwrap_or(0).max(0);
+        atk_anim_frames = Animation::scan_attack(&bytes, Faction::Enemy);
     }
 
     Some(EnemyEntry { id, name, description, stats, icon_path: resolved_icon, atk_anim_frames })

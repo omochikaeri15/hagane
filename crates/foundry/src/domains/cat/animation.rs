@@ -1,5 +1,8 @@
 use std::sync::Arc;
 
+use codex::combat::Faction;
+use codex::graphics::rig::Pose;
+
 use crate::systems::animation::collision::{Combatant, Profile};
 use crate::systems::animation::{self, named_offsets, Motion, MotionSet, Loop, RigFiles};
 use crate::Vfs;
@@ -37,30 +40,47 @@ pub fn motions(cat: &CatEntry, form: usize, vfs: &Vfs) -> MotionSet {
     let base = vec![files::anim_base_filename(cat.id, form, egg_ids)];
     let id = set_id(cat, form);
 
-    let fighter = cat.stats.get(form).and_then(Option::as_ref).map(|stats| Arc::new(Profile::of(stats)));
+    let stats = cat.stats.get(form).and_then(Option::as_ref);
+    let fighter = stats.map(|stats| Arc::new(Profile::of(stats)));
     let mut motions = Vec::new();
+    let rig = animation::rigging(vfs, &id, &base);
+    let mut own_soul = None;
 
-    if let Some(rig) = animation::rigging(vfs, &id, &base) {
+    if let Some(rig) = rig.as_ref() {
         for (suffix, path) in animation::maanims(vfs, &base) {
+            if animation::own_soul(&suffix, stats) {
+                own_soul = Some(path);
+                continue;
+            }
+
             let index = suffix.parse::<usize>().ok();
             let named = index.and_then(animation::standard);
+            let extra = stats.and_then(|stats| animation::special_pose(vfs, &suffix, stats, Faction::Cat));
 
             motions.push(Motion {
                 name: motion_name(&suffix).map(str::to_string),
                 slot: named.map(|(_, slot, _)| slot),
                 role: named.map(|(_, _, role)| role),
-                looping: named.map_or(Loop::Frames, |(_, _, role)| role.looping()),
+                looping: match (named, extra) {
+                    (Some((_, _, role)), _) => role.looping(Faction::Cat),
+                    (None, Some(pose)) => Loop::Pose(pose),
+                    (None, None) => Loop::Frames,
+                },
                 rig: rig.clone(),
                 file: Some(path),
                 combat: None,
             }.fought_by(fighter.as_ref()));
         }
 
-        motions.push(Motion::model(rig).fought_by(fighter.as_ref()));
+        motions.push(Motion::model(Arc::clone(rig)).fought_by(fighter.as_ref()));
     }
 
     if let Some(spirit) = spirit_motion(cat, form, vfs) {
         motions.push(spirit);
+    }
+
+    if let Some(soul) = stats.and_then(|stats| animation::soul(vfs, stats, rig.as_ref(), own_soul)) {
+        motions.push(soul);
     }
 
     MotionSet { name: id, motions, offsets: named_offsets("Gacha") }
@@ -85,7 +105,7 @@ fn spirit_motion(cat: &CatEntry, form: usize, vfs: &Vfs) -> Option<Motion> {
         name: Some("Spirit".to_string()),
         slot: None,
         role: None,
-        looping: Loop::Frames,
+        looping: Loop::Pose(Pose::Attack(Faction::Cat)),
         rig,
         file: Some(anim),
         combat,

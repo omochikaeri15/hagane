@@ -99,7 +99,7 @@ fn frame_bounds(canvas: &canvas::State, data: &data::State) -> (f32, Option<f32>
         return (0.0, Some(0.0));
     }
 
-    let min = canvas.loop_start.unwrap_or(0.0).max(0.0);
+    let min = canvas.loop_start.unwrap_or(data.loop_first() as f32).max(0.0);
     let max = canvas.loop_end.or_else(|| loop_max(data)).map(|max| max.max(min));
 
     (min, max)
@@ -529,7 +529,7 @@ impl State {
 
         let frame_row: Element<'a, Message> = if canvas.is_playing {
             row![
-                tile(RANGE_W, tile_input("0", &self.range_start_input, anim_loaded, Message::RangeStartChanged)),
+                tile(RANGE_W, tile_input(&data.loop_first().to_string(), &self.range_start_input, anim_loaded, Message::RangeStartChanged)),
                 label_tile(TILDE_W, "~"),
                 tile(RANGE_W, tile_input(&display_max(data), &self.range_end_input, anim_loaded, Message::RangeEndChanged)),
             ]

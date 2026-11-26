@@ -263,6 +263,15 @@ impl Library {
         (self.busy)()
     }
 
+    pub(crate) fn awaits(&self, names: &[Box<str>]) -> bool {
+        self.core.peek().as_ref().is_some_and(|core| {
+            let missing = core.deferred.missing.lock().unwrap_or_else(PoisonError::into_inner);
+            let pending = core.pending.borrow();
+
+            names.iter().any(|name| missing.contains(name) || pending.contains(name))
+        })
+    }
+
     pub(crate) fn waiting(&self) -> bool {
         self.core.peek().as_ref().is_some_and(|core| {
             !core.deferred.missing.lock().unwrap_or_else(PoisonError::into_inner).is_empty() || !core.pending.borrow().is_empty()

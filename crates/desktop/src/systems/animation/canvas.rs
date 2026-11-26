@@ -72,7 +72,7 @@ impl State {
                 if self.is_playing && data.held_unit.is_some() {
                     self.current_frame += FRAME_ADVANCE_PER_TICK;
 
-                    let range_start = self.loop_start.unwrap_or(0.0);
+                    let range_start = self.loop_start.unwrap_or(data.loop_first() as f32);
                     let range_end = self.loop_end.or_else(|| data.loop_bound().map(|v| v.max(0) as f32));
 
                     if let Some(end) = range_end

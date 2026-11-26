@@ -11,7 +11,8 @@ use std::ffi::OsStr;
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use codex::graphics::rig::{Animation, KNOCKBACK_LENGTH};
+use codex::combat::{Entity, Faction};
+use codex::graphics::rig::{Animation, Counter, Pose};
 use serde::{Deserialize, Serialize};
 
 use crate::{Source, Vfs};
@@ -19,6 +20,13 @@ use crate::{Source, Vfs};
 const LOOP_CEILING: i32 = 999_999;
 
 const MAANIM_EXT: &str = ".maanim";
+const ENTRY_SUFFIX: &str = "_entry";
+const SOUL_SUFFIX: &str = "_soul";
+const BURROW_SUFFIX: &str = "_zombie00";
+const DIG_SUFFIX: &str = "_zombie01";
+const SURFACE_SUFFIX: &str = "_zombie02";
+const ENTRY_EFFECT: &str = "battle_entry";
+const SOUL_EFFECT: &str = "battle_soul";
 
 const SLOT_WALK: usize = 0;
 const SLOT_IDLE: usize = 1;
@@ -27,6 +35,7 @@ const SLOT_KNOCKBACK: usize = 3;
 pub const SLOT_MODEL: usize = 7;
 
 const MODEL_NAME: &str = "Model";
+pub(crate) const SOUL_NAME: &str = "Soul";
 
 #[derive(Copy, Clone, PartialEq, Eq, Debug)]
 pub enum Role {
@@ -41,72 +50,105 @@ impl Role {
         matches!(self, Role::Walk | Role::Idle)
     }
 
-    pub fn looping(self) -> Loop {
+    pub fn pose(self, faction: Faction) -> Pose {
         match self {
-            Role::Walk | Role::Idle => Loop::Exact,
-            Role::Attack => Loop::Frames,
-            Role::Knockback => Loop::Knockback,
+            Role::Walk => Pose::Walk,
+            Role::Idle => Pose::Idle,
+            Role::Attack => Pose::Attack(faction),
+            Role::Knockback => Pose::Knockback,
         }
+    }
+
+    pub fn looping(self, faction: Faction) -> Loop {
+        Loop::Pose(self.pose(faction))
     }
 }
 
 #[derive(Copy, Clone, PartialEq, Eq, Debug)]
 pub enum Loop {
-    Exact,
+    Pose(Pose),
     Frames,
     Auto,
     Continuous,
-    Knockback,
 }
 
 impl Loop {
     pub fn native(self, anim: Option<&Animation>) -> bool {
         match self {
-            Loop::Exact => true,
+            Loop::Pose(pose) => matches!(pose, Pose::Walk | Pose::Idle | Pose::Dig),
             Loop::Auto => anim.is_some_and(|anim| cycle(anim).is_some()),
-            Loop::Frames | Loop::Continuous | Loop::Knockback => false,
+            Loop::Frames | Loop::Continuous => false,
+        }
+    }
+
+    pub fn first(self, anim: &Animation) -> i32 {
+        match self {
+            Loop::Pose(pose) => turn(pose, anim).0,
+            _ => 0,
         }
     }
 
     pub fn bound(self, anim: &Animation) -> Option<i32> {
         match self {
-            Loop::Exact => cycle(anim).map(|frames| frames - 1),
+            Loop::Pose(pose) => turn(pose, anim).1.map(|end| end - 1),
             Loop::Frames => Some(anim.declared_frames() - 1),
             Loop::Auto => restart(anim).map(|frames| frames - 1),
             Loop::Continuous => None,
-            Loop::Knockback => Some(KNOCKBACK_LENGTH - 1),
+        }
+    }
+
+    pub fn wraps(self, anim: &Animation) -> Option<i32> {
+        match self {
+            Loop::Pose(pose) => turn(pose, anim).1,
+            Loop::Frames => Some(playback_frames(anim)),
+            Loop::Auto => restart(anim),
+            Loop::Continuous => None,
         }
     }
 
     pub fn seat(self, anim: &Animation, frame: f32) -> f32 {
-        match self {
-            Loop::Exact | Loop::Continuous => frame,
-            Loop::Frames => loop_frame(anim, frame),
-            Loop::Auto => restart_frame(anim, frame),
-            Loop::Knockback => seat(KNOCKBACK_LENGTH, frame),
-        }
+        let first = self.first(anim);
+
+        self.wraps(anim).map_or(frame, |end| match frame {
+            frame if frame >= 0.0 && frame < end as f32 => frame,
+            frame => first as f32 + seat(end - first, frame - first as f32),
+        })
     }
 
     pub fn frames(self, anim: &Animation) -> i32 {
         match self {
-            Loop::Knockback => KNOCKBACK_LENGTH,
+            Loop::Pose(pose) => turn(pose, anim).1.unwrap_or_else(|| anim.declared_frames()),
             _ => anim.declared_frames(),
         }
     }
 
     pub fn period(self, anim: &Animation) -> i32 {
         match self {
-            Loop::Knockback => KNOCKBACK_LENGTH,
+            Loop::Pose(pose) => match turn(pose, anim) {
+                (first, Some(end)) => end - first,
+                (_, None) => anim.declared_frames(),
+            },
             _ => playback_frames(anim),
         }
     }
 
     pub fn exported(self, anim: &Animation, frame: f32) -> f32 {
         match self {
-            Loop::Knockback => seat(KNOCKBACK_LENGTH, frame),
+            Loop::Pose(_) => self.seat(anim, frame),
             _ if self.native(Some(anim)) => frame,
             _ => loop_frame(anim, frame),
         }
+    }
+}
+
+fn turn(pose: Pose, anim: &Animation) -> (i32, Option<i32>) {
+    match anim.counter(pose) {
+        Counter::Rising => (0, anim.period().filter(|frames| *frames <= LOOP_CEILING)),
+        Counter::Wrapping { from, length } => match i32::try_from(length) {
+            Ok(end) => (from.min(end - 1), Some(end)),
+            Err(_) => (from, None),
+        },
+        Counter::Faulting => (0, Some(1)),
     }
 }
 
@@ -233,6 +275,72 @@ pub(crate) fn standard(index: usize) -> Option<(&'static str, usize, Role)> {
     }
 }
 
+pub fn special_pose(vfs: &Vfs, suffix: &str, stats: &Entity, faction: Faction) -> Option<Pose> {
+    let zombie = faction == Faction::Enemy && stats.trait_zombie != 0;
+
+    match suffix {
+        ENTRY_SUFFIX if stats.spawn_animation_flag != 0 => {
+            Some(Pose::Entry { effect: effect_length(vfs, ENTRY_EFFECT, stats.spawn_animation_type) })
+        }
+        SOUL_SUFFIX if stats.use_gudetama_soul != 0 => {
+            Some(Pose::Soul { effect: effect_length(vfs, SOUL_EFFECT, stats.soul_animation_type) })
+        }
+        BURROW_SUFFIX if zombie => Some(Pose::Burrow),
+        DIG_SUFFIX if zombie => Some(Pose::Dig),
+        SURFACE_SUFFIX if zombie => Some(Pose::Surface),
+        _ => None,
+    }
+}
+
+pub(crate) fn own_soul(suffix: &str, stats: Option<&Entity>) -> bool {
+    suffix == SOUL_SUFFIX && stats.is_some_and(|stats| stats.use_gudetama_soul != 0)
+}
+
+pub(crate) fn soul(vfs: &Vfs, stats: &Entity, rig: Option<&Arc<Rigging>>, own: Option<Source>) -> Option<Motion> {
+    let (rig, file, effect) = match stats.use_gudetama_soul {
+        0 if stats.soul_animation_type > 0 => {
+            let base = format!("{SOUL_EFFECT}_{:03}", stats.soul_animation_type);
+            let rig = rigging(vfs, &base, std::slice::from_ref(&base))?;
+            let file = vfs.find(&format!("{base}{MAANIM_EXT}")).map(|path| vfs.source(&path))?;
+
+            (rig, file, None)
+        }
+        0 => return None,
+        _ => (Arc::clone(rig?), own?, effect_length(vfs, SOUL_EFFECT, stats.soul_animation_type)),
+    };
+
+    Some(Motion {
+        name: Some(SOUL_NAME.to_string()),
+        slot: None,
+        role: None,
+        looping: Loop::Pose(Pose::Soul { effect }),
+        rig,
+        file: Some(file),
+        combat: None,
+    })
+}
+
+pub fn stance(stats: &Entity) -> [i32; 5] {
+    [
+        stats.spawn_animation_flag,
+        stats.spawn_animation_type,
+        stats.use_gudetama_soul,
+        stats.soul_animation_type,
+        stats.trait_zombie,
+    ]
+}
+
+fn effect_length(vfs: &Vfs, family: &str, kind: i32) -> Option<i32> {
+    (kind >= 0).then(|| {
+        let name = format!("{family}_{kind:03}{MAANIM_EXT}");
+
+        vfs.find(&name)
+            .and_then(|path| vfs.read(&path).ok())
+            .and_then(|bytes| Animation::scan_length(&bytes))
+            .unwrap_or(0)
+    })
+}
+
 pub(crate) fn standard_name(suffix: &str) -> Option<&'static str> {
     suffix.parse::<usize>().ok().and_then(standard).map(|(name, _, _)| name)
 }
@@ -333,10 +441,6 @@ pub fn restart(animation: &Animation) -> Option<i32> {
     cycle(animation).or_else(|| (animation.length() > 0).then(|| animation.declared_frames()))
 }
 
-pub fn restart_frame(animation: &Animation, frame: f32) -> f32 {
-    restart(animation).map_or(frame, |frames| seat(frames, frame))
-}
-
 fn seat(frames: i32, frame: f32) -> f32 {
     if frames > 0 { frame.rem_euclid(frames as f32) } else { frame }
 }
@@ -394,9 +498,14 @@ pub fn name_prefix(set_name: &str, slug: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use codex::graphics::rig::{AnimModification, Animation, Keyframe};
+    use std::sync::Arc;
 
-    use super::{cycle, owns, playback_frames, restart, restart_frame, Loop};
+    use codex::combat::{Entity, Faction};
+    use codex::graphics::rig::{AnimModification, Animation, Keyframe, Pose};
+
+    use crate::{Source, Vfs};
+
+    use super::{cycle, own_soul, owns, playback_frames, restart, soul, Loop, Motion, Rigging, Role};
 
     fn curve(loop_count: i32, first: i32, last: i32) -> AnimModification {
         AnimModification {
@@ -460,7 +569,7 @@ mod tests {
         assert_eq!(walk.declared_frames(), 200);
 
         assert_eq!(restart(&walk), None);
-        assert_eq!(restart_frame(&walk, 260.0), 260.0);
+        assert_eq!(Loop::Auto.seat(&walk, 260.0), 260.0);
 
         // The old bound wrapped at the declared count, which is what snapped.
         assert_eq!(playback_frames(&walk), 200);
@@ -472,7 +581,7 @@ mod tests {
 
         assert_eq!(attack.length(), 90);
         assert_eq!(restart(&attack), Some(90));
-        assert_eq!(restart_frame(&attack, 90.0), 0.0);
+        assert_eq!(Loop::Auto.seat(&attack, 90.0), 0.0);
     }
 
     #[test]
@@ -480,7 +589,7 @@ mod tests {
         let walk = animation(vec![curve(-1, 0, 8), curve(-1, 0, 12)]);
 
         assert_eq!(restart(&walk), Some(24));
-        assert_eq!(restart_frame(&walk, 25.0), 1.0);
+        assert_eq!(Loop::Auto.seat(&walk, 25.0), 1.0);
     }
 
     #[test]
@@ -512,6 +621,28 @@ mod tests {
     }
 
     #[test]
+    fn a_soul_only_shows_when_it_is_the_units_own() {
+        // Soul type 0 is the shared default soul and -1 is none at all, so neither earns a
+        // button. A unit with the custom soul flag shows its own file on its own rig.
+        let vfs = Vfs::with_priority(&[]);
+        let rig = Arc::new(Rigging { id: "rig".to_owned(), png: Source::disk("a.png"), cut: Source::disk("a.imgcut"), model: Source::disk("a.mamodel") });
+        let plain = Entity { soul_animation_type: 0, ..Entity::default() };
+        let none = Entity { soul_animation_type: -1, ..Entity::default() };
+        let custom = Entity { soul_animation_type: -1, use_gudetama_soul: 1, ..Entity::default() };
+
+        assert!(soul(&vfs, &plain, Some(&rig), None).is_none());
+        assert!(soul(&vfs, &none, Some(&rig), None).is_none());
+        assert!(soul(&vfs, &custom, Some(&rig), None).is_none(), "the flag without the file has nothing to show");
+
+        let shown = soul(&vfs, &custom, Some(&rig), Some(Source::disk("a_soul.maanim")));
+
+        assert_eq!(shown.as_ref().map(Motion::label).as_deref(), Some("Soul"));
+        assert_eq!(shown.map(|motion| motion.looping), Some(Loop::Pose(Pose::Soul { effect: None })));
+        assert!(own_soul("_soul", Some(&custom)));
+        assert!(!own_soul("_soul", Some(&plain)));
+    }
+
+    #[test]
     fn a_longer_name_sharing_the_prefix_is_not_ours() {
         // 008_charaawa.maanim starts with 008_c but belongs to a different unit.
         assert!(!owns("haraawa"));
@@ -532,11 +663,54 @@ mod tests {
         // longer file used to run past the 24 frames a knockback ever shows.
         let mixed = animation(vec![curve(-1, 0, 6), curve(1, 0, 60)]);
 
-        assert_eq!(Loop::Knockback.bound(&mixed), Some(23));
-        assert_eq!(Loop::Knockback.frames(&mixed), 24);
-        assert_eq!(Loop::Knockback.seat(&mixed, 23.0), 23.0);
-        assert_eq!(Loop::Knockback.seat(&mixed, 24.0), 0.0);
-        assert_eq!(Loop::Knockback.exported(&mixed, 30.0), 6.0);
-        assert!(!Loop::Knockback.native(Some(&mixed)));
+        let knockback = Loop::Pose(Pose::Knockback);
+
+        assert_eq!(knockback.bound(&mixed), Some(23));
+        assert_eq!(knockback.frames(&mixed), 24);
+        assert_eq!(knockback.seat(&mixed, 23.0), 23.0);
+        assert_eq!(knockback.seat(&mixed, 24.0), 0.0);
+        assert_eq!(knockback.exported(&mixed, 30.0), 6.0);
+        assert!(!knockback.native(Some(&mixed)));
+    }
+
+    #[test]
+    fn an_endless_track_in_a_cat_attack_stops_at_the_furthest_key() {
+        // The game ends the attack where its counter wraps, so the forever track only gets
+        // as many laps as fit before frame 30, and never runs on past it.
+        let attack = animation(vec![curve(-1, 0, 10), curve(1, 0, 30)]);
+        let looping = Role::Attack.looping(Faction::Cat);
+
+        assert_eq!(looping.bound(&attack), Some(29));
+        assert_eq!(Role::Attack.looping(Faction::Enemy).bound(&attack), Some(0));
+    }
+
+    #[test]
+    fn an_attack_is_drawn_from_frame_one() {
+        // The frame it starts on is advanced before the first draw, so frame 0 never shows,
+        // and a wrap past the end lands back on frame 1. A scrub to 0 still shows frame 0.
+        let attack = animation(vec![curve(1, 0, 30)]);
+        let looping = Role::Attack.looping(Faction::Cat);
+
+        assert_eq!(looping.first(&attack), 1);
+        assert_eq!(looping.bound(&attack), Some(30));
+        assert_eq!(looping.period(&attack), 30);
+        assert_eq!(looping.seat(&attack, 31.0), 1.0);
+        assert_eq!(looping.seat(&attack, 0.0), 0.0);
+    }
+
+    #[test]
+    fn a_walk_never_wraps_unless_it_truly_repeats() {
+        // The walk counter only ever counts up, so the play-once track holds and the
+        // viewer has nowhere exact to restart.
+        let held = animation(vec![curve(-1, 0, 10), curve(1, 0, 30)]);
+        let walk = Role::Walk.looping(Faction::Cat);
+
+        assert_eq!(walk.bound(&held), None);
+        assert_eq!(walk.seat(&held, 45.0), 45.0);
+
+        let cycling = animation(vec![curve(-1, 0, 8), curve(-1, 0, 12)]);
+
+        assert_eq!(walk.bound(&cycling), Some(23));
+        assert_eq!(walk.seat(&cycling, 25.0), 1.0);
     }
 }

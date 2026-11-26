@@ -68,10 +68,8 @@ fn reading_level(cat: Option<&CatEntry>, form: usize, settings: &Settings) -> i3
     cat.map_or(1, |entry| cat_stats::seeded_level(entry, settings).0)
 }
 
-fn frames_for(cat: Option<&CatEntry>, earlier: usize, form: usize) -> (i32, i32) {
-    let frames = |slot: usize| {
-        cat.and_then(|entry| entry.atk_anim_frames.get(slot).copied()).unwrap_or_default()
-    };
+fn frames_for(cat: Option<&CatEntry>, earlier: usize, form: usize) -> (Option<i32>, Option<i32>) {
+    let frames = |slot: usize| cat.and_then(|entry| entry.atk_anim_frames.get(slot).copied().flatten());
 
     (frames(earlier), frames(form))
 }

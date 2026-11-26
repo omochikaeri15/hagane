@@ -13,7 +13,7 @@ use foundry::Source;
 use foundry::common::job::ProgressCounter;
 use foundry::systems::animation::export::process::calculate_export_time;
 use foundry::systems::animation::export::{BACKGROUND, BoundsOutcome, EncoderMessage, EncoderStatus, ExportFormat, ExportMode, ExportRequest, FrameTiming, LoopStatus, ShowcaseLengths, find_bounds, find_loop, leader, process};
-use foundry::systems::animation::{Loop, Role, name_prefix, paint, playback_frames};
+use foundry::systems::animation::{Loop, Role, name_prefix, paint};
 
 use crate::pages::Context;
 use crate::{AppWindow, Export, Tone, bridge, delivery};
@@ -73,6 +73,7 @@ struct Search {
 pub struct Form {
     frame_start: i32,
     frame_end: i32,
+    min_frame: i32,
     max_frame: i32,
     frame_start_str: String,
     frame_end_str: String,
@@ -133,6 +134,7 @@ impl Default for Form {
         Self {
             frame_start: 0,
             frame_end: 0,
+            min_frame: 0,
             max_frame: 100,
             frame_start_str: String::new(),
             frame_end_str: String::new(),
@@ -446,7 +448,7 @@ pub fn wire(window: &AppWindow, context: &Rc<Context>) {
             state.export.frame_start_str = value.to_string();
 
             if value.trim().is_empty() {
-                state.export.frame_start = 0;
+                state.export.frame_start = state.export.min_frame;
             } else if let Ok(parsed) = value.trim().parse::<i32>() {
                 state.export.frame_start = parsed;
             }
@@ -747,10 +749,11 @@ pub fn synced(ui: &AppWindow, context: &Rc<Context>) {
             }
 
             if state.export.mode != ExportMode::Showcase {
-                let max = state.anim().map_or(0, |anim| state.looping().frames(&anim) - 1);
+                let (min, max) = state.anim().map_or((0, 0), |anim| (state.looping().first(&anim), state.looping().frames(&anim) - 1));
 
+                state.export.min_frame = min;
                 state.export.max_frame = max;
-                state.export.frame_start = 0;
+                state.export.frame_start = min;
                 state.export.frame_end = max;
                 state.export.frame_start_str.clear();
                 state.export.frame_end_str.clear();
@@ -770,8 +773,8 @@ pub fn synced(ui: &AppWindow, context: &Rc<Context>) {
     }
 }
 
-fn role_paths(state: &super::State) -> Vec<(Role, Source)> {
-    state.set.as_ref().map(|set| set.motions.iter().filter_map(|motion| Some((motion.role?, motion.file.clone()?))).collect()).unwrap_or_default()
+fn role_paths(state: &super::State) -> Vec<(Role, Loop, Source)> {
+    state.set.as_ref().map(|set| set.motions.iter().filter_map(|motion| Some((motion.role?, motion.looping, motion.file.clone()?))).collect()).unwrap_or_default()
 }
 
 fn scan_showcase(context: &Rc<Context>) {
@@ -792,22 +795,22 @@ fn scan_showcase(context: &Rc<Context>) {
     state.export.scanned_showcase = Some(name);
 
     let paths = role_paths(&state);
-    let parse = |role: Role| -> Option<Animation> {
-        let (_, source) = paths.iter().find(|(known, _)| *known == role)?;
+    let parse = |role: Role| -> Option<(Animation, Loop)> {
+        let (_, looping, source) = paths.iter().find(|(known, _, _)| *known == role)?;
         let bytes = source.read().ok()?;
 
-        Animation::parse(&bytes).ok()
+        Animation::parse(&bytes).ok().map(|anim| (anim, *looping))
     };
     let settings = context.state.snapshot();
 
     for role in [Role::Walk, Role::Idle, Role::Attack, Role::Knockback] {
-        if !paths.iter().any(|(known, _)| *known == role) {
+        if !paths.iter().any(|(known, _, _)| *known == role) {
             state.export.length_of(role, 0);
         }
     }
 
-    if let Some(attack) = parse(Role::Attack) {
-        let total = attack.declared_frames();
+    if let Some((attack, looping)) = parse(Role::Attack) {
+        let total = looping.frames(&attack) - looping.first(&attack);
 
         state.export.detected_attack_len = total;
 
@@ -816,8 +819,8 @@ fn scan_showcase(context: &Rc<Context>) {
         }
     }
 
-    if let Some(walk) = parse(Role::Walk) {
-        let length = if playback_frames(&walk) <= 2 { 0 } else { settings.animation.default_showcase_walk };
+    if let Some((walk, looping)) = parse(Role::Walk) {
+        let length = if looping.frames(&walk) - looping.first(&walk) <= 2 { 0 } else { settings.animation.default_showcase_walk };
 
         state.export.detected_walk_len = length;
 
@@ -826,8 +829,8 @@ fn scan_showcase(context: &Rc<Context>) {
         }
     }
 
-    if let Some(idle) = parse(Role::Idle) {
-        let length = if playback_frames(&idle) <= 2 { 0 } else { settings.animation.default_showcase_idle };
+    if let Some((idle, looping)) = parse(Role::Idle) {
+        let length = if looping.frames(&idle) - looping.first(&idle) <= 2 { 0 } else { settings.animation.default_showcase_idle };
 
         state.export.detected_idle_len = length;
 
@@ -933,6 +936,7 @@ pub fn refresh(ui: &AppWindow, context: &Rc<Context>) {
     export.set_modes(ModelRc::new(VecModel::from(modes)));
     export.set_mode(mode_index);
     export.set_format(format_index(&f.format) as i32);
+    export.set_start_hint(f.min_frame.to_string().into());
     export.set_end_hint(f.max_frame.to_string().into());
     export.set_frame_start(f.frame_start_str.as_str().into());
     export.set_frame_end(f.frame_end_str.as_str().into());
@@ -995,7 +999,7 @@ struct RenderJob {
     rig: Arc<Rig>,
     animation: Option<Arc<Animation>>,
     looping: Loop,
-    roles: Vec<(Role, Source)>,
+    roles: Vec<(Role, Loop, Source)>,
     offset: Option<usize>,
     timing: FrameTiming,
     lengths: ShowcaseLengths,
@@ -1011,31 +1015,33 @@ struct RenderJob {
 }
 
 struct ShowcaseMotions {
-    walk: Option<Animation>,
-    idle: Option<Animation>,
-    attack: Option<Animation>,
-    kb: Option<Animation>,
+    walk: Option<(Animation, Loop)>,
+    idle: Option<(Animation, Loop)>,
+    attack: Option<(Animation, Loop)>,
+    kb: Option<(Animation, Loop)>,
 }
 
 impl ShowcaseMotions {
-    fn load(roles: &[(Role, Source)]) -> Self {
-        let parse = |role: Role| -> Option<Animation> {
-            let (_, source) = roles.iter().find(|(known, _)| *known == role)?;
+    fn load(roles: &[(Role, Loop, Source)]) -> Self {
+        let parse = |role: Role| -> Option<(Animation, Loop)> {
+            let (_, looping, source) = roles.iter().find(|(known, _, _)| *known == role)?;
             let bytes = source.read().ok()?;
 
-            Animation::parse(&bytes).ok()
+            Animation::parse(&bytes).ok().map(|anim| (anim, *looping))
         };
 
         Self { walk: parse(Role::Walk), idle: parse(Role::Idle), attack: parse(Role::Attack), kb: parse(Role::Knockback) }
     }
 
-    fn get(&self, role: Role) -> Option<&Animation> {
-        match role {
-            Role::Walk => self.walk.as_ref(),
-            Role::Idle => self.idle.as_ref(),
-            Role::Attack => self.attack.as_ref(),
-            Role::Knockback => self.kb.as_ref(),
-        }
+    fn get(&self, role: Role) -> Option<(&Animation, Loop)> {
+        let shown = match role {
+            Role::Walk => &self.walk,
+            Role::Idle => &self.idle,
+            Role::Attack => &self.attack,
+            Role::Knockback => &self.kb,
+        };
+
+        shown.as_ref().map(|(anim, looping)| (anim, *looping))
     }
 }
 
@@ -1045,22 +1051,19 @@ fn render(job: RenderJob) {
     let delay_ms = (1000.0 / job.fps.max(1) as f32) as u32;
     let background = if job.background { BACKGROUND } else { CLEAR };
     let view_proj = paint::export_view_proj(job.width as f32, job.height as f32, job.region.0, job.region.1, job.zoom);
-    let seat = |progress: i32| {
-        let (animation, looping, local_time) = match &motions {
-            Some(motions) => {
-                let (role, time) = job.lengths.segment(progress);
-                let animation = motions.get(role);
-                let time = match animation {
-                    Some(anim) if anim.declared_frames() > 1 => time,
-                    _ => 0.0,
-                };
+    let seat = |progress: i32| match &motions {
+        Some(motions) => {
+            let (role, time) = job.lengths.segment(progress);
+            let shown = motions.get(role);
+            let at = shown.map_or(0.0, |(anim, looping)| calculate_export_time(&job.timing, Some(anim), looping, time, progress));
 
-                (animation, role.looping(), time)
-            }
-            None => (job.animation.as_deref(), job.looping, 0.0),
-        };
+            (shown.map(|(anim, _)| anim), at)
+        }
+        None => {
+            let animation = job.animation.as_deref();
 
-        (animation, calculate_export_time(&job.timing, animation, looping, local_time, progress))
+            (animation, calculate_export_time(&job.timing, animation, job.looping, 0.0, progress))
+        }
     };
 
     for progress in 0..frame_count {
@@ -1338,8 +1341,9 @@ fn use_bounds(ui: &AppWindow, context: &Rc<Context>) {
         };
         let tolerance = state.export.cull_percent as f32 / 100.0;
         let showcase = state.export.mode == ExportMode::Showcase;
-        let scan_limit = state.export.frame_end.max(state.export.frame_start).max(0);
+        let scan_range = (state.export.frame_start, state.export.frame_end);
         let current = state.anim();
+        let current_loop = state.looping();
         let offset = state.offset();
         let roles = role_paths(&state);
         let slots = [
@@ -1361,19 +1365,21 @@ fn use_bounds(ui: &AppWindow, context: &Rc<Context>) {
                         continue;
                     }
 
-                    if let Some((_, source)) = roles.iter().find(|(known, _)| *known == role)
+                    if let Some((_, looping, source)) = roles.iter().find(|(known, _, _)| *known == role)
                         && let Ok(bytes) = source.read()
                         && let Ok(anim) = Animation::parse(&bytes)
                     {
-                        showcase_motions.push((anim, length));
+                        let first = looping.first(&anim);
+
+                        showcase_motions.push((anim, *looping, first, first + length - 1));
                     }
                 }
             }
 
-            let motions: Vec<(&Animation, Option<i32>)> = if showcase {
-                showcase_motions.iter().map(|(anim, length)| (anim, Some(*length))).collect()
+            let motions: Vec<(&Animation, Loop, i32, i32)> = if showcase {
+                showcase_motions.iter().map(|(anim, looping, from, to)| (anim, *looping, *from, *to)).collect()
             } else {
-                current.iter().map(|anim| (anim.as_ref(), Some(scan_limit))).collect()
+                current.iter().map(|anim| (anim.as_ref(), current_loop, scan_range.0, scan_range.1)).collect()
             };
             let outcome = find_bounds::search(&rig, &motions, tolerance, offset, &worker_progress, &worker_abort);
 

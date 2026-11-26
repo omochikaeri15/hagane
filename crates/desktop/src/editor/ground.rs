@@ -2027,7 +2027,7 @@ mod tests {
                 description: Vec::new(),
                 stats: codex::combat::Entity::default(),
                 icon_path: None,
-                atk_anim_frames: 0,
+                atk_anim_frames: None,
             },
         );
 

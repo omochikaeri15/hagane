@@ -13,6 +13,7 @@ export global Viewer {
     in property <bool> has-anim;
     in-out property <bool> playing: true;
     in property <string> frame-text: "0";
+    in property <string> min-text: "0";
     in property <string> max-text: "0";
     in property <string> effective-max: "0";
     in-out property <string> range-start;
@@ -147,7 +148,7 @@ component Controls inherits Rectangle {
                 spacing: 4px;
                 if Viewer.playing: HorizontalLayout {
                     spacing: 4px;
-                    Input { width: 60px; height: 28px; text-size: 14px; align: center; placeholder: "0"; enabled: Viewer.has-anim; text <=> Viewer.range-start; input-type: InputType.number; edited(value) => { Viewer.set-range-start(value); } }
+                    Input { width: 60px; height: 28px; text-size: 14px; align: center; placeholder: Viewer.min-text; enabled: Viewer.has-anim; text <=> Viewer.range-start; input-type: InputType.number; edited(value) => { Viewer.set-range-start(value); } }
                     Rectangle { width: 20px; height: 28px; background: Theme.bg-weak; border-width: 1px; border-color: Theme.bg-strong; border-radius: Theme.radius-sm; Text { text: "~"; color: Theme.text; font-size: 14px; horizontal-alignment: center; vertical-alignment: center; width: parent.width; height: parent.height; } }
                     Input { width: 60px; height: 28px; text-size: 14px; align: center; placeholder: Viewer.max-text; enabled: Viewer.has-anim; text <=> Viewer.range-end; input-type: InputType.number; edited(value) => { Viewer.set-range-end(value); } }
                 }

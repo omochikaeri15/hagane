@@ -148,8 +148,8 @@ fn display(
     let target_stat_definition = CAT_STATS_REGISTRY.iter().find(|stat_definition| stat_definition.linked_talents.contains(&talent_group.ability_id));
 
     if let Some(stat_definition) = target_stat_definition {
-        let old_stat_value = (stat_definition.get_value)(&StatContext::cat(&leveled_base_stats, 0, None, treasure));
-        let new_stat_value = (stat_definition.get_value)(&StatContext::cat(&mutated_stats, 0, None, treasure));
+        let old_stat_value = (stat_definition.get_value)(&StatContext::cat(&leveled_base_stats, None, None, treasure));
+        let new_stat_value = (stat_definition.get_value)(&StatContext::cat(&mutated_stats, None, None, treasure));
 
         let value_one_minimum = calculate_talent_value(talent_group.min_1, talent_group.max_1, 1, talent_group.max_level);
         let value_one_maximum = calculate_talent_value(talent_group.min_1, talent_group.max_1, talent_group.max_level, talent_group.max_level);
@@ -163,7 +163,7 @@ fn display(
                 (&dummy_min_stats, value_one_minimum, value_two_minimum)
             };
 
-            let displayed_value = (stat_definition.get_value)(&StatContext::cat(displayed_stats, 0, None, treasure));
+            let displayed_value = (stat_definition.get_value)(&StatContext::cat(displayed_stats, None, None, treasure));
             let modifier_string = stat_definition.talent_modifier_fmt.map(|format_func| format_func(modifier_one, modifier_two)).unwrap_or_default();
 
             return Some(if modifier_string.is_empty() {

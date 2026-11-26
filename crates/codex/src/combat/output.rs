@@ -322,9 +322,10 @@ impl Entity {
         self.swings().map_or((cycle, 1), |swings| (recharge, swings.clamp(0, MOST_SWINGS)))
     }
 
-    pub fn exposure(&self, cycle: i32, recharge: i32, hits: Hits, rules: &Rules) -> Exposure {
+    pub fn exposure(&self, cycle: i32, recharge: i32, length: Option<i32>, hits: Hits, rules: &Rules) -> Exposure {
         let flags = [self.attack_1_abilities, self.attack_2_abilities, self.attack_3_abilities];
         let strikes = self.strike_frames();
+        let fires = self.fires(length);
         let bands: Vec<(i32, i32)> = (0..strikes.len())
             .map(|attack| self.strike_band(attack))
             .map(|(near, far)| (near.saturating_mul(RANGE_STEPS), far.saturating_mul(RANGE_STEPS)))
@@ -335,6 +336,7 @@ impl Entity {
             Hits::All => (standing, (0..bands.len()).collect(), true),
             _ => (standing, (0..bands.len()).collect::<Vec<_>>(), false),
         };
+        let counted: Vec<usize> = counted.into_iter().filter(|attack| self.attack_count_total != 0 && fires[*attack]).collect();
         let lands: [bool; HITS] = std::array::from_fn(|attack| counted.contains(&attack) && (forced || bands.get(attack).is_some_and(|(near, far)| (*near..=*far).contains(&spot))));
         let able: [bool; HITS] = std::array::from_fn(|attack| flags[attack] != 0);
 
@@ -584,11 +586,11 @@ mod tests {
     }
 
     fn freezer(chance: i32) -> Entity {
-        Entity { standing_range: 300, time_until_attack_1: 10, attack_1_abilities: 1, freeze_chance: chance, ..Entity::default() }
+        Entity { standing_range: 300, time_until_attack_1: 10, attack_1_abilities: 1, freeze_chance: chance, attack_count_total: -1, ..Entity::default() }
     }
 
     fn uptime(unit: &Entity, chance: i32, duration: i32, mode: Mode) -> f64 {
-        unit.exposure(100, 0, Hits::Standing, &RULES).uptime(chance, duration, mode, Switches::default()).unwrap_or(-1.0)
+        unit.exposure(100, 0, None, Hits::Standing, &RULES).uptime(chance, duration, mode, Switches::default()).unwrap_or(-1.0)
     }
 
     // The timer is set after the target has moved that frame, so a proc holds it one frame less
@@ -601,7 +603,7 @@ mod tests {
         assert_eq!(uptime(&unit, 100, 100, Mode::Average), 0.99);
         assert!(close(uptime(&unit, 50, 201, Mode::Average), 0.75), "two cycles cover every frame, missed only when both rolls fail");
         assert_eq!(uptime(&unit, 50, 51, Mode::Maximum), 0.5, "at most every roll lands");
-        assert_eq!(unit.exposure(100, 0, Hits::Standing, &RULES).uptime(100, 1, Mode::Average, Switches::default()), None);
+        assert_eq!(unit.exposure(100, 0, None, Hits::Standing, &RULES).uptime(100, 1, Mode::Average, Switches::default()), None);
     }
 
     // Each hit of a multi-hit rolls on its own, so where their windows overlap a frame is only missed
@@ -653,7 +655,7 @@ mod tests {
     #[test]
     fn switches_override_the_mode() {
         let unit = Entity { attack_1_damage: 1000, strengthen_threshold: 50, strengthen_boost: 100, wave_chance: 50, wave_level: 1, ..freezer(100) };
-        let exposure = unit.exposure(100, 0, Hits::Standing, &RULES);
+        let exposure = unit.exposure(100, 0, None, Hits::Standing, &RULES);
         let dealt = |mode: Mode, switches: Switches| exposure.damage(&unit, [1000, 0, 0], Foe::default(), Terms::default(), mode, switches);
         let none = Switches::default();
 
@@ -684,7 +686,7 @@ mod tests {
     #[test]
     fn a_unit_that_dies_repeats_on_its_recharge() {
         let bomber = Entity { attack_count_total: 1, attack_count_state: DIES_AFTER, ..freezer(100) };
-        let pace = |unit: &Entity, recharge: i32| unit.exposure(100, recharge, Hits::Standing, &RULES).uptime(100, 31, Mode::Average, Switches::default());
+        let pace = |unit: &Entity, recharge: i32| unit.exposure(100, recharge, None, Hits::Standing, &RULES).uptime(100, 31, Mode::Average, Switches::default());
 
         assert_eq!(pace(&bomber, 300).map(|share| close(share, 0.1)), Some(true));
         assert_eq!(pace(&Entity { attack_count_total: 2, ..bomber.clone() }, 300).map(|share| close(share, 0.2)), Some(true), "both swings land before it goes");
@@ -709,7 +711,7 @@ mod tests {
             long_distance_2_span: 900,
             ..freezer(100)
         };
-        let dealt = |hits: Hits| split.exposure(100, 0, hits, &RULES).damage(&split, [1000, 3000, 0], Foe::default(), Terms::default(), Mode::Base, Switches::default());
+        let dealt = |hits: Hits| split.exposure(100, 0, None, hits, &RULES).damage(&split, [1000, 3000, 0], Foe::default(), Terms::default(), Mode::Base, Switches::default());
 
         assert_eq!(dealt(Hits::Standing), 3000.0, "the first hit's band starts past standing range");
         assert_eq!(dealt(Hits::All), 4000.0);
@@ -723,7 +725,7 @@ mod tests {
     fn metal_averages_each_landing() {
         let metal = Foe::default().with(Identity::TraitMetal);
         let mixed = Entity { attack_1_damage: 3000, attack_2_damage: 1000, time_until_attack_2: 20, attack_1_abilities: 1, attack_2_abilities: 0, critical_chance: 50, ..freezer(0) };
-        let dealt = |unit: &Entity, mode: Mode| unit.exposure(100, 0, Hits::Standing, &RULES).damage(unit, [unit.attack_1_damage, unit.attack_2_damage, 0], metal, Terms::default(), mode, Switches::default());
+        let dealt = |unit: &Entity, mode: Mode| unit.exposure(100, 0, None, Hits::Standing, &RULES).damage(unit, [unit.attack_1_damage, unit.attack_2_damage, 0], metal, Terms::default(), mode, Switches::default());
 
         assert_eq!((dealt(&mixed, Mode::Base), dealt(&mixed, Mode::Average), dealt(&mixed, Mode::Maximum)), (2.0, 3001.5, 6001.0));
 
@@ -735,7 +737,7 @@ mod tests {
         let strong = Entity { attack_1_damage: 1000, strengthen_threshold: 50, strengthen_boost: 100, ..freezer(0) };
 
         assert_eq!((dealt(&strong, Mode::Average), dealt(&strong, Mode::Maximum)), (1.0, 1.0), "against Metal even Strengthen is held to 1");
-        assert_eq!(strong.exposure(100, 0, Hits::Standing, &RULES).damage(&strong, [1000, 0, 0], Foe::default(), Terms::default(), Mode::Maximum, Switches::default()), 2000.0, "only the maximum counts Strengthen");
+        assert_eq!(strong.exposure(100, 0, None, Hits::Standing, &RULES).damage(&strong, [1000, 0, 0], Foe::default(), Terms::default(), Mode::Maximum, Switches::default()), 2000.0, "only the maximum counts Strengthen");
 
         let mini = Entity { attack_1_damage: 1000, critical_chance: 50, wave_chance: 100, wave_level: 1, mini_wave_flag: 1, ..freezer(0) };
 

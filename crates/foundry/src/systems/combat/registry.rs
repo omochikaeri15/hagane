@@ -140,6 +140,7 @@ pub struct Against {
 pub struct Rhythm {
     pub cycle: i32,
     pub recharge: i32,
+    pub length: Option<i32>,
     pub rules: Rules,
 }
 
@@ -266,7 +267,7 @@ fn uptime(ctx: &FormatContext<'_>, identity: Identity, gap: &str) -> String {
     };
 
     let (shortest, longest) = held_span(ctx, identity);
-    let exposure = ctx.stats.exposure(rhythm.cycle, rhythm.recharge, ctx.lens.hits, &rhythm.rules);
+    let exposure = ctx.stats.exposure(rhythm.cycle, rhythm.recharge, rhythm.length, ctx.lens.hits, &rhythm.rules);
     let chance = finite(ctx.value);
     let (mode, switches) = (ctx.lens.mode, ctx.lens.switches);
     let (Some(least), Some(most)) = (exposure.uptime(chance, shortest, mode, switches), exposure.uptime(chance, longest, mode, switches)) else {
@@ -343,7 +344,7 @@ fn fmt_spawn_range(anchor: i32, span: i32) -> String {
 fn fmt_attack_timing(stats: &Entity) -> String {
     let attack_cooldown = fmt_time(stats.attack_cooldown);
 
-    if stats.attack_2_damage > 0 {
+    if stats.strike_frames().len() > 1 {
         return format!("Attack cooldown {}", attack_cooldown);
     }
 
@@ -366,8 +367,8 @@ fn fmt_effective_range(stats: &Entity) -> String {
     if has_ld_or_omni {
         let hit_data = [
             (true, stats.long_distance_1_anchor, stats.long_distance_1_span, 1),
-            (stats.attack_2_damage > 0, stats.long_distance_2_anchor, stats.long_distance_2_span, stats.long_distance_2_flag),
-            (stats.attack_3_damage > 0, stats.long_distance_3_anchor, stats.long_distance_3_span, stats.long_distance_3_flag),
+            (stats.strike_frames().len() > 1, stats.long_distance_2_anchor, stats.long_distance_2_span, stats.long_distance_2_flag),
+            (stats.strike_frames().len() > 2, stats.long_distance_3_anchor, stats.long_distance_3_span, stats.long_distance_3_flag),
         ];
 
         for (is_active, anchor, span, flag) in hit_data {
@@ -407,7 +408,8 @@ fn fmt_multihit(stats: &Entity, magnification: Magnification, treasure: &Bonus) 
 
     let ability_flag_1 = if stats.attack_1_abilities > 0 { "True" } else { "False" };
     let ability_flag_2 = if stats.attack_2_abilities > 0 { "True" } else { "False" };
-    let ability_flag_3 = if stats.attack_3_damage == 0 {
+    let triple = stats.strike_frames().len() > 2;
+    let ability_flag_3 = if !triple {
         ""
     } else if stats.attack_3_abilities > 0 {
         " / True"
@@ -415,13 +417,13 @@ fn fmt_multihit(stats: &Entity, magnification: Magnification, treasure: &Bonus) 
         " / False"
     };
 
-    let damage_string = if stats.attack_3_damage > 0 {
+    let damage_string = if triple {
         format!("{} / {} / {}", scale(stats.attack_1_damage), scale(stats.attack_2_damage), scale(stats.attack_3_damage))
     } else {
         format!("{} / {}", scale(stats.attack_1_damage), scale(stats.attack_2_damage))
     };
 
-    let timing_string = if stats.attack_3_damage > 0 {
+    let timing_string = if triple {
         format!("{} / {} / {}", fmt_time(stats.time_until_attack_1), fmt_time(stats.time_until_attack_2), fmt_time(stats.time_until_attack_3))
     } else {
         format!("{} / {}", fmt_time(stats.time_until_attack_1), fmt_time(stats.time_until_attack_2))
@@ -582,15 +584,7 @@ fn weigh_band(stats: &Entity) -> i32 {
 }
 
 fn hits<T>(stats: &Entity, read: impl Fn(usize) -> T) -> Vec<T> {
-    let landed = if stats.attack_3_damage > 0 {
-        3
-    } else if stats.attack_2_damage > 0 {
-        2
-    } else {
-        1
-    };
-
-    (0..landed).map(read).collect()
+    (0..stats.strike_frames().len()).map(read).collect()
 }
 
 fn joined(parts: Vec<String>) -> Option<String> {
@@ -1543,19 +1537,19 @@ pub fn get_fallback_by_icon(target_icon: AbilityIcon) -> &'static str {
 
 pub struct StatContext<'a> {
     pub stats: &'a Entity,
-    pub animation_frames: i32,
+    pub attack_length: Option<i32>,
     pub magnification: Magnification,
     pub unitbuy: Option<&'a UnitBuy>,
     pub treasure: &'a Bonus,
 }
 
 impl<'a> StatContext<'a> {
-    pub fn cat(stats: &'a Entity, animation_frames: i32, unitbuy: Option<&'a UnitBuy>, treasure: &'a Bonus) -> Self {
-        Self { stats, animation_frames, magnification: Magnification::default(), unitbuy, treasure }
+    pub fn cat(stats: &'a Entity, attack_length: Option<i32>, unitbuy: Option<&'a UnitBuy>, treasure: &'a Bonus) -> Self {
+        Self { stats, attack_length, magnification: Magnification::default(), unitbuy, treasure }
     }
 
-    pub fn enemy(stats: &'a Entity, animation_frames: i32, magnification: Magnification, treasure: &'a Bonus) -> Self {
-        Self { stats, animation_frames, magnification, unitbuy: None, treasure }
+    pub fn enemy(stats: &'a Entity, attack_length: Option<i32>, magnification: Magnification, treasure: &'a Bonus) -> Self {
+        Self { stats, attack_length, magnification, unitbuy: None, treasure }
     }
 
     fn scaled(&self, stat: i32, percent: i32) -> i32 {
@@ -1563,7 +1557,9 @@ impl<'a> StatContext<'a> {
     }
 
     fn scaled_attack(&self) -> i32 {
-        self.strikes().into_iter().sum()
+        let fires = self.stats.fires(self.attack_length);
+
+        self.strikes().into_iter().zip(fires).filter(|(_, fired)| *fired).map(|(damage, _)| damage).sum()
     }
 
     pub fn strikes(&self) -> [i32; 3] {
@@ -1641,7 +1637,7 @@ pub const STAT_DPS: StatsDef = StatsDef {
     name: "Dps",
     display_name: "DPS",
     get_value: |ctx| {
-        let attack_cycle = ctx.stats.attack_cycle(ctx.animation_frames);
+        let attack_cycle = ctx.stats.attack_cycle(ctx.attack_length);
 
         if attack_cycle <= 0 { return 0; }
 
@@ -1656,7 +1652,7 @@ pub const STAT_DPS: StatsDef = StatsDef {
 pub const STAT_ATK_CYCLE: StatsDef = StatsDef {
     name: "Atk Cycle",
     display_name: "Atk Cycle",
-    get_value: |ctx| ctx.stats.attack_cycle(ctx.animation_frames),
+    get_value: |ctx| ctx.stats.attack_cycle(ctx.attack_length),
     formatter: |frames| format!("{}f", frames),
     talent_fmt: None,
     linked_talents: &[],
@@ -1798,7 +1794,7 @@ mod control_tests {
     // measure it by; a Sage's cut shortens it like the time.
     #[test]
     fn uptime_follows_the_time() {
-        let cat = Entity { freeze_chance: 100, freeze_duration: 90, standing_range: 300, time_until_attack_1: 10, attack_1_abilities: 1, ..Entity::default() };
+        let cat = Entity { freeze_chance: 100, freeze_duration: 90, standing_range: 300, time_until_attack_1: 10, attack_1_abilities: 1, attack_count_total: -1, ..Entity::default() };
         let rhythm = |cycle: i32| Some(Rhythm { cycle, ..Rhythm::default() });
 
         assert!(paced(Identity::Freeze, &cat, None, rhythm(300)).ends_with("Red\nfor 3.00s^90f with 29.7% uptime"));

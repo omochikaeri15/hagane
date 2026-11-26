@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 use codex::graphics::rig::Animation;
 use tracing::info;
 
-use crate::systems::animation::{loop_frame, Loop};
+use crate::systems::animation::Loop;
 
 use super::{ExportConfig, ExportFormat, ExportMode, ExportRequest, FrameTiming};
 
@@ -107,20 +107,12 @@ pub fn calculate_export_time(
     let is_showcase = timing.mode == ExportMode::Showcase;
 
     let raw_frame = if is_showcase {
-        current_time
+        current_time + looping.first(animation) as f32
     } else {
         let start = timing.frame_start;
         let step = if timing.frame_start < timing.frame_end { 1 } else { -1 };
         (start + (current_progress * step)) as f32
     };
 
-    if !is_showcase || looping == Loop::Knockback {
-        return looping.exported(animation, raw_frame);
-    }
-
-    if animation.modifications.iter().any(|modification| modification.loop_count == -1) {
-        raw_frame
-    } else {
-        loop_frame(animation, raw_frame)
-    }
+    looping.exported(animation, raw_frame)
 }

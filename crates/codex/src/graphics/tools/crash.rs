@@ -1,4 +1,5 @@
-use crate::graphics::rig::{AnimModification, Animation, Keyframe, Model, ALIGNED_VERSION};
+use crate::combat::Faction;
+use crate::graphics::rig::{AnimModification, Animation, Counter, Keyframe, Model, Pose, ALIGNED_VERSION};
 
 const EASE_POLYNOMIAL: i32 = 3;
 
@@ -26,6 +27,14 @@ pub enum Side {
 }
 
 impl Side {
+    fn factions(self) -> &'static [Faction] {
+        match self {
+            Self::Enemy => &[Faction::Enemy],
+            Self::Cat => &[Faction::Cat],
+            Self::Either => &[Faction::Cat, Faction::Enemy],
+        }
+    }
+
     fn rows(self) -> &'static [usize] {
         match self {
             Self::Enemy => &[0],
@@ -129,13 +138,13 @@ pub fn anim_faults(anim: &Animation, model: &Model) -> Vec<Sited> {
 }
 
 pub fn attack_faults(attack: &Animation, side: Side) -> Vec<Sited> {
-    let whole_file = |fault| vec![Sited { fault, part: None, track: None }];
+    let faulting = side.factions().iter().any(|faction| attack.counter(Pose::Attack(*faction)) == Counter::Faulting);
 
-    match (side, attack.length()) {
-        (Side::Enemy | Side::Either, ENDLESS) if attack.last_frame() == 0 => whole_file(Fault::EndlessAttack),
-        (_, 0) => whole_file(Fault::AttackLength),
-        _ => Vec::new(),
-    }
+    if !faulting { return Vec::new(); }
+
+    let fault = if attack.length() == ENDLESS { Fault::EndlessAttack } else { Fault::AttackLength };
+
+    vec![Sited { fault, part: None, track: None }]
 }
 
 pub fn image_faults(bytes: &[u8]) -> Vec<Sited> {
@@ -334,15 +343,18 @@ mod tests {
     }
 
     #[test]
-    fn an_endless_attack_resting_on_frame_zero_is_caught_for_an_enemy_alone() {
+    fn an_endless_attack_resting_on_frame_zero_is_caught_for_a_cat_alone() {
+        // A cat's endless attack wraps at its furthest key, which is zero here; an enemy's
+        // wraps at -1 and just ends after one frame.
         let stuck = attack(-1, &[0, 0]);
 
         assert_eq!(stuck.length(), -1);
         assert_eq!(
-            attack_faults(&stuck, Side::Enemy),
+            attack_faults(&stuck, Side::Cat),
             vec![Sited { fault: Fault::EndlessAttack, part: None, track: None }],
         );
-        assert_eq!(attack_faults(&stuck, Side::Cat), Vec::new());
+        assert_eq!(attack_faults(&stuck, Side::Either), attack_faults(&stuck, Side::Cat));
+        assert_eq!(attack_faults(&stuck, Side::Enemy), Vec::new());
     }
 
     #[test]
@@ -384,7 +396,7 @@ mod tests {
     fn a_rig_of_no_stated_side_reports_what_either_side_would_reach() {
         let stuck = attack(-1, &[0, 0]);
 
-        assert_eq!(attack_faults(&stuck, Side::Cat), Vec::new());
+        assert_eq!(attack_faults(&stuck, Side::Enemy), Vec::new());
         assert_eq!(
             attack_faults(&stuck, Side::Either),
             vec![Sited { fault: Fault::EndlessAttack, part: None, track: None }],

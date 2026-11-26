@@ -324,12 +324,19 @@ impl State {
         View { size: self.size, pan: self.pan, zoom: self.zoom }
     }
 
+    fn loop_first(&self) -> i32 {
+        match self.is_model() {
+            true => 0,
+            false => self.anim().map_or(0, |anim| self.looping().first(&anim)),
+        }
+    }
+
     fn frame_bounds(&self) -> (f32, Option<f32>) {
         if self.is_model() {
             return (0.0, Some(0.0));
         }
 
-        let min = self.loop_start.unwrap_or(0.0).max(0.0);
+        let min = self.loop_start.unwrap_or(self.loop_first() as f32).max(0.0);
         let max = self.loop_end.or_else(|| self.loop_bound().map(|bound| bound.max(0) as f32)).map(|max| max.max(min));
 
         (min, max)
@@ -829,6 +836,7 @@ pub fn sync_controls(ui: &AppWindow, context: &Rc<Context>) {
     viewer.set_missing(state.rig_failed());
     viewer.set_playing(state.playing);
     viewer.set_frame_text((state.frame.trunc() as i32).to_string().into());
+    viewer.set_min_text(state.loop_first().to_string().into());
     viewer.set_max_text(bound.into());
     viewer.set_effective_max(effective.into());
     viewer.set_range_start(state.range_inputs.0.as_str().into());
@@ -881,7 +889,7 @@ fn tick(ui: &AppWindow, context: &Rc<Context>) {
     if state.playing && rig.is_some() {
         let advance = FRAME_ADVANCE_PER_TICK * (delta / TICK_MS) as f32;
         let current = state.frame + advance;
-        let start = state.loop_start.unwrap_or(0.0);
+        let start = state.loop_start.unwrap_or(state.loop_first() as f32);
         let end = state.loop_end.or_else(|| state.loop_bound().map(|bound| bound.max(0) as f32));
         let next = match end {
             Some(end) if current > end => start,
@@ -977,7 +985,7 @@ fn tick(ui: &AppWindow, context: &Rc<Context>) {
             let mut shapes = Vec::new();
 
             if let Some(combatant) = combat.as_ref() {
-                let start = state.loop_start.unwrap_or(0.0);
+                let start = state.loop_start.unwrap_or(state.loop_first() as f32);
                 let end = state.loop_end.or_else(|| state.loop_bound().map(|bound| bound.max(0) as f32));
                 let period = end.map(|end| (end - start).floor() as i32 + 1);
                 let stance = collision::Pose { rig, anim: anim.as_deref(), frame, offset, zoom: view.zoom, crest: bounds.flatten().map(|reach| reach.min_y) };

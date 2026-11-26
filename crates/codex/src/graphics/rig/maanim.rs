@@ -1,5 +1,6 @@
 use serde::Serialize;
 
+use crate::combat::Faction;
 use crate::common::columns::{self, Column};
 use crate::common::stream::{declared_rows, Cursor, Reader};
 use crate::graphics::tools::math;
@@ -8,7 +9,31 @@ use super::RigError;
 
 const POWERED_VERSION: i32 = 1;
 
+const ENDLESS: i32 = -1;
+
 pub const KNOCKBACK_LENGTH: i32 = 24;
+
+const BURROW_LENGTH: u32 = 30;
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum Pose {
+    Walk,
+    Idle,
+    Attack(Faction),
+    Knockback,
+    Burrow,
+    Dig,
+    Surface,
+    Entry { effect: Option<i32> },
+    Soul { effect: Option<i32> },
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum Counter {
+    Rising,
+    Wrapping { from: i32, length: u32 },
+    Faulting,
+}
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Serialize)]
 pub struct Keyframe {
@@ -124,23 +149,72 @@ impl Animation {
         longest
     }
 
+    pub fn counter(&self, pose: Pose) -> Counter {
+        match pose {
+            Pose::Walk | Pose::Dig => Counter::Rising,
+            Pose::Idle if self.last_frame() == 0 => Counter::Wrapping { from: 0, length: 1 },
+            Pose::Idle => Counter::Rising,
+            Pose::Attack(faction) => match self.attack_divisor(faction) {
+                0 => Counter::Faulting,
+                divisor => Counter::Wrapping { from: 1, length: divisor.unsigned_abs() },
+            },
+            Pose::Knockback => Counter::Wrapping { from: 0, length: KNOCKBACK_LENGTH.unsigned_abs() },
+            Pose::Burrow | Pose::Surface => Counter::Wrapping { from: 0, length: BURROW_LENGTH },
+            Pose::Entry { effect } => Counter::Wrapping { from: 1, length: self.stretched(effect).unsigned_abs() },
+            Pose::Soul { effect } => Counter::Wrapping { from: 0, length: self.stretched(effect).unsigned_abs() + 1 },
+        }
+    }
+
+    pub fn attack_length(&self, faction: Faction) -> i32 {
+        self.attack_divisor(faction).saturating_abs()
+    }
+
+    fn attack_divisor(&self, faction: Faction) -> i32 {
+        match (faction, self.length()) {
+            (Faction::Cat, ENDLESS) => self.last_frame(),
+            (_, length) => length,
+        }
+    }
+
+    fn stretched(&self, effect: Option<i32>) -> i32 {
+        let own = match self.length() {
+            length if length >= 2 => length,
+            _ => 1,
+        };
+
+        effect.filter(|length| *length > own).unwrap_or(own)
+    }
+
     pub fn period(&self) -> Option<i32> {
-        let mut period = 1;
+        let mut period: i32 = 1;
 
         for modification in &self.modifications {
-            if modification.loop_count != -1 { return None; }
-
             let (Some(first), Some(last)) = (modification.keyframes.first(), modification.keyframes.last()) else {
                 continue;
             };
 
-            let span = last.frame - first.frame;
-            if span <= 0 { continue; }
+            if first.frame > 0 { return None; }
 
-            period = (period / math::gcd(period, span)).checked_mul(span)?;
+            let count = modification.loop_count;
+            let span = i64::from(last.frame) - i64::from(first.frame);
+            let settled = match count {
+                count if count > 0 => i64::from(first.frame) + i64::from(count) * span,
+                _ => i64::from(last.frame),
+            };
+
+            let repeat = match span {
+                0 => 1,
+                span if span < 0 && (count == ENDLESS || count > 0) => i32::try_from(-span).ok()?,
+                span if span < 0 => 1,
+                span if count == ENDLESS || settled > i64::from(i32::MAX) => i32::try_from(span).ok()?,
+                _ if settled <= 0 => 1,
+                _ => return None,
+            };
+
+            period = (period / math::gcd(period, repeat)).checked_mul(repeat)?;
         }
 
-        (period > 1).then_some(period)
+        Some(period)
     }
 
     pub fn declared_frames(&self) -> i32 {
@@ -186,6 +260,17 @@ impl Animation {
 
     pub fn scan_length(bytes: impl AsRef<[u8]>) -> Option<i32> {
         Self::scan_length_inner(bytes.as_ref())
+    }
+
+    pub fn scan_attack(bytes: impl AsRef<[u8]>, faction: Faction) -> Option<i32> {
+        Self::scan_attack_inner(bytes.as_ref(), faction)
+    }
+
+    fn scan_attack_inner(bytes: &[u8], faction: Faction) -> Option<i32> {
+        match Self::scan_length_inner(bytes)? {
+            ENDLESS => Self::parse_inner(bytes).ok().map(|anim| anim.attack_length(faction)),
+            length => Some(length.saturating_abs()),
+        }
     }
 
     fn scan_length_inner(bytes: &[u8]) -> Option<i32> {
@@ -422,5 +507,113 @@ mod tests {
         };
 
         assert_eq!(animation.period(), None);
+    }
+
+    #[test]
+    fn period_rejects_a_track_that_only_counts_a_few_laps() {
+        // Loop 3 holds its last key after three laps, so frame 30 onwards never matches frame 0.
+        let laps = Animation { version: 1, modifications: vec![modification(3, &[0, 10])] };
+
+        assert_eq!(laps.period(), None);
+
+        // Past the counter's own range the laps never run out.
+        let unending = Animation { version: 1, modifications: vec![modification(i32::MAX, &[0, 10])] };
+
+        assert_eq!(unending.period(), Some(10));
+    }
+
+    #[test]
+    fn period_rejects_a_track_that_starts_late() {
+        // The part sits at rest until frame 5 and never again, so frame 0 is never repeated.
+        let late = Animation { version: 1, modifications: vec![modification(-1, &[5, 15])] };
+
+        assert_eq!(late.period(), None);
+    }
+
+    #[test]
+    fn a_track_that_starts_before_frame_zero_still_repeats() {
+        // The forever track is already mid-lap at frame 0 and laps every 12; the play-once
+        // track finished at frame -5, so it only ever shows its last key.
+        let early = Animation {
+            version: 1,
+            modifications: vec![modification(-1, &[-6, 6]), modification(1, &[-20, -5])],
+        };
+
+        assert_eq!(early.period(), Some(12));
+    }
+
+    #[test]
+    fn a_still_timeline_repeats_every_frame() {
+        let still = Animation { version: 1, modifications: vec![modification(-1, &[0, 0]), modification(1, &[-4, -4])] };
+
+        assert_eq!(still.period(), Some(1));
+    }
+
+    #[test]
+    fn an_endless_track_ends_a_cat_attack_at_the_furthest_key() {
+        let attack = Animation {
+            version: 1,
+            modifications: vec![modification(-1, &[0, 10]), modification(1, &[0, 30])],
+        };
+
+        assert_eq!(attack.counter(Pose::Attack(Faction::Cat)), Counter::Wrapping { from: 1, length: 30 });
+        assert_eq!(attack.counter(Pose::Attack(Faction::Enemy)), Counter::Wrapping { from: 1, length: 1 });
+        assert_eq!(attack.counter(Pose::Walk), Counter::Rising);
+    }
+
+    #[test]
+    fn a_cat_attack_with_nothing_past_frame_zero_divides_by_zero() {
+        let stuck = Animation { version: 1, modifications: vec![modification(-1, &[0, 0])] };
+
+        assert_eq!(stuck.counter(Pose::Attack(Faction::Cat)), Counter::Faulting);
+        assert_eq!(stuck.counter(Pose::Attack(Faction::Enemy)), Counter::Wrapping { from: 1, length: 1 });
+        assert_eq!(stuck.counter(Pose::Idle), Counter::Wrapping { from: 0, length: 1 });
+    }
+
+    #[test]
+    fn a_plain_attack_wraps_at_its_length() {
+        let attack = Animation { version: 1, modifications: vec![modification(3, &[2, 12])] };
+
+        assert_eq!(attack.counter(Pose::Attack(Faction::Cat)), Counter::Wrapping { from: 1, length: 33 });
+        assert_eq!(attack.counter(Pose::Attack(Faction::Enemy)), Counter::Wrapping { from: 1, length: 33 });
+        assert_eq!(attack.counter(Pose::Knockback), Counter::Wrapping { from: 0, length: 24 });
+    }
+
+    #[test]
+    fn an_entry_runs_for_its_own_length_or_its_effect_whichever_is_longer() {
+        // Anything shorter than two frames counts as one, and so does an endless entry.
+        let entry = Animation { version: 1, modifications: vec![modification(1, &[0, 19])] };
+        let endless = Animation { version: 1, modifications: vec![modification(-1, &[0, 19])] };
+
+        assert_eq!(entry.counter(Pose::Entry { effect: None }), Counter::Wrapping { from: 1, length: 20 });
+        assert_eq!(entry.counter(Pose::Entry { effect: Some(45) }), Counter::Wrapping { from: 1, length: 45 });
+        assert_eq!(endless.counter(Pose::Entry { effect: None }), Counter::Wrapping { from: 1, length: 1 });
+    }
+
+    #[test]
+    fn a_soul_shows_one_frame_past_its_length() {
+        // Dying counts up while the frame is under the limit, so the limit itself is drawn too.
+        let soul = Animation { version: 1, modifications: vec![modification(1, &[0, 29])] };
+
+        assert_eq!(soul.counter(Pose::Soul { effect: None }), Counter::Wrapping { from: 0, length: 31 });
+        assert_eq!(soul.counter(Pose::Soul { effect: Some(10) }), Counter::Wrapping { from: 0, length: 31 });
+    }
+
+    #[test]
+    fn a_zombie_burrows_and_surfaces_over_thirty_frames_and_digs_without_end() {
+        let any = Animation { version: 1, modifications: vec![modification(-1, &[0, 7])] };
+
+        assert_eq!(any.counter(Pose::Burrow), Counter::Wrapping { from: 0, length: 30 });
+        assert_eq!(any.counter(Pose::Surface), Counter::Wrapping { from: 0, length: 30 });
+        assert_eq!(any.counter(Pose::Dig), Counter::Rising);
+    }
+
+    #[test]
+    fn an_attack_scan_reads_an_endless_cat_attack_to_its_furthest_key() {
+        let endless = file(1, &["2", "0,4,-1,0,0", "2", "0,0,0,0", "10,5,0,0", "1,4,1,0,0", "2", "0,0,0,0", "30,5,0,0"]);
+
+        assert_eq!(Animation::scan_attack(&endless, Faction::Cat), Some(30));
+        assert_eq!(Animation::scan_attack(&endless, Faction::Enemy), Some(1));
+        assert_eq!(Animation::scan_attack(file(1, &["1", "0,4,1,0,0", "2", "0,0,0,0", "30,5,0,0"]), Faction::Cat), Some(31));
     }
 }

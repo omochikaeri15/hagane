@@ -18,7 +18,7 @@ use codex::graphics::rig::{Animation, BoundingBox, Model, Rig};
 use foundry::domains::cat::animation as cat_animation;
 use foundry::domains::enemy::animation as enemy_animation;
 use foundry::domains::settings::{CombatLayer, Settings};
-use foundry::Source;
+use foundry::{Source, Vfs};
 use foundry::systems::animation::collision::{self, Combatant};
 use foundry::systems::animation::{Loop, MotionSet, NO_OFFSET, Placement, Rigging};
 
@@ -160,6 +160,15 @@ fn state() -> ViewerState {
 pub(crate) struct Motions {
     key: String,
     set: Rc<MotionSet>,
+    reads: Rc<[Box<str>]>,
+}
+
+impl Motions {
+    fn of(key: String, build: impl FnOnce() -> MotionSet) -> Self {
+        let (set, reads) = Vfs::witnessed(build);
+
+        Self { key, set: Rc::new(set), reads: reads.into_iter().collect() }
+    }
 }
 
 impl PartialEq for Motions {
@@ -206,6 +215,13 @@ struct Active {
 }
 
 impl Active {
+    fn loop_first(&self) -> i32 {
+        match self.model {
+            true => 0,
+            false => self.anim.as_deref().map_or(0, |anim| self.looping.first(anim)),
+        }
+    }
+
     fn loop_bound(&self) -> Option<i32> {
         self.anim.as_deref().map_or(Some(0), |anim| self.looping.bound(anim))
     }
@@ -501,7 +517,7 @@ fn frame_bounds(state: ViewerState, active: Option<&Active>) -> (f32, Option<f32
         return (0.0, Some(0.0));
     }
 
-    let min = state.loop_start.peek().unwrap_or(0.0).max(0.0);
+    let min = state.loop_start.peek().unwrap_or_else(|| active.map_or(0, Active::loop_first) as f32).max(0.0);
     let max = state.loop_end.peek().or_else(|| active.and_then(Active::loop_bound).map(|bound| bound.max(0) as f32)).map(|max| max.max(min));
 
     (min, max)
@@ -539,7 +555,7 @@ pub(crate) fn CatViewer(cat: SelectedCat, globals: Shared) -> Element {
     let library = use_context::<Library>();
     let generation = library.generation();
     let key = format!("{}:{generation}", cat_animation::set_id(&cat.0, form));
-    let motions = use_memo(use_reactive!(|(cat, form, key, globals)| Motions { key, set: Rc::new(cat_animation::motions(&cat.0, form, &globals.0.vault().vfs)) }));
+    let motions = use_memo(use_reactive!(|(cat, form, key, globals)| Motions::of(key, || cat_animation::motions(&cat.0, form, &globals.0.vault().vfs))));
 
     rsx! {
         Viewer { motions }
@@ -551,7 +567,7 @@ pub(crate) fn EnemyViewer(enemy: SelectedEnemy, globals: Shared) -> Element {
     let library = use_context::<Library>();
     let generation = library.generation();
     let key = format!("{}:{generation}", enemy_animation::set_id(&enemy.0));
-    let motions = use_memo(use_reactive!(|(enemy, key, globals)| Motions { key, set: Rc::new(enemy_animation::motions(&enemy.0, &globals.0.vault().vfs)) }));
+    let motions = use_memo(use_reactive!(|(enemy, key, globals)| Motions::of(key, || enemy_animation::motions(&enemy.0, &globals.0.vault().vfs))));
 
     rsx! {
         Viewer { motions }
@@ -610,8 +626,14 @@ fn Viewer(motions: Memo<Motions>) -> Element {
 
         Parsed(Rc::new(load_rig(&rigs, &motions.set, id.as_deref())))
     });
+    let library = use_context::<Library>();
     let loaded = use_memo(move || {
         let motions = motions.read();
+
+        if library.awaits(&motions.reads) {
+            return Held(Rc::new(Loaded { rig: None, anim: None, failed: false }));
+        }
+
         let sheet = sheet();
         let anim = load_anim(&motions.set, index());
 
@@ -920,7 +942,7 @@ async fn run(
         if *state.playing.peek() && rig.is_some() {
             let advance = FRAME_ADVANCE_PER_TICK * (delta / TICK_MS) as f32;
             let current = *state.frame.peek() + advance;
-            let start = state.loop_start.peek().unwrap_or(0.0);
+            let start = state.loop_start.peek().unwrap_or_else(|| active.as_ref().map_or(0, Active::loop_first) as f32);
             let end = state.loop_end.peek().or_else(|| active.as_ref().and_then(Active::loop_bound).map(|bound| bound.max(0) as f32));
             let next = match end {
                 Some(end) if current > end => start,
@@ -1013,7 +1035,7 @@ async fn run(
         if let Some(combatant) = combat.as_ref() {
             let settled = active.as_ref().is_some_and(|active| active.anim.as_ref().map(Arc::as_ptr) == held.0.anim.as_ref().map(Arc::as_ptr));
             let attacking = combatant.attacking && settled;
-            let start = state.loop_start.peek().unwrap_or(0.0);
+            let start = state.loop_start.peek().unwrap_or_else(|| active.as_ref().map_or(0, Active::loop_first) as f32);
             let end = state.loop_end.peek().or_else(|| active.as_ref().and_then(Active::loop_bound).map(|bound| bound.max(0) as f32));
             let period = end.map(|end| (end - start).floor() as i32 + 1);
             let stance = collision::Pose { rig, anim, frame, offset, zoom, crest: bounds.flatten().map(|reach| reach.min_y) };

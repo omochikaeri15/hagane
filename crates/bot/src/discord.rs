@@ -36,7 +36,7 @@ use super::library::{self, Catalog, Library, Remote};
 use super::lookup::{self, CROWN_GLYPH, Found, Hit, Landing};
 use super::prefs::{self, Book, FORMS, Mode, Prefs, Search};
 use super::prose::{self, Line, Prose, Trouble};
-use super::render::{self, Format, Options, Planned, Progress};
+use super::render::{self, Clip, Format, Options, Planned, Progress};
 use super::stage;
 use super::statblock;
 use super::talents;
@@ -1809,6 +1809,10 @@ async fn animate(voice: Voice<'_>, library: Arc<Library>, set: MotionSet, option
         task::spawn_blocking(move || render::plan(&library, &cache, &set, &options)).await?
     };
     let job = match planned {
+        Ok(None) if clip == Clip::Soul => {
+            voice.say(prose::NO_SOUL.filled(prose, &[("unit", &title)])).await?;
+            return Ok(());
+        }
         Ok(None) => {
             voice.say(prose::NO_CLIP.filled(prose, &[("unit", &title), ("clip", clip.motion())])).await?;
             return Ok(());
@@ -2341,7 +2345,7 @@ fn page(title: &str, description: &str) -> serenity::CreateEmbed {
     serenity::CreateEmbed::new().title(title).description(description).color(EMBED_COLOR)
 }
 
-const CLIPS: &str = "`attack` (`atk`, `a`), `idle` (`i`), `walk` (`w`), `knockback` (`kb`, `k`), `showcase` (`sh`, `sc`), `burrow` (`bur`, `b`), `surface` (`su`, `sf`, `rise`, `r`), `dig` (`d`), `spirit` (`sp`, `c`, `conjure`), `model` (`m`, a still picture). Attack if none is given";
+const CLIPS: &str = "`attack` (`atk`, `a`), `idle` (`i`), `walk` (`w`), `knockback` (`kb`, `k`), `showcase` (`sh`, `sc`), `burrow` (`bur`, `b`), `surface` (`su`, `sf`, `rise`, `r`), `dig` (`d`), `spirit` (`sp`, `c`, `conjure`), `soul` (`s`, only a unique soul), `model` (`m`, a still picture). Attack if none is given";
 const MOTION_FLAGS: &str = "`--range 0~30` (`-r`): frames to export, wrapping the loop; one number is one frame (not showcases or models)
 `--loop` (`-l`): walk and idle only, finds a perfect loop; `min 15`, `max 200` and `diff 30` tune it
 `--format webp` (`-f`): `avif` (`a`), `webp` (`w`) or `gif` (`g`), this time only
@@ -2393,7 +2397,7 @@ fn help_page(page_name: &str, section: &str, prefix: &str, prose: Prose) -> sere
         ("cat", "animation") => Voiced::new(prefix, "hg!cat (c) • Animation", "`hg!cat <unit> [a | anim] [type] ...`").field("Types", CLIPS, false).field("Flags", MOTION_FLAGS, false),
         ("cat", "buttons") => Voiced::new(prefix, "hg!cat (c) • Buttons", "With Blocks on Interactive, or `-i`, three rows sit under the picture: Form, Page, and Apply (Level, Talents, Versus, Resolve). Versus and Resolve open a panel only you can see: Versus has the traits and an enemy search, Resolve the hits, the mode and which abilities count. Green is what's set or shown, gray isn't available. Only you can press them"),
         ("cat", _) => Voiced::new(prefix, "hg!cat (c)", "`hg!cat <unit> [stats | animation] ...`")
-            .field("Stats or animation", "An animation name or flag means animation, a level or `--talents` stats, and `s` or `a` decides outright. `t` and `d` open Talents and Details, so the dig animation is `dig` or `a d`", false)
+            .field("Stats or animation", "An animation name or flag means animation, a level or `--talents` stats, and `s` or `a` decides outright. `t` and `d` open Talents and Details, so the dig animation is `dig` or `a d`, and the soul is `soul` or `a s`", false)
             .field("Examples", "`hg!c 137_u lv50+70 -t all`\n`hg!c 44 t 10 5 lv40`\n`hg!c bahamut cat d`\n`hg!c bahamut cat form normal`\n`hg!c jamiera cat a showcase -f webp`\n`hg!c 008 a walk -l -r 10~120`", false),
         ("enemy", "unit") => Voiced::new(prefix, "hg!enemy (e) • Unit", "What goes where `<unit>` is in `hg!enemy <unit> ...`")
             .field("ID", "`763`, `0763`, `763-e` or `763_E`. Without a command, the `e` says enemy", false)
@@ -2408,7 +2412,7 @@ fn help_page(page_name: &str, section: &str, prefix: &str, prose: Prose) -> sere
         ("enemy", "animation") => Voiced::new(prefix, "hg!enemy (e) • Animation", "`hg!enemy <unit> [a | anim] [type] ...`").field("Types", CLIPS, false).field("Flags", MOTION_FLAGS, false),
         ("enemy", "buttons") => Voiced::new(prefix, "hg!enemy (e) • Buttons", "With Blocks on Interactive, or `-i`, two rows sit under the picture: Page, and Apply (Magnification, Resolve). Resolve works as it does for cats. Green is what's set or shown. Only you can press them"),
         ("enemy", _) => Voiced::new(prefix, "hg!enemy (e)", "`hg!enemy <unit> [stats | animation] ...`")
-            .field("Stats or animation", "An animation name or flag means animation, a percentage stats, and `s` or `a` decides outright. `d` opens Details, so the dig animation is `dig` or `a d`", false)
+            .field("Stats or animation", "An animation name or flag means animation, a percentage stats, and `s` or `a` decides outright. `d` opens Details, so the dig animation is `dig` or `a d`, and the soul is `soul` or `a s`", false)
             .field("Examples", "`hg!e akaza 400%`, `hg!e akaza s 400`\n`hg!e akaza d`\n`hg!e 763 a attack -c -w`", false),
         ("stage", _) => Voiced::new(prefix, "hg!stage (s)", "`hg!stage <name> ...`")
             .field("What you get", prose::PAGE_STAGE.said(prose), false)

@@ -179,6 +179,7 @@ pub(crate) const SEARCH_LONG: Line = Line::new("That request is too long to sear
 pub(crate) const COULD_NOT: Line = Line::new("I couldn't make that one: {reason}", "I couldn't make that one, okay?! {reason}");
 pub(crate) const TOO_MANY: Line = Line::new("That's {frames} frames, and the most I'll make is {limit}", "{frames} frames?! The most I'll make is {limit}, so don't push your luck!");
 pub(crate) const NO_CLIP: Line = Line::new("{unit} has no {clip} animation", "{unit} doesn't even have a {clip} animation! Do your homework!");
+pub(crate) const NO_SOUL: Line = Line::new("{unit} has no unique soul", "{unit} doesn't even have a unique soul! It just gets the normal one!");
 pub(crate) const NO_FORM: Line = Line::new("{unit} has no {form} form", "{unit} has no {form} form, dummy!");
 pub(crate) const NO_STATS: Line = Line::new("{unit} has no stats for that form", "{unit} has no stats for that form! What do you want me to do, make them up?!");
 pub(crate) const SEE_HELP: Line = Line::new("{reason}. See `{prefix}help`", "{reason}. Go read `{prefix}help` already, geez!");
@@ -234,7 +235,7 @@ pub(crate) const ALIAS_CLEARED: Line = Line::new("Every alias is removed", "They
 pub(crate) const ALIAS_RESET: Line = Line::new("Your aliases are back to the built-in ones", "Your aliases are back to the built-in ones. D-Don't mess them up again!");
 
 #[cfg(test)]
-pub(crate) const LINES: [&Line; 98] = [
+pub(crate) const LINES: [&Line; 99] = [
     &NOT_A_TRAIT,
     &ALIAS_TITLE,
     &ALIAS_NONE,
@@ -304,6 +305,7 @@ pub(crate) const LINES: [&Line; 98] = [
     &COULD_NOT,
     &TOO_MANY,
     &NO_CLIP,
+    &NO_SOUL,
     &NO_FORM,
     &NO_STATS,
     &SEE_HELP,

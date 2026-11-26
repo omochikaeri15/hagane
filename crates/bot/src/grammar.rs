@@ -617,6 +617,7 @@ pub(crate) fn clip_of(token: &str) -> Option<Clip> {
         "surface" | "su" | "sf" | "rise" | "r" => Some(Clip::Surface),
         "dig" | "d" => Some(Clip::Dig),
         "spirit" | "conjure" | "sp" | "c" => Some(Clip::Spirit),
+        "soul" | "s" => Some(Clip::Soul),
         "model" | "m" => Some(Clip::Model),
         _ => None,
     }
@@ -1629,6 +1630,8 @@ mod tests {
         assert!(matches!(parse("akaza d", Kind::Enemy).map(|request| request.want), Ok(Want::Stats(Stats { page: Page::Details, .. }))));
         assert!(matches!(parse("25 a d", Kind::Cat).map(|request| request.want), Ok(Want::Motion(Motion { clip: Clip::Dig, .. }))));
         assert!(matches!(parse("25 dig", Kind::Cat).map(|request| request.want), Ok(Want::Motion(Motion { clip: Clip::Dig, .. }))));
+        assert!(matches!(parse("25 a s", Kind::Cat).map(|request| request.want), Ok(Want::Motion(Motion { clip: Clip::Soul, .. }))));
+        assert!(matches!(parse("25 soul", Kind::Cat).map(|request| request.want), Ok(Want::Motion(Motion { clip: Clip::Soul, .. }))));
     }
 
     // Either flag beats the Mode setting for one request, and the last one typed wins.

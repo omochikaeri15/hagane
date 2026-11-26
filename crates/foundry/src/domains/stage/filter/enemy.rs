@@ -169,7 +169,7 @@ mod tests {
     const FLOATING: u32 = 2;
 
     fn foe(id: u32, stats: Entity) -> (u32, EnemyEntry) {
-        let entry = EnemyEntry { id, name: String::new(), description: Vec::new(), stats, icon_path: None, atk_anim_frames: 0 };
+        let entry = EnemyEntry { id, name: String::new(), description: Vec::new(), stats, icon_path: None, atk_anim_frames: None };
 
         (id, entry)
     }
@@ -186,8 +186,8 @@ mod tests {
     #[test]
     fn a_card_scopes_its_attributes_to_the_row_it_matches() {
         let registry: HashMap<u32, EnemyEntry> = [
-            foe(RED, Entity { faction: Faction::Enemy, trait_red: 1, attack_1_damage: 1000, ..Entity::default() }),
-            foe(FLOATING, Entity { faction: Faction::Enemy, trait_floating: 1, attack_1_damage: 1000, ..Entity::default() }),
+            foe(RED, Entity { faction: Faction::Enemy, trait_red: 1, attack_1_damage: 1000, time_until_attack_1: 10, ..Entity::default() }),
+            foe(FLOATING, Entity { faction: Faction::Enemy, trait_floating: 1, attack_1_damage: 1000, time_until_attack_1: 10, ..Entity::default() }),
         ].into();
 
         let (vfs, items, treasure) = (Vfs::with_priority(&[]), ItemStore::default(), Bonus::default());

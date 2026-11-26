@@ -8,6 +8,7 @@ export global Export {
     in-out property <int> mode;
     in property <[string]> formats: ["GIF", "WebP", "ZIP", "PNG", "JXL", "AVIF"];
     in-out property <int> format;
+    in property <string> start-hint: "0";
     in property <string> end-hint: "0";
     in-out property <string> frame-start;
     in-out property <string> frame-end;
@@ -121,7 +122,7 @@ export component ExportDialog inherits Dialog {
                     Field { label: "Mode"; Combo { width: 130px; height: 28px; text-size: 13px; options: Export.modes; current <=> Export.mode; selected(index) => { Export.set-mode(index); } } }
                     if Export.mode != 2: Field {
                         label: "Frames";
-                        Small { placeholder: "0"; text <=> Export.frame-start; edited(value) => { Export.set-start(value); } }
+                        Small { placeholder: Export.start-hint; text <=> Export.frame-start; edited(value) => { Export.set-start(value); } }
                         Label { text: "~"; font-size: 13px; vertical-alignment: center; }
                         Small { placeholder: Export.end-hint; text <=> Export.frame-end; edited(value) => { Export.set-end(value); } }
                     }
@@ -136,7 +137,12 @@ export component ExportDialog inherits Dialog {
                 }
                 Section {
                     title: "Camera";
-                    Field { label: "Cull %"; Small { placeholder: Export.cull-hint; text <=> Export.cull; edited(value) => { Export.set-cull(value); } } }
+                    HorizontalLayout {
+                        spacing: 8px;
+                        alignment: start;
+                        Label { text: "Auto-Bounds Cull Faint %"; font-size: 13px; vertical-alignment: center; }
+                        Small { placeholder: Export.cull-hint; text <=> Export.cull; edited(value) => { Export.set-cull(value); } }
+                    }
                     HorizontalLayout {
                         spacing: 8px;
                         Btn { label: "Set Camera"; tone: Tone.neutral; enabled: Export.camera-enabled; text-size: 13px; height: 30px; clicked => { Export.set-camera(); } }

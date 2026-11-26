@@ -7,7 +7,7 @@ use codex::graphics::tools::boundary::scan_bounds;
 use tracing::{info, warn};
 
 use crate::common::job::ProgressCounter;
-use crate::systems::animation::playback_frames;
+use crate::systems::animation::Loop;
 
 use super::BoundsOutcome;
 
@@ -15,20 +15,25 @@ const YIELD_INTERVAL: usize = 100;
 
 pub fn search(
     unit: &Rig,
-    motions: &[(&Animation, Option<i32>)],
+    motions: &[(&Animation, Loop, i32, i32)],
     tolerance: f32,
     offset: Option<usize>,
     progress: &ProgressCounter,
     abort_signal: &AtomicBool,
 ) -> BoundsOutcome {
-    let limits: Vec<i32> = motions.iter()
-        .map(|(animation, to_frame)| {
-            let last = playback_frames(animation).saturating_sub(1);
-            to_frame.map_or(last, |to| last.min(to))
+    let shown: Vec<Vec<i32>> = motions.iter()
+        .map(|(animation, looping, from, to)| {
+            let (low, high) = (*from.min(to), *from.max(to));
+            let high = looping.wraps(animation).map_or(high, |end| high.min(low.max(0).saturating_add(end)));
+            let mut frames: Vec<i32> = (low..=high).map(|raw| looping.seat(animation, raw as f32).floor() as i32).collect();
+
+            frames.sort_unstable();
+            frames.dedup();
+            frames
         })
         .collect();
 
-    let total: usize = limits.iter().map(|last| (last + 1).max(0) as usize).sum();
+    let total: usize = shown.iter().map(Vec::len).sum();
     progress.reset(total.max(1));
 
     info!("Starting bounds measurement over {} frames", total);
@@ -41,8 +46,8 @@ pub fn search(
 
     let mut bounds: Option<BoundingBox> = None;
 
-    for ((animation, _), last) in motions.iter().zip(&limits) {
-        for frame in 0..=*last {
+    for ((animation, _, _, _), frames) in motions.iter().zip(&shown) {
+        for &frame in frames {
             if abort_signal.load(Ordering::Relaxed) {
                 info!("Bounds measurement explicitly aborted by user.");
                 return BoundsOutcome::Aborted;

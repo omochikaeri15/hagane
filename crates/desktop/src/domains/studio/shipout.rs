@@ -3,8 +3,10 @@ use iced::widget::{button, column, container, row, text, text_input};
 
 use crate::widget::picker;
 
+use codex::combat::{Entity, Faction};
 use foundry::domains::cat::scanner::CatEntry;
 use foundry::domains::enemy::scanner::EnemyEntry;
+use foundry::Vfs;
 
 pub(super) const TITLE: &str = "Export Set";
 pub(super) const SPEC: popup::Spec = popup::Spec::new(popup::Kind::StudioShipout, Size::new(304.0, 186.0));
@@ -19,6 +21,16 @@ const JOINT: &str = "::";
 pub(crate) struct Muster<'a> {
     pub(crate) cats: &'a [CatEntry],
     pub(crate) enemies: &'a [EnemyEntry],
+    pub(crate) vfs: &'a Vfs,
+}
+
+impl Muster<'_> {
+    pub(super) fn stats(&self, faction: Faction, id: u32, form: usize) -> Option<&Entity> {
+        match faction {
+            Faction::Cat => self.cats.iter().find(|cat| cat.id == id)?.stats.get(form)?.as_ref(),
+            Faction::Enemy => self.enemies.iter().find(|enemy| enemy.id == id).map(|enemy| &enemy.stats),
+        }
+    }
 }
 
 impl sets::Roster for Muster<'_> {

@@ -18,6 +18,7 @@ use foundry::common::architecture;
 use foundry::common::preview::{self, Stamp};
 use foundry::domains::settings::{Faults, FrameCount, Scope, Settings, Shown, StudioSettings, Switch, Tier};
 use foundry::domains::studio as sets;
+use foundry::systems::animation;
 use foundry::systems::animation::posing::{self, Gizmo, Probe};
 use foundry::systems::animation::authoring::{self as authoring, bound, Beat, Cadence, Imgcut, CUT_FIELDS, CUT_NAME_FIELD, ease_label, ease_takes_power, ease_value, key_label, kind_label, loop_label, nameable, Maanim, Mamodel, EASES, FIELDS, NAME_FIELD};
 use image::RgbaImage;
@@ -181,7 +182,7 @@ const OPACITY_UNIT_DETAIL: &str =
 const ATTACK_LENGTH_DETAIL: &str =
     "The attack animation measures no frames\nThe game divides its frame counter by that length";
 const ENDLESS_ATTACK_DETAIL: &str =
-    "The attack animation never ends and reaches no frame past zero\nAn attacking enemy divides its frame counter by that";
+    "The attack animation never ends and reaches no frame past zero\nAn attacking cat divides its frame counter by that";
 const UNKNOWN_DETAIL: &str = "The game's animation pass faults on this";
 const FAULT_HINT: &str = "Manage faults under Option page 2";
 const ATTACK_HINT: &str = "Only consider this fault for attacks";
@@ -750,7 +751,7 @@ struct Session {
     loose_open: bool,
     history: History,
     key: String,
-    keyed: Option<FrameCount>,
+    keyed: Option<(FrameCount, Option<[i32; 5]>)>,
     slotting: Option<usize>,
     primed: bool,
     watching: bool,
@@ -1181,6 +1182,7 @@ impl State {
         message: Message,
         settings: &mut Settings,
         anim: &mut AnimState,
+        muster: &Muster<'_>,
     ) -> Task<Message> {
         self.unlocked = settings.files.unlock_game_mount;
 
@@ -1261,7 +1263,7 @@ impl State {
                     session.refresh();
                 }
 
-                let priming = session.sync(settings, anim);
+                let priming = session.sync(settings, anim, muster);
                 session.viewer.tick();
                 session.reposed(settings.studio.entity);
                 session.realign();
@@ -2143,19 +2145,22 @@ impl Session {
         }
     }
 
-    fn sync(&mut self, settings: &Settings, anim: &AnimState) -> Task<Message> {
+    fn sync(&mut self, settings: &Settings, anim: &AnimState, muster: &Muster<'_>) -> Task<Message> {
         let set = self.plan.set.clone();
         let frames = settings.studio.frame_count;
-        if self.keyed != Some(frames) {
-            self.keyed = Some(frames);
-            self.key = set.key(frames);
+        let stats = set.unit().and_then(|(faction, id, form)| muster.stats(faction, id, form));
+        let keyed = (frames, stats.map(animation::stance));
+
+        if self.keyed != Some(keyed) {
+            self.keyed = Some(keyed);
+            self.key = set.key(frames, stats);
         }
 
         let primed = std::mem::replace(&mut self.primed, true);
 
         let priming = match primed {
-            true => self.viewer.sync(&self.key, || set.motions(frames), settings, anim).map(Message::Viewer),
-            false => self.viewer.preload(&self.key, || set.motions(frames), anim).map(Message::Viewer),
+            true => self.viewer.sync(&self.key, || set.motions(frames, muster.vfs, stats), settings, anim).map(Message::Viewer),
+            false => self.viewer.preload(&self.key, || set.motions(frames, muster.vfs, stats), anim).map(Message::Viewer),
         };
 
         if !primed {

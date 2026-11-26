@@ -132,7 +132,7 @@ pub fn collect_ability_data_against(ctx: &RenderContext<'_>, against: Option<Aga
             continue;
         };
         let icon = registry::get_display_def(identity).icon;
-        let value = (stat.get_value)(&StatContext::cat(ctx.final_stats, 0, None, ctx.global.treasure));
+        let value = (stat.get_value)(&StatContext::cat(ctx.final_stats, None, None, ctx.global.treasure));
         let text = format!("{}: {} (-{cut}%)", stat.display_name, stat.under_talent(value));
 
         groups[HEADLINE_2].push(AbilityItem { identity, icon_id: standard_icon(icon), text, custom_icon: custom_icon(icon), border_id: Some(border_id), mark: Mark::None, dimmed: false, switchable: false });

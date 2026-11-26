@@ -62,13 +62,7 @@ pub fn note(field: &str) -> Option<&'static str> {
         "recharge_cut" => Some(
             "Takes this percentage off the cooldown every second deploy\nThe shortened cooldown still floors at 60 frames",
         ),
-        "spawn_animation_type" => {
-            Some("An animation ID, same idea as the soul one\n-1 means none, 0 means use ID 0")
-        }
-        "spawn_animation_flag" => Some(
-            "Likely means \"use the entry maanim attached to my ID and form\"\nThose files exist, so that is the best read for now",
-        ),
-        _ => None,
+        _ => super::shared_note(field),
     }
 }
 

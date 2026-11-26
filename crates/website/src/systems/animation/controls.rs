@@ -123,6 +123,7 @@ pub(super) fn Controls(motions: Memo<Motions>, loaded: Memo<Held>, slots: Memo<V
     let expanded = (state.controls_expanded)();
     let playing = (state.playing)();
     let frame_text = ((state.frame)().trunc() as i32).to_string();
+    let display_min = (state.active)().as_ref().map_or(0, super::Active::loop_first).to_string();
     let display_max = display_bound((state.active)().as_ref().and_then(super::Active::loop_bound));
     let (range_start, range_end) = (state.range_inputs)();
     let effective_max = if is_model {
@@ -218,7 +219,7 @@ pub(super) fn Controls(motions: Memo<Motions>, loaded: Memo<Held>, slots: Memo<V
                                     class: "tile tile-input range",
                                     r#type: "text",
                                     inputmode: "numeric",
-                                    placeholder: "0",
+                                    placeholder: "{display_min}",
                                     disabled: !anim_loaded,
                                     value: "{range_start}",
                                     oninput: move |event| set_range_start(state, event.value()),

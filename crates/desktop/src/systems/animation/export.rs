@@ -14,7 +14,7 @@ use codex::graphics::rig::Animation;
 use foundry::common::job::ProgressCounter;
 use foundry::systems::addons::paths::{self, Presence};
 use foundry::systems::animation::export::{find_bounds, find_loop, leader, process, BoundsOutcome, EncoderStatus, ExportFormat, ExportMode, ExportRequest, FrameTiming, LoopStatus, ShowcaseLengths};
-use foundry::systems::animation::{name_prefix, playback_frames, Role};
+use foundry::systems::animation::{name_prefix, Loop, Role};
 use foundry::domains::settings::Settings;
 
 use crate::app::state::AnimState;
@@ -101,6 +101,7 @@ struct SearchJob {
 struct ExportForm {
     frame_start: i32,
     frame_end: i32,
+    min_frame: i32,
     max_frame: i32,
     frame_start_str: String,
     frame_end_str: String,
@@ -157,6 +158,7 @@ impl Default for ExportForm {
         Self {
             frame_start: 0,
             frame_end: 0,
+            min_frame: 0,
             max_frame: 100,
             frame_start_str: String::new(),
             frame_end_str: String::new(),
@@ -358,11 +360,13 @@ impl State {
             if self.exporter.export_mode != ExportMode::Showcase {
                 match &data.current_anim {
                     Some(anim) => {
+                        self.exporter.min_frame = data.looping().first(anim);
                         self.exporter.max_frame = data.looping().frames(anim) - 1;
-                        self.exporter.frame_start = 0;
+                        self.exporter.frame_start = self.exporter.min_frame;
                         self.exporter.frame_end = self.exporter.max_frame;
                     }
                     None => {
+                        self.exporter.min_frame = 0;
                         self.exporter.max_frame = 0;
                         self.exporter.frame_start = 0;
                         self.exporter.frame_end = 0;
@@ -416,27 +420,29 @@ impl State {
         }
         self.scanned_showcase = Some(export_name);
 
-        let parse_anim = |role: Role| -> Option<Animation> {
-            let bytes = data.role_path(role)?.read().ok()?;
-            Animation::parse(&bytes).ok()
+        let paths = data.role_paths();
+        let parse_anim = |role: Role| -> Option<(Animation, Loop)> {
+            let (_, looping, path) = paths.iter().find(|(known, _, _)| *known == role)?;
+            let bytes = path.read().ok()?;
+            Animation::parse(&bytes).ok().map(|anim| (anim, *looping))
         };
 
         for role in [Role::Walk, Role::Idle, Role::Attack, Role::Knockback] {
-            if data.role_path(role).is_none() {
+            if !paths.iter().any(|(known, _, _)| *known == role) {
                 self.length_of(role, 0);
             }
         }
 
-        if let Some(attack) = parse_anim(Role::Attack) {
-            let total_attack_frames = attack.declared_frames();
+        if let Some((attack, looping)) = parse_anim(Role::Attack) {
+            let total_attack_frames = looping.frames(&attack) - looping.first(&attack);
             self.exporter.detected_attack_len = total_attack_frames;
             if self.exporter.showcase_attack_str.is_empty() {
                 self.exporter.showcase_attack_len = total_attack_frames;
             }
         }
 
-        if let Some(walk) = parse_anim(Role::Walk) {
-            let walk_loop = playback_frames(&walk);
+        if let Some((walk, looping)) = parse_anim(Role::Walk) {
+            let walk_loop = looping.frames(&walk) - looping.first(&walk);
             let new_walk_length = if walk_loop <= 2 { 0 } else { settings.animation.default_showcase_walk };
             self.exporter.detected_walk_len = new_walk_length;
 
@@ -446,8 +452,8 @@ impl State {
             }
         }
 
-        if let Some(idle) = parse_anim(Role::Idle) {
-            let idle_loop = playback_frames(&idle);
+        if let Some((idle, looping)) = parse_anim(Role::Idle) {
+            let idle_loop = looping.frames(&idle) - looping.first(&idle);
             let new_idle_length = if idle_loop <= 2 { 0 } else { settings.animation.default_showcase_idle };
             self.exporter.detected_idle_len = new_idle_length;
 
@@ -575,7 +581,7 @@ impl State {
             Message::SetStartFrame(value) => {
                 self.exporter.frame_start_str = value.clone();
                 if value.trim().is_empty() {
-                    self.exporter.frame_start = 0;
+                    self.exporter.frame_start = self.exporter.min_frame;
                 } else if let Ok(parsed) = value.trim().parse::<i32>() {
                     self.exporter.frame_start = parsed;
                 }
@@ -964,8 +970,9 @@ impl State {
 
                 let tolerance = self.exporter.cull_percent as f32 / 100.0;
                 let is_showcase = self.exporter.export_mode == ExportMode::Showcase;
-                let scan_limit = self.exporter.frame_end.max(self.exporter.frame_start).max(0);
+                let scan_range = (self.exporter.frame_start, self.exporter.frame_end);
                 let current_anim = data.current_anim.clone();
+                let current_loop = data.looping();
                 let offset = data.offset();
                 let role_paths = data.role_paths();
                 let showcase_slots = [
@@ -990,18 +997,20 @@ impl State {
                                 continue;
                             }
 
-                            if let Some((_, path)) = role_paths.iter().find(|(known, _)| *known == role)
+                            if let Some((_, looping, path)) = role_paths.iter().find(|(known, _, _)| *known == role)
                                 && let Ok(bytes) = path.read()
                                 && let Ok(anim) = Animation::parse(&bytes) {
-                                showcase_motions.push((anim, length));
+                                let first = looping.first(&anim);
+
+                                showcase_motions.push((anim, *looping, first, first + length - 1));
                             }
                         }
                     }
 
-                    let motions: Vec<(&Animation, Option<i32>)> = if is_showcase {
-                        showcase_motions.iter().map(|(anim, length)| (anim, Some(*length))).collect()
+                    let motions: Vec<(&Animation, Loop, i32, i32)> = if is_showcase {
+                        showcase_motions.iter().map(|(anim, looping, from, to)| (anim, *looping, *from, *to)).collect()
                     } else {
-                        current_anim.iter().map(|anim| (anim.as_ref(), Some(scan_limit))).collect()
+                        current_anim.iter().map(|anim| (anim.as_ref(), current_loop, scan_range.0, scan_range.1)).collect()
                     };
 
                     let outcome = find_bounds::search(&unit, &motions, tolerance, offset, &worker_progress, &worker_abort);
@@ -1184,6 +1193,7 @@ impl State {
                 .menu_style(theme::combo_box_menu),
         );
 
+        let start_hint = self.exporter.min_frame.to_string();
         let end_hint = self.exporter.max_frame.to_string();
 
         let input_section: Element<'_, Message> = match self.exporter.export_mode {
@@ -1192,7 +1202,7 @@ impl State {
                 frame_range_row(
                     &self.exporter.frame_start_str,
                     &self.exporter.frame_end_str,
-                    "0",
+                    &start_hint,
                     &end_hint,
                     Some(Message::SetStartFrame),
                     Some(Message::SetEndFrame),
@@ -1217,7 +1227,7 @@ impl State {
                         frame_range_row(
                             &self.exporter.frame_start_str,
                             &self.exporter.frame_end_str,
-                            "0",
+                            &start_hint,
                             &end_hint,
                             Some(Message::SetStartFrame),
                             Some(Message::SetEndFrame),

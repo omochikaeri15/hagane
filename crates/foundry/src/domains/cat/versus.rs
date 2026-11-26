@@ -192,7 +192,7 @@ mod tests {
     // targets it is fully green, and without one Metal holds the cat back, only half so when something still works on it.
     #[test]
     fn picked_traits_are_colored_by_what_they_do() {
-        let critter = Entity { attack_1_damage: 100, attack_1_abilities: 1, critical_chance: 10, ..Entity::default() };
+        let critter = Entity { attack_1_damage: 100, time_until_attack_1: 10, attack_1_abilities: 1, critical_chance: 10, ..Entity::default() };
         let aimed = Entity { trait_metal: 1, trait_red: 1, ..critter.clone() };
         let blunt = Entity { critical_chance: 0, massive_damage: 1, ..aimed.clone() };
         let guarded = Entity { strong_against: 1, ..blunt.clone() };

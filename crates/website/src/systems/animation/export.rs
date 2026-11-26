@@ -110,7 +110,7 @@ async fn export(platform: &Platform, state: ViewerState, surface: Signal<Option<
         return Ok(());
     }
 
-    let start = state.loop_start.peek().unwrap_or(0.0).max(0.0) as i32;
+    let start = state.loop_start.peek().unwrap_or_else(|| active.as_ref().map_or(0, Active::loop_first) as f32).max(0.0) as i32;
     let chosen_end = *state.loop_end.peek();
     let declared = anim.map(|anim| anim.declared_frames() - 1);
     let bound = chosen_end.map(|end| end as i32).or_else(|| active.as_ref().and_then(Active::loop_bound)).or(declared).unwrap_or(start);

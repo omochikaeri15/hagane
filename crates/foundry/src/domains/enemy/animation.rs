@@ -1,5 +1,7 @@
 use std::sync::Arc;
 
+use codex::combat::Faction;
+
 use crate::systems::animation::collision::Profile;
 use crate::systems::animation::{self, named_offsets, Motion, MotionSet, Loop, RigFiles};
 use crate::Vfs;
@@ -37,22 +39,37 @@ pub fn motions(enemy: &EnemyEntry, vfs: &Vfs) -> MotionSet {
 
     let fighter = Arc::new(Profile::of(&enemy.stats));
     let mut motions = Vec::new();
+    let mut own_soul = None;
 
     for (suffix, path) in animation::maanims(vfs, &bases) {
+        if animation::own_soul(&suffix, Some(&enemy.stats)) {
+            own_soul = Some(path);
+            continue;
+        }
+
         let zombie = suffix.strip_prefix(ZOMBIE_MARK);
         let index = zombie.unwrap_or(&suffix).parse::<usize>().ok();
 
         let named = if zombie.is_some() { None } else { index.and_then(animation::standard) };
+        let extra = animation::special_pose(vfs, &suffix, &enemy.stats, Faction::Enemy);
 
         motions.push(Motion {
             name: motion_name(&suffix).map(str::to_string),
             slot: named.map(|(_, slot, _)| slot),
             role: named.map(|(_, _, role)| role),
-            looping: named.map_or(Loop::Frames, |(_, _, role)| role.looping()),
+            looping: match (named, extra) {
+                (Some((_, _, role)), _) => role.looping(Faction::Enemy),
+                (None, Some(pose)) => Loop::Pose(pose),
+                (None, None) => Loop::Frames,
+            },
             rig: rig.clone(),
             file: Some(path),
             combat: None,
         }.fought_by(Some(&fighter)));
+    }
+
+    if let Some(soul) = animation::soul(vfs, &enemy.stats, Some(&rig), own_soul) {
+        motions.push(soul);
     }
 
     motions.push(Motion::model(rig).fought_by(Some(&fighter)));

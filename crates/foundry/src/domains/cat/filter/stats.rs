@@ -7,7 +7,7 @@ use crate::domains::cat::scanner::CatEntry;
 use crate::systems::combat::registry::{StatContext, CAT_STATS_REGISTRY};
 use crate::systems::treasure::Bonus;
 
-pub(crate) fn get_stat_value(battle_stats: &Entity, stat_name: &str, animation_frames: i32, unitbuy: Option<&UnitBuy>, treasure: &Bonus) -> i32 {
+pub(crate) fn get_stat_value(battle_stats: &Entity, stat_name: &str, animation_frames: Option<i32>, unitbuy: Option<&UnitBuy>, treasure: &Bonus) -> i32 {
     let registry_name = match stat_name {
         "Cooldown (f)" => "Cooldown",
         "Atk Cycle (f)" => "Atk Cycle",

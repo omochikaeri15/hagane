@@ -155,7 +155,7 @@ pub struct Subject<'a> {
     pub current: &'a Entity,
     pub curve: Option<&'a LevelCurve>,
     pub level: i32,
-    pub frames: (i32, i32),
+    pub frames: (Option<i32>, Option<i32>),
 }
 
 pub fn compare(subject: &Subject<'_>) -> Diff {
@@ -201,7 +201,7 @@ fn table_for(faction: Faction) -> &'static [registry::StatsDef] {
     }
 }
 
-fn reading<'a>(faction: Faction, stats: &'a Entity, frames: i32, treasure: &'a Bonus) -> StatContext<'a> {
+fn reading<'a>(faction: Faction, stats: &'a Entity, frames: Option<i32>, treasure: &'a Bonus) -> StatContext<'a> {
     match faction {
         Faction::Cat => StatContext::cat(stats, frames, None, treasure),
         Faction::Enemy => StatContext::enemy(stats, frames, Magnification::default(), treasure),
@@ -439,7 +439,7 @@ mod tests {
         let entity = Entity::default();
 
         for stat in CAT_STATS_REGISTRY {
-            let value = (stat.get_value)(&StatContext::cat(&entity, 0, None, &Bonus::default()));
+            let value = (stat.get_value)(&StatContext::cat(&entity, None, None, &Bonus::default()));
             let shown = stat_text(stat.name, stat.formatter, value);
 
             assert!(!shown.contains('^'), "{} renders as {shown}, which needs a raw-frame override", stat.name);
@@ -528,11 +528,13 @@ mod tests {
         let before = Entity {
             attack_1_damage: 800,
             attack_2_damage: 1200,
+            time_until_attack_1: 10,
+            time_until_attack_2: 20,
             attack_1_abilities: 1,
             attack_2_abilities: 1,
             ..Default::default()
         };
-        let after = Entity { attack_1_damage: 1400, attack_2_damage: 0, attack_2_abilities: 0, ..before.clone() };
+        let after = Entity { attack_1_damage: 1400, attack_2_damage: 0, time_until_attack_2: 0, attack_2_abilities: 0, ..before.clone() };
 
         let (_, worse) = figured(Identity::MultiHit, &before, &after);
         let damage = worse.iter().find(|change| change.label == "Damage split").expect("the damage split");
@@ -544,8 +546,8 @@ mod tests {
 
     #[test]
     fn a_multi_hit_split_is_carried_by_its_own_ability() {
-        let before = Entity { attack_1_damage: 800, attack_2_damage: 1200, ..Default::default() };
-        let after = Entity { attack_3_damage: 600, ..before.clone() };
+        let before = Entity { attack_1_damage: 800, attack_2_damage: 1200, time_until_attack_1: 10, time_until_attack_2: 20, ..Default::default() };
+        let after = Entity { attack_3_damage: 600, time_until_attack_3: 30, ..before.clone() };
 
         let (better, _) = figured(Identity::MultiHit, &before, &after);
         let damage = better.iter().find(|change| change.label == "Damage split").expect("the damage split");
@@ -577,7 +579,7 @@ mod tests {
     // A hit landing sooner is an improvement even though the number went down.
     #[test]
     fn a_quicker_hit_reads_as_a_gain() {
-        let before = Entity { attack_1_damage: 800, attack_2_damage: 1200, time_until_attack_2: 40, ..Default::default() };
+        let before = Entity { attack_1_damage: 800, attack_2_damage: 1200, time_until_attack_1: 10, time_until_attack_2: 40, ..Default::default() };
         let after = Entity { time_until_attack_2: 30, ..before.clone() };
 
         let (better, worse) = figured(Identity::MultiHit, &before, &after);
