@@ -65,7 +65,7 @@ pub fn switch_key(identity: Identity) -> Option<usize> {
 
 pub fn mode_label(mode: Mode) -> &'static str {
     match mode {
-        Mode::Minimum => "Min Stats",
+        Mode::Minimum => "Base Stats",
         Mode::Average => "Avg Stats",
         Mode::Maximum => "Max Stats",
     }
@@ -168,7 +168,7 @@ mod tests {
         assert_eq!((settled(&single, Hits::All), shown_hits(&single, Hits::All)), (Hits::Only(0), Hits::Only(0)), "one hit is measured as the 1st Hit it shows");
         assert_eq!(settled(&Entity { time_until_attack_3: 0, ..triple.clone() }, Hits::Only(2)), Hits::Standing, "a picked hit the next unit lacks falls back");
         assert_eq!((mode_named("Max Stats"), hits_of("2nd Hit"), hits_of("Avg Hits")), (Mode::Maximum, Hits::Only(1), Hits::Standing));
-        assert_eq!((tag(&triple, Lens::default()), tag(&triple, Lens { mode: Mode::Maximum, hits: Hits::All, ..Lens::default() }), tag(&single, Lens { mode: Mode::Minimum, hits: Hits::All, ..Lens::default() })), ("Avg Hits\nAvg Stats".to_owned(), "All Hits\nMax Stats".to_owned(), "1st Hit\nMin Stats".to_owned()), "the tag reads in the order the two combos sit");
+        assert_eq!((tag(&triple, Lens::default()), tag(&triple, Lens { mode: Mode::Maximum, hits: Hits::All, ..Lens::default() }), tag(&single, Lens { mode: Mode::Minimum, hits: Hits::All, ..Lens::default() })), ("Avg Hits\nAvg Stats".to_owned(), "All Hits\nMax Stats".to_owned(), "1st Hit\nBase Stats".to_owned()), "the tag reads in the order the two combos sit");
     }
 
     // A unit that dies after its attack deals it once a deploy, so its DPS runs on its recharge; one that
