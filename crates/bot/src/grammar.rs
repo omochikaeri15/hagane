@@ -1,3 +1,4 @@
+use std::borrow::Cow;
 use std::mem;
 
 use codex::chapter::Category;
@@ -225,9 +226,32 @@ const GRAFT: &str = "i";
 const CROWN_HINT: &str = "`--crowns` (`-c`) takes a number from 1 to 4";
 const LOOP_MINIMUM: i32 = 15;
 const LOOP_DIFFERENCE: i32 = 30;
+const DASHES: [char; 2] = ['—', '–'];
 
 fn lower(token: &str) -> String {
     token.to_lowercase()
+}
+
+fn spelled(text: &str) -> Cow<'_, str> {
+    if !text.contains(DASHES) {
+        return Cow::Borrowed(text);
+    }
+
+    let mut spelled = String::with_capacity(text.len() + 2);
+    let mut chars = text.chars().peekable();
+    let mut before = None;
+
+    while let Some(glyph) = chars.next() {
+        if DASHES.contains(&glyph) && before.is_none_or(char::is_whitespace) && chars.peek().is_some_and(|next| next.is_alphabetic()) {
+            spelled.push_str("--");
+        } else {
+            spelled.push(glyph);
+        }
+
+        before = Some(glyph);
+    }
+
+    Cow::Owned(spelled)
 }
 
 fn is_flag(token: &str) -> bool {
@@ -715,7 +739,8 @@ fn sifted(text: &str) -> (Vec<&str>, Option<u32>) {
 }
 
 pub(crate) fn parse(text: &str, kind: Kind) -> Result<Request, String> {
-    let (tokens, search) = sifted(text);
+    let text = spelled(text);
+    let (tokens, search) = sifted(&text);
 
     if matches!(kind, Kind::Stage | Kind::Map) {
         return placed(&tokens, search, &[kind]);
@@ -820,7 +845,8 @@ pub(crate) fn code_of(named: &[&str], kind: Kind) -> Option<String> {
 }
 
 pub(crate) fn place(text: &str) -> Result<Request, String> {
-    let (tokens, search) = sifted(text);
+    let text = spelled(text);
+    let (tokens, search) = sifted(&text);
 
     placed(&tokens, search, &Kind::PLACES)
 }
@@ -996,6 +1022,7 @@ fn pair_of<T: std::str::FromStr>(tokens: &[&str], at: &mut usize) -> Option<(T, 
 }
 
 pub(crate) fn tune(text: &str) -> Result<Tune, String> {
+    let text = spelled(text);
     let typed: Vec<&str> = text.split_whitespace().collect();
     let boss = typed.iter().any(|token| boss_flag(token));
     let tokens: Vec<&str> = typed.into_iter().filter(|token| !boss_flag(token)).collect();
@@ -1027,7 +1054,8 @@ fn boss_flag(token: &str) -> bool {
 }
 
 pub(crate) fn scenery(text: &str) -> Result<Scenery, String> {
-    let (sifted, search) = sifted(text);
+    let text = spelled(text);
+    let (sifted, search) = sifted(&text);
     let (named, tokens) = sifted.split_at(sifted.iter().position(|token| is_flag(token)).unwrap_or(sifted.len()));
     let subject = match (named, named.first().and_then(|token| numbered(token, "bg", ".png"))) {
         ([], _) => return Err(SCENERY_HINT.to_owned()),
@@ -1175,6 +1203,19 @@ mod tests {
         assert_eq!((stats.switches.held(Switch::Kills), stats.switches.held(Switch::Critical), stats.gauge), (Some(true), Some(false), Some(Gauge::Base)));
         assert_eq!(["b", "A", "m"].map(gauge_of), [Some(Gauge::Base), Some(Gauge::Average), Some(Gauge::Maximum)], "each mode has a one-letter form");
         assert!(stats_of(&["--on", "toxic"], Kind::Enemy).is_err());
+    }
+
+    // Phones turn a typed double dash into an em or en dash, so a word that starts with one reads as a flag.
+    #[test]
+    fn a_long_dash_reads_as_a_double_dash() {
+        assert_eq!(parse("25 a walk —format gif —loop", Kind::Cat).unwrap(), parse("25 a walk --format gif --loop", Kind::Cat).unwrap());
+        assert_eq!(parse("25 —mode b —on kills", Kind::Cat).unwrap(), parse("25 --mode b --on kills", Kind::Cat).unwrap());
+        assert_eq!(parse("cyclops —search", Kind::Enemy).unwrap(), parse("cyclops --search", Kind::Enemy).unwrap());
+        assert_eq!(place("r 1 2 —crowns 2").unwrap(), place("r 1 2 --crowns 2").unwrap());
+        assert_eq!(tune("korea —boss").unwrap(), tune("korea --boss").unwrap());
+        assert_eq!(scenery("12 —seed 7 —format webp").unwrap(), scenery("12 --seed 7 --format webp").unwrap());
+        assert_eq!(parse("25 a walk –format gif –loop", Kind::Cat).unwrap(), parse("25 a walk --format gif --loop", Kind::Cat).unwrap());
+        assert_eq!(spelled("a—b — c —1 —x a–b – –2 –y"), "a—b — c —1 --x a–b – –2 --y", "only a dash that starts a word and runs into letters");
     }
 
     // The search flag can sit anywhere after the name, and what is left is what gets asked of the pick.
