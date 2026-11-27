@@ -90,6 +90,7 @@ pub enum Message {
     Terminate,
     Continue,
     Key(String, bool),
+    Unfocused,
     StatusExpired,
     CutExpired,
     QualityExpired,
@@ -124,6 +125,7 @@ pub struct State {
     session: Option<Session>,
     density: f32,
     tapped: Option<std::time::Instant>,
+    pressing: Vec<Action>,
     lineup: lineup::State,
     jailbreak: jailbreak::State,
     config: config::State,
@@ -158,6 +160,7 @@ impl Default for State {
             session: None,
             density: 1.0,
             tapped: None,
+            pressing: Vec::new(),
             lineup: lineup::State::new(0),
             jailbreak: jailbreak::State::default(),
             config: config::State::default(),
@@ -217,6 +220,7 @@ fn game_key(event: iced::Event, _status: iced::event::Status, _window: iced::win
     match event {
         iced::Event::Keyboard(iced::keyboard::Event::KeyPressed { key, repeat: false, .. }) => key_name(&key).map(|name| Message::Key(name, true)),
         iced::Event::Keyboard(iced::keyboard::Event::KeyReleased { key, .. }) => key_name(&key).map(|name| Message::Key(name, false)),
+        iced::Event::Window(iced::window::Event::Unfocused) => Some(Message::Unfocused),
         _ => None,
     }
 }
@@ -918,7 +922,24 @@ impl State {
                     }
                 };
 
+                if !pressed {
+                    self.pressing.retain(|kept| *kept != action);
+                } else if !self.pressing.contains(&action) {
+                    self.pressing.push(action);
+                }
+
                 session.key(action, pressed);
+
+                Task::none()
+            }
+            Message::Unfocused => {
+                let held = std::mem::take(&mut self.pressing);
+
+                if let Some(session) = self.session.as_mut() {
+                    for action in held {
+                        session.key(action, false);
+                    }
+                }
 
                 Task::none()
             }

@@ -379,6 +379,7 @@ pub(crate) fn Arena() -> Element {
     let battle = battle();
     let mut size = use_signal(|| (0f32, 0f32));
     let mut fingers: Signal<[Option<i32>; 2]> = use_signal(|| [None, None]);
+    let mut pressing: Signal<Vec<Action>> = use_signal(Vec::new);
     let mut leaving: Signal<Option<(i32, u32)>> = use_signal(|| None);
     let mut leave_round = use_signal(|| 0u32);
     let mut tapped: Signal<Option<f64>> = use_signal(|| None);
@@ -547,9 +548,19 @@ pub(crate) fn Arena() -> Element {
             return;
         }
 
+        let mut held = pressing.write();
+
+        if !pressed_now {
+            held.retain(|kept| *kept != action);
+        } else if !held.contains(&action) {
+            held.push(action);
+        }
+
+        drop(held);
         keyer.host().battle(BattleCommand::Key(action, pressed_now));
     };
     let mut key_down = key.clone();
+    let unfocuser = platform.clone();
     let attacher = platform.clone();
     let sizer = platform.clone();
 
@@ -598,6 +609,19 @@ pub(crate) fn Arena() -> Element {
             onkeyup: move |event| {
                 event.prevent_default();
                 key(&event.data().key(), false, false);
+            },
+            onfocusout: move |_| {
+                let held: Vec<Action> = pressing.write().drain(..).collect();
+
+                for action in held {
+                    unfocuser.host().battle(BattleCommand::Key(action, false));
+                }
+
+                let lifted: Vec<Touch> = fingers.peek().iter().flatten().copied().collect::<Vec<i32>>().into_iter().filter_map(lift).collect();
+
+                if !lifted.is_empty() {
+                    unfocuser.host().battle(BattleCommand::Touches(lifted));
+                }
             },
             canvas {
                 id: CANVAS_ID,
