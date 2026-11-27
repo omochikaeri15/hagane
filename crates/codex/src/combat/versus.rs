@@ -219,6 +219,10 @@ impl Entity {
         CONTROLS.iter().any(|ability| self.holds(*ability))
     }
 
+    pub fn weakens(&self, foe: Foe) -> bool {
+        self.targets(foe) && self.holds(Identity::Weaken)
+    }
+
     pub fn answered(&self) -> Foe {
         Foe::LABELS.into_iter().filter(|label| self.answers(*label)).fold(Foe::default(), Foe::with)
     }
@@ -326,10 +330,14 @@ impl Entity {
         damage.max(0)
     }
 
-    pub fn taken(&self, foe: Foe, terms: Terms) -> f64 {
+    pub fn taken(&self, foe: Foe, terms: Terms, weakened: bool) -> f64 {
         let fruit = f64::from(terms.fruit);
         let eased = |identity: Identity, orb: i32| f64::from(100 - (orb + self.effect_up(identity))) / 100.0;
         let mut share = 1.0;
+
+        if weakened && self.weakens(foe) {
+            share *= f64::from(self.weaken_to) / 100.0;
+        }
 
         if self.targets(foe) {
             if self.strong_against != 0 {
@@ -449,7 +457,7 @@ mod tests {
 
         assert_eq!(land(&unit, red), 1900 + 500, "Attack Up S adds five times the level 1 attack");
         assert_eq!(land(&unit, foe(&[Identity::TraitAngel])), 1000);
-        assert!((unit.taken(foe(&[Identity::TraitFloating]), TERMS) - 0.7).abs() < 1e-9);
+        assert!((unit.taken(foe(&[Identity::TraitFloating]), TERMS, false) - 0.7).abs() < 1e-9);
     }
 
     // Attack Up adds the whole level 1 hit to every carrier: a mini-surge, a mini-wave or an explosion ring
@@ -507,8 +515,8 @@ mod tests {
         assert_eq!(unit.landing(foe(&[Identity::TraitColossus]), TERMS, 1000, Carrier::Direct, Roll { critical: false, savage: false, ..Roll::default() }), 1600);
         assert_eq!(unit.landing(foe(&[Identity::TraitBehemoth]), TERMS, 1000, Carrier::Direct, Roll { critical: false, savage: false, ..Roll::default() }), 2500);
         assert_eq!(unit.landing(foe(&[Identity::TraitSage]), TERMS, 1000, Carrier::Direct, Roll { critical: false, savage: false, ..Roll::default() }), 1200);
-        assert_eq!(unit.taken(foe(&[Identity::TraitWitch]), TERMS), 0.1);
-        assert_eq!(unit.taken(foe(&[Identity::TraitColossus]), TERMS), 0.7);
+        assert_eq!(unit.taken(foe(&[Identity::TraitWitch]), TERMS, false), 0.1);
+        assert_eq!(unit.taken(foe(&[Identity::TraitColossus]), TERMS, false), 0.7);
         assert_eq!(unit.touched(foe(&[Identity::TraitWitch])), [(Identity::WitchKiller, Bearing::Full)]);
         assert!(unit.answers(Identity::TraitColossus) && unit.answers(Identity::TraitWitch));
         assert!(!unit.answers(Identity::TraitRed) && !unit.answers(Identity::TraitEva));
@@ -569,8 +577,24 @@ mod tests {
     fn damage_taken_follows_the_shared_trait() {
         let unit = Entity { trait_red: 1, resist: 1, ..Entity::default() };
 
-        assert_eq!(unit.taken(foe(&[Identity::TraitRed]), TERMS), 0.2);
-        assert_eq!(unit.taken(foe(&[Identity::TraitAngel]), TERMS), 1.0);
-        assert!((Entity { insanely_tough: 1, resist: 0, ..unit }.taken(foe(&[Identity::TraitRed]), Terms::default()) - 1.0 / 6.0).abs() < 1e-12);
+        assert_eq!(unit.taken(foe(&[Identity::TraitRed]), TERMS, false), 0.2);
+        assert_eq!(unit.taken(foe(&[Identity::TraitAngel]), TERMS, false), 1.0);
+        assert!((Entity { insanely_tough: 1, resist: 0, ..unit }.taken(foe(&[Identity::TraitRed]), Terms::default(), false) - 1.0 / 6.0).abs() < 1e-12);
+    }
+
+    // A weakened foe hits for its Weaken percent, but only a foe the cat targets can be weakened,
+    // and like Strengthen it is counted by default only in the maximum.
+    #[test]
+    fn weaken_cuts_damage_taken_only_from_a_targeted_foe() {
+        use super::super::output::{Mode, Switch};
+
+        let unit = Entity { trait_red: 1, resist: 1, weaken_chance: 20, weaken_duration: 60, weaken_to: 50, ..Entity::default() };
+
+        assert_eq!(unit.taken(foe(&[Identity::TraitRed]), TERMS, true), 0.1);
+        assert_eq!(unit.taken(foe(&[Identity::TraitAngel]), TERMS, true), 1.0);
+        assert_eq!(Entity { weaken_chance: 0, ..unit.clone() }.taken(foe(&[Identity::TraitRed]), TERMS, true), 0.2);
+        assert_eq!(Entity { weaken_to: 0, ..unit.clone() }.taken(foe(&[Identity::TraitRed]), TERMS, true), 0.0, "a mod can weaken a foe to nothing");
+        assert!(unit.weakens(foe(&[Identity::TraitRed])) && !unit.weakens(foe(&[Identity::TraitAngel])));
+        assert_eq!([Mode::Base, Mode::Average, Mode::Maximum].map(|mode| Switch::Weaken.by_default(mode)), [false, false, true]);
     }
 }

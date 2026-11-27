@@ -70,8 +70,8 @@ const SELECT_ROOM: usize = 25;
 const NO_ORB: &str = "None";
 const PANEL_LIFE: Duration = Duration::from_secs(14 * 60);
 const TALENT_HINT: &str = "all, standard, ultra, none, 10 10 5 or Attack Buff 5";
-const MODE_HELP: &str = "`--mode`: `base` (`b`) for the plain numbers, `avg` (`a`) for procs averaged in (the default), `max` (`m`) for every proc landing plus Strengthen and the kill boost\n`--hits`: `1`, `2` or `3` for one hit, `avg` for the hits that reach standing range (the default), `all` for every hit";
-const SWITCH_HELP: &str = "Counts an ability or an orb or leaves it out, whatever the mode says: crit, savage, wave, surge, explosion, strengthen, kills, orb 1, orb 2. `-m avg --on strengthen` is an average with Strengthen";
+const MODE_HELP: &str = "`--mode`: `base` (`b`) for the plain numbers, `avg` (`a`) for procs averaged in (the default), `max` (`m`) for every proc landing plus Strengthen, the kill boost and Weaken on a targeted foe\n`--hits`: `1`, `2` or `3` for one hit, `avg` for the hits that reach standing range (the default), `all` for every hit";
+const SWITCH_HELP: &str = "Counts an ability or an orb or leaves it out, whatever the mode says: crit, savage, wave, surge, explosion, strengthen, kills, weaken, orb 1, orb 2. `-m avg --on strengthen` is an average with Strengthen";
 const ENEMY_HINT: &str = "teacher bear, 12-e or an alias";
 const PANEL_PICKS: usize = 25;
 const ENEMY_LIMIT: u16 = 100;
@@ -252,7 +252,7 @@ impl Board {
                 let list = library.vault.vds.cats.orbs(&library.vault.vfs);
                 let named = |worn: &Worn| list.get(worn.id as usize).map_or_else(|| format!("Orb {}", worn.slot + 1), |orb| titles.title(library.context().names, orb));
 
-                panel_rows(key, dialed.lens(), stats, &named)
+                panel_rows(key, dialed.lens(), stats, dialed.versus().against(stats), &named)
             }
             (Board::Versus, _) => versus_rows(key, dialed.versus(), &[]),
             (Board::Talents(page), Dialed::Sheet(sheet)) => talents_rows(key, library, sheet, page),
@@ -1470,7 +1470,7 @@ fn dialed_stats(library: &Library, dialed: &Dialed) -> Option<Entity> {
     }
 }
 
-fn panel_rows(key: u64, lens: Lens, stats: &Entity, named: &dyn Fn(&Worn) -> String) -> Vec<serenity::CreateActionRow> {
+fn panel_rows(key: u64, lens: Lens, stats: &Entity, foe: Foe, named: &dyn Fn(&Worn) -> String) -> Vec<serenity::CreateActionRow> {
     let custom = |part: &str| format!("{DIAL}{key:x}|{part}");
     let shown = combat_lens::shown_hits(stats, lens.hits);
     let hits = combat_lens::hit_choices(stats).into_iter().map(|hits| serenity::CreateSelectMenuOption::new(combat_lens::hits_label(hits), grammar::hits_word(hits)).default_selection(hits == shown)).collect();
@@ -1479,7 +1479,7 @@ fn panel_rows(key: u64, lens: Lens, stats: &Entity, named: &dyn Fn(&Worn) -> Str
         serenity::CreateActionRow::SelectMenu(serenity::CreateSelectMenu::new(custom("h"), serenity::CreateSelectMenuKind::String { options: hits }).disabled(!combat_lens::picks_hits(stats))),
         serenity::CreateActionRow::SelectMenu(serenity::CreateSelectMenu::new(custom("m"), serenity::CreateSelectMenuKind::String { options: modes })),
     ];
-    let held = combat_lens::held_switches(stats);
+    let held = combat_lens::held_switches(stats, foe);
     let toggles = foundry_orbs::toggles(&stats.orbs);
 
     if !held.is_empty() || !toggles.is_empty() {
@@ -1760,7 +1760,7 @@ async fn on_dial(ctx: &serenity::Context, press: &serenity::ComponentInteraction
         "h" => (dialed.with(Lens { hits: grammar::hits_of(picked).unwrap_or(held.hits), ..held }), None),
         "m" => (dialed.with(Lens { mode: grammar::gauge_of(picked).unwrap_or(held.mode), switches: Switches::default(), ..held }), None),
         "s" => {
-            let switches = combat_lens::held_switches(&stats).into_iter().fold(held.switches, |switches, (switch, _)| {
+            let switches = combat_lens::held_switches(&stats, dialed.versus().against(&stats)).into_iter().fold(held.switches, |switches, (switch, _)| {
                 let lit = values.iter().any(|value| value == grammar::switch_word(switch));
 
                 if lit == switch.by_default(held.mode) { switches.cleared(switch) } else { switches.set(switch, lit) }
@@ -3969,7 +3969,7 @@ mod tests {
         assert!(picks.len() <= 25 && picks.iter().all(|pick| pick["default"] == true));
         assert_eq!(grammar::versus_picked(&values), every);
 
-        let both = serde_json::to_value(panel_rows(7, Lens::default(), &Entity::default(), &|_| String::new()).into_iter().chain(versus_rows(7, every, &[])).collect::<Vec<_>>()).unwrap();
+        let both = serde_json::to_value(panel_rows(7, Lens::default(), &Entity::default(), Foe::default(), &|_| String::new()).into_iter().chain(versus_rows(7, every, &[])).collect::<Vec<_>>()).unwrap();
         let ids: Vec<&str> = both.as_array().unwrap().iter().flat_map(|row| row["components"].as_array().unwrap().iter().map(|part| part["custom_id"].as_str().unwrap())).collect();
 
         for (at, id) in ids.iter().enumerate() {

@@ -37,14 +37,15 @@ pub enum Switch {
     Kills,
     Orb1,
     Orb2,
+    Weaken,
 }
 
 impl Switch {
-    pub const ALL: [Switch; 9] = [Switch::Critical, Switch::Savage, Switch::Wave, Switch::Surge, Switch::Explosion, Switch::Strengthen, Switch::Kills, Switch::Orb1, Switch::Orb2];
+    pub const ALL: [Switch; 10] = [Switch::Critical, Switch::Savage, Switch::Wave, Switch::Surge, Switch::Explosion, Switch::Strengthen, Switch::Kills, Switch::Orb1, Switch::Orb2, Switch::Weaken];
 
     pub fn by_default(self, mode: Mode) -> bool {
         match self {
-            Switch::Strengthen | Switch::Kills => mode == Mode::Maximum,
+            Switch::Strengthen | Switch::Kills | Switch::Weaken => mode == Mode::Maximum,
             _ => mode != Mode::Base,
         }
     }

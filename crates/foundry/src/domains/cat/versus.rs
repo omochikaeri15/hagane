@@ -1,14 +1,15 @@
-use codex::combat::{Bearing, Entity, Foe, Identity, Terms};
+use codex::combat::{Bearing, Entity, Foe, Identity, Switch, Terms};
 
 use crate::systems::combat::abilities::collect_ability_data_against;
 use crate::systems::combat::lens::{self, Lens, Pace};
-use crate::systems::combat::registry::{get_display_def, AbilityIcon, Against, StatContext};
+use crate::systems::combat::registry::{get_display_def, held_frames, AbilityIcon, Against, StatContext};
 use crate::systems::combat::{AbilityGroups, AbilityItem, CustomIcon, Mark, RenderContext};
 
 use super::game::stats::get_final_stats;
 use super::waiter::unitid;
 
 const UNCHANGED: f64 = 1e-9;
+const BOUNDLESS: &str = "\u{221e}";
 
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Felt {
@@ -29,6 +30,17 @@ fn terms(ctx: &RenderContext<'_>, foe: Foe) -> Terms {
     }
 }
 
+fn weakened(ctx: &RenderContext<'_>, foe: Foe, lens: Lens) -> bool {
+    let unit = ctx.final_stats;
+    let lasts = |against: Against| held_frames(unit, ctx.global.param, against, Identity::Weaken, unit.weaken_duration) > 0;
+
+    lens.switches.lit(Switch::Weaken, lens.mode) && against(ctx, foe).is_some_and(lasts)
+}
+
+fn endured(hitpoints: i32, share: f64) -> String {
+    if share > 0.0 { ((f64::from(hitpoints) / share).round() as i64).to_string() } else { BOUNDLESS.to_owned() }
+}
+
 pub fn felt(ctx: &RenderContext<'_>, stats: &StatContext<'_>, foe: Foe, lens: Lens) -> Felt {
     let unit = ctx.final_stats;
     let rules = lens::rules(&ctx.global);
@@ -44,13 +56,13 @@ pub fn felt(ctx: &RenderContext<'_>, stats: &StatContext<'_>, foe: Foe, lens: Le
             if (measured.attack - plain.attack).abs() > UNCHANGED { Mark::Hit } else { Mark::None }
         }
     };
-    let share = unit.taken(foe, terms);
-    let tougher = !foe.is_empty() && (share - 1.0).abs() > UNCHANGED && share > 0.0;
+    let share = unit.taken(foe, terms, weakened(ctx, foe, lens));
+    let tougher = !foe.is_empty() && (share - 1.0).abs() > UNCHANGED;
 
     Felt {
         attack: Some((lens::rate(measured.attack), mark)),
         dps: Some((lens::rate(measured.dps), mark)),
-        hitpoints: tougher.then(|| (((f64::from(unit.hitpoints) / share).round() as i64).to_string(), Mark::Hit)),
+        hitpoints: tougher.then(|| (endured(unit.hitpoints, share), Mark::Hit)),
     }
 }
 
@@ -236,5 +248,13 @@ mod tests {
         assert_eq!(label_mark(&slayer, Identity::TraitSage, false), Mark::Glancing);
         assert_eq!(label_mark(&Entity::default(), Identity::TraitSage, false), Mark::Inert);
         assert_eq!(label_mark(&Entity::default(), Identity::TraitSage, true), Mark::Miss, "a spirit's crowd control counts as the cat's");
+    }
+
+    // The game floors every hit at 0, so a foe weakened to nothing (or less) never hurts the cat at all.
+    #[test]
+    fn a_cat_that_takes_nothing_cannot_fall() {
+        assert_eq!(endured(1000, 0.5), "2000");
+        assert_eq!(endured(1000, 0.0), BOUNDLESS);
+        assert_eq!(endured(1000, -0.2), BOUNDLESS);
     }
 }

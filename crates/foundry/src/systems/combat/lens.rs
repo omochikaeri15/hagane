@@ -49,14 +49,19 @@ pub fn switch_of(identity: Identity) -> Option<Switch> {
         Identity::Explosion => Some(Switch::Explosion),
         Identity::Strengthen => Some(Switch::Strengthen),
         Identity::KillAttackUp => Some(Switch::Kills),
+        Identity::Weaken => Some(Switch::Weaken),
         _ => None,
     }
 }
 
-pub fn held_switches(stats: &Entity) -> Vec<(Switch, Identity)> {
+pub(crate) fn switch_against(stats: &Entity, identity: Identity, foe: Foe) -> Option<Switch> {
+    switch_of(identity).filter(|switch| *switch != Switch::Weaken || stats.weakens(foe))
+}
+
+pub fn held_switches(stats: &Entity, foe: Foe) -> Vec<(Switch, Identity)> {
     REGISTRY
         .iter()
-        .filter_map(|ability| switch_of(ability.identity).filter(|_| !(ability.attributes)(stats).is_empty()).map(|switch| (switch, ability.identity)))
+        .filter_map(|ability| switch_against(stats, ability.identity, foe).filter(|_| !(ability.attributes)(stats).is_empty()).map(|switch| (switch, ability.identity)))
         .collect()
 }
 

@@ -232,23 +232,23 @@ fn spanned(first: f64, second: f64, reciprocal: bool) -> String {
     if label(first) == label(second) { label(first) } else { format!("{}~{}", label(first), label(second)) }
 }
 
-fn sage_resist(ctx: &FormatContext<'_>, against: Against, identity: Identity) -> i32 {
+fn sage_resist(param: &Param, against: Against, identity: Identity) -> i32 {
     if !against.sage {
         return 0;
     }
 
     match identity {
-        Identity::Freeze => ctx.param.sage_type_resist_freeze(),
-        Identity::Slow => ctx.param.sage_type_resist_slow(),
-        Identity::Weaken => ctx.param.sage_type_resist_weaken(),
-        Identity::Curse => ctx.param.sage_type_resist_curse(),
-        Identity::Knockback => ctx.param.sage_type_resist_knockback(),
+        Identity::Freeze => param.sage_type_resist_freeze(),
+        Identity::Slow => param.sage_type_resist_slow(),
+        Identity::Weaken => param.sage_type_resist_weaken(),
+        Identity::Curse => param.sage_type_resist_curse(),
+        Identity::Knockback => param.sage_type_resist_knockback(),
         _ => 0,
     }
 }
 
-fn held_frames(ctx: &FormatContext<'_>, against: Against, identity: Identity) -> i32 {
-    resisted(against.fruit.scale_duration(ctx.duration, ctx.stats.effect_up(identity)), sage_resist(ctx, against, identity))
+pub(crate) fn held_frames(stats: &Entity, param: &Param, against: Against, identity: Identity, frames: i32) -> i32 {
+    resisted(against.fruit.scale_duration(frames, stats.effect_up(identity)), sage_resist(param, against, identity))
 }
 
 fn percent(share: f64) -> String {
@@ -279,7 +279,7 @@ fn picked<T: Copy>(mode: Mode, shortest: T, longest: T) -> (T, T) {
 fn held_span(ctx: &FormatContext<'_>, identity: Identity) -> (i32, i32) {
     match ctx.against {
         Some(against) => {
-            let held = held_frames(ctx, against, identity);
+            let held = held_frames(ctx.stats, ctx.param, against, identity, ctx.duration);
 
             (held, held)
         }
@@ -319,7 +319,7 @@ fn knockback_distance(ctx: &FormatContext<'_>) -> String {
     let shown = |fruit: i32, resist: i32| trimmed(f64::from(knockback_reach(fruit, raise, resist)));
 
     match ctx.against {
-        Some(against) => shown(against.push, sage_resist(ctx, against, Identity::Knockback)),
+        Some(against) => shown(against.push, sage_resist(ctx.param, against, Identity::Knockback)),
         None => {
             let (near, far) = ctx.treasure.push_span(ctx.stats);
             let (near, far) = picked(ctx.lens.mode, near, far);

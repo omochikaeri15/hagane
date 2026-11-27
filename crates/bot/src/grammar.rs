@@ -293,7 +293,7 @@ const TRAITS: [(Identity, &[&str]); 15] = [
     (Identity::TraitBehemoth, &["behemoth"]),
     (Identity::TraitSage, &["sage"]),
 ];
-const SWITCH_HINT: &str = "`--on` and `--off` take crit, savage, wave, surge, explosion, strengthen, kills, orb 1 or orb 2";
+const SWITCH_HINT: &str = "`--on` and `--off` take crit, savage, wave, surge, explosion, strengthen, kills, weaken, orb 1 or orb 2";
 const ORB_HINT: &str = "`--orb1` (`-1`) and `--orb2` (`-2`) take a grade, a trait and an effect, like `-1 S Red Attack Up`";
 const GAUGE_HINT: &str = "`--mode` (`-m`) takes base, avg or max, or b, a or m";
 const HITS_HINT: &str = "`--hits` (`-h`) takes 1, 2, 3, avg or all";
@@ -330,6 +330,7 @@ pub(crate) fn switch_of(word: &str) -> Option<Switch> {
         "explosion" | "blast" => Some(Switch::Explosion),
         "strengthen" | "strengthened" => Some(Switch::Strengthen),
         "kill" => Some(Switch::Kills),
+        "weaken" | "weakened" => Some(Switch::Weaken),
         "orb1" => Some(Switch::Orb1),
         "orb2" => Some(Switch::Orb2),
         _ => None,
@@ -377,7 +378,7 @@ pub(crate) fn hits_of(word: &str) -> Option<Hits> {
     }
 }
 
-pub(crate) const SWITCH_WORDS: [(Switch, &str); 9] = [
+pub(crate) const SWITCH_WORDS: [(Switch, &str); 10] = [
     (Switch::Critical, "crit"),
     (Switch::Savage, "savage"),
     (Switch::Wave, "wave"),
@@ -385,6 +386,7 @@ pub(crate) const SWITCH_WORDS: [(Switch, &str); 9] = [
     (Switch::Explosion, "explosion"),
     (Switch::Strengthen, "strengthen"),
     (Switch::Kills, "kills"),
+    (Switch::Weaken, "weaken"),
     (Switch::Orb1, "orb1"),
     (Switch::Orb2, "orb2"),
 ];
@@ -1258,7 +1260,7 @@ mod tests {
 
         assert_eq!(lens_tagged(&lens_tag(lens)), Some(lens));
         assert_eq!((lens_tag(Lens::default()).as_str(), lens_tagged("as")), ("as", Some(Lens::default())));
-        assert_eq!(SWITCH_WORDS.iter().map(|(switch, word)| switch_of(word) == Some(*switch)).collect::<Vec<_>>(), [true; 9], "every word reads back as its switch");
+        assert_eq!(SWITCH_WORDS.iter().map(|(switch, word)| switch_of(word) == Some(*switch)).collect::<Vec<_>>(), [true; 10], "every word reads back as its switch");
 
         let stats = stats_of(&["--on", "kills", "--off", "crits", "-m", "base"], Kind::Cat).unwrap();
 

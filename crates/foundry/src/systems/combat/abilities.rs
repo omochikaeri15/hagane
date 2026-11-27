@@ -1,6 +1,6 @@
 use codex::cat::unit::TalentGroup;
 use codex::combat::orb::RESISTS;
-use codex::combat::{get_talent, targets_traits, AttrUnit, AttrValue, Entity, Faction, Identity, REGISTRY};
+use codex::combat::{get_talent, targets_traits, AttrUnit, AttrValue, Entity, Faction, Foe, Identity, REGISTRY};
 use codex::files::img015;
 use tracing::trace;
 
@@ -25,6 +25,7 @@ pub fn collect_ability_data_against(ctx: &RenderContext<'_>, against: Option<Aga
     trace!("collecting ability rendering data");
 
     let faction = ctx.final_stats.faction;
+    let foe = against.map_or(Foe::default(), |against| against.foe);
     let mut groups: [Vec<AbilityItem>; 6] = Default::default();
 
     let target_label = match (faction, ctx.is_conjure_unit) {
@@ -52,7 +53,7 @@ pub fn collect_ability_data_against(ctx: &RenderContext<'_>, against: Option<Aga
         let boost = pure_def.identity.effect_up().map(|(_, up)| up).filter(|_| ctx.final_stats.effect_up(pure_def.identity) > 0);
         let icon = boost.map_or(display_def.icon, |up| registry::get_display_def(up).icon);
 
-        let switched = lens::switch_of(pure_def.identity);
+        let switched = lens::switch_against(ctx.final_stats, pure_def.identity, foe);
         let format_ctx = FormatContext {
             value: attrs.first().map_or(AttrValue::Finite(0), |(_, value, _)| *value),
             stats: ctx.final_stats,
