@@ -4,7 +4,7 @@ use std::sync::Arc;
 use dioxus::prelude::*;
 
 use codex::cat::unit::Equipment;
-use codex::combat::Identity;
+use codex::combat::{Identity, Switch};
 use foundry::Vfs;
 use foundry::domains::cat::orbs::{self as orb, Allowance, GRADES, Kind};
 use foundry::domains::cat::orbs::Shine;
@@ -114,7 +114,7 @@ impl Book {
     }
 }
 
-pub(crate) fn header(pictures: &Pictures, orbs: &[Equipment], slots: &[Option<u32>], marks: &[(bool, Shine)], size: f32, press: Option<EventHandler<usize>>) -> Element {
+pub(crate) fn header(pictures: &Pictures, orbs: &[Equipment], slots: &[Option<u32>], marks: &[(bool, Shine)], size: f32, press: Option<EventHandler<usize>>, flip: Option<EventHandler<Switch>>) -> Element {
     rsx! {
         div { class: "orb-header",
             span { class: "bold orb-header-title", "Orbs" }
@@ -127,10 +127,27 @@ pub(crate) fn header(pictures: &Pictures, orbs: &[Equipment], slots: &[Option<u3
                             None if shut => rsx! { span { class: "weak orb-shut", "Lv60" } },
                             None => rsx! { span { class: "orb-plus", "+" } },
                         };
+                        let pick = match press.filter(|_| !shut) {
+                            Some(press) => rsx! { button { class: "btn btn-neutral orb-slot", onclick: move |_| press.call(slot), {face} } },
+                            None => rsx! { div { class: "orb-slot static", title: if shut { SHUT_HINT } else { "" }, {face} } },
+                        };
+                        let toggle = shine.toggle.zip(flip);
+                        let class = if toggle.is_some() && shine.lit { "btn btn-toggle active orb-toggle" } else { "btn btn-toggle orb-toggle" };
 
-                        match press.filter(|_| !shut) {
-                            Some(press) => rsx! { button { key: "{slot}", class: "btn btn-neutral orb-slot", onclick: move |_| press.call(slot), {face} } },
-                            None => rsx! { div { key: "{slot}", class: "orb-slot static", title: if shut { SHUT_HINT } else { "" }, {face} } },
+                        rsx! {
+                            div { key: "{slot}", class: "orb-column",
+                                {pick}
+                                button {
+                                    class,
+                                    disabled: toggle.is_none(),
+                                    onclick: move |_| {
+                                        if let Some((switch, flip)) = toggle {
+                                            flip.call(switch);
+                                        }
+                                    },
+                                    if toggle.is_some() { {orb::TOGGLE_LABEL} } else { {orb::NO_TOGGLE} }
+                                }
+                            }
                         }
                     }
                 }

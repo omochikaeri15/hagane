@@ -75,6 +75,7 @@ pub struct State {
     roster: Rc<Roster>,
     exporting: bool,
     lens: Lens,
+    versus: bool,
 }
 
 pub type Shared = Rc<RefCell<State>>;
@@ -135,6 +136,7 @@ impl State {
             roster,
             exporting: false,
             lens: Lens::default(),
+            versus: false,
         }
     }
 
@@ -176,6 +178,11 @@ fn set_export_face(ui: &AppWindow, label: &str, tone: Tone) {
 pub fn wire(window: &AppWindow, context: &Rc<Context>) -> Shared {
     let state: Shared = Rc::new(RefCell::new(State::new(&context.images)));
     let enemies = window.global::<Enemies>();
+    let versus = context.memory.get().enemy_versus;
+
+    state.borrow_mut().versus = versus;
+    enemies.set_versus(versus);
+    enemies.set_block_label(lens::block_label(versus).into());
 
     enemies.set_roster(ModelRc::from(Rc::clone(&state.borrow().roster) as Rc<dyn Model<Data = crate::RosterRow>>));
     enemies.set_tabs(ModelRc::new(VecModel::from(TAB_LABELS.iter().map(|label| HeaderBtn { label: (*label).into(), available: true }).collect::<Vec<_>>())));
@@ -272,6 +279,22 @@ pub fn wire(window: &AppWindow, context: &Rc<Context>) -> Shared {
         };
 
         held.borrow_mut().lens.mode = mode;
+
+        if let Some(ui) = weak.upgrade() {
+            refresh(&ui, &held, &ctx);
+        }
+    });
+
+    let (held, ctx, weak) = on(&state, context, window);
+    enemies.on_versus_toggled(move || {
+        let versus = {
+            let mut state = held.borrow_mut();
+
+            state.versus = !state.versus;
+            state.versus
+        };
+
+        ctx.memory.update(|memory| memory.enemy_versus = versus);
 
         if let Some(ui) = weak.upgrade() {
             refresh(&ui, &held, &ctx);
@@ -553,15 +576,17 @@ fn refresh_abilities(ui: &AppWindow, globals: &Rc<Globals>, vault: &Arc<Vault>, 
     let (magnification, held) = {
         let state = state.borrow();
 
-        (state.magnification, state.lens)
+        (state.magnification, Lens { versus: state.versus, ..state.lens })
     };
     let ctx = RenderContext::enemy(globals.context(vault), stats, magnification);
     let stat_ctx = StatContext::enemy(stats, enemy.atk_anim_frames, magnification, &globals.treasure);
-    let lens = Lens { hits: lens::settled(stats, held.hits), ..held };
+    let lens = lens::fitted(stats, held);
     let (traits, headline_1, headline_2, body_1, body_2, footer) = lens::plain(&ctx, Pace::of(&stat_ctx), lens);
     let measured = lens::measure(&stat_ctx, &lens::rules(&ctx.global), Foe::default(), Terms::default(), lens);
 
-    show_dials(&enemies, stats, held);
+    show_dials(&enemies, stats, lens);
+    enemies.set_versus(lens.versus);
+    enemies.set_block_label(lens::block_label(lens.versus).into());
     enemies.set_stat_headers_1(headers(&[&STAT_ATTACK, &STAT_DPS, &STAT_RANGE, &STAT_ATK_CYCLE]));
     enemies.set_stat_values_1(ModelRc::new(VecModel::from(vec![
         text_cell(STAT_ATTACK.display_name, &lens::rate(measured.attack)),
@@ -743,8 +768,12 @@ fn export(ui: &AppWindow, state: &Shared, context: &Rc<Context>) {
         return detail::export_details(ui, context, enemy_statblock::details(&enemy, globals.context(&vault)), Rc::new(set_export_face), finished);
     }
 
-    let held = state.borrow().lens;
-    let lens = Lens { hits: lens::settled(&enemy.stats, held.hits), ..held };
+    let held = {
+        let state = state.borrow();
+
+        Lens { versus: state.versus, ..state.lens }
+    };
+    let lens = lens::fitted(&enemy.stats, held);
     let data = enemy_statblock::build(Subject { enemy: &enemy, magnification, show_invalid: context.state.settings().show_invalid_enemies(), global: globals.context(&vault), vault: &vault, lens });
 
     detail::export_statblock(ui, context, data, Rc::new(set_export_face), finished);

@@ -8,7 +8,6 @@ use codex::combat::Faction;
 use foundry::domains::cat::versus;
 use foundry::domains::cat::waiter::unitid;
 use foundry::domains::settings::Settings;
-use foundry::systems::combat::abilities::collect_ability_data;
 use foundry::systems::combat::registry::Magnification;
 use foundry::systems::combat::{AbilityItem, RenderContext, ABILITY_Y, TRAIT_Y};
 
@@ -86,10 +85,7 @@ impl State {
             text(format!("Damage {}\nRange {}", conjure_final.attack_1_damage, conjure_final.standing_range)).size(DESCRIPTION_TEXT_SIZE)
         ].spacing(ICON_TEXT_GAP).align_y(Alignment::Center);
 
-        let (s_traits, s_h1, s_h2, s_b1, s_b2, s_footer) = match spirit.foe {
-            Some(foe) => versus::spirit_abilities(&spirit_ctx, foe),
-            None => collect_ability_data(&spirit_ctx),
-        };
+        let (s_traits, s_h1, s_h2, s_b1, s_b2, s_footer) = versus::spirit_abilities(&spirit_ctx, spirit.foe);
 
         let mut col = column![dmg_row].spacing(0).width(Length::Shrink);
         let mut prev = false;

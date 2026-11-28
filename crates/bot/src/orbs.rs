@@ -8,7 +8,7 @@ use foundry::domains::cat::orbs::{self, Allowance, Kind, Titles, GRADES};
 use foundry::domains::cat::scanner::CatEntry;
 
 use super::fuzzy::{self, Query};
-use super::grammar;
+use super::grammar::{self, OrbAsk};
 use super::library::Library;
 use super::prose::Trouble;
 
@@ -126,6 +126,33 @@ impl Bench {
         })
     }
 
+    fn taken(&self, library: &Library, words: &[String]) -> usize {
+        let labels: Vec<(i32, Vec<String>)> = orbs::effects(&self.kinds).into_iter().map(|content| (content, parts(&self.effect_label(content)))).collect();
+        let spelled = |typed: &[String]| labels.iter().filter(|(_, label)| covers(label, typed)).map(|(content, _)| *content).collect::<Vec<_>>();
+        let (mut graded, mut aimed) = (false, false);
+        let mut effect: Vec<String> = Vec::new();
+        let mut taken = 0;
+
+        for word in words {
+            let traited = effect.is_empty() || spelled(&effect).into_iter().any(|content| !orbs::attributes(&self.kinds, content).is_empty());
+            let longer: Vec<String> = effect.iter().cloned().chain(parts(word)).collect();
+
+            if !graded && grade_of(word).is_some() {
+                graded = true;
+            } else if !aimed && traited && self.trait_row(library, word).is_some() {
+                aimed = true;
+            } else if !spelled(&longer).is_empty() {
+                effect = longer;
+            } else {
+                break;
+            }
+
+            taken += 1;
+        }
+
+        taken
+    }
+
     fn read(&self, library: &Library, typed: &str) -> Result<u32, String> {
         let said = || typed.trim().to_owned();
         let mut words: Vec<&str> = typed.split(|glyph: char| !glyph.is_alphanumeric()).filter(|word| !word.is_empty()).collect();
@@ -158,6 +185,40 @@ impl Bench {
     }
 }
 
+fn parts(text: &str) -> Vec<String> {
+    text.split(|glyph: char| !glyph.is_alphanumeric()).filter(|part| !part.is_empty()).map(str::to_lowercase).collect()
+}
+
+fn covers(label: &[String], typed: &[String]) -> bool {
+    let mut free: Vec<&String> = label.iter().collect();
+
+    typed.iter().all(|word| match free.iter().position(|held| *held == word || (word.chars().count() > 1 && held.starts_with(word.as_str()))) {
+        Some(at) => {
+            free.remove(at);
+            true
+        }
+        None => false,
+    })
+}
+
+pub(crate) fn sorted(library: &Library, cat: &CatEntry, asked: &[OrbAsk]) -> (Vec<(Option<usize>, String)>, Vec<String>) {
+    let bench = Bench::of(library, cat, FIRST_FORM, 0);
+    let mut picks = Vec::new();
+    let mut spare = Vec::new();
+
+    for orb in asked {
+        let taken = match bench.taken(library, &orb.words) {
+            0 => orb.words.len(),
+            taken => taken,
+        };
+
+        picks.push((orb.slot, orb.words[..taken].join(" ")));
+        spare.extend(orb.words[taken..].iter().cloned());
+    }
+
+    (picks, spare)
+}
+
 fn grade_of(word: &str) -> Option<usize> {
     GRADES.iter().position(|grade| grade.eq_ignore_ascii_case(word))
 }
@@ -166,7 +227,7 @@ pub(crate) fn grade_label(grade: usize) -> &'static str {
     GRADES.get(grade).copied().unwrap_or("?")
 }
 
-pub(crate) fn assign(library: &Library, cat: &CatEntry, form: usize, level: i32, typed: &[Option<String>; 2]) -> Result<Vec<Option<u32>>, Trouble> {
+pub(crate) fn assign(library: &Library, cat: &CatEntry, form: usize, level: i32, typed: &[(Option<usize>, String)]) -> Result<Vec<Option<u32>>, Trouble> {
     let bench = Bench::of(library, cat, form, level);
     let unit = cat.display_name(form);
 
@@ -174,11 +235,16 @@ pub(crate) fn assign(library: &Library, cat: &CatEntry, form: usize, level: i32,
         return Err(Trouble::NoOrbs(unit));
     }
 
+    let pinned: Vec<usize> = typed.iter().filter_map(|(slot, _)| *slot).collect();
+    let mut free = (0..).filter(|slot| !pinned.contains(slot));
     let mut slots = vec![None; bench.doors.len()];
 
-    for (slot, text) in typed.iter().enumerate().filter_map(|(slot, text)| Some((slot, text.as_deref()?))) {
+    for (slot, text) in typed {
+        let slot = slot.or_else(|| free.next()).unwrap_or_default();
+
         match bench.doors.get(slot) {
-            None => return Err(Trouble::OneOrbSlot(unit)),
+            None if bench.doors.len() == 1 => return Err(Trouble::OneOrbSlot(unit)),
+            None => return Err(Trouble::OrbSlots(unit, bench.doors.len())),
             Some(false) => return Err(Trouble::OrbLocked(unit)),
             Some(true) => {
                 let orb = bench.read(library, text).map_err(|name| Trouble::NoOrbLike(unit.clone(), name))?;

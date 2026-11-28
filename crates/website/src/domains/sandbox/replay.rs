@@ -4,6 +4,7 @@ use std::rc::Rc;
 use dioxus::core::spawn_forever;
 use dioxus::prelude::*;
 
+use codex::combat::Switch;
 use foundry::common::frames;
 use foundry::domains::cat::scanner::{self, CatEntry};
 use foundry::domains::sandbox::jailbreak::Board;
@@ -581,7 +582,14 @@ pub(crate) fn Replays(globals: Shared, cats: Option<Cats>) -> Element {
         if let Some((held, cat)) = opened {
             {
                 let marks = cat_state.orb_marks(&cat, held.form, &globals);
-                let header = (held.form >= FIRST_TALENT_FORM && !held.slots.is_empty()).then(|| orbs::header(&pictures, &shelf.0.orbs, &held.slots, &marks, SLOT_ORB_SIZE, None));
+                let flip = EventHandler::new(move |switch: Switch| {
+                    let mut switches = cat_state.switches;
+                    let mode = cat_state.lens.peek().mode;
+                    let flipped = switches.peek().flipped(switch, mode);
+
+                    switches.set(flipped);
+                });
+                let header = (held.form >= FIRST_TALENT_FORM && !held.slots.is_empty()).then(|| orbs::header(&pictures, &shelf.0.orbs, &held.slots, &marks, SLOT_ORB_SIZE, None, Some(flip)));
                 let title = cat.display_name(held.form);
 
                 rsx! {

@@ -1,8 +1,8 @@
 use iced::alignment::Vertical;
-use iced::widget::{container, pick_list, text};
-use iced::{Element, Length, Padding};
+use iced::widget::{button, container, pick_list, text};
+use iced::{Element, Length, Padding, Theme};
 
-use codex::combat::{Entity, Mode};
+use codex::combat::{Entity, Hits, Mode};
 use foundry::systems::combat::lens::{self, Lens, MODES, ONE_HIT};
 
 use crate::app::theme;
@@ -40,7 +40,11 @@ impl State {
         Lens { hits: lens::settled(stats, self.lens.hits), ..self.lens }
     }
 
-    pub(crate) fn mode_card(&self) -> Element<'_, Message> {
+    pub(crate) fn mode_card(&self, locked: bool) -> Element<'_, Message> {
+        if locked {
+            return idle(lens::mode_label(Mode::Base));
+        }
+
         pick_list(MODES.map(lens::mode_label).to_vec(), Some(lens::mode_label(self.lens.mode)), Message::Mode)
             .width(Length::Fixed(CARD_WIDTH))
             .text_size(CARD_TEXT_SIZE)
@@ -50,18 +54,15 @@ impl State {
             .into()
     }
 
-    pub(crate) fn hits_card(&self, stats: &Entity) -> Element<'_, Message> {
+    pub(crate) fn hits_card(&self, stats: &Entity, locked: bool) -> Element<'_, Message> {
         let shown = lens::hits_label(lens::shown_hits(stats, self.lens.hits));
 
         if !lens::picks_hits(stats) {
-            let idle = container(text(shown).size(CARD_TEXT_SIZE).style(|theme: &iced::Theme| text::Style { color: Some(theme::weak_text_color(theme)) }))
-                .width(Length::Fixed(CARD_WIDTH))
-                .height(Length::Fixed(CARD_HEIGHT))
-                .padding(CARD_PADDING)
-                .align_y(Vertical::Center)
-                .style(theme::combo_box_idle);
+            return hover_hint(idle(shown), ONE_HIT);
+        }
 
-            return hover_hint(idle, ONE_HIT);
+        if locked {
+            return idle(lens::hits_label(Hits::All));
         }
 
         pick_list(lens::hit_choices(stats).into_iter().map(lens::hits_label).collect::<Vec<_>>(), Some(shown), Message::Hits)
@@ -72,4 +73,23 @@ impl State {
             .menu_style(theme::combo_box_menu)
             .into()
     }
+}
+
+fn idle<'a>(label: &'a str) -> Element<'a, Message> {
+    container(text(label).size(CARD_TEXT_SIZE).style(|theme: &iced::Theme| text::Style { color: Some(theme::weak_text_color(theme)) }))
+        .width(Length::Fixed(CARD_WIDTH))
+        .height(Length::Fixed(CARD_HEIGHT))
+        .padding(CARD_PADDING)
+        .align_y(Vertical::Center)
+        .style(theme::combo_box_idle)
+        .into()
+}
+
+pub(crate) fn block_card<'a, M: Clone + 'a>(versus: bool, toggle: M) -> Element<'a, M> {
+    button(theme::centered_text(lens::block_label(versus)).size(CARD_TEXT_SIZE))
+        .width(Length::Fixed(CARD_WIDTH))
+        .height(Length::Fixed(CARD_HEIGHT))
+        .style(move |t: &Theme, status| theme::toggle_button(t, status, versus))
+        .on_press(toggle)
+        .into()
 }

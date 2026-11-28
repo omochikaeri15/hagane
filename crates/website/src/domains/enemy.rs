@@ -23,7 +23,7 @@ use crate::domains::cat::{abilities, header_class};
 use crate::platform::Platform;
 use crate::systems::catalog::{self, Load};
 use crate::systems::context::{self, Shared};
-use crate::systems::dials::Dials;
+use crate::systems::dials::{BlockToggle, Dials};
 use crate::systems::export::{self, Shot, Statblock};
 use crate::systems::images::{self, Pictures};
 use crate::systems::library::Library;
@@ -34,6 +34,7 @@ pub(crate) use filter::FilterPopup;
 
 const EMPTY_ICON: &str = "uni.png";
 const LAST_ENEMY_KEY: &str = "last-enemy";
+const BLOCK_KEY: &str = "enemy-block";
 const DEFAULT_MAGNIFICATION: &str = "100";
 const MORE_WIDTH: f32 = 260.0;
 
@@ -61,9 +62,12 @@ pub(crate) struct EnemyState {
     pub(crate) seeded_for: Signal<Option<u32>>,
     pub(crate) appearances: Signal<Option<u32>>,
     pub(crate) lens: Signal<Lens>,
+    pub(crate) versus: Signal<bool>,
 }
 
 pub(crate) fn provide() -> EnemyState {
+    let platform = use_context::<Platform>();
+
     use_context_provider(|| EnemyState {
         search: Signal::new(String::new()),
         filter: Signal::new(EnemyFilterState::default()),
@@ -74,6 +78,7 @@ pub(crate) fn provide() -> EnemyState {
         seeded_for: Signal::new(None),
         appearances: Signal::new(None),
         lens: Signal::new(Lens::default()),
+        versus: Signal::new(app::versus_block(&platform, BLOCK_KEY)),
     })
 }
 
@@ -275,7 +280,8 @@ fn Detail(enemy: SelectedEnemy, globals: Shared) -> Element {
                     if tab == DetailTab::Abilities && !packed {
                         div { class: "vrule tall" }
                         div { class: "dials",
-                            Dials { stats: enemy.stats.clone(), lens: state.lens }
+                            Dials { stats: enemy.stats.clone(), lens: state.lens, versus: (state.versus)() }
+                            BlockToggle { versus: state.versus, store: BLOCK_KEY }
                         }
                         div { class: "vrule tall" }
                         export::ExportButtons { request: shot }
@@ -315,7 +321,8 @@ fn Detail(enemy: SelectedEnemy, globals: Shared) -> Element {
                 Popup { title: "More Actions", open: more, width: MORE_WIDTH,
                     div { class: "dialog-body more-actions",
                         div { class: "dials",
-                            Dials { stats: enemy.stats.clone(), lens: state.lens }
+                            Dials { stats: enemy.stats.clone(), lens: state.lens, versus: (state.versus)() }
+                            BlockToggle { versus: state.versus, store: BLOCK_KEY }
                         }
                     }
                 }
@@ -326,7 +333,7 @@ fn Detail(enemy: SelectedEnemy, globals: Shared) -> Element {
                         let held = stats();
                         let current = held.as_ref().unwrap_or(&enemy.stats);
 
-                        abilities_tab(&enemy, current, &globals, &pictures, (state.magnification)(), (state.lens)())
+                        abilities_tab(&enemy, current, &globals, &pictures, (state.magnification)(), Lens { versus: (state.versus)(), ..(state.lens)() })
                     }
                     DetailTab::Details => details_tab(&enemy),
                     DetailTab::Animation => rsx! { crate::systems::animation::EnemyViewer { enemy: SelectedEnemy(Rc::clone(&enemy)), globals: globals.clone() } },
@@ -351,7 +358,7 @@ fn shot_request(enemy: Rc<EnemyEntry>, globals: Shared, settings: Signal<Setting
             show_invalid: settings.peek().show_invalid_enemies(),
             global: globals.0.context(),
             vault: globals.0.vault(),
-            lens: Lens { hits: lens::settled(&enemy.stats, state.lens.peek().hits), ..*state.lens.peek() },
+            lens: lens::fitted(&enemy.stats, Lens { versus: *state.versus.peek(), ..*state.lens.peek() }),
         });
 
         Some(Shot::Stats(Box::new(Statblock { data, sheets: icons::sheets(&pictures, &globals, IMG015), priority })))
@@ -374,7 +381,7 @@ fn abilities_tab(enemy: &EnemyEntry, stats: &Entity, globals: &Shared, pictures:
     let ctx = RenderContext::enemy(globals.0.context(), stats, magnification);
     let stat_ctx = StatContext::enemy(stats, enemy.atk_anim_frames, magnification, &globals.0.treasure);
     let cycle = (STAT_ATK_CYCLE.get_value)(&stat_ctx);
-    let lens = Lens { hits: lens::settled(stats, held.hits), ..held };
+    let lens = lens::fitted(stats, held);
     let (traits, headline_1, headline_2, body_1, body_2, footer) = lens::plain(&ctx, Pace::of(&stat_ctx), lens);
     let measured = lens::measure(&stat_ctx, &lens::rules(&ctx.global), Foe::default(), Terms::default(), lens);
 

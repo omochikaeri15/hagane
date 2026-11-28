@@ -194,8 +194,10 @@ pub fn spirit_controls(ctx: &RenderContext<'_>) -> bool {
     spirit(ctx).is_some_and(|(_, stats)| stats.controls())
 }
 
-pub fn spirit_abilities(ctx: &RenderContext<'_>, foe: Foe) -> AbilityGroups {
-    gathered(ctx, foe, false, Pace::default(), Lens::default()).0
+pub fn spirit_abilities(ctx: &RenderContext<'_>, foe: Option<Foe>) -> AbilityGroups {
+    let lens = foe.map_or_else(Lens::info, |_| Lens { versus: true, ..Lens::default() });
+
+    gathered(ctx, foe.unwrap_or_default(), false, Pace::default(), lens).0
 }
 
 #[cfg(test)]

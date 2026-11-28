@@ -21,6 +21,8 @@ use crate::widget::{drawer, popup, tip};
 static ICON: Asset = asset!("/assets/icon.ico");
 pub(crate) const THEME_KEY: &str = "theme";
 const SETTINGS_KEY: &str = "settings";
+const BLOCK_VERSUS: &str = "versus";
+const BLOCK_INFO: &str = "info";
 const SEPARATOR: char = '/';
 const FORM_LETTERS: [&str; 4] = ["f", "c", "s", "u"];
 const OPEN_ARROW: &str = "\u{25b6}";
@@ -228,6 +230,14 @@ pub(crate) fn use_last_visited(key: &'static str, segments: &[String], make: fn(
 
 pub(crate) fn last_visited(platform: &Platform, key: &str) -> Option<Vec<String>> {
     platform.host().recall(key).map(|saved| Route::split(&saved)).filter(|saved| !saved.is_empty())
+}
+
+pub(crate) fn versus_block(platform: &Platform, key: &str) -> bool {
+    platform.host().recall(key).is_some_and(|held| held == BLOCK_VERSUS)
+}
+
+pub(crate) fn remember_block(platform: &Platform, key: &str, versus: bool) {
+    platform.host().remember(key, if versus { BLOCK_VERSUS } else { BLOCK_INFO });
 }
 
 pub(crate) fn remember_visit(platform: &Platform, key: &str, route: &Route) {

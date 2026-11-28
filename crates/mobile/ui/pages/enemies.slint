@@ -45,6 +45,8 @@ export global Enemies {
 
     in-out property <bool> filter-open;
     in-out property <bool> more-open;
+    in property <bool> versus;
+    in property <string> block-label;
     in property <[string]> hit-options;
     in-out property <int> hit-index;
     in property <bool> picks-hits;
@@ -70,6 +72,7 @@ export global Enemies {
     callback export-image();
     callback hits-picked(int);
     callback mode-picked(int);
+    callback versus-toggled();
     callback appearances();
     callback filter-mode-set(int);
     callback filter-mag-edited(string);
@@ -91,7 +94,7 @@ component MoreDialog inherits Dialog {
         alignment: center;
         HorizontalLayout {
             alignment: center;
-            if Enemies.picks-hits: Combo { width: 130px; height: 32px; text-size: 13px; options: Enemies.hit-options; current <=> Enemies.hit-index; selected(index) => { Enemies.hits-picked(index); } }
+            if Enemies.picks-hits: Combo { width: 130px; height: 32px; text-size: 13px; enabled: Enemies.versus; options: Enemies.hit-options; current <=> Enemies.hit-index; selected(index) => { Enemies.hits-picked(index); } }
             if !Enemies.picks-hits: Rectangle {
                 width: 130px;
                 height: 32px;
@@ -101,7 +104,11 @@ component MoreDialog inherits Dialog {
         }
         HorizontalLayout {
             alignment: center;
-            Combo { width: 130px; height: 32px; text-size: 13px; options: Enemies.mode-options; current <=> Enemies.mode-index; selected(index) => { Enemies.mode-picked(index); } }
+            Combo { width: 130px; height: 32px; text-size: 13px; enabled: Enemies.versus; options: Enemies.mode-options; current <=> Enemies.mode-index; selected(index) => { Enemies.mode-picked(index); } }
+        }
+        HorizontalLayout {
+            alignment: center;
+            Btn { width: 130px; height: 32px; text-size: 13px; tone: Tone.toggle; active: Enemies.versus; label: Enemies.block-label; pad-y: 0px; clicked => { Enemies.versus-toggled(); } }
         }
     }
 }

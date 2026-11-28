@@ -10,13 +10,25 @@ const FRAMES_PER_SECOND: f64 = 30.0;
 
 pub const MODES: [Mode; 3] = [Mode::Base, Mode::Average, Mode::Maximum];
 pub const ONE_HIT: &str = "This unit only has one hit!";
+pub const VERSUS_LABEL: &str = "Versus Mode";
+pub const INFO_LABEL: &str = "Info Block";
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 pub struct Lens {
     pub mode: Mode,
     pub hits: Hits,
     pub switches: Switches,
-    pub switching: bool,
+    pub versus: bool,
+}
+
+impl Lens {
+    pub fn info() -> Self {
+        Self { mode: Mode::Base, hits: Hits::All, switches: Switches::default(), versus: false }
+    }
+
+    pub fn shown(self) -> Self {
+        if self.versus { self } else { Self::info() }
+    }
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -63,6 +75,16 @@ pub fn held_switches(stats: &Entity, foe: Foe) -> Vec<(Switch, Identity)> {
         .iter()
         .filter_map(|ability| switch_against(stats, ability.identity, foe).filter(|_| !(ability.attributes)(stats).is_empty()).map(|switch| (switch, ability.identity)))
         .collect()
+}
+
+pub fn block_label(versus: bool) -> &'static str {
+    if versus { VERSUS_LABEL } else { INFO_LABEL }
+}
+
+pub fn fitted(stats: &Entity, lens: Lens) -> Lens {
+    let lens = lens.shown();
+
+    Lens { hits: settled(stats, lens.hits), ..lens }
 }
 
 pub fn switch_key(identity: Identity) -> Option<usize> {
@@ -123,6 +145,10 @@ pub fn picks_hits(stats: &Entity) -> bool {
 }
 
 pub fn tag(stats: &Entity, lens: Lens) -> String {
+    if !lens.versus {
+        return String::new();
+    }
+
     format!("{}\n{}", hits_label(shown_hits(stats, lens.hits)), mode_label(lens.mode))
 }
 
@@ -174,7 +200,21 @@ mod tests {
         assert_eq!((settled(&single, Hits::All), shown_hits(&single, Hits::All)), (Hits::Only(0), Hits::Only(0)), "one hit is measured as the 1st Hit it shows");
         assert_eq!(settled(&Entity { time_until_attack_3: 0, ..triple.clone() }, Hits::Only(2)), Hits::Standing, "a picked hit the next unit lacks falls back");
         assert_eq!((mode_named("Max Stats"), hits_of("2nd Hit"), hits_of("Avg Hits")), (Mode::Maximum, Hits::Only(1), Hits::Standing));
-        assert_eq!((tag(&triple, Lens::default()), tag(&triple, Lens { mode: Mode::Maximum, hits: Hits::All, ..Lens::default() }), tag(&single, Lens { mode: Mode::Base, hits: Hits::All, ..Lens::default() })), ("Avg Hits\nAvg Stats".to_owned(), "All Hits\nMax Stats".to_owned(), "1st Hit\nBase Stats".to_owned()), "the tag reads in the order the two combos sit");
+        let versus = Lens { versus: true, ..Lens::default() };
+
+        assert_eq!((tag(&triple, versus), tag(&triple, Lens { mode: Mode::Maximum, hits: Hits::All, ..versus }), tag(&single, Lens { mode: Mode::Base, hits: Hits::All, ..versus })), ("Avg Hits\nAvg Stats".to_owned(), "All Hits\nMax Stats".to_owned(), "1st Hit\nBase Stats".to_owned()), "the tag reads in the order the two combos sit");
+        assert_eq!(tag(&triple, Lens { mode: Mode::Maximum, ..Lens::default() }), "", "an Info Block has no tag");
+    }
+
+    // Outside Versus the dials are ignored: base stats, every hit, nothing switched.
+    #[test]
+    fn an_info_block_shows_base_stats_and_every_hit() {
+        let triple = Entity { time_until_attack_1: 10, time_until_attack_2: 20, time_until_attack_3: 30, ..Entity::default() };
+        let picked = Lens { mode: Mode::Maximum, hits: Hits::Only(1), switches: Switches::default().set(Switch::Strengthen, true), versus: false };
+
+        assert_eq!(fitted(&triple, picked), Lens::info());
+        assert_eq!(fitted(&Entity { time_until_attack_1: 10, ..Entity::default() }, picked).hits, Hits::Only(0));
+        assert_eq!(fitted(&triple, Lens { versus: true, ..picked }), Lens { versus: true, ..picked });
     }
 
     // A unit that dies after its attack deals it once a deploy, so its DPS runs on its recharge; one that

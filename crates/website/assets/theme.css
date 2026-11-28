@@ -661,6 +661,8 @@ img { user-select: none; -webkit-user-select: none; }
 .orb-header-title { font-size: 18px; }
 .orb-slots { display: flex; gap: 6px; }
 .orb-slot { width: 48px; height: 48px; min-height: 48px; padding: 2px; }
+.orb-column { display: flex; flex-direction: column; align-items: center; gap: 4px; }
+.orb-toggle { width: 48px; height: 18px; min-height: 18px; padding: 0; font-size: 11px; border-radius: var(--radius-sm); }
 .orb-plus { font-size: 20px; }
 .orb-stack.dim { filter: brightness(0.4); }
 .orb-shut { font-size: 12px; }

@@ -291,6 +291,7 @@ pub(crate) struct CatListState {
     pub talent_history: VecDeque<u32>,
     pub current_level: i32,
     pub level_input: String,
+    pub versus: bool,
 }
 
 impl Default for CatListState {
@@ -304,6 +305,7 @@ impl Default for CatListState {
             talent_history: VecDeque::new(),
             current_level: 1,
             level_input: String::from("1"),
+            versus: false,
         }
     }
 }
@@ -314,6 +316,7 @@ pub(crate) struct EnemyListState {
     pub list_scroll_offset: f32,
     pub selected_enemy: Option<u32>,
     pub search_query: String,
+    pub versus: bool,
 }
 
 #[derive(Serialize, Deserialize, Clone, Default)]

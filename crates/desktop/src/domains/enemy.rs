@@ -23,7 +23,7 @@ use foundry::common::context::GlobalContext;
 use codex::combat::Faction;
 use foundry::systems::combat::NameBook;
 use foundry::common::formats::SpriteSheet as CoreSpriteSheet;
-use foundry::systems::combat::lens::{self, Pace};
+use foundry::systems::combat::lens::{self, Lens, Pace};
 use foundry::systems::combat::registry::{format_stat, Magnification, StatContext, STAT_ATK_CYCLE, STAT_ATTACK, STAT_CASH_DROP, STAT_DPS, STAT_HITPOINTS, STAT_KNOCKBACKS, STAT_RANGE, STAT_SPEED};
 use foundry::systems::combat::RenderContext;
 use foundry::domains::enemy::animation as enemy_animation;
@@ -92,6 +92,7 @@ pub enum Message {
     Export(statblock_export::Message),
     Animation(animation::Message),
     Dials(dials::Message),
+    ToggleVersus,
 }
 
 impl std::fmt::Debug for Message {
@@ -117,6 +118,7 @@ impl std::fmt::Debug for Message {
             Self::Export(msg) => write!(f, "Export({:?})", msg),
             Self::Animation(msg) => write!(f, "Animation({:?})", msg),
             Self::Dials(msg) => write!(f, "Dials({:?})", msg),
+            Self::ToggleVersus => write!(f, "ToggleVersus"),
         }
     }
 }
@@ -147,6 +149,7 @@ pub struct EnemyState {
     filter: filter::State,
     abilities: combat_abilities::State,
     dials: dials::State,
+    versus: bool,
     export: statblock_export::State,
     animation: animation::State,
 }
@@ -180,6 +183,7 @@ impl Default for EnemyState {
             filter: filter::State::default(),
             abilities: combat_abilities::State::default(),
             dials: dials::State::default(),
+            versus: false,
             export: statblock_export::State::new("Enemy"),
             animation: animation::State::with_popup(popup::Kind::EnemyAnimationExport),
         }
@@ -199,11 +203,13 @@ impl EnemyState {
         self.list.set_scroll_offset(state.list_scroll_offset);
         self.selected_enemy = state.selected_enemy;
         self.search_query = state.search_query.clone();
+        self.versus = state.versus;
     }
 
     pub(crate) fn sync_state(&self, state: &mut EnemyListState) {
         state.list_scroll_offset = self.list.scroll_offset();
         state.selected_enemy = self.selected_enemy;
+        state.versus = self.versus;
 
         if state.search_query != self.search_query {
             state.search_query = self.search_query.clone();
@@ -529,7 +535,7 @@ impl EnemyState {
                     global: global_ctx,
                     settings,
                     vault: global_ctx.vault,
-                    lens: self.dials.lens(&enemy.stats),
+                    lens: sighted(&self.dials, self.versus, &enemy.stats),
                 });
 
                 self.export.update(msg, || ctx.and_then(export::request)).map(Message::Export)
@@ -539,7 +545,15 @@ impl EnemyState {
                 self.dials.update(msg);
                 Task::none()
             }
+            Message::ToggleVersus => {
+                self.versus = !self.versus;
+                Task::none()
+            }
         }
+    }
+
+    fn lens(&self, stats: &Entity) -> Lens {
+        sighted(&self.dials, self.versus, stats)
     }
 
     pub(crate) fn animation_expanded(&self) -> bool {
@@ -735,7 +749,11 @@ impl EnemyState {
                 detail_row = detail_row.push(Space::new().width(Length::Fixed(DETAIL_RULE_GAP)));
                 detail_row = detail_row.push(container(rule::vertical(1)).height(Length::Fixed(DETAIL_RULE_HEIGHT)));
                 detail_row = detail_row.push(Space::new().width(Length::Fixed(EXPORT_BUTTON_RULE_GAP)));
-                detail_row = detail_row.push(Element::from(column![self.dials.hits_card(&enemy.stats), self.dials.mode_card()].spacing(DIALS_GAP)).map(Message::Dials));
+                detail_row = detail_row.push(column![
+                    self.dials.hits_card(&enemy.stats, !self.versus).map(Message::Dials),
+                    self.dials.mode_card(!self.versus).map(Message::Dials),
+                    dials::block_card(self.versus, Message::ToggleVersus),
+                ].spacing(DIALS_GAP));
                 detail_row = detail_row.push(Space::new().width(Length::Fixed(EXPORT_BUTTON_RULE_GAP)));
                 detail_row = detail_row.push(container(rule::vertical(1)).height(Length::Fixed(DETAIL_RULE_HEIGHT)));
                 detail_row = detail_row.push(Space::new().width(Length::Fixed(EXPORT_BUTTON_RULE_GAP)));
@@ -846,7 +864,7 @@ impl EnemyState {
 
         let enemy_ctx = RenderContext::enemy(global_ctx, stats, self.magnification);
         let stat_ctx = StatContext::enemy(stats, enemy.atk_anim_frames, self.magnification, global_ctx.treasure);
-        let groups = lens::plain(&enemy_ctx, Pace::of(&stat_ctx), self.dials.lens(stats));
+        let groups = lens::plain(&enemy_ctx, Pace::of(&stat_ctx), self.lens(stats));
 
         editor::target(
             column![
@@ -864,7 +882,7 @@ impl EnemyState {
 
     fn view_stats(&self, enemy: &EnemyEntry, stats: &Entity, global_ctx: GlobalContext<'_>) -> Element<'_, Message> {
         let stat_ctx = StatContext::enemy(stats, enemy.atk_anim_frames, self.magnification, global_ctx.treasure);
-        let measured = lens::measure(&stat_ctx, &lens::rules(&global_ctx), Foe::default(), Terms::default(), self.dials.lens(stats));
+        let measured = lens::measure(&stat_ctx, &lens::rules(&global_ctx), Foe::default(), Terms::default(), self.lens(stats));
 
         let atk_str = lens::rate(measured.attack);
         let dps_str = lens::rate(measured.dps);
@@ -906,4 +924,8 @@ impl EnemyState {
 
         column![header_row, value_row, header_row2, value_row2].spacing(4).into()
     }
+}
+
+fn sighted(dials: &dials::State, versus: bool, stats: &Entity) -> Lens {
+    lens::fitted(stats, Lens { versus, ..dials.lens(stats) })
 }

@@ -33,7 +33,7 @@ use crate::app::{self, Route};
 use crate::platform::Platform;
 use crate::systems::catalog::{self, Load};
 use crate::systems::context::{self, Shared};
-use crate::systems::dials::Dials;
+use crate::systems::dials::{BlockToggle, Dials};
 use crate::systems::export::{self, Shot, Statblock};
 use crate::systems::images::{self, Pictures};
 use crate::systems::library::Library;
@@ -44,6 +44,7 @@ pub(crate) use filter::FilterPopup;
 
 const FORM_LABELS: [&str; 4] = ["Normal", "Evolved", "True", "Ultra"];
 const LAST_CAT_KEY: &str = "last-cat";
+const BLOCK_KEY: &str = "cat-block";
 const EMPTY_CAT_ICON: &str = "uni.png";
 const TALENT_HISTORY_CAP: usize = 3;
 const ULTRA_BUMP: i32 = 60;
@@ -97,6 +98,8 @@ pub(crate) fn provide_locked() -> CatState {
 }
 
 fn provided(locked: bool) -> CatState {
+    let platform = use_context::<Platform>();
+
     use_context_provider(|| CatState {
         search: Signal::new(String::new()),
         filter: Signal::new(CatFilterState::default()),
@@ -114,7 +117,7 @@ fn provided(locked: bool) -> CatState {
         locked,
         granted: Signal::new(None),
         treasure: Signal::new(None),
-        versus: Signal::new(false),
+        versus: Signal::new(app::versus_block(&platform, BLOCK_KEY)),
         foe: Signal::new(Foe::default()),
         lens: Signal::new(Lens::default()),
         switches: Signal::new(Switches::default()),
@@ -213,7 +216,7 @@ impl CatState {
     pub(crate) fn sight(&self, cat: &CatEntry, form: usize) -> (Lens, Option<Foe>) {
         let on = *self.versus.read();
 
-        (Lens { switches: if on { *self.switches.read() } else { Switches::default() }, switching: on, ..settled(cat, form, *self.lens.read()) }, on.then(|| *self.foe.read()))
+        (sighted(cat, form, Lens { switches: *self.switches.read(), versus: on, ..*self.lens.read() }), on.then(|| *self.foe.read()))
     }
 
     pub(crate) fn talented(&self, form: usize) -> bool {
@@ -541,11 +544,7 @@ fn shot_request(cat: Rc<CatEntry>, globals: Shared, settings: Signal<Settings>, 
             is_conjure_expanded,
             global: GlobalContext { treasure: &treasure, ..globals.0.context() },
             grants: granted.as_deref(),
-            lens: {
-                let on = *state.versus.peek();
-
-                Lens { switches: if on { *state.switches.peek() } else { Switches::default() }, switching: on, ..settled(&cat, form, *state.lens.peek()) }
-            },
+            lens: sighted(&cat, form, Lens { switches: *state.switches.peek(), versus: *state.versus.peek(), ..*state.lens.peek() }),
             orbs: &worn,
         };
         let sheets = icons::sheets(&pictures, &globals, icons::IMG015);
@@ -558,8 +557,8 @@ fn shot_request(cat: Rc<CatEntry>, globals: Shared, settings: Signal<Settings>, 
     })
 }
 
-fn settled(cat: &CatEntry, form: usize, held: Lens) -> Lens {
-    Lens { hits: cat.stats.get(form).and_then(Option::as_ref).map_or(held.hits, |stats| lens::settled(stats, held.hits)), ..held }
+fn sighted(cat: &CatEntry, form: usize, held: Lens) -> Lens {
+    cat.stats.get(form).and_then(Option::as_ref).map_or_else(|| held.shown(), |stats| lens::fitted(stats, held))
 }
 
 #[derive(Clone)]
@@ -636,15 +635,7 @@ pub(crate) fn Detail(cat: SelectedCat, globals: Shared, #[props(default)] extra:
     let dial_stats = cat.stats.get(form).cloned().flatten().unwrap_or_default();
     let versus_on = (state.versus)();
     let versus_button = rsx! {
-        button {
-            class: if versus_on { "btn btn-toggle active versus-btn" } else { "btn btn-toggle versus-btn" },
-            onclick: move |_| {
-                let on = !*state.versus.peek();
-
-                state.versus.set(on);
-            },
-            "Versus Mode"
-        }
+        BlockToggle { versus: state.versus, store: BLOCK_KEY }
     };
 
     use_effect(use_reactive!(|caps| {
@@ -692,7 +683,7 @@ pub(crate) fn Detail(cat: SelectedCat, globals: Shared, #[props(default)] extra:
                     if tab == DetailTab::Abilities && !packed {
                         div { class: "vrule tall" }
                         div { class: "dials",
-                            Dials { stats: dial_stats.clone(), lens: state.lens, on_mode: move |()| { let mut switches = state.switches; switches.set(Switches::default()); } }
+                            Dials { stats: dial_stats.clone(), lens: state.lens, versus: versus_on, on_mode: move |()| { let mut switches = state.switches; switches.set(Switches::default()); } }
                             {versus_button.clone()}
                         }
                         if let Some(extra) = extra.clone() {
@@ -726,7 +717,7 @@ pub(crate) fn Detail(cat: SelectedCat, globals: Shared, #[props(default)] extra:
                 Popup { title: "More Actions", open: more, width: MORE_WIDTH,
                     div { class: "dialog-body more-actions",
                         div { class: "dials",
-                            Dials { stats: dial_stats, lens: state.lens, on_mode: move |()| { let mut switches = state.switches; switches.set(Switches::default()); } }
+                            Dials { stats: dial_stats, lens: state.lens, versus: versus_on, on_mode: move |()| { let mut switches = state.switches; switches.set(Switches::default()); } }
                             {versus_button}
                         }
                         if let Some(extra) = extra.clone() {

@@ -626,7 +626,7 @@ pub fn wire(window: &AppWindow, state: &Shared, context: &Rc<Context>) {
     });
 
     let (held, ctx, weak) = on(state, context, window);
-    window.global::<Cats>().on_orb_tapped(move |slot| {
+    window.global::<Cats>().on_orb_toggled(move |slot| {
         let slot = slot.max(0) as usize;
 
         if let Some(ui) = weak.upgrade()
@@ -634,8 +634,12 @@ pub fn wire(window: &AppWindow, state: &Shared, context: &Rc<Context>) {
             && cats::flip_orb(&ui, &pages.cats, &ctx, slot)
         {
             refresh(&ui, &held, &ctx);
-            return;
         }
+    });
+
+    let (held, ctx, weak) = on(state, context, window);
+    window.global::<Cats>().on_orb_tapped(move |slot| {
+        let slot = slot.max(0) as usize;
 
         held.borrow_mut().orb_slot = Some(slot);
 
@@ -1015,7 +1019,7 @@ pub fn sync(ui: &AppWindow, state: &Shared, context: &Rc<Context>, staging: Opti
                     let worn = held.map(|orb| orb::worn(&book.orbs, &book.masks, [(slot, orb)]));
                     let shine = worn.as_ref().and_then(|worn| worn.first()).zip(bare.as_ref()).map(|(worn, stats)| orb::shine(stats, lens, foe, worn)).unwrap_or_default();
 
-                    OrbSlot { shut: !open.get(slot).copied().unwrap_or(false), ..book.shaded(images, &vault, *held, !shine.lit, shine.ringed) }
+                    OrbSlot { shut: !open.get(slot).copied().unwrap_or(false), toggle: shine.toggle.is_some(), lit: shine.lit, ..book.shaded(images, &vault, *held, !shine.lit, shine.ringed) }
                 })
                 .collect();
 

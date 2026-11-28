@@ -7,7 +7,7 @@ use std::sync::Arc;
 use dioxus::html::input_data::MouseButton;
 use dioxus::prelude::*;
 
-use codex::combat::{Switch, Worn};
+use codex::combat::Switch;
 
 use foundry::common::architecture::GAME;
 use foundry::domains::cat::filter::evaluation;
@@ -995,20 +995,15 @@ fn UnitPopup(cat: SelectedCat, member: Member, cell: Cell, globals: Shared, shel
 
     let allowance = shelf.0.allowance(&cat.0);
     let marks = cat_state.orb_marks(&cat.0, form, &globals);
-    let worn = cat_state.worn(&cat.0, form, globals.0.vault());
-    let flips: Vec<Option<Switch>> = (0..orbs_now.len()).map(|slot| worn.iter().find(|held| held.slot == slot).and_then(Worn::switch)).collect();
-    let versus_on = (cat_state.versus)();
-    let press = EventHandler::new(move |slot: usize| match flips.get(slot).copied().flatten().filter(|_| versus_on) {
-        Some(switch) => {
-            let mut switches = cat_state.switches;
-            let mode = cat_state.lens.peek().mode;
-            let flipped = switches.peek().flipped(switch, mode);
+    let press = EventHandler::new(move |slot: usize| orb_slot.set(Some(slot)));
+    let flip = EventHandler::new(move |switch: Switch| {
+        let mut switches = cat_state.switches;
+        let mode = cat_state.lens.peek().mode;
+        let flipped = switches.peek().flipped(switch, mode);
 
-            switches.set(flipped);
-        }
-        None => orb_slot.set(Some(slot)),
+        switches.set(flipped);
     });
-    let header = (form >= FIRST_TALENT_FORM && slots > 0).then(|| orbs::header(&pictures, &shelf.0.orbs, &orbs_now, &marks, SLOT_ORB_SIZE, Some(press)));
+    let header = (form >= FIRST_TALENT_FORM && slots > 0).then(|| orbs::header(&pictures, &shelf.0.orbs, &orbs_now, &marks, SLOT_ORB_SIZE, Some(press), Some(flip)));
     let picking = orb_slot();
     let held = picking.and_then(|slot| member.orbs.get(slot).copied().flatten());
     let pick_tools = tools.clone();

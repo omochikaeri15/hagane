@@ -188,19 +188,25 @@ pub fn picked(held: &[Option<u32>], doors: &[bool]) -> Vec<(usize, u32)> {
 }
 
 pub fn dress(stats: &mut Entity, base: &Entity, form: usize, lens: Lens, worn: &[Worn]) {
-    if form >= FIRST_FORM && !worn.is_empty() {
+    if lens.versus && form >= FIRST_FORM && !worn.is_empty() {
         stats.wear(worn.to_vec(), [base.attack_1_damage, base.attack_2_damage, base.attack_3_damage], lens.switches, lens.mode);
     }
 }
+
+pub const TOGGLE_LABEL: &str = "Toggle";
+pub const NO_TOGGLE: &str = "-";
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Shine {
     pub lit: bool,
     pub ringed: bool,
+    pub toggle: Option<Switch>,
 }
 
 pub fn shine(stats: &Entity, lens: Lens, foe: Option<Foe>, worn: &Worn) -> Shine {
-    let lit = stats.orb_works(worn) && (worn.switch().is_none() || worn.toggled(lens.switches, lens.mode));
+    let works = stats.orb_works(worn);
+    let toggle = worn.switch().filter(|_| works && lens.versus);
+    let lit = works && (!lens.versus || worn.switch().is_none() || worn.toggled(lens.switches, lens.mode));
     let foe = foe.filter(|foe| !foe.is_empty());
     let ringed = lit
         && match worn.content {
@@ -209,7 +215,7 @@ pub fn shine(stats: &Entity, lens: Lens, foe: Option<Foe>, worn: &Worn) -> Shine
             _ => false,
         };
 
-    Shine { lit, ringed }
+    Shine { lit, ringed, toggle }
 }
 
 pub fn toggles(worn: &[Worn]) -> Vec<(Switch, &Worn)> {

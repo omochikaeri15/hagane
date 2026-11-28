@@ -27,7 +27,6 @@ use foundry::domains::cat::statblock::{self as cat_statblock, Subject};
 use foundry::domains::cat::versus;
 use foundry::systems::combat::lens::{self, Lens, Pace, MODES, ONE_HIT};
 use foundry::domains::cat::waiter::unitid;
-use foundry::systems::combat::abilities::collect_ability_data;
 use foundry::systems::combat::registry::{
     AbilityIcon as RegistryIcon, DisplayGroup, Magnification, STAT_ATK_CYCLE, STAT_ATTACK, STAT_COOLDOWN, STAT_COST, STAT_DPS, STAT_HITPOINTS, STAT_KNOCKBACKS,
     STAT_RANGE, STAT_RARITY, STAT_SPEED, StatContext, StatsDef, format_stat, get_display_def, get_fallback_by_icon,
@@ -621,9 +620,11 @@ impl State {
     }
 
     fn sight(&self) -> (Lens, Option<Foe>) {
-        let switches = if self.versus { self.switches } else { Switches::default() };
+        (self.held_lens().shown(), self.versus.then_some(self.foe))
+    }
 
-        (Lens { switches, switching: self.versus, ..self.lens }, self.versus.then_some(self.foe))
+    fn held_lens(&self) -> Lens {
+        Lens { switches: self.switches, versus: self.versus, ..self.lens }
     }
 
     fn talented(&self, form: usize) -> bool {
@@ -785,6 +786,13 @@ pub type Shared = Rc<RefCell<State>>;
 pub fn wire(window: &AppWindow, context: &Rc<Context>) -> Shared {
     let state: Shared = Rc::new(RefCell::new(State::new(&context.images)));
     let cats = window.global::<Cats>();
+    let versus = context.memory.get().cat_versus;
+
+    state.borrow_mut().versus = versus;
+    cats.set_versus(versus);
+    cats.set_block_label(lens::block_label(versus).into());
+    cats.set_toggle_label(orb::TOGGLE_LABEL.into());
+    cats.set_no_toggle(orb::NO_TOGGLE.into());
 
     cats.set_roster(ModelRc::from(Rc::clone(&state.borrow().roster) as Rc<dyn Model<Data = crate::RosterRow>>));
     cats.set_forms(ModelRc::new(VecModel::from(FORM_LABELS.iter().map(|label| HeaderBtn { label: (*label).into(), available: true }).collect::<Vec<_>>())));
@@ -975,11 +983,14 @@ pub fn wire(window: &AppWindow, context: &Rc<Context>) -> Shared {
 
     let (held, ctx, weak) = on(&state, context, window);
     cats.on_versus_toggled(move || {
-        {
+        let versus = {
             let mut state = held.borrow_mut();
 
             state.versus = !state.versus;
-        }
+            state.versus
+        };
+
+        ctx.memory.update(|memory| memory.cat_versus = versus);
 
         if let Some(ui) = weak.upgrade() {
             refresh(&ui, &held, &ctx);
@@ -1536,23 +1547,20 @@ fn refresh_abilities(ui: &AppWindow, state: &Shared, context: &Rc<Context>, glob
         held.versus.then_some(held.foe)
     };
     let stat_ctx = StatContext::cat(&final_stats, cat.atk_anim_frames[form], Some(&cat.unitbuy), &treasure);
-    let (held, switches) = {
-        let state = state.borrow();
-
-        (state.lens, if picked.is_some() { state.switches } else { Switches::default() })
-    };
-    let lens = Lens { hits: lens::settled(&final_stats, held.hits), switches, switching: picked.is_some(), ..held };
+    let held = state.borrow().held_lens();
+    let lens = lens::fitted(&final_stats, held);
     let (traits, headline_1, headline_2, body_1, body_2, footer) = match picked {
         Some(foe) => versus::palette(&ctx, foe, versus::spirit_controls(&ctx), Pace::of(&stat_ctx), lens),
         None => lens::plain(&ctx, Pace::of(&stat_ctx), lens),
     };
     let felt = versus::felt(&ctx, &stat_ctx, picked.unwrap_or_default(), lens);
 
-    show_dials(&cats, &final_stats, held);
+    show_dials(&cats, &final_stats, lens);
     let felt_cell = |def: &StatsDef, held: &Option<(String, Mark)>| held.as_ref().map_or_else(|| value_cell(def, &stat_ctx), |(text, _)| text_cell(def.display_name, text));
     let marks = |held: [&Option<(String, Mark)>; 5]| ModelRc::new(VecModel::from(held.iter().map(|held| tone_of(held.as_ref().map_or(Mark::None, |(_, mark)| *mark))).collect::<Vec<_>>()));
 
     cats.set_versus(picked.is_some());
+    cats.set_block_label(lens::block_label(picked.is_some()).into());
     cats.set_stat_headers_1(headers(&[&STAT_ATTACK, &STAT_DPS, &STAT_RANGE, &STAT_ATK_CYCLE, &STAT_RARITY]));
     cats.set_stat_values_1(ModelRc::new(VecModel::from(vec![
         felt_cell(&STAT_ATTACK, &felt.attack),
@@ -1600,10 +1608,7 @@ fn refresh_abilities(ui: &AppWindow, state: &Shared, context: &Rc<Context>, glob
                 talent_levels: None,
                 is_conjure_unit: true,
             };
-            let (traits, headline_1, headline_2, body_1, body_2, footer) = match picked {
-                Some(foe) => versus::spirit_abilities(&ctx, foe),
-                None => collect_ability_data(&ctx),
-            };
+            let (traits, headline_1, headline_2, body_1, body_2, footer) = versus::spirit_abilities(&ctx, picked);
             cats.set_has_spirit(true);
             cats.set_spirit_icon(icon_of(images, vault, RegistryIcon::Standard(img015::ICON_AREA_ATTACK), "AoE", "Area Attack"));
             cats.set_spirit_damage(detail::lines(&format!("Damage {}\nRange {}", final_spirit.attack_1_damage, final_spirit.standing_range)));
@@ -1988,10 +1993,9 @@ fn export(ui: &AppWindow, state: &Shared, context: &Rc<Context>) {
         global,
         grants: granted.as_deref(),
         lens: {
-            let held = state.borrow();
-            let switches = if held.versus { held.switches } else { Switches::default() };
+            let held = state.borrow().held_lens();
 
-            Lens { hits: cat.stats.get(form).and_then(Option::as_ref).map_or(held.lens.hits, |stats| lens::settled(stats, held.lens.hits)), switches, switching: held.versus, ..held.lens }
+            cat.stats.get(form).and_then(Option::as_ref).map_or_else(|| held.shown(), |stats| lens::fitted(stats, held))
         },
         orbs: &worn,
     };
@@ -2020,16 +2024,16 @@ fn export(ui: &AppWindow, state: &Shared, context: &Rc<Context>) {
     detail::export_statblock(ui, context, data, face, finished);
 }
 
-fn show_dials(cats: &Cats<'_>, stats: &Entity, held: Lens) {
+fn show_dials(cats: &Cats<'_>, stats: &Entity, seen: Lens) {
     let choices: Vec<SharedString> = lens::hit_choices(stats).into_iter().map(|hits| SharedString::from(lens::hits_label(hits))).collect();
-    let shown = lens::hits_label(lens::shown_hits(stats, held.hits));
+    let shown = lens::hits_label(lens::shown_hits(stats, seen.hits));
 
     cats.set_hit_index(choices.iter().position(|choice| choice == shown).map_or(0, |at| at as i32));
     cats.set_hit_options(ModelRc::new(VecModel::from(choices)));
     cats.set_picks_hits(lens::picks_hits(stats));
     cats.set_hit_hint(ONE_HIT.into());
     cats.set_mode_options(ModelRc::new(VecModel::from(MODES.map(|mode| SharedString::from(lens::mode_label(mode))).to_vec())));
-    cats.set_mode_index(MODES.iter().position(|mode| *mode == held.mode).map_or(0, |at| at as i32));
+    cats.set_mode_index(MODES.iter().position(|mode| *mode == seen.mode).map_or(0, |at| at as i32));
 }
 
 pub fn set_export_face(ui: &AppWindow, label: &str, tone: Tone) {

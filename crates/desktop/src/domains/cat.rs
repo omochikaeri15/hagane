@@ -64,6 +64,9 @@ const ICON_BOX_HEIGHT: f32 = 96.0;
 const ORB_POPUP: Size = Size::new(310.0, 250.0);
 const SLOT_ORB_SIZE: f32 = 44.0;
 const ORB_HEADER_SIZE: f32 = 18.0;
+const ORB_TOGGLE_HEIGHT: f32 = 18.0;
+const ORB_TOGGLE_TEXT: f32 = 11.0;
+const ORB_TOGGLE_GAP: f32 = 4.0;
 const LOCKED_SLOT: &str = "Opens at Lv60";
 const HEADER_SPACING: f32 = 12.0;
 const NAME_BOX_WIDTH: f32 = 123.0;
@@ -120,7 +123,7 @@ pub enum Message {
     HeaderAction(usize),
     Orbs(orbs::Message),
     OrbPopup(popup::Message),
-    OpenMore,
+    OpenMore(Fold),
     MorePopup(popup::Message),
     List(list::Message),
     Filter(filter::Message),
@@ -146,6 +149,13 @@ pub(crate) fn popup_walk(cat: &CatEntry) -> Vec<Message> {
         .chain([Message::ToggleTalents(false), Message::ToggleTalents(true)])
         .chain(TABS.iter().map(|(tab, _)| Message::SelectTab(*tab)))
         .collect()
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Fold {
+    Open,
+    Orbs,
+    Dials,
 }
 
 impl Message {
@@ -197,7 +207,7 @@ impl std::fmt::Debug for Message {
             Self::HeaderAction(index) => write!(f, "HeaderAction({})", index),
             Self::Orbs(msg) => write!(f, "Orbs({msg:?})"),
             Self::OrbPopup(_) => write!(f, "OrbPopup"),
-            Self::OpenMore => write!(f, "OpenMore"),
+            Self::OpenMore(fold) => write!(f, "OpenMore({:?})", fold),
             Self::MorePopup(_) => write!(f, "MorePopup"),
             Self::List(msg) => write!(f, "List({:?})", msg),
             Self::Filter(msg) => write!(f, "Filter({:?})", msg),
@@ -232,6 +242,7 @@ pub struct State {
     more_popup: popup::State,
     more_spec: popup::Spec,
     more_open: bool,
+    more_fold: Fold,
 
     img015_sheets: Vec<SpriteSheet>,
     img022_sheets: Vec<SpriteSheet>,
@@ -284,6 +295,7 @@ impl Default for State {
             more_popup: popup::State::default(),
             more_spec: popup::Spec::new(popup::Kind::CatMore, MORE_POPUP),
             more_open: false,
+            more_fold: Fold::Dials,
 
             img015_sheets: Vec::new(),
             img022_sheets: Vec::new(),
@@ -523,7 +535,7 @@ impl State {
                     .center_y(Length::Fixed(SLOT_ORB_SIZE));
                 let shut = button(label).padding(2).style(theme::neutral_button);
 
-                slots = slots.push(hover_hint(shut, LOCKED_SLOT));
+                slots = slots.push(column![hover_hint(shut, LOCKED_SLOT), orb_toggle(None, false)].spacing(ORB_TOGGLE_GAP));
                 continue;
             }
 
@@ -533,10 +545,10 @@ impl State {
                 Some(orb) => self.orbs.shaded(orb, SLOT_ORB_SIZE, !shine.lit, shine.ringed),
                 None => container(text("+").size(20)).center_x(Length::Fixed(SLOT_ORB_SIZE)).center_y(Length::Fixed(SLOT_ORB_SIZE)).into(),
             };
-            let flip = on.and_then(Worn::switch).filter(|_| foe.is_some()).map(|switch| Message::Abilities(abilities::Message::Flip(switch)));
-            let press = flip.or_else(|| (!self.orb_locked).then_some(Message::HeaderAction(slot)));
+            let press = (!self.orb_locked).then_some(Message::HeaderAction(slot));
+            let pick = button(face).padding(2).style(theme::neutral_button).on_press_maybe(press);
 
-            slots = slots.push(button(face).padding(2).style(theme::neutral_button).on_press_maybe(press));
+            slots = slots.push(column![pick, orb_toggle(shine.toggle, shine.lit)].spacing(ORB_TOGGLE_GAP));
         }
 
         Some(column![theme::bold_text("Orbs").size(ORB_HEADER_SIZE), slots].spacing(6).align_x(Horizontal::Center).into())
@@ -605,6 +617,7 @@ impl State {
         self.talent_history = state.talent_history.clone();
         self.current_level = state.current_level;
         self.level_input = state.level_input.clone();
+        self.abilities.set_versus(state.versus);
     }
 
     pub(crate) fn sync_state(&self, state: &mut CatListState) {
@@ -612,6 +625,7 @@ impl State {
         state.selected_cat = self.selected_cat;
         state.selected_form = self.selected_form;
         state.current_level = self.current_level;
+        state.versus = self.abilities.is_versus();
 
         if state.search_query != self.search_query {
             state.search_query = self.search_query.clone();
@@ -1083,8 +1097,9 @@ impl State {
 
                 Task::none()
             }
-            Message::OpenMore => {
+            Message::OpenMore(fold) => {
                 self.more_open = true;
+                self.more_fold = fold;
 
                 Task::none()
             }
@@ -1405,12 +1420,20 @@ impl State {
     fn detail_row<'a>(&'a self, cat: &'a CatEntry, settings: &'a Settings, global_ctx: GlobalContext<'a>, width: f32) -> Element<'a, Message> {
         let vfs = &global_ctx.vault.vfs;
         let identity = row![self.view_cat_icon(cat, vfs), self.view_info_box(cat)].spacing(12).align_y(Vertical::Center);
-        let crushed = width < self.natural_width(cat, global_ctx);
+        let (natural, trimmed) = self.header_widths(cat, global_ctx);
+        let crushed = width < natural;
         let mut groups: Vec<Element<'a, Message>> = vec![identity.into()];
 
         if self.selected_tab == DetailTab::Abilities {
-            if crushed {
-                groups.push(Self::divided(15.0, column![self.export.view().map(Message::Export), self.more_button(MORE_BUTTON_HEIGHT)].spacing(MORE_GAP).into()));
+            let fold = match width {
+                _ if width >= natural => Fold::Open,
+                _ if width >= trimmed => Fold::Orbs,
+                _ => Fold::Dials,
+            };
+            let folded = |fold: Fold| Element::from(column![self.export.view().map(Message::Export), self.more_button(MORE_BUTTON_HEIGHT, fold)].spacing(MORE_GAP));
+
+            if fold == Fold::Dials {
+                groups.push(Self::divided(15.0, folded(fold)));
 
                 return Row::with_children(groups).spacing(12).align_y(Vertical::Center).into();
             }
@@ -1422,6 +1445,12 @@ impl State {
 
             groups.push(Self::divided(15.0, cards));
 
+            if fold == Fold::Orbs {
+                groups.push(Self::divided(EXPORT_BUTTON_RULE_GAP, folded(fold)));
+
+                return Row::with_children(groups).spacing(12).align_y(Vertical::Center).into();
+            }
+
             if let Some(orbs) = self.orb_header(cat, global_ctx) {
                 groups.push(Self::divided(EXPORT_BUTTON_RULE_GAP, orbs));
             }
@@ -1432,7 +1461,7 @@ impl State {
             let header = self.talents.header_view(talent_data, self.talent_levels.get(&cat.id), &cat.talent_costs, &self.img022_sheets, crushed).map(Message::Talents);
 
             if crushed {
-                groups.push(Self::divided(15.0, column![header, self.more_button(talents::COMPACT_BTN_HEIGHT)].spacing(talents::COMPACT_GAP).align_x(Horizontal::Center).into()));
+                groups.push(Self::divided(15.0, column![header, self.more_button(talents::COMPACT_BTN_HEIGHT, Fold::Dials)].spacing(talents::COMPACT_GAP).align_x(Horizontal::Center).into()));
             } else {
                 groups.push(Self::divided(15.0, header));
                 groups.push(Self::divided(EXPORT_BUTTON_RULE_GAP, self.export.view().map(Message::Export)));
@@ -1446,7 +1475,7 @@ impl State {
         Row::with_children(groups).spacing(12).align_y(Vertical::Center).into()
     }
 
-    fn natural_width(&self, cat: &CatEntry, global_ctx: GlobalContext<'_>) -> f32 {
+    fn header_widths(&self, cat: &CatEntry, global_ctx: GlobalContext<'_>) -> (f32, f32) {
         let identity = ICON_BOX_WIDTH + HEADER_SPACING + NAME_BOX_WIDTH;
         let divided = |lead: f32, body: f32| HEADER_SPACING + lead + HEADER_SPACING * 3.0 + 1.0 + EXPORT_BUTTON_RULE_GAP + body;
 
@@ -1454,21 +1483,26 @@ impl State {
             DetailTab::Abilities => {
                 let slots = self.orb_doors(cat, global_ctx.vault).len() as f32;
                 let orbs = if slots > 0.0 { divided(EXPORT_BUTTON_RULE_GAP, (slots * SLOT_WIDTH + (slots - 1.0) * SLOT_GAP).max(SLOT_WIDTH)) } else { 0.0 };
+                let trimmed = identity + divided(15.0, CARD_WIDTH) + divided(EXPORT_BUTTON_RULE_GAP, CARD_WIDTH);
 
-                identity + divided(15.0, CARD_WIDTH) + orbs + divided(EXPORT_BUTTON_RULE_GAP, CARD_WIDTH)
+                (trimmed + orbs, trimmed)
             }
-            DetailTab::Talents => identity + divided(15.0, CARD_WIDTH) + divided(EXPORT_BUTTON_RULE_GAP, CARD_WIDTH),
-            DetailTab::Details | DetailTab::Animation => 0.0,
+            DetailTab::Talents => {
+                let natural = identity + divided(15.0, CARD_WIDTH) + divided(EXPORT_BUTTON_RULE_GAP, CARD_WIDTH);
+
+                (natural, natural)
+            }
+            DetailTab::Details | DetailTab::Animation => (0.0, 0.0),
         }
     }
 
-    fn more_button<'a>(&self, height: f32) -> Element<'a, Message> {
+    fn more_button<'a>(&self, height: f32, fold: Fold) -> Element<'a, Message> {
         button(theme::centered_text("More Actions").size(12))
             .width(Length::Fixed(CARD_WIDTH))
             .height(Length::Fixed(height))
             .padding(0)
             .style(theme::primary_button)
-            .on_press(Message::OpenMore)
+            .on_press(Message::OpenMore(fold))
             .into()
     }
 
@@ -1493,10 +1527,18 @@ impl State {
                     Some(stats) => self.abilities.header(stats).map(Message::Abilities),
                     None => self.abilities.versus_card().map(Message::Abilities),
                 };
-                let mut stack = column![cards].spacing(10).align_x(Horizontal::Center);
+                let mut stack = column![].spacing(10).align_x(Horizontal::Center);
+
+                if self.more_fold == Fold::Dials {
+                    stack = stack.push(cards);
+                }
 
                 if let Some(orbs) = self.orb_header(cat, global_ctx) {
-                    stack = stack.push(rule::horizontal(1)).push(orbs);
+                    if self.more_fold == Fold::Dials {
+                        stack = stack.push(rule::horizontal(1));
+                    }
+
+                    stack = stack.push(orbs);
                 }
 
                 stack.into()
@@ -1697,4 +1739,16 @@ impl State {
     fn view_details<'a>(&'a self, cat: &'a CatEntry, global_ctx: GlobalContext<'a>) -> Element<'a, Message> {
         self.details.view(cat, self.selected_form, global_ctx)
     }
+}
+
+fn orb_toggle<'a>(toggle: Option<codex::combat::Switch>, lit: bool) -> Element<'a, Message> {
+    let label = if toggle.is_some() { orb::TOGGLE_LABEL } else { orb::NO_TOGGLE };
+
+    button(theme::centered_text(label).size(ORB_TOGGLE_TEXT))
+        .width(Length::Fixed(SLOT_WIDTH))
+        .height(Length::Fixed(ORB_TOGGLE_HEIGHT))
+        .padding(0)
+        .style(move |t: &Theme, status| theme::toggle_button(t, status, lit && toggle.is_some()))
+        .on_press_maybe(toggle.map(|switch| Message::Abilities(abilities::Message::Flip(switch))))
+        .into()
 }

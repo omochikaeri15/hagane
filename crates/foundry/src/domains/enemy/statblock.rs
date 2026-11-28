@@ -52,7 +52,7 @@ pub fn build(subject: Subject<'_>) -> StatblockData {
 
     let ctx = RenderContext::enemy(subject.global, stats, subject.magnification);
 
-    assemble(&ctx, enemy, Lens { hits: lens::settled(stats, subject.lens.hits), ..subject.lens })
+    assemble(&ctx, enemy, lens::fitted(stats, subject.lens))
 }
 
 fn assemble(ctx: &RenderContext<'_>, enemy_entry: &EnemyEntry, lens: Lens) -> StatblockData {

@@ -54,6 +54,7 @@ pub fn collect_ability_data_against(ctx: &RenderContext<'_>, against: Option<Aga
         let icon = boost.map_or(display_def.icon, |up| registry::get_display_def(up).icon);
 
         let switched = lens::switch_against(ctx.final_stats, pure_def.identity, foe);
+        let idle = pure_def.identity == Identity::Weaken && !ctx.final_stats.weakens(foe);
         let format_ctx = FormatContext {
             value: attrs.first().map_or(AttrValue::Finite(0), |(_, value, _)| *value),
             stats: ctx.final_stats,
@@ -78,8 +79,8 @@ pub fn collect_ability_data_against(ctx: &RenderContext<'_>, against: Option<Aga
                 .or_else(|| pure_def.talent_id.and_then(|talent_id| talent_border(ctx, talent_id)))
                 .or_else(|| run_border(ctx, pure_def.identity)),
             mark: Mark::None,
-            dimmed: switched.is_some_and(|switch| !lens.switches.lit(switch, lens.mode)),
-            switchable: switched.is_some() && lens.switching,
+            dimmed: lens.versus && (idle || switched.is_some_and(|switch| !lens.switches.lit(switch, lens.mode))),
+            switchable: lens.versus && switched.is_some() && !ctx.is_conjure_unit,
         });
     }
 

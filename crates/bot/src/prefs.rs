@@ -46,26 +46,51 @@ impl Search {
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
-pub(crate) enum Mode {
+pub(crate) enum Buttons {
     #[default]
     Dormant,
     Interactive,
 }
 
-impl Mode {
-    pub(crate) const ALL: [Mode; 2] = [Mode::Dormant, Mode::Interactive];
+impl Buttons {
+    pub(crate) const ALL: [Buttons; 2] = [Buttons::Dormant, Buttons::Interactive];
 
     pub(crate) fn label(self) -> &'static str {
         match self {
-            Mode::Dormant => "Dormant",
-            Mode::Interactive => "Interactive",
+            Buttons::Dormant => "Dormant",
+            Buttons::Interactive => "Interactive",
         }
     }
 
     pub(crate) fn slug(self) -> &'static str {
         match self {
-            Mode::Dormant => "dormant",
-            Mode::Interactive => "interactive",
+            Buttons::Dormant => "dormant",
+            Buttons::Interactive => "interactive",
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub(crate) enum Block {
+    #[default]
+    Info,
+    Versus,
+}
+
+impl Block {
+    pub(crate) const ALL: [Block; 2] = [Block::Info, Block::Versus];
+
+    pub(crate) fn label(self) -> &'static str {
+        match self {
+            Block::Info => "Info",
+            Block::Versus => "Versus",
+        }
+    }
+
+    pub(crate) fn slug(self) -> &'static str {
+        match self {
+            Block::Info => "info",
+            Block::Versus => "versus",
         }
     }
 }
@@ -79,13 +104,14 @@ pub(crate) struct Prefs {
     pub(crate) search: Search,
     pub(crate) prefix: Option<String>,
     pub(crate) prose: Prose,
-    pub(crate) mode: Mode,
+    pub(crate) buttons: Buttons,
+    pub(crate) block: Block,
     pub(crate) aliases: Aliases,
 }
 
 impl Default for Prefs {
     fn default() -> Self {
-        Self { language: ENGLISH.to_owned(), format: Format::Avif, form: TRUE_FORM, search: Search::Exact, prefix: None, prose: Prose::Human, mode: Mode::Dormant, aliases: Aliases::default() }
+        Self { language: ENGLISH.to_owned(), format: Format::Avif, form: TRUE_FORM, search: Search::Exact, prefix: None, prose: Prose::Human, buttons: Buttons::Dormant, block: Block::Info, aliases: Aliases::default() }
     }
 }
 

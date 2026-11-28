@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use iced::widget::{button, column};
-use iced::{Element, Length, Theme};
+use iced::Element;
 use codex::cat::unit::LevelCurve;
 use codex::files::img015;
 
@@ -12,15 +12,11 @@ use foundry::systems::combat::lens::{self, Lens, Pace};
 use foundry::domains::settings::Settings;
 use foundry::systems::combat::{AbilityItem, CustomIcon, RenderContext, ABILITY_Y};
 
-use crate::app::theme;
 use crate::common::{CustomAssets, SpriteSheet};
 use crate::systems::combat::abilities::{self as shared, ListLayout};
 use crate::systems::combat::dials;
 use crate::widget::ability_spacer;
 
-const VERSUS_WIDTH: f32 = 100.0;
-const VERSUS_HEIGHT: f32 = 24.0;
-const VERSUS_TEXT_SIZE: f32 = 12.0;
 const HEADER_GAP: f32 = 6.0;
 
 #[derive(Debug, Clone)]
@@ -81,15 +77,13 @@ impl State {
     }
 
     pub(super) fn lens(&self, stats: &Entity) -> Lens {
-        let switches = if self.versus { self.switches } else { Switches::default() };
-
-        Lens { switches, switching: self.versus, ..self.dials.lens(stats) }
+        lens::fitted(stats, Lens { switches: self.switches, versus: self.versus, ..self.dials.lens(stats) })
     }
 
     pub(super) fn header(&self, stats: &Entity) -> Element<'_, Message> {
         column![
-            self.dials.hits_card(stats).map(Message::Dials),
-            self.dials.mode_card().map(Message::Dials),
+            self.dials.hits_card(stats, !self.versus).map(Message::Dials),
+            self.dials.mode_card(!self.versus).map(Message::Dials),
             self.versus_card(),
         ]
         .spacing(HEADER_GAP)
@@ -100,15 +94,16 @@ impl State {
         self.versus.then_some(self.foe)
     }
 
-    pub(super) fn versus_card(&self) -> Element<'_, Message> {
-        let active = self.versus;
+    pub(super) fn is_versus(&self) -> bool {
+        self.versus
+    }
 
-        button(theme::centered_text("Versus Mode").size(VERSUS_TEXT_SIZE))
-            .width(Length::Fixed(VERSUS_WIDTH))
-            .height(Length::Fixed(VERSUS_HEIGHT))
-            .style(move |t: &Theme, status| theme::toggle_button(t, status, active))
-            .on_press(Message::ToggleVersus)
-            .into()
+    pub(super) fn set_versus(&mut self, versus: bool) {
+        self.versus = versus;
+    }
+
+    pub(super) fn versus_card(&self) -> Element<'_, Message> {
+        dials::block_card(self.versus, Message::ToggleVersus)
     }
 
     pub(super) fn view<'a>(

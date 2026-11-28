@@ -93,6 +93,7 @@ pub(crate) enum Trouble {
     NoTalentLike(String, String),
     NoOrbs(String),
     OneOrbSlot(String),
+    OrbSlots(String, usize),
     OrbLocked(String),
     NoOrbLike(String, String),
     Other(String),
@@ -128,6 +129,7 @@ impl Trouble {
             Trouble::NoTalentLike(unit, name) => NO_TALENT_LIKE.filled(prose, &[("unit", unit), ("name", name)]),
             Trouble::NoOrbs(unit) => NO_ORBS.filled(prose, &[("unit", unit)]),
             Trouble::OneOrbSlot(unit) => ONE_ORB_SLOT.filled(prose, &[("unit", unit)]),
+            Trouble::OrbSlots(unit, count) => ORB_SLOTS.filled(prose, &[("unit", unit), ("count", &count.to_string())]),
             Trouble::OrbLocked(unit) => ORB_LOCKED.filled(prose, &[("unit", unit)]),
             Trouble::NoOrbLike(unit, name) => NO_ORB_LIKE.filled(prose, &[("unit", unit), ("name", name)]),
             Trouble::Other(reason) => COULD_NOT.filled(prose, &[("reason", reason)]),
@@ -177,9 +179,10 @@ pub(crate) const OVERSIZED: Line = Line::new("That one comes out at {size} MB, o
 pub(crate) const OVER_LIMIT: Line = Line::new("That one went past Discord's 20 MB upload limit, so I stopped encoding it. Try `--format avif`, which is far smaller", "That one blew past Discord's 20 MB limit, so I stopped! Try `--format avif`, it's far smaller... n-not that I'm helping you or anything!");
 pub(crate) const SEARCH_PICK: Line = Line::new("Here's everything close to `{name}`. Pick one:", "You don't even know its name?! Fine, here's everything close to `{name}`. Pick one already!");
 pub(crate) const EITHER_PICK: Line = Line::new("`{name}` could be more than one thing. Pick one:", "`{name}` could be more than one thing, so which is it?! Pick one already!");
-pub(crate) const RESOLVE_PANEL: Line = Line::new("How the statblock above is worked out. Only you can see this", "How the statblock above is worked out. Only you can see this, so don't go bragging!");
+pub(crate) const VERSUS_ASK: Line = Line::new("Okay, versus what?", "Versus what, then?! Pick something already!");
+pub(crate) const MENU_GONE: Line = Line::new("That menu is too old to use. Ask again for a fresh one", "That menu went stale! Ask again if you want a fresh one, dummy!");
 pub(crate) const PANEL_GONE: Line = Line::new("That panel is too old to change the statblock. Press {button} again", "That panel went stale! Press {button} again, dummy!");
-pub(crate) const VERSUS_PANEL: Line = Line::new("What the statblock above is up against. Only you can see this", "What the statblock above is up against. Only you can see this, so don't get any ideas!");
+pub(crate) const VERSUS_PANEL: Line = Line::new("What the statblock above is up against, and how it's worked out. Only you can see this", "What the statblock above is up against, and how it's worked out. Only you can see this, so don't get any ideas!");
 pub(crate) const VERSUS_FOUND: Line = Line::new("Against **{enemy}**, with its traits picked below", "Against **{enemy}**?! Fine, its traits are picked below!");
 pub(crate) const LIST_GONE: Line = Line::new("That list is too old to turn. Ask again for a fresh one", "That list is ancient history! Ask again if you want a fresh one, dummy!");
 pub(crate) const SEARCH_ABORT: Line = Line::new("Okay! I've dropped that request", "Fine, forget it then! I-It's not like I wanted to look it up for you anyway!");
@@ -201,6 +204,7 @@ pub(crate) const FEW_TALENTS: Line = Line::new("{unit} only has {count} talents"
 pub(crate) const NO_TALENT_LIKE: Line = Line::new("{unit} has no talent like `{name}`", "{unit} has no talent like `{name}`! Where did you even get that from?!");
 pub(crate) const NO_ORBS: Line = Line::new("{unit} can't hold talent orbs", "{unit} can't even hold a talent orb! Pick a unit that can!");
 pub(crate) const ONE_ORB_SLOT: Line = Line::new("{unit} only has one orb slot", "{unit} only has one orb slot! Where would a second one even go?!");
+pub(crate) const ORB_SLOTS: Line = Line::new("{unit} only has {count} orb slots", "{unit} only has {count} orb slots! Where would another one even go?!");
 pub(crate) const ORB_LOCKED: Line = Line::new("{unit}'s second orb slot opens at Lv60", "{unit}'s second orb slot opens at Lv60! Level it up first, dummy!");
 pub(crate) const NO_ORB_LIKE: Line = Line::new("{unit} can't hold an orb like `{name}`", "{unit} can't hold an orb like `{name}`! Where did you even dig that up?!");
 pub(crate) const TALENTS_PANEL: Line = Line::new("Talents and orbs for the statblock above. Only you can see this", "Talents and orbs for the statblock above. Only you can see this, so don't show off!");
@@ -248,7 +252,7 @@ pub(crate) const ALIAS_CLEARED: Line = Line::new("Every alias is removed", "They
 pub(crate) const ALIAS_RESET: Line = Line::new("Your aliases are back to the built-in ones", "Your aliases are back to the built-in ones. D-Don't mess them up again!");
 
 #[cfg(test)]
-pub(crate) const LINES: [&Line; 104] = [
+pub(crate) const LINES: [&Line; 106] = [
     &NOT_A_TRAIT,
     &ALIAS_TITLE,
     &ALIAS_NONE,
@@ -270,12 +274,14 @@ pub(crate) const LINES: [&Line; 104] = [
     &ALIAS_RESET,
     &PICK_LAPSED,
     &LIST_GONE,
-    &RESOLVE_PANEL,
+    &VERSUS_ASK,
+    &MENU_GONE,
     &PANEL_GONE,
     &VERSUS_PANEL,
     &TALENTS_PANEL,
     &NO_ORBS,
     &ONE_ORB_SLOT,
+    &ORB_SLOTS,
     &ORB_LOCKED,
     &NO_ORB_LIKE,
     &VERSUS_FOUND,

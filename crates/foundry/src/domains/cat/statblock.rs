@@ -156,7 +156,7 @@ fn resolved(subject: &Subject<'_>, base_stats: &Entity) -> Entity {
 
     match subject.grants {
         Some(grants) => grants.apply(&mut final_stats),
-        None => orbs::dress(&mut final_stats, base_stats, subject.form, subject.lens, subject.orbs),
+        None => orbs::dress(&mut final_stats, base_stats, subject.form, subject.lens.shown(), subject.orbs),
     }
 
     final_stats
@@ -175,7 +175,7 @@ fn faces(subject: &Subject<'_>, stats: &Entity, foe: Foe) -> Vec<OrbFace> {
         .orbs
         .iter()
         .filter_map(|worn| {
-            let shine = orbs::shine(stats, subject.lens, Some(foe), worn);
+            let shine = orbs::shine(stats, subject.lens.shown(), Some(foe), worn);
 
             Some(OrbFace { id: worn.id, image: drawn.face(list.get(worn.id as usize)?)?, dimmed: !shine.lit, lit: shine.ringed })
         })
@@ -197,7 +197,8 @@ pub fn build_against(subject: Subject<'_>, versus: impl FnOnce(&Entity) -> Foe) 
     let talent_levels = if form_allows_talents { subject.talent_levels } else { None };
     let final_stats = resolved(&subject, base_stats);
 
-    let foe = versus(&final_stats);
+    let lens = lens::fitted(&final_stats, subject.lens);
+    let foe = if lens.versus { versus(&final_stats) } else { Foe::default() };
     let ctx = RenderContext {
         global: subject.global,
         base_stats,
@@ -210,7 +211,6 @@ pub fn build_against(subject: Subject<'_>, versus: impl FnOnce(&Entity) -> Foe) 
         is_conjure_unit: false,
     };
 
-    let lens = Lens { hits: lens::settled(&final_stats, subject.lens.hits), ..subject.lens };
     let worn = faces(&subject, &final_stats, foe);
 
     Some(StatblockData { orbs: worn, ..assemble(&ctx, cat, subject.form, subject.level_input.to_string(), subject.is_conjure_expanded, foe, lens) })
@@ -229,7 +229,7 @@ fn assemble(
     let stat_ctx = StatContext::cat(ctx.final_stats, anim_frames, Some(&cat_entry.unitbuy), ctx.global.treasure);
     let cycle = (STAT_ATK_CYCLE.get_value)(&stat_ctx);
 
-    let spirit = if is_conjure_expanded { build_spirit_data(ctx, foe) } else { None };
+    let spirit = if is_conjure_expanded { build_spirit_data(ctx, lens.versus.then_some(foe)) } else { None };
     let (traits, h1, h2, b1, b2, footer) = versus::abilities(ctx, foe, spirit.as_ref().is_some_and(|(_, controls)| *controls), Pace::of(&stat_ctx), lens);
     let spirit_data = spirit.map(|(data, _)| data);
 
@@ -292,7 +292,7 @@ fn assemble(
     }
 }
 
-fn build_spirit_data(ctx: &RenderContext<'_>, foe: Foe) -> Option<(SpiritData, bool)> {
+fn build_spirit_data(ctx: &RenderContext<'_>, foe: Option<Foe>) -> Option<(SpiritData, bool)> {
     let (base, stats) = versus::spirit(ctx)?;
     let spirit_ctx = RenderContext {
         base_stats: &base,

@@ -32,6 +32,8 @@ pub struct Remembered {
     pub background_quality: Option<i32>,
     pub background_compression: Option<i32>,
     pub background_format: u8,
+    pub cat_versus: bool,
+    pub enemy_versus: bool,
 }
 
 pub struct Memory {

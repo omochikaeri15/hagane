@@ -112,7 +112,7 @@ impl Book {
     pub fn shaded(&self, images: &Images, vault: &Vault, orb: Option<u32>, dim: bool, lit: bool) -> OrbSlot {
         let icon = orb.and_then(|orb| self.drawn(images, vault, orb, (dim, lit)));
 
-        OrbSlot { has_icon: icon.is_some(), icon: icon.unwrap_or_default(), shut: false }
+        OrbSlot { has_icon: icon.is_some(), icon: icon.unwrap_or_default(), shut: false, toggle: false, lit: false }
     }
 
     pub fn face(&self, images: &Images, vault: &Vault, orb: u32) -> Option<Image> {

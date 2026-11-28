@@ -259,7 +259,7 @@ export component StatGrid inherits VerticalLayout {
     }
 }
 
-export struct OrbSlot { icon: image, has-icon: bool, shut: bool }
+export struct OrbSlot { icon: image, has-icon: bool, shut: bool, toggle: bool, lit: bool }
 
 export component OrbPicture inherits Rectangle {
     in property <OrbSlot> orb;

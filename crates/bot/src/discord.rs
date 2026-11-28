@@ -9,7 +9,7 @@ use tokio::sync::{OwnedRwLockReadGuard, RwLock, Semaphore};
 use tokio::task;
 use tracing::{debug, error, info, warn};
 
-use codex::combat::{Entity, Foe, Switches, Worn};
+use codex::combat::{Entity, Foe, Switch, Switches, Worn};
 use foundry::common::architecture;
 use foundry::domains::cat::animation as cat_animation;
 use foundry::domains::cat::level;
@@ -32,11 +32,11 @@ use super::backdrop;
 use super::cache::Cache;
 use super::config::Config;
 use super::fuzzy;
-use super::grammar::{self, Backing, Kind, Lookup, Motion, Page, Request, Scenery, Tune, Unit, Versus, Want};
+use super::grammar::{self, Backing, Kind, Lookup, Matchup, Motion, Page, Request, Scenery, Stance, Toggle, Tune, Unit, Versus, Want};
 use super::library::{self, Catalog, Library, Remote};
 use super::lookup::{self, CROWN_GLYPH, Found, Hit, Landing};
 use super::orbs::{self, Bench};
-use super::prefs::{self, Book, FORMS, Mode, Prefs, Search};
+use super::prefs::{self, Block, Book, Buttons, FORMS, Prefs, Search};
 use super::prose::{self, Line, Prose, Trouble};
 use super::render::{self, Clip, Format, Options, Planned, Progress};
 use super::stage;
@@ -63,15 +63,15 @@ const LABEL: &str = "label";
 const CARD_PAGE: &str = "ep";
 const CARD_ASK: &str = "em";
 const CARD_SET: &str = "ev";
-const CARD_RESOLVE: &str = "er";
+const CARD_VERSUS: &str = "ex";
 const DIAL: &str = "rv|";
 const ORB_PART: char = 'o';
 const SELECT_ROOM: usize = 25;
 const NO_ORB: &str = "None";
 const PANEL_LIFE: Duration = Duration::from_secs(14 * 60);
 const TALENT_HINT: &str = "all, standard, ultra, none, 10 10 5 or Attack Buff 5";
-const MODE_HELP: &str = "`--mode`: `base` (`b`) for the plain numbers, `avg` (`a`) for procs averaged in (the default), `max` (`m`) for every proc landing plus Strengthen, the kill boost and Weaken on a targeted foe\n`--hits`: `1`, `2` or `3` for one hit, `avg` for the hits that reach standing range (the default), `all` for every hit";
-const SWITCH_HELP: &str = "Counts an ability or an orb or leaves it out, whatever the mode says: crit, savage, wave, surge, explosion, strengthen, kills, weaken, orb 1, orb 2. `-m avg --on strengthen` is an average with Strengthen";
+const VERSUS_OFF_HELP: &str = "An Info Block this time: base stats, every hit, nothing switched. `-v` alone means this when your Mode is Versus";
+const BUTTONS_HELP: &str = "Buttons or none, this time only. `-i` flips your Buttons setting";
 const ENEMY_HINT: &str = "teacher bear, 12-e or an alias";
 const PANEL_PICKS: usize = 25;
 const ENEMY_LIMIT: u16 = 100;
@@ -104,7 +104,7 @@ const ALIAS: &str = "a";
 const ALIAS_LINES: usize = 24;
 const ALIAS_HINT: &str = "Dasli";
 const TARGET_HINT: &str = "Kasli the Bane";
-const SETTINGS: [Setting; 8] = [Setting::Language, Setting::Format, Setting::Form, Setting::Search, Setting::Mode, Setting::Prose, Setting::Prefix, Setting::Alias];
+const SETTINGS: [Setting; 9] = [Setting::Language, Setting::Format, Setting::Form, Setting::Search, Setting::Buttons, Setting::Mode, Setting::Prose, Setting::Prefix, Setting::Alias];
 const SETTINGS_ROWS: usize = 4;
 const SETTINGS_PAGES: usize = SETTINGS.len().div_ceil(SETTINGS_ROWS);
 const PAGE_DIGITS: u16 = 2;
@@ -209,9 +209,14 @@ impl Dialed {
     }
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Seat {
+    Private,
+    Public(bool),
+}
+
 #[derive(Clone, Copy)]
 enum Board {
-    Resolve,
     Versus,
     Talents(usize),
 }
@@ -219,42 +224,33 @@ enum Board {
 impl Board {
     fn of(part: &str) -> Self {
         match part {
-            "v" | "e" | "f" | "p" => Board::Versus,
             _ if part.starts_with(ORB_PART) => Board::Talents(orb_page(part)),
-            _ => Board::Resolve,
+            _ => Board::Versus,
         }
     }
 
-    fn said(self, prose: Prose, note: Option<&str>) -> String {
-        let line = match self {
-            Board::Resolve => &prose::RESOLVE_PANEL,
-            Board::Versus => &prose::VERSUS_PANEL,
-            Board::Talents(_) => &prose::TALENTS_PANEL,
+    fn said(self, prose: Prose, seat: Seat, note: Option<&str>) -> String {
+        let line = match (self, seat) {
+            (Board::Versus, Seat::Public(_)) => &prose::VERSUS_ASK,
+            (Board::Versus, Seat::Private) => &prose::VERSUS_PANEL,
+            (Board::Talents(_), _) => &prose::TALENTS_PANEL,
         };
 
         note.map_or_else(|| line.said(prose).to_owned(), |note| format!("{}\n{note}", line.said(prose)))
     }
 
-    fn gone(self, prose: Prose) -> String {
+    fn gone(self, prose: Prose, public: bool) -> String {
         let button = match self {
-            Board::Resolve => "Resolve",
             Board::Versus => "Versus",
             Board::Talents(_) => "Talents",
         };
 
-        prose::PANEL_GONE.filled(prose, &[("button", button)])
+        if public { prose::MENU_GONE.said(prose).to_owned() } else { prose::PANEL_GONE.filled(prose, &[("button", button)]) }
     }
 
-    fn rows(self, key: u64, dialed: &Dialed, stats: &Entity, library: &Library) -> Vec<serenity::CreateActionRow> {
+    fn rows(self, key: u64, dialed: &Dialed, stats: &Entity, library: &Library, seat: Seat) -> Vec<serenity::CreateActionRow> {
         match (self, dialed) {
-            (Board::Resolve, _) => {
-                let titles = foundry_orbs::Titles::load(&library.vault.vfs);
-                let list = library.vault.vds.cats.orbs(&library.vault.vfs);
-                let named = |worn: &Worn| list.get(worn.id as usize).map_or_else(|| format!("Orb {}", worn.slot + 1), |orb| titles.title(library.context().names, orb));
-
-                panel_rows(key, dialed.lens(), stats, dialed.versus().against(stats), &named)
-            }
-            (Board::Versus, _) => versus_rows(key, dialed.versus(), &[]),
+            (Board::Versus, _) => versus_rows(key, dialed, stats, &orb_names(library), seat, &[]),
             (Board::Talents(page), Dialed::Sheet(sheet)) => talents_rows(key, library, sheet, page),
             (Board::Talents(_), Dialed::Card(_)) => Vec::new(),
         }
@@ -266,6 +262,7 @@ struct Panel {
     message: u64,
     token: String,
     dialed: Dialed,
+    seat: Seat,
     due: Instant,
 }
 
@@ -274,6 +271,7 @@ struct Opened {
     token: String,
     message: u64,
     dialed: Dialed,
+    seat: Seat,
 }
 
 #[derive(Default)]
@@ -283,24 +281,39 @@ struct Panels {
 }
 
 impl Panels {
-    fn keep(&mut self, owner: u64, message: u64, token: String, dialed: Dialed) -> u64 {
+    fn keep(&mut self, owner: u64, message: u64, token: String, dialed: Dialed, seat: Seat) -> u64 {
         let now = Instant::now();
         let key = self.next;
 
         self.held.retain(|_, panel| panel.due > now);
         self.next += 1;
-        self.held.insert(key, Panel { owner, message, token, dialed, due: now + PANEL_LIFE });
+        self.held.insert(key, Panel { owner, message, token, dialed, seat, due: now + PANEL_LIFE });
         key
     }
 
     fn find(&self, key: &str, owner: u64) -> Option<Opened> {
         let key = u64::from_str_radix(key, 16).ok()?;
 
-        self.held.get(&key).filter(|panel| panel.owner == owner && panel.due > Instant::now()).map(|panel| Opened { key, token: panel.token.clone(), message: panel.message, dialed: panel.dialed.clone() })
+        self.held.get(&key).filter(|panel| panel.owner == owner && panel.due > Instant::now()).map(|panel| Opened { key, token: panel.token.clone(), message: panel.message, dialed: panel.dialed.clone(), seat: panel.seat })
+    }
+
+    fn foreign(&self, key: &str, owner: u64) -> bool {
+        u64::from_str_radix(key, 16).ok().and_then(|key| self.held.get(&key)).is_some_and(|panel| panel.owner != owner)
+    }
+
+    fn store(&mut self, key: u64, dialed: &Dialed) {
+        if let Some(panel) = self.held.get_mut(&key) {
+            panel.dialed = dialed.clone();
+            panel.due = Instant::now() + PANEL_LIFE;
+        }
+    }
+
+    fn forget(&mut self, key: u64) {
+        self.held.remove(&key);
     }
 
     fn follow(&mut self, message: u64, dialed: &Dialed) {
-        for panel in self.held.values_mut().filter(|panel| panel.message == message) {
+        for panel in self.held.values_mut().filter(|panel| panel.message == message && panel.seat == Seat::Private) {
             panel.dialed = dialed.clone();
         }
     }
@@ -1013,8 +1026,8 @@ async fn serve_map(voice: Voice<'_>, request: Request) -> Result<(), Error> {
     };
     let Some((_, code)) = sought(voice, &library, &prefs, Scope::Only(Kind::Map), &request, &prose::NO_MAP).await? else { return Ok(()) };
     let crowned = request.crowns.map(|crowns| format!("-c {crowns}"));
-    let moded = request.mode().map(|mode| format!("--{}", mode.slug()));
-    let tail = crowned.into_iter().chain(moded).collect::<Vec<_>>().join(" ");
+    let moded = request.buttons().map(grammar::buttons_flag);
+    let tail = crowned.into_iter().chain(moded.map(str::to_owned)).collect::<Vec<_>>().join(" ");
 
     listed(voice, &library, &code, Kind::Stage.tag(), &tail).await
 }
@@ -1065,7 +1078,7 @@ fn crown_rows(owner: u64, code: &str, stage: &Stage, shown: u8) -> Vec<serenity:
     vec![serenity::CreateActionRow::Buttons(buttons)]
 }
 
-async fn send_stage(voice: Voice<'_>, library: Arc<Library>, code: String, asked: Option<u8>, mode: Mode) -> Result<(), Error> {
+async fn send_stage(voice: Voice<'_>, library: Arc<Library>, code: String, asked: Option<u8>, interactive: bool) -> Result<(), Error> {
     let prose = voice.prose();
     let Some(found) = library.stage(&code) else {
         return voice.say(prose::NO_STAGE.said(prose)).await;
@@ -1074,7 +1087,7 @@ async fn send_stage(voice: Voice<'_>, library: Arc<Library>, code: String, asked
         Ok(crown) => crown,
         Err(trouble) => return voice.say(trouble.told(prose)).await,
     };
-    let rows = if mode == Mode::Interactive { crown_rows(voice.user().get(), &code, found.stage, crown) } else { Vec::new() };
+    let rows = if interactive { crown_rows(voice.user().get(), &code, found.stage, crown) } else { Vec::new() };
     let drawn = {
         let (library, cache, code) = (Arc::clone(&library), Arc::clone(&voice.data().cache), code.clone());
 
@@ -1130,7 +1143,7 @@ async fn serve_stage(voice: Voice<'_>, request: Request) -> Result<(), Error> {
     };
     let Some((_, code)) = sought(voice, &library, &prefs, Scope::Only(Kind::Stage), &request, &prose::NO_STAGE).await? else { return Ok(()) };
 
-    send_stage(voice, Arc::clone(&library), code, request.crowns.map(|crowns| crowns.saturating_sub(1)), request.mode().unwrap_or(prefs.mode)).await
+    send_stage(voice, Arc::clone(&library), code, request.crowns.map(|crowns| crowns.saturating_sub(1)), interactive(request.buttons(), &prefs)).await
 }
 
 async fn on_crown(ctx: &serenity::Context, press: &serenity::ComponentInteraction, data: &Data, rest: &str) -> Result<(), Error> {
@@ -1150,7 +1163,7 @@ async fn on_crown(ctx: &serenity::Context, press: &serenity::ComponentInteractio
         return Ok(());
     };
 
-    send_stage(voice, library, code.to_owned(), Some(crown), Mode::Interactive).await
+    send_stage(voice, library, code.to_owned(), Some(crown), true).await
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -1430,7 +1443,7 @@ struct Card {
 }
 
 impl Card {
-    const TAGS: [&'static str; 4] = [CARD_PAGE, CARD_ASK, CARD_SET, CARD_RESOLVE];
+    const TAGS: [&'static str; 4] = [CARD_PAGE, CARD_ASK, CARD_SET, CARD_VERSUS];
 
     fn turned(&self, tag: &str, page: Page) -> String {
         format!("{tag}|{}|{}|{}|{}|{}", self.owner, self.id, page.tag(), self.magnification.map(percents).unwrap_or_default(), grammar::lens_tag(self.lens))
@@ -1470,16 +1483,65 @@ fn dialed_stats(library: &Library, dialed: &Dialed) -> Option<Entity> {
     }
 }
 
-fn panel_rows(key: u64, lens: Lens, stats: &Entity, foe: Foe, named: &dyn Fn(&Worn) -> String) -> Vec<serenity::CreateActionRow> {
+fn orb_names(library: &Library) -> impl Fn(&Worn) -> String + '_ {
+    let titles = foundry_orbs::Titles::load(&library.vault.vfs);
+    let list = library.vault.vds.cats.orbs(&library.vault.vfs);
+
+    move |worn: &Worn| list.get(worn.id as usize).map_or_else(|| format!("Orb {}", worn.slot + 1), |orb| titles.title(library.context().names, orb))
+}
+
+fn versus_rows(key: u64, dialed: &Dialed, stats: &Entity, named: &dyn Fn(&Worn) -> String, seat: Seat, found: &[&EnemyEntry]) -> Vec<serenity::CreateActionRow> {
     let custom = |part: &str| format!("{DIAL}{key:x}|{part}");
+    let lens = dialed.lens();
+    let versus = dialed.versus();
+    let mut top = Vec::new();
+
+    if let Dialed::Sheet(_) = dialed {
+        top.push(serenity::CreateButton::new(custom("e")).label("Search for Enemy").style(serenity::ButtonStyle::Secondary));
+    }
+
+    match seat {
+        Seat::Public(_) => {
+            if !top.is_empty() {
+                top.push(serenity::CreateButton::new(custom("-")).label(BLANK).style(serenity::ButtonStyle::Secondary).disabled(true));
+            }
+
+            top.push(serenity::CreateButton::new(custom("d")).label("Done").style(serenity::ButtonStyle::Primary));
+        }
+        Seat::Private => {
+            let style = if lens.versus { serenity::ButtonStyle::Primary } else { serenity::ButtonStyle::Secondary };
+
+            top.push(serenity::CreateButton::new(custom("b")).label(combat_lens::block_label(lens.versus)).style(style));
+        }
+    }
+
+    let mut rows = vec![serenity::CreateActionRow::Buttons(top)];
+
+    if let Dialed::Sheet(_) = dialed {
+        let picks = if found.is_empty() {
+            let aimed = serenity::CreateSelectMenuOption::new("Targets", grammar::TARGETS).description("Every trait this cat has something for, but Metal").default_selection(versus.aimed);
+            let traits = Foe::LABELS.into_iter().map(|label| serenity::CreateSelectMenuOption::new(get_display_def(label).name, grammar::trait_word(label)).default_selection(versus.foe.has(label)));
+            let options: Vec<serenity::CreateSelectMenuOption> = std::iter::once(aimed).chain(traits).collect();
+            let most = u8::try_from(options.len()).unwrap_or(u8::MAX);
+
+            serenity::CreateSelectMenu::new(custom("v"), serenity::CreateSelectMenuKind::String { options }).placeholder("No traits").min_values(0).max_values(most)
+        } else {
+            let options = found.iter().map(|enemy| serenity::CreateSelectMenuOption::new(enemy.display_name(), enemy.id.to_string()).description(enemy.id_str())).collect();
+
+            serenity::CreateSelectMenu::new(custom("p"), serenity::CreateSelectMenuKind::String { options }).placeholder("Pick an enemy")
+        };
+
+        rows.push(serenity::CreateActionRow::SelectMenu(picks));
+    }
+
     let shown = combat_lens::shown_hits(stats, lens.hits);
     let hits = combat_lens::hit_choices(stats).into_iter().map(|hits| serenity::CreateSelectMenuOption::new(combat_lens::hits_label(hits), grammar::hits_word(hits)).default_selection(hits == shown)).collect();
     let modes = combat_lens::MODES.into_iter().map(|mode| serenity::CreateSelectMenuOption::new(combat_lens::mode_label(mode), grammar::gauge_word(mode)).default_selection(mode == lens.mode)).collect();
-    let mut rows = vec![
-        serenity::CreateActionRow::SelectMenu(serenity::CreateSelectMenu::new(custom("h"), serenity::CreateSelectMenuKind::String { options: hits }).disabled(!combat_lens::picks_hits(stats))),
-        serenity::CreateActionRow::SelectMenu(serenity::CreateSelectMenu::new(custom("m"), serenity::CreateSelectMenuKind::String { options: modes })),
-    ];
-    let held = combat_lens::held_switches(stats, foe);
+
+    rows.push(serenity::CreateActionRow::SelectMenu(serenity::CreateSelectMenu::new(custom("h"), serenity::CreateSelectMenuKind::String { options: hits }).disabled(!combat_lens::picks_hits(stats))));
+    rows.push(serenity::CreateActionRow::SelectMenu(serenity::CreateSelectMenu::new(custom("m"), serenity::CreateSelectMenuKind::String { options: modes })));
+
+    let held = combat_lens::held_switches(stats, versus.against(stats));
     let toggles = foundry_orbs::toggles(&stats.orbs);
 
     if !held.is_empty() || !toggles.is_empty() {
@@ -1572,7 +1634,7 @@ fn talents_rows(key: u64, library: &Library, sheet: &Sheet, page: usize) -> Vec<
 
 async fn on_orbs(ctx: &serenity::Context, press: &serenity::ComponentInteraction, data: &Data, opened: Opened, page: usize, part: &str) -> Result<(), Error> {
     let prefs = data.book.get(press.user.id.get());
-    let Opened { key, token, message, dialed } = opened;
+    let Opened { key, token, message, dialed, seat } = opened;
     let Dialed::Sheet(mut sheet) = dialed else { return Ok(()) };
     let op = part.chars().nth(2).unwrap_or_default();
 
@@ -1612,13 +1674,13 @@ async fn on_orbs(ctx: &serenity::Context, press: &serenity::ComponentInteraction
     let dialed = Dialed::Sheet(sheet);
     let Some(stats) = dialed_stats(&library, &dialed) else { return Ok(()) };
     let board = Board::Talents(page);
-    let turned = serenity::CreateInteractionResponseMessage::new().content(board.said(prefs.prose, None)).components(board.rows(key, &dialed, &stats, &library));
+    let turned = serenity::CreateInteractionResponseMessage::new().content(board.said(prefs.prose, seat, None)).components(board.rows(key, &dialed, &stats, &library, seat));
 
     drop(guard);
     press.create_response(ctx, serenity::CreateInteractionResponse::UpdateMessage(turned)).await?;
 
-    if changed.is_some() && !redial(ctx, data, &Opened { key, token, message, dialed }).await? {
-        let gone = serenity::EditInteractionResponse::new().content(board.gone(prefs.prose)).components(Vec::new());
+    if changed.is_some() && !redial(ctx, data, &Opened { key, token, message, dialed, seat }).await? {
+        let gone = serenity::EditInteractionResponse::new().content(board.gone(prefs.prose, false)).components(Vec::new());
 
         press.edit_response(ctx, gone).await?;
     }
@@ -1633,8 +1695,8 @@ async fn on_panel_talents(ctx: &serenity::Context, form: &serenity::ModalInterac
     let page = orb_page(part);
     let board = Board::Talents(page);
     let notice = |text: String| serenity::CreateInteractionResponse::Message(serenity::CreateInteractionResponseMessage::new().content(text).ephemeral(true));
-    let Some(Opened { key, token, message, dialed }) = panels(data).find(key, owner) else {
-        form.create_response(ctx, notice(board.gone(prefs.prose))).await?;
+    let Some(Opened { key, token, message, dialed, seat }) = panels(data).find(key, owner) else {
+        form.create_response(ctx, notice(board.gone(prefs.prose, false))).await?;
         return Ok(());
     };
     let Dialed::Sheet(mut sheet) = dialed else { return Ok(()) };
@@ -1660,39 +1722,18 @@ async fn on_panel_talents(ctx: &serenity::Context, form: &serenity::ModalInterac
 
     let dialed = Dialed::Sheet(sheet);
     let Some(stats) = dialed_stats(&library, &dialed) else { return Ok(()) };
-    let turned = serenity::CreateInteractionResponseMessage::new().content(board.said(prefs.prose, None)).components(board.rows(key, &dialed, &stats, &library));
+    let turned = serenity::CreateInteractionResponseMessage::new().content(board.said(prefs.prose, seat, None)).components(board.rows(key, &dialed, &stats, &library, seat));
 
     drop(guard);
     form.create_response(ctx, serenity::CreateInteractionResponse::UpdateMessage(turned)).await?;
 
-    if !redial(ctx, data, &Opened { key, token, message, dialed }).await? {
-        let gone = serenity::EditInteractionResponse::new().content(board.gone(prefs.prose)).components(Vec::new());
+    if !redial(ctx, data, &Opened { key, token, message, dialed, seat }).await? {
+        let gone = serenity::EditInteractionResponse::new().content(board.gone(prefs.prose, false)).components(Vec::new());
 
         form.edit_response(ctx, gone).await?;
     }
 
     Ok(())
-}
-
-fn versus_rows(key: u64, versus: Versus, found: &[&EnemyEntry]) -> Vec<serenity::CreateActionRow> {
-    let custom = |part: &str| format!("{DIAL}{key:x}|{part}");
-    let aimed = serenity::CreateSelectMenuOption::new("Targets", grammar::TARGETS).description("Every trait this cat has something for, but Metal").default_selection(versus.aimed);
-    let traits = Foe::LABELS.into_iter().map(|label| serenity::CreateSelectMenuOption::new(get_display_def(label).name, grammar::trait_word(label)).default_selection(versus.foe.has(label)));
-    let options: Vec<serenity::CreateSelectMenuOption> = std::iter::once(aimed).chain(traits).collect();
-    let most = u8::try_from(options.len()).unwrap_or(u8::MAX);
-    let search = serenity::CreateButton::new(custom("e")).label("Search for Enemy").style(serenity::ButtonStyle::Secondary);
-    let mut rows = vec![
-        serenity::CreateActionRow::SelectMenu(serenity::CreateSelectMenu::new(custom("v"), serenity::CreateSelectMenuKind::String { options }).placeholder("No traits").min_values(0).max_values(most)),
-        serenity::CreateActionRow::Buttons(vec![search]),
-    ];
-
-    if !found.is_empty() {
-        let options = found.iter().map(|enemy| serenity::CreateSelectMenuOption::new(enemy.display_name(), enemy.id.to_string()).description(enemy.id_str())).collect();
-
-        rows.push(serenity::CreateActionRow::SelectMenu(serenity::CreateSelectMenu::new(custom("p"), serenity::CreateSelectMenuKind::String { options }).placeholder("Pick an enemy")));
-    }
-
-    rows
 }
 
 async fn open_panel(ctx: &serenity::Context, press: &serenity::ComponentInteraction, data: &Data, dialed: Dialed, board: Board) -> Result<(), Error> {
@@ -1702,14 +1743,32 @@ async fn open_panel(ctx: &serenity::Context, press: &serenity::ComponentInteract
     let prefs = data.book.get(owner);
     let Some((_guard, library)) = open(data, &prefs.language).await? else { return Ok(()) };
     let Some(stats) = dialed_stats(&library, &dialed) else { return Ok(()) };
-    let key = panels(data).keep(owner, press.message.id.get(), press.token.clone(), dialed.clone());
-    let panel = serenity::CreateInteractionResponseFollowup::new().content(board.said(prefs.prose, None)).components(board.rows(key, &dialed, &stats, &library)).ephemeral(true);
+    let key = panels(data).keep(owner, press.message.id.get(), press.token.clone(), dialed.clone(), Seat::Private);
+    let panel = serenity::CreateInteractionResponseFollowup::new().content(board.said(prefs.prose, Seat::Private, None)).components(board.rows(key, &dialed, &stats, &library, Seat::Private)).ephemeral(true);
 
     press.create_followup(ctx, panel).await?;
     Ok(())
 }
 
+async fn ask_versus(voice: Voice<'_>, library: &Library, dialed: Dialed, interactive: bool) -> Result<(), Error> {
+    let Some(stats) = dialed_stats(library, &dialed) else {
+        return voice.say(prose::FAILED.said(voice.prose())).await;
+    };
+    let seat = Seat::Public(interactive);
+    let key = panels(voice.data()).keep(voice.user().get(), 0, String::new(), dialed.clone(), seat);
+    let rows = Board::Versus.rows(key, &dialed, &stats, library, seat);
+    let posted = voice.post(Post::text(Board::Versus.said(voice.prose(), seat, None)).rows(rows)).await?;
+
+    expiring(voice, &posted).await;
+    Ok(())
+}
+
 async fn redial(ctx: &serenity::Context, data: &Data, opened: &Opened) -> Result<bool, Error> {
+    if let Seat::Public(_) = opened.seat {
+        panels(data).store(opened.key, &opened.dialed);
+        return Ok(true);
+    }
+
     panels(data).follow(opened.message, &opened.dialed);
 
     let edit = match &opened.dialed {
@@ -1726,21 +1785,68 @@ async fn redial(ctx: &serenity::Context, data: &Data, opened: &Opened) -> Result
     Ok(true)
 }
 
+fn public(message: &serenity::Message) -> bool {
+    !message.flags.is_some_and(|flags| flags.contains(serenity::MessageFlags::EPHEMERAL))
+}
+
+async fn settle(ctx: &serenity::Context, press: &serenity::ComponentInteraction, data: &Data, opened: Opened, interactive: bool) -> Result<(), Error> {
+    press.create_response(ctx, serenity::CreateInteractionResponse::Acknowledge).await?;
+    panels(data).forget(opened.key);
+    waits(data).remove(&press.message.id.get());
+
+    let prefs = data.book.get(press.user.id.get());
+    let Some((_guard, library)) = open(data, &prefs.language).await? else { return Ok(()) };
+    let dialed = opened.dialed.clone().with(Lens { versus: true, ..opened.dialed.lens() });
+    let rendered = {
+        let (library, dialed, cache) = (Arc::clone(&library), dialed.clone(), Arc::clone(&data.cache));
+
+        blocking(data, move || match &dialed {
+            Dialed::Sheet(sheet) => sheet_png(&library, &cache, sheet),
+            Dialed::Card(card) => card_png(&library, &cache, card),
+        })
+        .await?
+    };
+    let post = match rendered {
+        Ok((bytes, name)) => {
+            let rows = match (&dialed, interactive) {
+                (Dialed::Sheet(sheet), true) => sheet_rows(&library, sheet),
+                (Dialed::Card(card), true) => card_rows(card),
+                (_, false) => Vec::new(),
+            };
+
+            Post::file(bytes, name).rows(rows)
+        }
+        Err(trouble) => Post::text(trouble.told(prefs.prose)),
+    };
+
+    press.edit_response(ctx, post.edit()).await?;
+    Ok(())
+}
+
 async fn on_dial(ctx: &serenity::Context, press: &serenity::ComponentInteraction, data: &Data, rest: &str) -> Result<(), Error> {
     let owner = press.user.id.get();
     let prefs = data.book.get(owner);
     let (key, part) = rest.split_once('|').unwrap_or((rest, ""));
     let board = Board::of(part);
+
+    if panels(data).foreign(key, owner) {
+        return refuse(ctx, press, data).await;
+    }
+
     let found = panels(data).find(key, owner);
-    let Some(Opened { key, token, message, dialed }) = found else {
-        let gone = serenity::CreateInteractionResponseMessage::new().content(board.gone(prefs.prose)).ephemeral(true);
+    let Some(Opened { key, token, message, dialed, seat }) = found else {
+        let gone = serenity::CreateInteractionResponseMessage::new().content(board.gone(prefs.prose, public(&press.message))).ephemeral(true);
 
         press.create_response(ctx, serenity::CreateInteractionResponse::Message(gone)).await?;
         return Ok(());
     };
 
     if let Board::Talents(page) = board {
-        return on_orbs(ctx, press, data, Opened { key, token, message, dialed }, page, part).await;
+        return on_orbs(ctx, press, data, Opened { key, token, message, dialed, seat }, page, part).await;
+    }
+
+    if let Seat::Public(_) = seat {
+        touched(data, Some(press.message.id), &press.token);
     }
 
     if part == "e" {
@@ -1751,14 +1857,23 @@ async fn on_dial(ctx: &serenity::Context, press: &serenity::ComponentInteraction
         return Ok(());
     }
 
-    let serenity::ComponentInteractionDataKind::StringSelect { values } = &press.data.kind else { return Ok(()) };
+    if let ("d", Seat::Public(interactive)) = (part, seat) {
+        return settle(ctx, press, data, Opened { key, token, message, dialed, seat }, interactive).await;
+    }
+
+    let values = match &press.data.kind {
+        serenity::ComponentInteractionDataKind::StringSelect { values } => values.clone(),
+        _ => Vec::new(),
+    };
     let Some((guard, library)) = open(data, &prefs.language).await? else { return Ok(()) };
     let Some(stats) = dialed_stats(&library, &dialed) else { return Ok(()) };
     let held = dialed.lens();
     let picked = values.first().map(String::as_str).unwrap_or_default();
+    let on = |lens: Lens| Lens { versus: true, ..lens };
     let (dialed, note) = match part {
-        "h" => (dialed.with(Lens { hits: grammar::hits_of(picked).unwrap_or(held.hits), ..held }), None),
-        "m" => (dialed.with(Lens { mode: grammar::gauge_of(picked).unwrap_or(held.mode), switches: Switches::default(), ..held }), None),
+        "b" => (dialed.with(Lens { versus: !held.versus, ..held }), None),
+        "h" => (dialed.with(on(Lens { hits: grammar::hits_of(picked).unwrap_or(held.hits), ..held })), None),
+        "m" => (dialed.with(on(Lens { mode: grammar::gauge_of(picked).unwrap_or(held.mode), switches: Switches::default(), ..held })), None),
         "s" => {
             let switches = combat_lens::held_switches(&stats, dialed.versus().against(&stats)).into_iter().fold(held.switches, |switches, (switch, _)| {
                 let lit = values.iter().any(|value| value == grammar::switch_word(switch));
@@ -1771,23 +1886,24 @@ async fn on_dial(ctx: &serenity::Context, press: &serenity::ComponentInteraction
                 if lit == worn.toggled(Switches::default(), held.mode) { switches.cleared(switch) } else { switches.set(switch, lit) }
             });
 
-            (dialed.with(Lens { switches, ..held }), None)
+            (dialed.with(on(Lens { switches, ..held })), None)
         }
-        "v" => (dialed.against(grammar::versus_picked(values)), None),
+        "v" => (dialed.against(grammar::versus_picked(&values)).with(on(held)), None),
         "p" => {
             let Some(enemy) = picked.parse().ok().and_then(|id| library.enemy(id)) else { return Ok(()) };
 
-            (dialed.against(Versus { foe: Foe::of(&enemy.stats), aimed: false }), Some(prose::VERSUS_FOUND.filled(prefs.prose, &[("enemy", &enemy.display_name())])))
+            (dialed.against(Versus { foe: Foe::of(&enemy.stats), aimed: false }).with(on(held)), Some(prose::VERSUS_FOUND.filled(prefs.prose, &[("enemy", &enemy.display_name())])))
         }
         _ => return Ok(()),
     };
-    let turned = serenity::CreateInteractionResponseMessage::new().content(board.said(prefs.prose, note.as_deref())).components(board.rows(key, &dialed, &stats, &library));
+    let stats = dialed_stats(&library, &dialed).unwrap_or(stats);
+    let turned = serenity::CreateInteractionResponseMessage::new().content(board.said(prefs.prose, seat, note.as_deref())).components(board.rows(key, &dialed, &stats, &library, seat));
 
     drop(guard);
     press.create_response(ctx, serenity::CreateInteractionResponse::UpdateMessage(turned)).await?;
 
-    if !redial(ctx, data, &Opened { key, token, message, dialed }).await? {
-        let gone = serenity::EditInteractionResponse::new().content(board.gone(prefs.prose)).components(Vec::new());
+    if !redial(ctx, data, &Opened { key, token, message, dialed, seat }).await? {
+        let gone = serenity::EditInteractionResponse::new().content(board.gone(prefs.prose, false)).components(Vec::new());
 
         press.edit_response(ctx, gone).await?;
     }
@@ -1822,36 +1938,41 @@ async fn on_search(ctx: &serenity::Context, form: &serenity::ModalInteraction, d
     let owner = form.user.id.get();
     let prefs = data.book.get(owner);
     let notice = |text: String| serenity::CreateInteractionResponse::Message(serenity::CreateInteractionResponseMessage::new().content(text).ephemeral(true));
+    let shown = form.message.as_deref().is_some_and(public);
     let found = panels(data).find(rest.split_once('|').map_or(rest, |(key, _)| key), owner);
-    let Some(Opened { key, token, message, dialed }) = found else {
-        form.create_response(ctx, notice(Board::Versus.gone(prefs.prose))).await?;
+    let Some(Opened { key, token, message, dialed, seat }) = found else {
+        form.create_response(ctx, notice(Board::Versus.gone(prefs.prose, shown))).await?;
         return Ok(());
     };
+
+    if let Seat::Public(_) = seat {
+        touched(data, form.message.as_ref().map(|message| message.id), &form.token);
+    }
     let Some((guard, library)) = open(data, &prefs.language).await? else {
         form.create_response(ctx, notice(prose::WARMING.said(prefs.prose).to_owned())).await?;
         return Ok(());
     };
     let typed = typed(form);
-    let current = dialed.versus();
-    let (dialed, note, picks) = match foes_like(&library, &prefs.aliases, typed.trim()) {
+    let (picked, note, picks) = match foes_like(&library, &prefs.aliases, typed.trim()) {
         Foes::Nothing => {
             drop(guard);
             form.create_response(ctx, notice(prose::NO_ENEMY.said(prefs.prose).to_owned())).await?;
             return Ok(());
         }
-        Foes::One(enemy) => (Some(dialed.against(Versus { foe: Foe::of(&enemy.stats), aimed: false })), prose::VERSUS_FOUND.filled(prefs.prose, &[("enemy", &enemy.display_name())]), Vec::new()),
+        Foes::One(enemy) => (Some(dialed.clone().against(Versus { foe: Foe::of(&enemy.stats), aimed: false }).with(Lens { versus: true, ..dialed.lens() })), prose::VERSUS_FOUND.filled(prefs.prose, &[("enemy", &enemy.display_name())]), Vec::new()),
         Foes::Several(picks) => (None, prose::SEARCH_PICK.filled(prefs.prose, &[("name", typed.trim())]), picks),
     };
-    let versus = dialed.as_ref().map_or(current, Dialed::versus);
-    let turned = serenity::CreateInteractionResponseMessage::new().content(Board::Versus.said(prefs.prose, Some(&note))).components(versus_rows(key, versus, &picks));
+    let shown = picked.as_ref().unwrap_or(&dialed);
+    let Some(stats) = dialed_stats(&library, shown) else { return Ok(()) };
+    let turned = serenity::CreateInteractionResponseMessage::new().content(Board::Versus.said(prefs.prose, seat, Some(&note))).components(versus_rows(key, shown, &stats, &orb_names(&library), seat, &picks));
 
     drop(guard);
     form.create_response(ctx, serenity::CreateInteractionResponse::UpdateMessage(turned)).await?;
 
-    let Some(dialed) = dialed else { return Ok(()) };
+    let Some(dialed) = picked else { return Ok(()) };
 
-    if !redial(ctx, data, &Opened { key, token, message, dialed }).await? {
-        let gone = serenity::EditInteractionResponse::new().content(Board::Versus.gone(prefs.prose)).components(Vec::new());
+    if !redial(ctx, data, &Opened { key, token, message, dialed, seat }).await? {
+        let gone = serenity::EditInteractionResponse::new().content(Board::Versus.gone(prefs.prose, false)).components(Vec::new());
 
         form.edit_response(ctx, gone).await?;
     }
@@ -1880,7 +2001,7 @@ fn sheet_png(library: &Library, cache: &Cache, sheet: &Sheet) -> Result<(Vec<u8>
 
     match sheet.page {
         Page::Talents => Ok((statblock::talents(library, cache, asked)?, format!("{id}.talents.png"))),
-        _ => Ok((statblock::cat(library, cache, asked, sheet.versus, Lens { switching: !sheet.versus.is_empty() || !sheet.lens.switches.is_empty(), ..sheet.lens })?, format!("{id}.png"))),
+        _ => Ok((statblock::cat(library, cache, asked, sheet.versus, sheet.lens)?, format!("{id}.png"))),
     }
 }
 
@@ -1894,7 +2015,7 @@ fn card_png(library: &Library, cache: &Cache, card: &Card) -> Result<(Vec<u8>, S
             let plain = Magnification::default();
             let (hitpoints, attack) = card.magnification.unwrap_or((plain.hitpoints, plain.attack));
 
-            Ok((statblock::enemy(library, cache, enemy, Magnification::pair(hitpoints, attack), Lens { switching: !card.lens.switches.is_empty(), ..card.lens })?, format!("{id}.png")))
+            Ok((statblock::enemy(library, cache, enemy, Magnification::pair(hitpoints, attack), card.lens)?, format!("{id}.png")))
         }
     }
 }
@@ -1909,7 +2030,7 @@ fn card_rows(card: &Card) -> Vec<serenity::CreateActionRow> {
     let tuning = vec![
         caption(format!("{LABEL}|1"), "Apply"),
         serenity::CreateButton::new(card.turned(CARD_ASK, card.page)).label("Magnification").style(lit(card.magnification.is_some())),
-        serenity::CreateButton::new(card.turned(CARD_RESOLVE, card.page)).label("Resolve").style(lit(card.lens != Lens::default())),
+        serenity::CreateButton::new(card.turned(CARD_VERSUS, card.page)).label("Versus").style(lit(card.lens.versus)),
     ];
 
     vec![serenity::CreateActionRow::Buttons(pages), serenity::CreateActionRow::Buttons(tuning)]
@@ -1934,14 +2055,13 @@ fn sheet_rows(library: &Library, sheet: &Sheet) -> Vec<serenity::CreateActionRow
         caption(format!("{LABEL}|2"), "Apply"),
         serenity::CreateButton::new(sheet.custom("sl", sheet.form)).label("Level").style(lit(sheet.level.is_some())),
         serenity::CreateButton::new(sheet.custom("st", sheet.form)).label("Talents").style(lit(sheet.talents.is_some())).disabled(!gifted),
-        serenity::CreateButton::new(sheet.custom("sx", sheet.form)).label("Versus").style(lit(!sheet.versus.is_empty())),
-        serenity::CreateButton::new(sheet.custom("sr", sheet.form)).label("Resolve").style(lit(sheet.lens != Lens::default())),
+        serenity::CreateButton::new(sheet.custom("sx", sheet.form)).label("Versus").style(lit(sheet.lens.versus)),
     ];
 
     vec![serenity::CreateActionRow::Buttons(forms), serenity::CreateActionRow::Buttons(pages), serenity::CreateActionRow::Buttons(tuning)]
 }
 
-async fn send_sheet(voice: Voice<'_>, library: Arc<Library>, sheet: Sheet, mode: Mode) -> Result<(), Error> {
+async fn send_sheet(voice: Voice<'_>, library: Arc<Library>, sheet: Sheet, interactive: bool) -> Result<(), Error> {
     let rendered = {
         let (library, sheet) = (Arc::clone(&library), sheet.clone());
 
@@ -1951,14 +2071,14 @@ async fn send_sheet(voice: Voice<'_>, library: Arc<Library>, sheet: Sheet, mode:
     };
 
     match rendered {
-        Ok((bytes, name)) => voice.post(Post::file(bytes, name).rows(if mode == Mode::Interactive { sheet_rows(&library, &sheet) } else { Vec::new() })).await.map(|_| ())?,
+        Ok((bytes, name)) => voice.post(Post::file(bytes, name).rows(if interactive { sheet_rows(&library, &sheet) } else { Vec::new() })).await.map(|_| ())?,
         Err(trouble) => voice.say(trouble.told(voice.prose())).await?,
     };
 
     Ok(())
 }
 
-async fn send_card(voice: Voice<'_>, library: Arc<Library>, card: Card, mode: Mode) -> Result<(), Error> {
+async fn send_card(voice: Voice<'_>, library: Arc<Library>, card: Card, interactive: bool) -> Result<(), Error> {
     let rendered = {
         let (library, card, cache) = (Arc::clone(&library), card.clone(), Arc::clone(&voice.data().cache));
 
@@ -1966,7 +2086,7 @@ async fn send_card(voice: Voice<'_>, library: Arc<Library>, card: Card, mode: Mo
     };
 
     match rendered {
-        Ok((bytes, name)) => voice.post(Post::file(bytes, name).rows(if mode == Mode::Interactive { card_rows(&card) } else { Vec::new() })).await.map(|_| ())?,
+        Ok((bytes, name)) => voice.post(Post::file(bytes, name).rows(if interactive { card_rows(&card) } else { Vec::new() })).await.map(|_| ())?,
         Err(trouble) => voice.say(trouble.told(voice.prose())).await?,
     };
 
@@ -2326,6 +2446,35 @@ fn options_of(motion: &Motion, prefs: &Prefs) -> Options {
     }
 }
 
+fn interactive(buttons: Option<Toggle>, prefs: &Prefs) -> bool {
+    let held = prefs.buttons == Buttons::Interactive;
+
+    buttons.map_or(held, |toggle| toggle.turned(held))
+}
+
+fn matched(matchup: &Matchup) -> Lens {
+    Lens { mode: matchup.gauge.unwrap_or_default(), hits: matchup.hits.unwrap_or_default(), switches: Switches::default(), versus: true }
+}
+
+fn switched(library: &Library, dialed: Dialed, asked: &[Switch]) -> Dialed {
+    if asked.is_empty() {
+        return dialed;
+    }
+
+    let Some(stats) = dialed_stats(library, &dialed) else { return dialed };
+    let held = dialed.lens();
+    let offered = combat_lens::held_switches(&stats, dialed.versus().against(&stats));
+    let toggles = foundry_orbs::toggles(&stats.orbs);
+    let switches = asked.iter().fold(held.switches, |switches, switch| {
+        let worn = toggles.iter().find(|(toggle, _)| toggle == switch).map(|(_, worn)| worn.toggled(Switches::default(), held.mode));
+        let lit = worn.or_else(|| offered.iter().any(|(offer, _)| offer == switch).then(|| switch.by_default(held.mode)));
+
+        if lit == Some(false) { switches.set(*switch, true) } else { switches }
+    });
+
+    dialed.with(Lens { switches, ..held })
+}
+
 fn prefix_of(data: &Data, user: u64) -> String {
     data.book.prefix(user).unwrap_or_else(|| prefs::PREFIX.to_owned())
 }
@@ -2375,12 +2524,27 @@ async fn serve_cat(voice: Voice<'_>, request: Request) -> Result<(), Error> {
 
     match request.want {
         Want::Stats(stats) => {
-            let words: Vec<&str> = stats.versus.iter().flatten().map(String::as_str).collect();
-            let versus = match grammar::versus_of(&words, &foes(&library, &prefs.aliases)) {
-                Ok(versus) => versus,
-                Err(word) => return voice.say(prose::NOT_A_TRAIT.filled(prefs.prose, &[("name", &word)])).await,
+            let buttoned = interactive(stats.buttons, &prefs);
+            let stance = grammar::stance(stats.versus, prefs.block == Block::Versus);
+            let (versus, switches, lens, asking) = match stance {
+                Stance::Info => (Versus::default(), Vec::new(), Lens::default(), false),
+                Stance::Versus(matchup) => {
+                    let words: Vec<&str> = matchup.words.iter().map(String::as_str).collect();
+                    let (versus, switches) = match grammar::versus_of(&words, &foes(&library, &prefs.aliases)) {
+                        Ok(read) => read,
+                        Err(word) => return voice.say(prose::NOT_A_TRAIT.filled(prefs.prose, &[("name", &word)])).await,
+                    };
+
+                    (versus, switches, matched(&matchup), matchup.ask)
+                }
             };
-            let talents = match stats.talents {
+            let (picks, spare) = orbs::sorted(&library, cat, &stats.orbs);
+            let spare: Vec<&str> = spare.iter().map(String::as_str).collect();
+            let typed = match (stats.talents, spare.is_empty()) {
+                (held, true) => held,
+                (held, false) => Some(held.unwrap_or_default().into_iter().chain(grammar::talents_of(&spare)).collect()),
+            };
+            let talents = match typed {
                 Some(words) => match talents::levels(&library, cat, &words) {
                     Ok(levels) => talents::encoded(&levels, cat.talent_data.as_ref().map_or(0, |data| data.groups.len())),
                     Err(trouble) => {
@@ -2390,14 +2554,14 @@ async fn serve_cat(voice: Voice<'_>, request: Request) -> Result<(), Error> {
                 },
                 None => None,
             };
-            let lifted = talents.is_some() || stats.orbs.iter().any(Option::is_some) || stats.page == Page::Talents;
+            let lifted = talents.is_some() || !picks.is_empty() || stats.page == Page::Talents;
             let form = if lifted && form < TRUE_FORM && cat.forms[TRUE_FORM] { TRUE_FORM } else { form };
-            let orbs = if stats.orbs.iter().any(Option::is_some) {
+            let orbs = if !picks.is_empty() {
                 let caps = cat.unitbuy.level_caps();
                 let levels = talents.as_deref().and_then(talents::decoded);
                 let shown = stats.level.as_deref().map_or_else(|| library.level_for(cat, form, levels.as_ref()), |level| level::capped(level, caps));
 
-                match orbs::assign(&library, cat, form, level::total(&shown, caps), &stats.orbs) {
+                match orbs::assign(&library, cat, form, level::total(&shown, caps), &picks) {
                     Ok(slots) => slots,
                     Err(trouble) => {
                         voice.say(trouble.told(prefs.prose)).await?;
@@ -2413,10 +2577,14 @@ async fn serve_cat(voice: Voice<'_>, request: Request) -> Result<(), Error> {
                 return Ok(());
             }
 
-            let lens = Lens { mode: stats.gauge.unwrap_or_default(), hits: stats.hits.unwrap_or_default(), switches: stats.switches, switching: false };
             let sheet = Sheet { owner, id: cat.id, form, level: stats.level, talents, page: stats.page, versus, lens, orbs };
+            let dialed = switched(&library, Dialed::Sheet(sheet), &switches);
 
-            send_sheet(voice, Arc::clone(&library), sheet, stats.mode.unwrap_or(prefs.mode)).await
+            match (dialed, asking) {
+                (dialed, true) => ask_versus(voice, &library, dialed, buttoned).await,
+                (Dialed::Sheet(sheet), false) => send_sheet(voice, Arc::clone(&library), sheet, buttoned).await,
+                (Dialed::Card(_), false) => Ok(()),
+            }
         }
         Want::Motion(motion) => {
             let set = cat_animation::motions(cat, form, &library.vault.vfs);
@@ -2465,10 +2633,19 @@ async fn serve_enemy(voice: Voice<'_>, request: Request) -> Result<(), Error> {
 
     match request.want {
         Want::Stats(stats) => {
-            let lens = Lens { mode: stats.gauge.unwrap_or_default(), hits: stats.hits.unwrap_or_default(), switches: stats.switches, switching: false };
+            let buttoned = interactive(stats.buttons, &prefs);
+            let (switches, lens, asking) = match grammar::stance(stats.versus, prefs.block == Block::Versus) {
+                Stance::Info => (Vec::new(), Lens::default(), false),
+                Stance::Versus(matchup) => (grammar::switches_of(&matchup.words).unwrap_or_default(), matched(&matchup), matchup.ask),
+            };
             let card = Card { owner: voice.user().get(), id: enemy.id, page: stats.page, magnification: stats.magnification, lens };
+            let dialed = switched(&library, Dialed::Card(card), &switches);
 
-            send_card(voice, Arc::clone(&library), card, stats.mode.unwrap_or(prefs.mode)).await
+            match (dialed, asking) {
+                (dialed, true) => ask_versus(voice, &library, dialed, buttoned).await,
+                (Dialed::Card(card), false) => send_card(voice, Arc::clone(&library), card, buttoned).await,
+                (Dialed::Sheet(_), false) => Ok(()),
+            }
         }
         Want::Motion(motion) => {
             let set = enemy_animation::motions(enemy, &library.vault.vfs);
@@ -2525,11 +2702,13 @@ const HOME: &str = "home";
 const PAGES: [(&str, &str); 12] = [(HOME, "Home"), ("cat", "Cat"), ("enemy", "Enemy"), ("stage", "Stage"), ("map", "Map"), ("background", "Background"), ("audio", "Audio"), ("settings", "Settings"), ("website", "Website"), ("invite", "Invite"), ("legal", "Legal"), ("help", "Help")];
 const HELP: &str = "help|";
 const GENERAL: &str = "general";
-const UNIT_SECTIONS: [(&str, &str); 5] = [(GENERAL, "General"), ("unit", "Unit"), ("stats", "Stats"), ("animation", "Animation"), ("buttons", "Buttons")];
+const CAT_SECTIONS: [(&str, &str); 6] = [(GENERAL, "General"), ("unit", "Unit"), ("stats", "Stats"), ("versus", "Versus"), ("animation", "Animation"), ("buttons", "Buttons")];
+const ENEMY_SECTIONS: [(&str, &str); 5] = [(GENERAL, "General"), ("unit", "Unit"), ("stats", "Stats"), ("animation", "Animation"), ("buttons", "Buttons")];
 
 fn sections(page: &str) -> &'static [(&'static str, &'static str)] {
     match page {
-        "cat" | "enemy" => &UNIT_SECTIONS,
+        "cat" => &CAT_SECTIONS,
+        "enemy" => &ENEMY_SECTIONS,
         _ => &[],
     }
 }
@@ -2618,14 +2797,20 @@ fn help_page(page_name: &str, section: &str, prefix: &str, prose: Prose) -> sere
             .field("Pages", "`stats` (`s`): the statblock, the default\n`talents` (`t`): every talent, its level and what it does; lifts Normal or Evolved to True. Words after it are talents: `t all`, `t 10 10 5`, `t attack buff 5`\n`details` (`d`): description, evolve costs and combos", false)
             .field("Level", "`lv50`, `l50`, `level 50` or `50+70`. A bare `50` needs its mark, and after `t` it's a talent level. Without one, a typical level for its rarity", false)
             .field("`--talents` (`-t`)", "`all`, `standard`, `ultra`, `none`, levels in order (`10 10 5`) or names (`Attack Buff 5`). Lifts Normal or Evolved to True", false)
-            .field("`--orb1` (`-1`), `--orb2` (`-2`)", "A talent orb as a grade, a trait and an effect, in any order: `-1 S Red Attack Up -2 Cash Back`. No grade is S, no trait is the first one the unit can use. `--orb` is `--orb1`. A second slot opens at Lv60. Lifts Normal or Evolved to True", false)
-            .field("`--versus` (`-v`)", "Traits (`-v red`, `-v black metal`) or an enemy's name (`-v teacher bear`): the stats against that enemy, by the game's math. `targets` is every trait the cat has something for; `traits`, `subtraits` and `all` leave Metal out; `none` clears them\nHitpoints become what it takes to kill the cat. Non-crit hits deal 1 to Metal. A Sage cuts crowd control unless the cat has Sage Slayer\nOutlines: green works, red doesn't or holds the cat back, orange means it has nothing for that trait; half and half works partly", false)
-            .field("`--mode` (`-m`), `--hits` (`-h`)", MODE_HELP, false)
-            .field("`--on`, `--off`", SWITCH_HELP, false)
-            .field("Uptime", "Freeze, Slow, Weaken and Curse show how much of the time they hold a target, by `--mode`. A unit that dies after attacking goes by its recharge", false)
-            .field("`--interactive` (`-i`), `--dormant` (`-d`)", "Buttons or none, this time only", false),
+            .field("Orbs", "Go with the talents: `orb` (`o`) starts one, a grade, a trait and an effect in any order, like `t all orb S Red Attack Up orb Cash Back`\nThey fill the slots in order; `o1` or `o2` picks one. No grade is S, no trait is the first one the unit can use. A second slot opens at Lv60. Lifts Normal or Evolved to True. They show on every block and count in Versus Mode", false)
+            .field("Uptime", "Freeze, Slow, Weaken and Curse show how much of the time they hold a target. A unit that dies after attacking goes by its recharge", false)
+            .field("`--interactive` (`-i`), `--interactive-off`", BUTTONS_HELP, false),
+        ("cat", "versus") => Voiced::new(prefix, "hg!cat (c) • Versus", "`hg!cat <unit> --versus ...`")
+            .field("`--versus` (`-v`)", "Versus Mode. Alone it asks what against with a menu, with words it goes straight there. `-v` alone flips your Mode setting", false)
+            .field("Against", "Traits (`red`, `black metal`), an enemy's name (`teacher bear`), `targets` (every trait the cat has something for), `traits`, `subtraits`, `all` or `none`\nAnything else is looked up as an enemy", false)
+            .field("Hits and stats", "`hits` (`h`): `1`, `2`, `3`, `avg` or `all`\n`stats` (`s`): `base`, `avg` or `max` (`b`, `a`, `m`)\nAvg Stats averages procs in, Max Stats lands them all plus Strengthen, the kill boost and Weaken on a targeted foe", false)
+            .field("Abilities", "An ability with a toggle turns it on: crit, savage, wave, surge, explosion, strengthen, kills, weaken, orb 1, orb 2", false)
+            .field("`ask`", "The menu, with the rest filled in", false)
+            .field("What changes", "Hitpoints become what it takes to kill the cat. Non-crit hits deal 1 to Metal. A Sage cuts crowd control unless the cat has Sage Slayer\nOutlines: green works, red doesn't or holds the cat back, orange means it has nothing for that trait; half and half works partly", false)
+            .field("`--versus-off`", VERSUS_OFF_HELP, false)
+            .field("Examples", "`hg!c 25 -v red relic hits all stats base strengthen`\n`hg!c bahamut cat -v teacher bear`\n`hg!c 25 -v ask red`", false),
         ("cat", "animation") => Voiced::new(prefix, "hg!cat (c) • Animation", "`hg!cat <unit> [a | anim] [type] ...`").field("Types", CLIPS, false).field("Flags", MOTION_FLAGS, false),
-        ("cat", "buttons") => Voiced::new(prefix, "hg!cat (c) • Buttons", "With Blocks on Interactive, or `-i`, three rows sit under the picture: Form, Page, and Apply (Level, Talents, Versus, Resolve). Talents, Versus and Resolve open a panel only you can see: Talents changes the talents and each orb's trait, effect and grade, Versus has the traits and an enemy search, Resolve the hits, the mode and which abilities and orbs count. Green is what's set or shown, gray isn't available. Only you can press them"),
+        ("cat", "buttons") => Voiced::new(prefix, "hg!cat (c) • Buttons", "With Buttons on Interactive, or `-i`, three rows sit under the picture: Form, Page, and Apply (Level, Talents, Versus). Talents and Versus open a panel only you can see: Talents changes the talents and each orb's trait, effect and grade, Versus has an enemy search, the traits, the hits, the stats and which abilities and orbs count, and switches between Versus Mode and an Info Block. Green is what's set or shown, gray isn't available. Only you can press them"),
         ("cat", _) => Voiced::new(prefix, "hg!cat (c)", "`hg!cat <unit> [stats | animation] ...`")
             .field("Stats or animation", "An animation name or flag means animation, a level or `--talents` stats, and `s` or `a` decides outright. `t` and `d` open Talents and Details, so the dig animation is `dig` or `a d`, and the soul is `soul` or `a s`", false)
             .field("Examples", "`hg!c 137_u lv50+70 -t all`\n`hg!c 44 t 10 5 lv40`\n`hg!c bahamut cat d`\n`hg!c bahamut cat form normal`\n`hg!c jamiera cat a showcase -f webp`\n`hg!c 008 a walk -l -r 10~120`", false),
@@ -2636,11 +2821,11 @@ fn help_page(page_name: &str, section: &str, prefix: &str, prose: Prose) -> sere
         ("enemy", "stats") => Voiced::new(prefix, "hg!enemy (e) • Stats", "`hg!enemy <unit> [s | d] ...`")
             .field("Pages", "`stats` (`s`): the statblock, the default\n`details` (`d`): its description", false)
             .field("Magnification", "`400%`, or `400%/200%` for hitpoints and attack", false)
-            .field("`--mode` (`-m`), `--hits` (`-h`)", MODE_HELP, false)
-            .field("`--on`, `--off`", SWITCH_HELP, false)
-            .field("`--interactive` (`-i`), `--dormant` (`-d`)", "Buttons or none, this time only", false),
+            .field("`--versus` (`-v`)", "Versus Mode. Alone it asks with a menu, with words it goes straight there: `-v hits all stats max crit`\n`hits` (`h`): `1`, `2`, `3`, `avg` or `all`\n`stats` (`s`): `base`, `avg` or `max` (`b`, `a`, `m`)\nAn ability with a toggle turns it on: crit, savage, wave, surge, explosion, strengthen, weaken\n`ask`: the menu, with the rest filled in", false)
+            .field("`--versus-off`", VERSUS_OFF_HELP, false)
+            .field("`--interactive` (`-i`), `--interactive-off`", BUTTONS_HELP, false),
         ("enemy", "animation") => Voiced::new(prefix, "hg!enemy (e) • Animation", "`hg!enemy <unit> [a | anim] [type] ...`").field("Types", CLIPS, false).field("Flags", MOTION_FLAGS, false),
-        ("enemy", "buttons") => Voiced::new(prefix, "hg!enemy (e) • Buttons", "With Blocks on Interactive, or `-i`, two rows sit under the picture: Page, and Apply (Magnification, Resolve). Resolve works as it does for cats. Green is what's set or shown. Only you can press them"),
+        ("enemy", "buttons") => Voiced::new(prefix, "hg!enemy (e) • Buttons", "With Buttons on Interactive, or `-i`, two rows sit under the picture: Page, and Apply (Magnification, Versus). Versus works as it does for cats, without the traits. Green is what's set or shown. Only you can press them"),
         ("enemy", _) => Voiced::new(prefix, "hg!enemy (e)", "`hg!enemy <unit> [stats | animation] ...`")
             .field("Stats or animation", "An animation name or flag means animation, a percentage stats, and `s` or `a` decides outright. `d` opens Details, so the dig animation is `dig` or `a d`, and the soul is `soul` or `a s`", false)
             .field("Examples", "`hg!e akaza 400%`, `hg!e akaza s 400`\n`hg!e akaza d`\n`hg!e 763 a attack -c -w`", false),
@@ -2649,14 +2834,14 @@ fn help_page(page_name: &str, section: &str, prefix: &str, prose: Prose) -> sere
             .field("Name", "Spaces are fine and close spellings match; a name several stages share lists them. `--search` (`-s`) lists the closest, 24 to a page, and a number after it, 1 to 100, sets how close", false)
             .field("ID", "Prefix, map and stage: `R 001 02`, `R-1-2`, `r001_02` and `R1 2` are the same. A file's prefix works too, so `RN 0 7` is `N 0 7`", false)
             .field("`--crowns 2` (`-c`)", "1 to 4; the lowest open one without it", false)
-            .field("`--interactive` (`-i`), `--dormant` (`-d`)", "Crown buttons or none, this time only. Only you can press them", false)
+            .field("`--interactive` (`-i`), `--interactive-off`", "Crown buttons or none, this time only. `-i` flips your Buttons setting. Only you can press them", false)
             .field("Examples", "`hg!stage earthshaker`\n`hg!s sleeping lion -c 4`\n`hg!s moon -s`", false),
         ("map", _) => Voiced::new(prefix, "hg!map (m)", "`hg!map <name | ID> ...`")
             .field("What you get", prose::PAGE_MAP.said(prose), false)
             .field("Name", "Spaces are fine and close spellings match; a name several maps share lists them. `--search` (`-s`) lists the closest, 24 to a page", false)
             .field("ID", "Prefix and map: `R 100`, `R-100`, `r100`. `RN 0` is `N 0`", false)
             .field("`--crowns 2` (`-c`)", "1 to 4, for the stage you pick", false)
-            .field("`--interactive` (`-i`), `--dormant` (`-d`)", "The stage you pick comes with crown buttons or without, this time only", false)
+            .field("`--interactive` (`-i`), `--interactive-off`", "The stage you pick comes with crown buttons or without, this time only. `-i` flips your Buttons setting", false)
             .field("Invasions", "An invasion is a map of its own, marked Invasion: `hg!map laboratory of relics` offers both", false)
             .field("Examples", "`hg!map the legend begins`\n`hg!m N 0 -c 4`\n`hg!m empire of cats ch. 1`", false),
         ("background", _) => Voiced::new(prefix, "hg!background (bg, b)", "`hg!background <ID | stage | map> ...`")
@@ -2674,7 +2859,8 @@ fn help_page(page_name: &str, section: &str, prefix: &str, prose: Prose) -> sere
             .field("Format", "AVIF (to start, and smallest), WebP or GIF, for animations", false)
             .field("Default form", "What a bare ID gets. True to start, or the next form down", false)
             .field("Search", "Exact (to start): a form's exact name gets that form. Preferred: always your default form", false)
-            .field("Blocks", "Dormant (to start): pictures come alone. Interactive: with buttons to change them", false)
+            .field("Buttons", "Dormant (to start): pictures come alone. Interactive: with buttons to change them", false)
+            .field("Mode", "Info (to start): base stats and every hit. Versus: Versus Mode every time, at Avg Stats and Avg Hits. `-v` turns it around for one request", false)
             .field("Prefix", "What goes before a command, `hg!` for you now. Up to 16 characters, no spaces; leave it empty to go back to `{default}`. Mentioning me and `/` always work", false)
             .field("Prose", "Human (to start) or Tsundere: how I word things. The facts stay the same", false)
             .field("Aliases", "Your own names for things, up to 50, like `Dasli` for `Kasli the Bane`. An alias beats a real name and keeps what follows it. Show lists them; Remove takes one out or resets them", false),
@@ -2735,6 +2921,7 @@ enum Setting {
     Format,
     Form,
     Search,
+    Buttons,
     Mode,
     Prose,
     Prefix,
@@ -2748,7 +2935,8 @@ impl Setting {
             Setting::Format => "fmt",
             Setting::Form => "form",
             Setting::Search => "search",
-            Setting::Mode => "mode",
+            Setting::Buttons => "buttons",
+            Setting::Mode => "block",
             Setting::Prose => "prose",
             Setting::Prefix => "prefix",
             Setting::Alias => "alias",
@@ -2761,7 +2949,8 @@ impl Setting {
             Setting::Format => "Format",
             Setting::Form => "Form",
             Setting::Search => "Search",
-            Setting::Mode => "Blocks",
+            Setting::Buttons => "Buttons",
+            Setting::Mode => "Mode",
             Setting::Prose => "Prose",
             Setting::Prefix => "Prefix",
             Setting::Alias => "Aliases",
@@ -2781,7 +2970,8 @@ impl Setting {
             Setting::Format => [Format::Avif, Format::WebP, Format::Gif].into_iter().map(|format| pick(format == prefs.format, format!("set|{owner}|{key}|{}", format.extension()), format.label())).collect(),
             Setting::Form => FORMS.iter().enumerate().map(|(form, label)| pick(form == prefs.form, format!("set|{owner}|{key}|{form}"), label)).collect(),
             Setting::Search => [Search::Exact, Search::Preferred].into_iter().map(|search| pick(search == prefs.search, format!("set|{owner}|{key}|{}", search.slug()), search.label())).collect(),
-            Setting::Mode => Mode::ALL.into_iter().map(|mode| pick(mode == prefs.mode, format!("set|{owner}|{key}|{}", mode.slug()), mode.label())).collect(),
+            Setting::Buttons => Buttons::ALL.into_iter().map(|buttons| pick(buttons == prefs.buttons, format!("set|{owner}|{key}|{}", buttons.slug()), buttons.label())).collect(),
+            Setting::Mode => Block::ALL.into_iter().map(|block| pick(block == prefs.block, format!("set|{owner}|{key}|{}", block.slug()), block.label())).collect(),
             Setting::Prose => Prose::ALL.into_iter().map(|prose| pick(prose == prefs.prose, format!("set|{owner}|{key}|{}", prose.slug()), prose.label())).collect(),
             Setting::Prefix => vec![pick(prefs.prefix.is_some(), format!("set|{owner}|{key}"), "Change")],
             Setting::Alias => [("add", "Add"), ("show", "Show"), ("remove", "Remove")].into_iter().map(|(act, label)| pick(false, format!("set|{owner}|{key}|{act}"), label)).collect(),
@@ -2806,7 +2996,8 @@ fn settings_view(owner: u64, prefs: &Prefs, shown: usize) -> (serenity::CreateEm
         .field("Format", prefs.format.label(), true)
         .field("Default form", form, true)
         .field("Search", prefs.search.label(), true)
-        .field("Blocks", prefs.mode.label(), true)
+        .field("Buttons", prefs.buttons.label(), true)
+        .field("Mode", prefs.block.label(), true)
         .field("Prefix", prefs.prefix(), true)
         .field("Prose", prefs.prose.label(), true)
         .field("Aliases", prefs.aliases.count().to_string(), true);
@@ -3163,8 +3354,8 @@ async fn on_press(ctx: &serenity::Context, press: &serenity::ComponentInteractio
             return refuse(ctx, press, data).await;
         }
 
-        if tag == CARD_RESOLVE {
-            return open_panel(ctx, press, data, Dialed::Card(card), Board::Resolve).await;
+        if tag == CARD_VERSUS {
+            return open_panel(ctx, press, data, Dialed::Card(card), Board::Versus).await;
         }
 
         if tag == CARD_ASK {
@@ -3208,7 +3399,6 @@ async fn on_press(ctx: &serenity::Context, press: &serenity::ComponentInteractio
             Ok(())
         }
         "st" => open_panel(ctx, press, data, Dialed::Sheet(sheet), Board::Talents(0)).await,
-        "sr" => open_panel(ctx, press, data, Dialed::Sheet(sheet), Board::Resolve).await,
         "sx" => open_panel(ctx, press, data, Dialed::Sheet(sheet), Board::Versus).await,
         "sl" => {
             let prefs = data.book.get(sheet.owner);
@@ -3533,7 +3723,8 @@ async fn on_setting(ctx: &serenity::Context, press: &serenity::ComponentInteract
         "fmt" => prefs.format = [Format::Avif, Format::WebP, Format::Gif].into_iter().find(|format| format.extension() == value).unwrap_or(prefs.format),
         "form" => prefs.form = value.parse::<usize>().ok().filter(|form| *form < FORMS.len()).unwrap_or(prefs.form),
         "search" => prefs.search = [Search::Exact, Search::Preferred].into_iter().find(|search| search.slug() == value).unwrap_or(prefs.search),
-        "mode" => prefs.mode = Mode::ALL.into_iter().find(|mode| mode.slug() == value).unwrap_or(prefs.mode),
+        "buttons" => prefs.buttons = Buttons::ALL.into_iter().find(|buttons| buttons.slug() == value).unwrap_or(prefs.buttons),
+        "block" => prefs.block = Block::ALL.into_iter().find(|block| block.slug() == value).unwrap_or(prefs.block),
         "prose" => prefs.prose = Prose::ALL.into_iter().find(|prose| prose.slug() == value).unwrap_or(prefs.prose),
         _ => {}
     });
@@ -3788,10 +3979,11 @@ mod tests {
         assert_eq!(lists("audio", ""), [("help|1|".to_owned(), commands.clone(), vec!["Audio".to_owned()])]);
         assert_eq!(
             lists("cat", "stats"),
-            [("help|1|".to_owned(), commands.clone(), vec!["Cat".to_owned()]), ("help|1|cat".to_owned(), ["General", "Unit", "Stats", "Animation", "Buttons"].map(str::to_owned).to_vec(), vec!["Stats".to_owned()])]
+            [("help|1|".to_owned(), commands.clone(), vec!["Cat".to_owned()]), ("help|1|cat".to_owned(), ["General", "Unit", "Stats", "Versus", "Animation", "Buttons"].map(str::to_owned).to_vec(), vec!["Stats".to_owned()])]
         );
         assert_eq!(lists("enemy", GENERAL)[1], ("help|1|enemy".to_owned(), ["General", "Unit", "Stats", "Animation", "Buttons"].map(str::to_owned).to_vec(), vec!["General".to_owned()]));
         assert_eq!((section_of("cat", ""), section_of("cat", "stats"), section_of("cat", "anim"), section_of("cat", "nonsense"), section_of("enemy", "buttons"), section_of("audio", "unit")), (GENERAL, "stats", "animation", GENERAL, "buttons", ""));
+        assert_eq!((section_of("cat", "versus"), section_of("cat", "v"), section_of("enemy", "versus")), ("versus", "versus", GENERAL), "enemies keep Versus on their stats page");
 
         for (page, _) in PAGES {
             for section in sections(page).iter().map(|(key, _)| *key).chain([""]) {
@@ -3904,7 +4096,7 @@ mod tests {
 
     #[test]
     fn a_sheet_survives_its_button_id() {
-        let sheet = Sheet { owner: 1, id: 25, form: 2, level: Some("50+70".to_owned()), talents: Some("10.0.5".to_owned()), page: Page::Talents, versus: Versus { foe: Foe::from_bits(0b1001), aimed: true }, lens: Lens { mode: Gauge::Maximum, hits: Hits::Only(1), switches: Switches::default().set(Switch::Strengthen, true).set(Switch::Wave, false), switching: false }, orbs: vec![Some(0xa3), None] };
+        let sheet = Sheet { owner: 1, id: 25, form: 2, level: Some("50+70".to_owned()), talents: Some("10.0.5".to_owned()), page: Page::Talents, versus: Versus { foe: Foe::from_bits(0b1001), aimed: true }, lens: Lens { mode: Gauge::Maximum, hits: Hits::Only(1), switches: Switches::default().set(Switch::Strengthen, true).set(Switch::Wave, false), versus: true }, orbs: vec![Some(0xa3), None] };
         let custom = sheet.custom("sb", 3);
         let (tag, read) = Sheet::read(&custom).unwrap();
 
@@ -3941,7 +4133,7 @@ mod tests {
     #[test]
     fn panel_button_ids_never_repeat() {
         let card = Card { owner: 1, id: 2, page: Page::Stats, magnification: None, lens: Lens::default() };
-        let ids = [card.turned(CARD_PAGE, Page::Stats), card.turned(CARD_PAGE, Page::Details), card.turned(CARD_ASK, card.page), card.turned(CARD_RESOLVE, card.page), format!("{LABEL}|0"), format!("{LABEL}|1")];
+        let ids = [card.turned(CARD_PAGE, Page::Stats), card.turned(CARD_PAGE, Page::Details), card.turned(CARD_ASK, card.page), card.turned(CARD_VERSUS, card.page), format!("{LABEL}|0"), format!("{LABEL}|1")];
 
         for (at, id) in ids.iter().enumerate() {
             assert!(!ids[..at].contains(id), "{id} is used twice");
@@ -3950,31 +4142,50 @@ mod tests {
         let sheet = Sheet { owner: 1, id: 25, form: 2, level: None, talents: None, page: Page::Stats, versus: Versus::default(), lens: Lens::default(), orbs: Vec::new() };
         let forms = (0..FORMS.len()).map(|form| sheet.turned("sb", form, sheet.page));
         let pages = [Page::Stats, Page::Talents, Page::Details].into_iter().map(|page| sheet.turned("sp", sheet.form, page));
-        let ids: Vec<String> = forms.chain(pages).chain([sheet.custom("sl", sheet.form), sheet.custom("st", sheet.form), sheet.custom("sx", sheet.form), sheet.custom("sr", sheet.form)]).collect();
+        let ids: Vec<String> = forms.chain(pages).chain([sheet.custom("sl", sheet.form), sheet.custom("st", sheet.form), sheet.custom("sx", sheet.form)]).collect();
 
         for (at, id) in ids.iter().enumerate() {
             assert!(!ids[..at].contains(id), "{id} is used twice");
         }
     }
 
-    // The Versus panel offers every trait and reads each one back, inside Discord's 25-option limit, and both
-    // panels on one key keep their parts apart.
+    fn ids(rows: &serde_json::Value) -> Vec<String> {
+        rows.as_array().unwrap().iter().flat_map(|row| row["components"].as_array().unwrap().iter().map(|part| part["custom_id"].as_str().unwrap().to_owned())).collect()
+    }
+
+    // The Versus panel offers every trait and reads each one back, inside Discord's 25-option limit, keeps to
+    // Discord's five rows, and gives every part its own ID.
     #[test]
     fn the_versus_panel_offers_every_trait() {
         let every = Versus { foe: Foe::from_bits(u16::MAX), aimed: true };
-        let rows = serde_json::to_value(versus_rows(7, every, &[])).unwrap();
-        let picks = rows[0]["components"][0]["options"].as_array().unwrap();
+        let sheet = Sheet { owner: 1, id: 25, form: 2, level: None, talents: None, page: Page::Stats, versus: every, lens: Lens::default(), orbs: Vec::new() };
+        let striker = Entity { time_until_attack_1: 10, critical_chance: 10, attack_1_damage: 100, attack_1_abilities: 1, ..Entity::default() };
+        let rows = serde_json::to_value(versus_rows(7, &Dialed::Sheet(sheet.clone()), &striker, &|_| String::new(), Seat::Private, &[])).unwrap();
+        let picks = rows[1]["components"][0]["options"].as_array().unwrap();
         let values: Vec<String> = picks.iter().map(|pick| pick["value"].as_str().unwrap().to_owned()).collect();
 
         assert!(picks.len() <= 25 && picks.iter().all(|pick| pick["default"] == true));
         assert_eq!(grammar::versus_picked(&values), every);
+        assert_eq!(rows.as_array().unwrap().len(), 5, "search, traits, hits, stats and the switches");
 
-        let both = serde_json::to_value(panel_rows(7, Lens::default(), &Entity::default(), Foe::default(), &|_| String::new()).into_iter().chain(versus_rows(7, every, &[])).collect::<Vec<_>>()).unwrap();
-        let ids: Vec<&str> = both.as_array().unwrap().iter().flat_map(|row| row["components"].as_array().unwrap().iter().map(|part| part["custom_id"].as_str().unwrap())).collect();
+        let ids = ids(&rows);
 
         for (at, id) in ids.iter().enumerate() {
             assert!(!ids[..at].contains(id), "{id} is used twice");
-            assert_eq!(matches!(Board::of(id.rsplit('|').next().unwrap()), Board::Versus), ["v", "e"].iter().any(|part| id.ends_with(&format!("|{part}"))));
+            assert!(matches!(Board::of(id.rsplit('|').next().unwrap()), Board::Versus));
         }
+    }
+
+    // The menu asked for in public carries Done, and an enemy's has no search or traits to show.
+    #[test]
+    fn the_public_menu_ends_with_done() {
+        let sheet = Sheet { owner: 1, id: 25, form: 2, level: None, talents: None, page: Page::Stats, versus: Versus::default(), lens: Lens::default(), orbs: Vec::new() };
+        let card = Card { owner: 1, id: 2, page: Page::Stats, magnification: None, lens: Lens::default() };
+        let asked = ids(&serde_json::to_value(versus_rows(7, &Dialed::Sheet(sheet), &Entity::default(), &|_| String::new(), Seat::Public(false), &[])).unwrap());
+        let enemy = ids(&serde_json::to_value(versus_rows(7, &Dialed::Card(card), &Entity::default(), &|_| String::new(), Seat::Public(true), &[])).unwrap());
+        let parts = |ids: &[String]| ids.iter().map(|id| id.rsplit('|').next().unwrap().to_owned()).collect::<Vec<_>>();
+
+        assert_eq!(parts(&asked), ["e", "-", "d", "v", "h", "m"]);
+        assert_eq!(parts(&enemy), ["d", "h", "m"]);
     }
 }
